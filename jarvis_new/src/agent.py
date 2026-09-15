@@ -385,6 +385,24 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
+    # Proactive pillar: background battery/climb watcher. Edge-triggered,
+    # cooldown-gated, and fully swallowed on failure so sensors can never
+    # break a voice session.
+    try:
+        from context.telemetry import read_real_snapshot
+        from proactive.watcher import ProactiveWatcher
+
+        async def _speak_warning(line: str) -> None:
+            await session.generate_reply(instructions=f"Say exactly: {line}")
+
+        _watcher = ProactiveWatcher(read_real_snapshot, _speak_warning)
+        _watcher_task = _watcher.start()
+        _background_tasks.add(_watcher_task)
+        _watcher_task.add_done_callback(_background_tasks.discard)
+        ctx.add_shutdown_callback(_watcher.stop)
+    except Exception:
+        pass
+
     # Join the room and connect to the user
     await ctx.connect()
     connected_at = time.monotonic()
