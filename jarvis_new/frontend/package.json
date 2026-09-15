@@ -6,9 +6,9 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 4000 --hostname localhost",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 4000 --hostname localhost",
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

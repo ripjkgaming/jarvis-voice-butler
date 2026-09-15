@@ -42,6 +42,14 @@ export async function POST(req: Request) {
       ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
       : new RoomConfiguration();
 
+    // Loud dispatch logging: a named worker ONLY joins rooms whose token
+    // carries an explicit agent dispatch. If this logs "none", the agent
+    // will never join (usually: frontend started before AGENT_NAME was set).
+    const dispatchTargets = roomConfig.agents.map((a) => a.agentName).filter(Boolean);
+    console.log(
+      `[token] room dispatch: ${dispatchTargets.length > 0 ? dispatchTargets.join(', ') : 'NONE - agent will not join!'}`
+    );
+
     // Generate participant token
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;

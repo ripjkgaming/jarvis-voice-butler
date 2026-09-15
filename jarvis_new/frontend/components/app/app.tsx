@@ -39,6 +39,12 @@ export function App({ appConfig }: AppProps) {
     appConfig.agentName ? { agentName: appConfig.agentName } : undefined
   );
 
+  if (IN_DEVELOPMENT && !appConfig.agentName) {
+    console.warn(
+      '[jarvis] agentName is undefined - no explicit dispatch will be sent and the named worker will NOT join. Restart `pnpm dev` after setting AGENT_NAME in frontend/.env.local.'
+    );
+  }
+
   return (
     <AgentSessionProvider session={session}>
       <AppSetup />
