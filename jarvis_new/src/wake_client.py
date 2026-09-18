@@ -30,8 +30,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
+import socket
+import threading
 import time
 from pathlib import Path
 
@@ -140,6 +143,47 @@ def summon_room_name(now: float | None = None) -> str:
     return f"jarvis-{int(now if now is not None else time.time())}"
 
 
+def wake_socket_path() -> Path:
+    """Unix socket for out-of-process mic control. Pure (env only).
+
+    ``$JARVIS_HOME/wake.sock`` (default ``~/.jarvis/wake.sock``) — the
+    same ``JARVIS_HOME`` contract the shell sets for every sidecar.
+    """
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / "wake.sock"
+
+
+def handle_mic_command(
+    msg: object, *, muted: bool, threshold: float, in_call: bool
+) -> tuple[dict, bool | None]:
+    """Handle one mic-control message. Pure.
+
+    Returns ``(reply, new_muted)`` where ``new_muted`` is ``None`` unless
+    the message flips the mute. ``{"mute": bool}`` pauses/resumes both the
+    hotword loop and the in-call mic pump; ``{"status": true}`` reports
+    ``{muted, threshold, in_call}`` without changing anything.
+    """
+    if not isinstance(msg, dict):
+        return {"ok": False, "error": "message must be a JSON object"}, None
+    if "mute" in msg:
+        if not isinstance(msg["mute"], bool):
+            return {"ok": False, "error": "'mute' must be true or false"}, None
+        return {"ok": True, "muted": msg["mute"]}, msg["mute"]
+    if msg.get("status") is True:
+        return (
+            {"ok": True, "muted": muted, "threshold": threshold, "in_call": in_call},
+            None,
+        )
+    return (
+        {
+            "ok": False,
+            "error": 'unknown command (want {"mute": bool} or {"status": true})',
+        },
+        None,
+    )
+
+
 def mint_summon_token(
     *, url: str, api_key: str, api_secret: str, room: str, agent_name: str
 ) -> str:
@@ -175,6 +219,102 @@ class WakeClient:
         )
         self._ack_pcm: bytes = b""
         self._ack_rate = 22050
+        # Mic mute state (tray/HUD driven via the wake.sock listener below).
+        # Guarded by a lock: set from the socket thread, read from the
+        # asyncio mic loops and the hotword loop.
+        self._mic_lock = threading.Lock()
+        self._muted = False
+        self._in_call = False
+
+    @property
+    def muted(self) -> bool:
+        with self._mic_lock:
+            return self._muted
+
+    def set_muted(self, muted: bool) -> None:
+        with self._mic_lock:
+            self._muted = bool(muted)
+
+    def _set_in_call(self, in_call: bool) -> None:
+        with self._mic_lock:
+            self._in_call = bool(in_call)
+
+    def _mic_snapshot(self) -> tuple[bool, float, bool]:
+        with self._mic_lock:
+            return self._muted, self._threshold, self._in_call
+
+    def start_mic_control(self) -> threading.Thread:
+        """Serve ``{"mute"/"status"}`` JSON on ``wake.sock`` (daemon thread).
+
+        Mute pauses hotword detection AND the in-call mic pump; the room
+        stays joined so unmute resumes instantly. Returns the thread.
+        """
+        thread = threading.Thread(
+            target=self._serve_mic_control, name="jarvis-mic-control", daemon=True
+        )
+        thread.start()
+        return thread
+
+    def _serve_mic_control(self) -> None:
+        path = wake_socket_path()
+        with contextlib.suppress(OSError):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            server.bind(str(path))
+        except OSError:
+            # Bind failed: live listener or a stale file from a dead one.
+            # Probe — unlink only when nothing answers.
+            if self._socket_live(str(path)):
+                logger.warning("wake.sock already served; mic control off here")
+                server.close()
+                return
+            with contextlib.suppress(OSError):
+                path.unlink()
+            try:
+                server.bind(str(path))
+            except OSError as exc:
+                logger.warning("mic control socket unavailable: %s", exc)
+                server.close()
+                return
+        server.listen(8)
+        while True:
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                return
+            with conn:
+                conn.settimeout(5.0)
+                try:
+                    raw = conn.recv(4096)
+                except OSError:
+                    continue
+                try:
+                    msg = json.loads(raw.decode())
+                except (ValueError, UnicodeDecodeError):
+                    reply: dict = {"ok": False, "error": "message must be JSON"}
+                    new_muted: bool | None = None
+                else:
+                    muted, threshold, in_call = self._mic_snapshot()
+                    reply, new_muted = handle_mic_command(
+                        msg, muted=muted, threshold=threshold, in_call=in_call
+                    )
+                if new_muted is not None:
+                    self.set_muted(new_muted)
+                with contextlib.suppress(OSError):
+                    conn.sendall(json.dumps(reply).encode())
+
+    @staticmethod
+    def _socket_live(path: str) -> bool:
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(1.0)
+            probe.connect(path)
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
 
     def _check_config(self) -> None:
         missing = [
@@ -206,6 +346,7 @@ class WakeClient:
 
     async def run_forever(self) -> None:
         self._check_config()
+        self.start_mic_control()
         self._render_ack()
         from openwakeword.model import Model
 
@@ -250,6 +391,8 @@ class WakeClient:
                 frames, pending = frame_16k_chunks(
                     pending, downsample_48k_to_16k(frame_48k)
                 )
+                if self.muted:
+                    continue  # tray/HUD mute: deaf but still listening locally
                 for frame in frames:
                     try:
                         score = wake_score(
@@ -327,6 +470,7 @@ class WakeClient:
 
         await room.connect(self._creds["LIVEKIT_URL"], jwt)
         logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
+        self._set_in_call(True)
         try:
             # Publish the mic.
             source = rtc.AudioSource(MIC_RATE, 1)
@@ -346,11 +490,16 @@ class WakeClient:
             await self._cancel_task(play_task)
             await self._cancel_task(mic_task)
         finally:
+            self._set_in_call(False)
             await room.disconnect()
             logger.warning("session over, back to listening")
 
     async def _pump_mic(self, source) -> None:
-        """Forward live mic blocks to the room (porcupine keeps listening)."""
+        """Forward live mic blocks to the room (porcupine keeps listening).
+
+        While muted the queue is drained but nothing is captured: the room
+        stays joined so unmute resumes mid-call with no rejoin.
+        """
         import sounddevice as sd
         from livekit import rtc
 
@@ -370,6 +519,8 @@ class WakeClient:
         ):
             while True:
                 raw = await queue.get()
+                if self.muted:
+                    continue
                 samples = len(raw) // 2
                 frame = rtc.AudioFrame(raw, MIC_RATE, 1, samples)
                 source.capture_frame(frame)

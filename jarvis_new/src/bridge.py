@@ -16,13 +16,16 @@ Endpoints (all JSON):
     GET  /sys       cpu load + memory + home-disk (Linux /proc; degraded
                    JSON elsewhere instead of crashing)
     GET  /config    sanitized config surface for a settings screen
+    POST /mic       {"muted": bool} -> proxied to the wake_client listener
+                   on $JARVIS_HOME/wake.sock (2s timeout); 503 fail-soft
+                   {"ok": false} when the listener is absent
+    GET  /mic       wake_client mute status passthrough; 200 {"ok": false}
+                   when the listener is absent
 
-Deliberately NOT here: mic mute/unmute, hangup, sendText, hotword events.
-Those live inside the LiveKit room (token via frontend/app/api/token) and
-the wake_client process, which have no out-of-process API yet. A shell that
-needs them should drive them through its own LiveKit client, not this
-bridge. Every endpoint is fail-soft: a missing file, binary, or socket
-degrades one field, never the whole response.
+Deliberately NOT here: hangup, sendText, hotword events. Those live
+inside the LiveKit room (token via the shell's mint_token command) and
+have no out-of-process API yet. Every endpoint is fail-soft: a missing
+file, binary, or socket degrades one field, never the whole response.
 
 Security: binds 127.0.0.1 only. If JARVIS_BRIDGE_TOKEN is set, all
 endpoints require `Authorization: Bearer <token>` (constant-time compare).
@@ -33,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import socket
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,6 +46,7 @@ from urllib.parse import parse_qs, urlparse
 
 VERSION = "0.1.0"
 DEFAULT_PORT = 4317
+_WAKE_RPC_TIMEOUT = 2.0
 _STARTED_AT = time.time()
 
 
@@ -54,6 +59,39 @@ def _actions_log_path() -> Path:
     if override:
         return Path(override)
     return Path.home() / ".jarvis" / "actions.log"
+
+
+def _wake_socket_path() -> Path:
+    """Unix socket of the wake_client mic-control listener. Pure (env)."""
+    home = _env("JARVIS_HOME").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / "wake.sock"
+
+
+def _wake_rpc(payload: dict, timeout: float = _WAKE_RPC_TIMEOUT) -> dict | None:
+    """Send one JSON message to wake.sock, return its reply. Fail-soft.
+
+    Returns None when the listener is absent, too slow, or answers
+    garbage — callers degrade to {"ok": false} instead of raising.
+    """
+    try:
+        raw = json.dumps(payload).encode()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as cli:
+            cli.settimeout(timeout)
+            cli.connect(str(_wake_socket_path()))
+            cli.sendall(raw)
+            chunks = []
+            while True:
+                data = cli.recv(4096)
+                if not data:
+                    break
+                chunks.append(data)
+                if len(b"".join(chunks)) > 65536:
+                    return None
+        reply = json.loads(b"".join(chunks).decode())
+        return reply if isinstance(reply, dict) else None
+    except Exception:
+        return None
 
 
 def _voice_model_present() -> bool:
@@ -175,13 +213,38 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self) -> None:
-        """Preflight sink: GET-only API, so always allow + short-circuit."""
+        """Preflight sink: allow reads + the /mic mute POST, short-circuit."""
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def do_POST(self) -> None:
+        if not self._authorized():
+            self._send(401, {"ok": False, "error": "unauthorized"})
+            return
+        parsed = urlparse(self.path)
+        if parsed.path != "/mic":
+            self._send(404, {"ok": False, "error": "unknown route"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            length = 0
+        try:
+            body = json.loads(self.rfile.read(max(0, length)).decode() or "{}")
+        except (ValueError, UnicodeDecodeError):
+            body = None
+        if not isinstance(body, dict) or not isinstance(body.get("muted"), bool):
+            self._send(400, {"ok": False, "error": 'body must be {"muted": bool}'})
+            return
+        reply = _wake_rpc({"mute": body["muted"]})
+        if reply is None:
+            self._send(503, {"ok": False, "error": "wake listener unavailable"})
+            return
+        self._send(200, reply)
 
     def do_GET(self) -> None:
         if not self._authorized():
@@ -210,6 +273,12 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif route == "/sys":
             self._send(200, {"ok": True, **_sys_stats()})
+        elif route == "/mic":
+            reply = _wake_rpc({"status": True})
+            if reply is None:
+                self._send(200, {"ok": False, "error": "wake listener unavailable"})
+            else:
+                self._send(200, reply)
         elif route == "/config":
             self._send(
                 200,

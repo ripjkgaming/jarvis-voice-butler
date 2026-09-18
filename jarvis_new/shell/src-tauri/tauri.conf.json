@@ -54,6 +54,11 @@
     "shell": {
       "open": true
     },
+    "updater": {
+      "active": true,
+      "endpoints": ["https://example.invalid/jarvis/updates.json"],
+      "pubkey": "UNSET-v1-checks-only-no-signing-yet"
+    },
     "cli": {
       "description": "Jarvis shell control",
       "args": [

@@ -44,3 +44,36 @@ export function mintToken(roomConfig?: unknown): Promise<ConnectionDetails> {
 export function shellAppConfig(): Promise<{ agentName?: string }> {
   return invoke<{ agentName?: string }>('app_config');
 }
+
+/** Hide the overlay window (Esc key). No-op outside the Tauri shell. */
+export function hideOverlay(): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  return invoke<void>('hide_overlay').catch(() => undefined);
+}
+
+/** Forward mouse events through the overlay (idle orb) or accept them
+ *  (interacting). No-op outside the Tauri shell; failures are swallowed
+ *  so a missing shell never breaks the HUD. */
+export function setOverlayClickThrough(ignore: boolean): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  return invoke<void>('set_overlay_click_through', { ignore }).catch(() => undefined);
+}
+
+export type MicStatus = {
+  ok: boolean;
+  muted: boolean;
+  threshold?: string | number;
+  in_call?: boolean;
+};
+
+/** Set the mic mute (hotword + in-call pump) via the shell → bridge →
+ *  wake.sock chain. Resolves to the mute the wake listener confirmed.
+ *  Throws when outside Tauri or when the chain is unreachable. */
+export function setMicMuted(muted: boolean): Promise<boolean> {
+  return invoke<boolean>('set_mic_muted', { muted });
+}
+
+/** Query the mic mute state. Throws when outside Tauri or unreachable. */
+export function micStatus(): Promise<MicStatus> {
+  return invoke<MicStatus>('mic_status');
+}

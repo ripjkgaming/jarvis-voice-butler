@@ -700,6 +700,19 @@
   border-radius: 0.4rem;
   padding: 0.25rem 0.6rem;
 }
+.hud-command__mic {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #9be9f8;
+  background: transparent;
+  border: 1px solid rgb(34 211 238 / 40%);
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.6rem;
+}
+.hud-command__mic[data-muted='true'] {
+  color: #d1d5db;
+  border-color: rgb(107 114 128 / 70%);
+}
 .hud-caption {
   display: flex;
   align-items: center;

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useChat } from '@livekit/components-react';
+import { useMicMuted } from '@/hooks/hud/use-jarvis-state';
+import { hideOverlay } from '@/lib/tauri';
 
 type Props = {
   supportsChatInput?: boolean;
@@ -18,6 +20,9 @@ export function CommandField({ supportsChatInput = true, ghostHint = '' }: Props
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Shell mic mute (hotword + in-call pump). Outside Tauri this stays
+  // unknown and the button is inert (see useMicMuted).
+  const { muted, toggle: toggleMute } = useMicMuted();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,9 +32,27 @@ export function CommandField({ supportsChatInput = true, ghostHint = '' }: Props
         window.focus();
         inputRef.current?.focus();
       }
+      // Esc hides the overlay in the shell (blur-hide covers the rest);
+      // plain-browser dev just drops field focus.
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        void hideOverlay();
+        inputRef.current?.blur();
+      }
+    };
+    // Autofocus on show: the shell focuses the overlay window on every
+    // summon (Super+J / tray Talk), which fires a window focus event in
+    // the webview. (No @tauri-apps/api dep by design — see lib/tauri.ts —
+    // so we listen for focus instead of the Rust `jarvis-toggle` event.)
+    const onFocus = () => {
+      inputRef.current?.focus();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const submit = async () => {
@@ -68,6 +91,19 @@ export function CommandField({ supportsChatInput = true, ghostHint = '' }: Props
         spellCheck={false}
       />
       {ghostHint && !value ? <span className="hud-command__ghost">{ghostHint}</span> : null}
+      <button
+        type="button"
+        onClick={() => void toggleMute()}
+        aria-pressed={muted === true}
+        aria-label={muted === true ? 'Unmute microphone' : 'Mute microphone'}
+        title={
+          muted === true ? 'Mic muted — hotword + call silent' : 'Mute mic — hotword + call silent'
+        }
+        className="hud-command__mic"
+        data-muted={muted === true ? 'true' : 'false'}
+      >
+        {muted === true ? 'MUTED' : 'MIC'}
+      </button>
       <button type="submit" className="hud-command__send" disabled={busy || !value.trim()}>
         SEND
       </button>

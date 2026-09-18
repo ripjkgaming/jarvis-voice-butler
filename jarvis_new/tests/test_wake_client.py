@@ -6,11 +6,13 @@ from wake_client import (
     OWW_FRAME,
     downsample_48k_to_16k,
     frame_16k_chunks,
+    handle_mic_command,
     load_livekit_env,
     mint_summon_token,
     room_has_active_call,
     summon_room_name,
     wake_score,
+    wake_socket_path,
     wake_threshold,
 )
 
@@ -152,3 +154,131 @@ async def test_active_call_exists_fails_open(
     from wake_client import active_call_exists
 
     assert await active_call_exists({}) is False
+
+
+# --- Phase 4.2: unix-socket mic mute control (no mic hardware needed) ---
+
+
+def test_wake_socket_path_honors_jarvis_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert wake_socket_path() == tmp_path / "wake.sock"
+
+
+def test_wake_socket_path_defaults_to_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("JARVIS_HOME", raising=False)
+    from pathlib import Path
+
+    assert wake_socket_path() == Path.home() / ".jarvis" / "wake.sock"
+
+
+def test_handle_mic_command_mute_flips_state() -> None:
+    reply, new_muted = handle_mic_command(
+        {"mute": True}, muted=False, threshold=0.5, in_call=False
+    )
+    assert reply == {"ok": True, "muted": True}
+    assert new_muted is True
+    reply, new_muted = handle_mic_command(
+        {"mute": False}, muted=True, threshold=0.5, in_call=True
+    )
+    assert reply == {"ok": True, "muted": False}
+    assert new_muted is False
+
+
+def test_handle_mic_command_status_reports_state() -> None:
+    reply, new_muted = handle_mic_command(
+        {"status": True}, muted=True, threshold=0.7, in_call=True
+    )
+    assert reply == {
+        "ok": True,
+        "muted": True,
+        "threshold": 0.7,
+        "in_call": True,
+    }
+    assert new_muted is None  # status never flips the mute
+
+
+def test_handle_mic_command_rejects_garbage() -> None:
+    reply, new_muted = handle_mic_command(
+        {"mute": "yes"}, muted=False, threshold=0.5, in_call=False
+    )
+    assert reply["ok"] is False and new_muted is None
+    reply, new_muted = handle_mic_command(
+        {"frobnicate": 1}, muted=False, threshold=0.5, in_call=False
+    )
+    assert reply["ok"] is False and new_muted is None
+    reply, new_muted = handle_mic_command(
+        ["mute"],
+        muted=False,
+        threshold=0.5,
+        in_call=False,  # type: ignore[arg-type]
+    )
+    assert reply["ok"] is False and new_muted is None
+
+
+def _rpc(sock_path, payload: dict) -> dict:
+    import json
+    import socket
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as cli:
+        cli.settimeout(5.0)
+        cli.connect(str(sock_path))
+        cli.sendall(json.dumps(payload).encode())
+        chunks = []
+        while True:
+            data = cli.recv(4096)
+            if not data:
+                break
+            chunks.append(data)
+    return json.loads(b"".join(chunks).decode())
+
+
+def test_mic_control_socket_round_trip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import time
+
+    from wake_client import WakeClient
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    client = WakeClient()
+    thread = client.start_mic_control()
+    assert thread.daemon is True
+    deadline = time.time() + 5
+    while not wake_socket_path().exists() and time.time() < deadline:
+        time.sleep(0.05)
+    assert _rpc(wake_socket_path(), {"mute": True}) == {"ok": True, "muted": True}
+    assert client.muted is True
+    status = _rpc(wake_socket_path(), {"status": True})
+    assert status["ok"] is True and status["muted"] is True
+    assert status["threshold"] == client._threshold
+    assert status["in_call"] is False
+    assert _rpc(wake_socket_path(), {"mute": False}) == {"ok": True, "muted": False}
+    assert client.muted is False
+
+
+def test_mic_control_survives_stale_socket_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import time
+
+    from wake_client import WakeClient
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    # A dead listener's leftover file: must be unlinked, not fatal.
+    wake_socket_path().write_text("stale")
+    client = WakeClient()
+    client.start_mic_control()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            reply = _rpc(wake_socket_path(), {"status": True})
+            break
+        except OSError:
+            time.sleep(0.05)
+    else:
+        raise AssertionError("listener never came up over stale file")
+    assert reply["ok"] is True

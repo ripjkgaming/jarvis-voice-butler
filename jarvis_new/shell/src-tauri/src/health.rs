@@ -70,6 +70,53 @@ pub fn tcp_reachable(port: u16) -> bool {
 /// Minimal HTTP GET over a plain TCP stream. No TLS (loopback only), no
 /// redirects, no chunked encoding — the bridge speaks plain HTTP/1.0.
 pub fn http_get_json(port: u16, path: &str) -> Result<serde_json::Value, String> {
+    http_get_json_authed(port, path, None)
+}
+
+/// GET with an optional Bearer token (the bridge gates every route when
+/// `JARVIS_BRIDGE_TOKEN` is set, including reads like `/mic`).
+pub fn http_get_json_authed(
+    port: u16,
+    path: &str,
+    token: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let clean = token.unwrap_or("").replace(['\r', '\n'], "");
+    let mut head = format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n");
+    if !clean.is_empty() {
+        head += &format!("Authorization: Bearer {clean}\r\n");
+    }
+    head += "\r\n";
+    let body = http_roundtrip(port, &head, &[])?;
+    serde_json::from_str(&body).map_err(|e| format!("bad json: {e}"))
+}
+
+/// Minimal HTTP POST with a JSON body (bridge `/mic`). Same loopback-only
+/// constraints as [`http_get_json`]; `token` adds the Bearer header the
+/// bridge gates on when `JARVIS_BRIDGE_TOKEN` is set.
+pub fn http_post_json(
+    port: u16,
+    path: &str,
+    body: &serde_json::Value,
+    token: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let text = serde_json::to_string(body).map_err(|e| format!("bad body: {e}"))?;
+    // Our own env feeds the header: strip CR/LF so a weird value can only
+    // fail auth, never smuggle a second header.
+    let clean_token = token.unwrap_or("").replace(['\r', '\n'], "");
+    let mut head = format!(
+        "POST {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        text.len()
+    );
+    if !clean_token.is_empty() {
+        head += &format!("Authorization: Bearer {clean_token}\r\n");
+    }
+    head += "\r\n";
+    let resp = http_roundtrip(port, &head, text.as_bytes())?;
+    serde_json::from_str(&resp).map_err(|e| format!("bad json: {e}"))
+}
+
+/// One blocking request/response over loopback TCP. Returns the body text.
+fn http_roundtrip(port: u16, head: &str, body: &[u8]) -> Result<String, String> {
     let addr: SocketAddr = format!("127.0.0.1:{port}")
         .parse()
         .map_err(|e| format!("bad addr: {e}"))?;
@@ -81,12 +128,14 @@ pub fn http_get_json(port: u16, path: &str) -> Result<serde_json::Value, String>
     stream
         .set_write_timeout(Some(CONNECT_TIMEOUT))
         .map_err(|e| format!("{e}"))?;
-    write!(stream, "GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").map_err(|e| format!("{e}"))?;
+    stream
+        .write_all(head.as_bytes())
+        .map_err(|e| format!("{e}"))?;
+    stream.write_all(body).map_err(|e| format!("{e}"))?;
     let mut buf = Vec::with_capacity(4096);
     stream.read_to_end(&mut buf).map_err(|e| format!("{e}"))?;
     let text = String::from_utf8_lossy(&buf);
-    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
-    serde_json::from_str(body).map_err(|e| format!("bad json: {e}"))
+    Ok(text.split("\r\n\r\n").nth(1).unwrap_or("").to_string())
 }
 
 /// Typed bridge `/status` fetch. `None` = unreachable/unparseable (degraded,
@@ -175,6 +224,93 @@ mod tests {
         let (port, h) = fake_bridge(r#"{"ok": true, "pipeline": "realtime"}"#);
         let v = http_get_json(port, "/status").expect("parses");
         assert_eq!(v["pipeline"], "realtime");
+        h.join().ok();
+    }
+
+    /// Fake bridge that captures the full request head + body, then replies
+    /// a canned JSON body. Returns (port, captured_request, join handle).
+    fn fake_bridge_capture(
+        reply: &'static str,
+    ) -> (
+        u16,
+        std::sync::mpsc::Receiver<String>,
+        thread::JoinHandle<()>,
+    ) {
+        use std::sync::mpsc;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut req = Vec::new();
+                let mut tmp = [0u8; 256];
+                // Read head first (ends at blank line), then the body per
+                // Content-Length so POST assertions see the full payload.
+                while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut tmp) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => req.extend_from_slice(&tmp[..n]),
+                    }
+                    if req.len() > 8192 {
+                        break;
+                    }
+                }
+                let head_end = req
+                    .windows(4)
+                    .position(|w| w == b"\r\n\r\n")
+                    .map(|i| i + 4)
+                    .unwrap_or(req.len());
+                let head = String::from_utf8_lossy(&req[..head_end]).into_owned();
+                let want: usize = head
+                    .lines()
+                    .find_map(|l| {
+                        l.strip_prefix("Content-Length:")
+                            .and_then(|v| v.trim().parse().ok())
+                    })
+                    .unwrap_or(0);
+                while req.len() < head_end + want {
+                    match s.read(&mut tmp) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => req.extend_from_slice(&tmp[..n]),
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&req).into_owned());
+                let resp = format!(
+                    "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                );
+                let _ = s.write_all(resp.as_bytes());
+                let _ = s.shutdown(std::net::Shutdown::Write);
+            }
+        });
+        (port, rx, handle)
+    }
+
+    #[test]
+    fn http_post_sends_json_body_with_bearer() {
+        let (port, rx, h) = fake_bridge_capture(r#"{"ok": true, "muted": true}"#);
+        let v = http_post_json(
+            port,
+            "/mic",
+            &serde_json::json!({"muted": true}),
+            Some("s3cret"),
+        )
+        .expect("parses");
+        assert_eq!(v["muted"], true);
+        let req = rx.recv_timeout(Duration::from_secs(5)).expect("request");
+        assert!(req.starts_with("POST /mic "), "{req}");
+        assert!(req.contains("Authorization: Bearer s3cret"), "{req}");
+        assert!(req.ends_with(r#"{"muted":true}"#), "{req}");
+        h.join().ok();
+    }
+
+    #[test]
+    fn http_post_without_token_sends_no_auth_header() {
+        let (port, rx, h) = fake_bridge_capture(r#"{"ok": true}"#);
+        http_post_json(port, "/mic", &serde_json::json!({"muted": false}), None).expect("parses");
+        let req = rx.recv_timeout(Duration::from_secs(5)).expect("request");
+        assert!(!req.contains("Authorization:"), "{req}");
         h.join().ok();
     }
 

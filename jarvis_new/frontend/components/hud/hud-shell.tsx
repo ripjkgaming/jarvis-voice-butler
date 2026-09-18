@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { CommandField } from '@/components/hud/command-field';
 import { CommandLog } from '@/components/hud/command-log';
 import { EdgePulse } from '@/components/hud/edge-pulse';
@@ -13,6 +14,8 @@ import { SysGauges } from '@/components/hud/sys-gauges';
 import { SystemStatus } from '@/components/hud/system-status';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
 import { useHudEvents } from '@/hooks/hud/use-hud-events';
+import { useJarvisState } from '@/hooks/hud/use-jarvis-state';
+import { setOverlayClickThrough } from '@/lib/tauri';
 
 type Props = {
   children: ReactNode;
@@ -26,6 +29,34 @@ type Props = {
 export function HudShell({ children, supportsChatInput = true }: Props) {
   const { isSolo } = useDisplayMode();
   const { events, live, intentEcho } = useHudEvents();
+  const { jarvis } = useJarvisState();
+  // A focused text field counts as interacting even when the orb is idle
+  // (typed command while no call is active).
+  const [fieldFocused, setFieldFocused] = useState(false);
+
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+        setFieldFocused(true);
+      }
+    };
+    const onFocusOut = () => setFieldFocused(false);
+    window.addEventListener('focusin', onFocusIn);
+    window.addEventListener('focusout', onFocusOut);
+    return () => {
+      window.removeEventListener('focusin', onFocusIn);
+      window.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
+
+  // Click-through idle: the always-on-top overlay forwards mouse events
+  // when the orb is idle and no field is focused, so it never blocks
+  // clicks to windows beneath. Any agent activity or field focus turns
+  // it back off. No-op outside the Tauri shell (see lib/tauri.ts).
+  useEffect(() => {
+    void setOverlayClickThrough(jarvis === 'idle' && !fieldFocused);
+  }, [jarvis, fieldFocused]);
 
   if (isSolo) {
     return (

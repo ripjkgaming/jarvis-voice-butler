@@ -23,7 +23,7 @@ fi
 # is the metaname — the real rpm is pipewire-pulseaudio.
 DNF_PACKAGES=(
   spectacle ImageMagick tesseract pipewire-pulseaudio pulseaudio-utils
-  playerctl wmctrl wl-clipboard wtype fd-find libnotify nmap
+  playerctl wmctrl wl-clipboard wtype fd-find libnotify nmap brave-browser
   upower kde-connect qt qt5-qtbase
 )
 # rpm name -> binary that already satisfies it when hand-installed.
@@ -32,8 +32,12 @@ declare -A PKG_SATISFIED_BY_BIN=(
   [gobuster]=gobuster
 )
 
+# NOTE: no com.brave.Browser here on purpose. browser.py resolves PATH
+# binaries only (never `flatpak run` URIs), so a flatpak Brave would
+# satisfy the checklist while breaking every browser tool — and Brave
+# recommends the native packages over the Flatpak anyway. Native installs
+# come from the official repo (see ensure_brave_repo below).
 FLATPAK_APPS=(
-  com.brave.Browser
   com.ktechpit.whatsie
   org.vinegarhq.Sober
 )
@@ -64,7 +68,24 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+ensure_brave_repo() {
+  # Official Brave rpm repo (brave.com/linux, Fedora 41+ dnf5 spelling).
+  # Idempotent: skipped when native brave exists or the repo file is there.
+  if command -v brave-browser >/dev/null 2>&1; then
+    return 0
+  fi
+  if ls /etc/yum.repos.d/brave-browser*.repo >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "  adding official Brave repo..."
+  sudo dnf install -y dnf-plugins-core && \
+  sudo dnf config-manager addrepo \
+    --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+}
+
 echo "== dnf packages =="
+# The Brave repo must exist before rpm -q/dnf can see brave-browser.
+ensure_brave_repo || echo "WARN: Brave repo setup failed (continuing)" >&2
 # Build the list of truly-missing dnf packages. A package counts as
 # present when its rpm is installed; hand-installed binaries (nikto,
 # gobuster) are honored via command -v so dnf never tries to resolve

@@ -128,7 +128,11 @@ TOOLS: tuple[Tool, ...] = (
         name="brave",
         label="Brave browser",
         binaries=("brave-browser",),
-        flatpak_app="com.brave.Browser",
+        # Native rpm via the official Brave repo (system-deps.sh adds it).
+        # Deliberately NO flatpak route: browser.py resolves PATH binaries
+        # only (never flatpak run URIs), and Brave itself recommends the
+        # native packages over the Flatpak ("not yet working as well").
+        dnf_packages=("brave-browser",),
         description="Automation browser (open_url, browsing tools).",
     ),
     Tool(

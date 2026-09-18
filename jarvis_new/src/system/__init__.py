@@ -12,12 +12,15 @@ Design rules:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
 from pathlib import Path
 
 LOCAL_ENV_VAR = "JARVIS_LOCAL"
 LOG_PATH = Path.home() / ".jarvis" / "actions.log"
+# actions.log rotation: spill to a single backup (replaced, never grown).
+LOG_MAX_BYTES = 5 * 1024 * 1024
 
 
 class LocalSystemError(Exception):
@@ -59,9 +62,17 @@ async def run_cmd(*argv: str, timeout: float = 10.0) -> tuple[int, str, str]:
 
 
 def log_action(category: str, detail: str) -> None:
-    """Append one line to the private local log. Never raises."""
+    """Append one line to the private local log. Never raises.
+
+    Caps the log at ~5MB: an overgrown file spills to ``actions.log.1``
+    (a stale backup is replaced, never appended to), bounding the pair
+    at ~10MB no matter how chatty the tools get.
+    """
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if LOG_PATH.is_file() and LOG_PATH.stat().st_size > LOG_MAX_BYTES:
+            with contextlib.suppress(OSError):
+                LOG_PATH.replace(LOG_PATH.with_name(LOG_PATH.name + ".1"))
         line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {category} {detail[:300]}\n"
         with LOG_PATH.open("a") as fh:
             fh.write(line)

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useJarvisState } from '@/hooks/hud/use-jarvis-state';
+import { MUTED_COLOR, useJarvisState, useMicMuted } from '@/hooks/hud/use-jarvis-state';
 
 const PARTICLES = 220;
 
@@ -12,7 +12,10 @@ const PARTICLES = 220;
  */
 export function ParticleOrb() {
   const ref = useRef<HTMLCanvasElement>(null);
-  const { color, boosted, jarvis } = useJarvisState();
+  const { color: stateColor, boosted, jarvis } = useJarvisState();
+  const { muted } = useMicMuted();
+  // Muted mic greys the orb (tray/HUD/CLI mute all funnel through here).
+  const color = muted === true ? MUTED_COLOR : stateColor;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -79,6 +82,7 @@ export function ParticleOrb() {
     <div
       className="hud-orb"
       data-state={jarvis}
+      data-muted={muted === true ? 'true' : 'false'}
       data-boosted={boosted ? 'true' : 'false'}
       style={{ ['--jarvis-state' as string]: color }}
     >

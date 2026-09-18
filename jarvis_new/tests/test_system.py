@@ -349,3 +349,32 @@ async def test_open_app_unknown_suggests_cursor_navigation(
     tools = SystemTools()
     with pytest.raises(ToolError, match="cursor navigation"):
         await SystemTools.open_app(tools, None, app="zzz-no-such-app")  # type: ignore[arg-type]
+
+
+def test_log_action_appends_without_rotation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import system
+
+    monkeypatch.setattr(system, "LOG_PATH", tmp_path / "actions.log")
+    system.log_action("hud:tool", "open_app brave")
+    system.log_action("hud:tool", "screenshot")
+    text = (tmp_path / "actions.log").read_text()
+    assert "open_app brave" in text and "screenshot" in text
+    assert not (tmp_path / "actions.log.1").exists()
+
+
+def test_log_action_spills_overgrown_log_to_backup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import system
+
+    monkeypatch.setattr(system, "LOG_PATH", tmp_path / "actions.log")
+    monkeypatch.setattr(system, "LOG_MAX_BYTES", 1024)
+    log, backup = tmp_path / "actions.log", tmp_path / "actions.log.1"
+    log.write_text("x" * 2048)  # over the (patched) cap
+    backup.write_text("stale backup")
+    system.log_action("hud:tool", "fresh line")
+    assert backup.read_text() == "x" * 2048  # replaced, not appended
+    fresh = log.read_text()
+    assert "fresh line" in fresh and len(fresh) < 1024

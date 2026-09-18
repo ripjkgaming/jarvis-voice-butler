@@ -90,6 +90,15 @@ def test_every_tool_has_install_route() -> None:
         assert t.dnf_packages or t.flatpak_app, f"{t.name} has no install route"
 
 
+def test_brave_is_native_only() -> None:
+    """Regression: flatpak Brave satisfies the checklist while breaking
+    browser.py (PATH binaries only), so it must never be the route."""
+    brave = next(t for t in deps.TOOLS if t.name == "brave")
+    assert brave.flatpak_app is None
+    assert "brave-browser" in brave.binaries
+    assert "brave-browser" in brave.dnf_packages
+
+
 def test_flatpak_tools_install_via_flatpak() -> None:
     whatsie = deps.tool_by_name("whatsie")
     assert whatsie is not None
@@ -175,6 +184,24 @@ def test_livekit_yaml_content() -> None:
     assert "127.0.0.1" in text
     assert "empty_timeout: 60" in text
     assert "enabled: false" in text  # TURN off
+
+
+def test_livekit_yaml_uses_only_real_server_keys() -> None:
+    """Phase 4.5 guard: livekit-server has NO egress-firewall/allowlist
+    config (verified against v1.13.7 `help-verbose` + docs: "egress" there
+    is the separate     recording service, not a firewall). The generated
+    config must therefore stay within the real key set — a fake `egress:`
+    stanza would achieve zero restriction while risking a strict-parse
+    boot failure. Real containment is OS-level (owner sudo, post-v1)."""
+    text = livekit.build_livekit_yaml("devkey", "deadbeef")
+    top_keys = {
+        line.split(":")[0]
+        for line in text.splitlines()
+        if line and not line.startswith((" ", "#"))
+    }
+    assert top_keys <= {"port", "bind_addresses", "keys", "rtc", "room", "turn"}, (
+        top_keys
+    )
 
 
 def test_resolve_livekit_bin_prefers_env(monkeypatch, tmp_path) -> None:

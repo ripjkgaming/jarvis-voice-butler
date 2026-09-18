@@ -8,6 +8,17 @@ so the whole stack talks to ``ws://127.0.0.1:7880`` instead of LiveKit
 Cloud. Pure builders are unit-tested; download runs only on demand.
 
 Never writes real keys anywhere but the user's own 0600 files.
+
+Phase 4.5 note (egress lockdown — investigated, NOT applied): the
+vendored server (v1.13.7, verified via ``help-verbose`` + docs) has no
+egress-firewall/allowlist config — "egress" in LiveKit is the separate
+recording service, not a network filter, and the server itself makes no
+outbound inference calls (the agent worker calls Gemini directly). A
+default-deny stanza in livekit.yaml is therefore unimplementable; adding
+one would restrict nothing while risking a strict-parse boot failure
+(guarded by ``test_livekit_yaml_uses_only_real_server_keys``). Real
+containment means OS-level rules for the agent worker (nftables
+allowlist, owner sudo, post-v1 hardening) — proposed, not built here.
 """
 
 from __future__ import annotations
