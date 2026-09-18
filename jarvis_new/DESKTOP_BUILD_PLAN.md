@@ -58,6 +58,21 @@ Update (2026-09-18): re-point landed as JARVIS_PIPELINE=direct — Silero VAD
 (session + sub-agents), Piper mouth, auto->vad turn mode. Needs only
 GOOGLE_API_KEY. `realtime`/`local` untouched. Try:
 JARVIS_PIPELINE=direct uv run src/agent.py start (local server up).
+A/B notes (2026-09-18, Phase 5 slice 5.3 — default stays `realtime`):
+
+| axis | realtime (default) | direct |
+|---|---|---|
+| Ears | Gemini Live streaming (server-side) | local faster-whisper base/int8/CPU, WER 0.000 digit-blind on gate fixtures |
+| Turn latency | streaming (lowest) | p50 1.3s warm, 2.6s cold incl model load (gate: <6s) |
+| Brains | Gemini Live realtime model | Gemini-direct 2.5-flash (same GOOGLE_API_KEY) |
+| Mouth | Gemini voice | local Piper (zero burn) |
+| Offline | needs Google (inference) | needs Google (LLM only); STT/VAD/TTS fully local |
+| Whisper sizing | n/a | base is the knee (tiny WER 0.21; small == base accuracy at ~3x time) |
+| VAD | server-side | Silero local, defaults hold (0.3/0.5/0.7 all detect speech, none fire on silence) |
+
+Pick `realtime` for lowest latency, `direct` for zero inference burn on
+ears/voice and full local audio. Verify:
+`uv run pytest tests/test_direct_perf.py -q` (~1 min, CPU-only).
 
 ## Phase 1 — Tauri shell: process manager + tray (1–2 weeks)
 

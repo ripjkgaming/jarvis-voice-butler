@@ -34,7 +34,34 @@ SEED_ALIASES: dict[str, dict] = {
     "go dark": {"action": "stealth_mode", "params": {"mode": "on"}},
     "brief me": {"action": "morning_briefing", "params": {}},
     "morning briefing": {"action": "morning_briefing", "params": {}},
+    # Recipe entry phrases (skills/morning_routine.md): the skill's step 1
+    # IS morning_briefing, so exact seeds are behavior-preserving.
+    "morning routine": {"action": "morning_briefing", "params": {}},
+    "start my morning": {"action": "morning_briefing", "params": {}},
+    "good morning": {"action": "morning_briefing", "params": {}},
+    "kick off the day": {"action": "morning_briefing", "params": {}},
+    "daily startup": {"action": "morning_briefing", "params": {}},
+    "begin my morning": {"action": "morning_briefing", "params": {}},
+    "morning bundle": {"action": "morning_briefing", "params": {}},
+    "start the day": {"action": "morning_briefing", "params": {}},
+    # Helper-proposed paraphrases (reviewed 2026-09-18): exact seeds that
+    # fix confirm-tier misroutes (what-is-on-today->clock,
+    # catch-me-up->volume) and promote weak confirms to 1.0.
+    "brief me this morning": {"action": "morning_briefing", "params": {}},
+    "what is on today": {"action": "morning_briefing", "params": {}},
+    "give me the morning rundown": {"action": "morning_briefing", "params": {}},
+    "start of day summary": {"action": "morning_briefing", "params": {}},
+    "morning status": {"action": "morning_briefing", "params": {}},
+    "catch me up on today": {"action": "morning_briefing", "params": {}},
     "scan my box": {"action": "nmap_scan", "params": {}},
+    # NOTE (Phase 5): focus/meeting recipe triggers are DELIBERATELY not
+    # seeded — no single tool expresses their multi-step contracts (focus
+    # restore, meeting notes file), and seeding to a half-action (e.g.
+    # focus->mute) would be wrong behavior. They abstain to unknown so the
+    # agent LLM performs skills/*.md. Known confirm-tier misroutes filed in
+    # comms (heads-down-time->volume, time-to-focus->clock, prep-my-meeting
+    # + get-ready-for-my-call->inbox, next-event->clock): fixing needs
+    # catalog/keyword changes outside SEED lists — proposed, not taken.
     "recon my box": {"action": "dns_recon", "params": {}},
     "check my exposure": {"action": "pentest_report", "params": {}},
     "freeze testing": {"action": "freeze_testing", "params": {}},

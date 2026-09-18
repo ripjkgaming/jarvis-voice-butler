@@ -1,0 +1,6618 @@
+{
+  "meta": {
+    "schema": "{text, action, params (subset), tier (act|confirm|ask)}",
+    "needle": "pinned off (JARVIS_NEEDLE=0): layers 1-3 only, deterministic",
+    "adding_cases": "append rows, then run with JARVIS_REGRESSION_UPDATE=1 to fill params/tier from the resolver (it FAILS loudly after rewriting — re-run clean to verify). CI must never set the flag.",
+    "tiers": "act >=0.8 (silent), confirm 0.5-0.8 (one-line confirm), ask <0.5 (clarify). Test asserts action + tier + params-subset."
+  },
+  "cases": [
+    {
+      "text": "what time is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, what time is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis what time is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh what time is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please what time is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what time is it please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what time is it jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what is the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, what is the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis what is the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh what is the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please what is the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what is the time please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what is the time jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, tell me the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis tell me the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh tell me the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please tell me the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me the time please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me the time jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, tell me the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis tell me the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh tell me the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please tell me the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "tell me the clock please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "tell me the clock jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what hour is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, what hour is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis what hour is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh what hour is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please what hour is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what hour is it please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what hour is it jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "got the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, got the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis got the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh got the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please got the time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "got the time please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "got the time jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, read the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis read the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh read the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please read the clock",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the clock please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the clock jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what tim is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, what tim is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis what tim is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh what tim is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please what tim is it",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what tim is it please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what tim is it jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what time is ut",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, what time is ut",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis what time is ut",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh what time is ut",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please what time is ut",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what time is ut please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what time is ut jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me tha time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, tell me tha time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis tell me tha time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh tell me tha time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please tell me tha time",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me tha time please",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "tell me tha time jarvis",
+      "action": "tell_time",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "crank it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, crank it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis crank it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh crank it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please crank it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "crank it up please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "crank it up jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, turn it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis turn it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh turn it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please turn it up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it up please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it up jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "make it louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, make it louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis make it louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh make it louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please make it louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "make it louder please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "make it louder jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, turn the volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis turn the volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh turn the volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please turn the volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume up please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume up jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "raise the volume",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, raise the volume",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis raise the volume",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh raise the volume",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please raise the volume",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "raise the volume please",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "raise the volume jarvis",
+      "action": "set_volume",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please volume up",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "volume up please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "volume up jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please louder",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "louder please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "louder jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "increase sound",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, increase sound",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis increase sound",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh increase sound",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please increase sound",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "increase sound please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "increase sound jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, turn it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis turn it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh turn it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please turn it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it upp please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it upp jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "crank it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, crank it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis crank it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh crank it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please crank it upp",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "crank it upp please",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "crank it upp jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "up"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, turn it down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis turn it down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh turn it down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please turn it down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it down please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it down jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "a bit quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, a bit quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis a bit quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh a bit quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please a bit quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "a bit quieter please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "a bit quieter jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, turn the volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis turn the volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh turn the volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please turn the volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume down please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn the volume down jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "lower the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, lower the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis lower the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh lower the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please lower the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "lower the volume please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "lower the volume jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please volume down",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "volume down please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "volume down jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please quieter",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "quieter please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "quieter jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "decrease sound",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, decrease sound",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis decrease sound",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh decrease sound",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please decrease sound",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "decrease sound please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "decrease sound jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "turn it dowm",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, turn it dowm",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis turn it dowm",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh turn it dowm",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please turn it dowm",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it dowm please",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "turn it dowm jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "down"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, mute",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis mute",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh mute",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please mute",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute please",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute it",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, mute it",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis mute it",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh mute it",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please mute it",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute it please",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute it jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, mute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis mute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh mute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please mute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the sound please",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the sound jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, unmute",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis unmute",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh unmute",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please unmute",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute please",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, unmute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis unmute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh unmute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please unmute the sound",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute the sound please",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "unmute the sound jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "unmute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, mute the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis mute the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh mute the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please mute the volume",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the volume please",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "mute the volume jarvis",
+      "action": "set_volume",
+      "params": {
+        "action": "mute"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "check my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my gmail please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my gmail jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my email please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my email jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my inbox jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, read my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis read my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh read my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please read my email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my email please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my email jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, read my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis read my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh read my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please read my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read my inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read my inbox jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "check the inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check the inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check the inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check the inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check the inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check the inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check the inbox jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "look at my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, look at my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis look at my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh look at my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please look at my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "look at my gmail please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "look at my gmail jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "any new email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, any new email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis any new email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh any new email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please any new email",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "any new email please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "any new email jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "show my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, show my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis show my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh show my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please show my inbox",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "show my inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "show my inbox jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "check my gmail inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my gmail inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my gmail inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my gmail inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my gmail inbox please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my gmail inbox please please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my gmail inbox please jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "chek my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, chek my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis chek my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh chek my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please chek my gmail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "chek my gmail please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "chek my gmail jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my enail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, read my enail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis read my enail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh read my enail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please read my enail",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my enail please",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my enail jarvis",
+      "action": "gmail_inbox",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what is the weather in london",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, what is the weather in london",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis what is the weather in london",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh what is the weather in london",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please what is the weather in london",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what is the weather in london please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "what is the weather in london jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather forecast",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, weather forecast",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis weather forecast",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh weather forecast",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please weather forecast",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather forecast please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather forecast jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "will it rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, will it rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis will it rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh will it rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please will it rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "will it rain please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "will it rain jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "rain today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, rain today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis rain today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh rain today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please rain today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "rain today please",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "rain today jarvis",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "how is the weather",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, how is the weather",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis how is the weather",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh how is the weather",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please how is the weather",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "how is the weather please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "how is the weather jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather in paris",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, weather in paris",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis weather in paris",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh weather in paris",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please weather in paris",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather in paris please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "weather in paris jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "is it going to rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, is it going to rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis is it going to rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh is it going to rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please is it going to rain",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "is it going to rain please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "is it going to rain jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "forecast for tomorrow",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, forecast for tomorrow",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis forecast for tomorrow",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh forecast for tomorrow",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please forecast for tomorrow",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "forecast for tomorrow please",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "forecast for tomorrow jarvis",
+      "action": "weather_now",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "brief me",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, brief me",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis brief me",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh brief me",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please brief me",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "brief me please",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "brief me jarvis",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "morning briefing",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, morning briefing",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis morning briefing",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh morning briefing",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please morning briefing",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "morning briefing please",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "morning briefing jarvis",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "daily briefing",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, daily briefing",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis daily briefing",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh daily briefing",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please daily briefing",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "daily briefing please",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "daily briefing jarvis",
+      "action": "daily_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read my whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, read my whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis read my whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh read my whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please read my whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my whatsapp please",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my whatsapp jarvis",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my whatsapp messages",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, read my whatsapp messages",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis read my whatsapp messages",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh read my whatsapp messages",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please read my whatsapp messages",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my whatsapp messages please",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "read my whatsapp messages jarvis",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, check whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis check whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh check whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please check whatsapp",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "check whatsapp please",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "check whatsapp jarvis",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the whatsapp chat",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, read the whatsapp chat",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis read the whatsapp chat",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh read the whatsapp chat",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please read the whatsapp chat",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the whatsapp chat please",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "read the whatsapp chat jarvis",
+      "action": "whatsapp_read",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to buy milk",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, remind me to buy milk",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis remind me to buy milk",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh remind me to buy milk",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please remind me to buy milk",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to buy milk please",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to buy milk jarvis",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "add milk to todo",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, add milk to todo",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis add milk to todo",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh add milk to todo",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please add milk to todo",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "add milk to todo please",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "add milk to todo jarvis",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "list my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, list my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis list my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh list my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please list my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "list my todos please",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "list my todos jarvis",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "show my todo list",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, show my todo list",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis show my todo list",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh show my todo list",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please show my todo list",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "show my todo list please",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "show my todo list jarvis",
+      "action": "manage_todo",
+      "params": {
+        "action": "list"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to call mom",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, remind me to call mom",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis remind me to call mom",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh remind me to call mom",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please remind me to call mom",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to call mom please",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "remind me to call mom jarvis",
+      "action": "manage_todo",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "add eggs to my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, add eggs to my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis add eggs to my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh add eggs to my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please add eggs to my todos",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "add eggs to my todos please",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "add eggs to my todos jarvis",
+      "action": "manage_todo",
+      "params": {
+        "action": "add"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for ada lovelace",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, search for ada lovelace",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis search for ada lovelace",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh search for ada lovelace",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please search for ada lovelace",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for ada lovelace please",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for ada lovelace jarvis",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for ada lovelace"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search the web for cats",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, search the web for cats",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis search the web for cats",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh search the web for cats",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please search the web for cats",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "search the web for cats please",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "search the web for cats jarvis",
+      "action": "search_the_web",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "lookup train times",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, lookup train times",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis lookup train times",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh lookup train times",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please lookup train times",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "lookup train times please",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "lookup train times jarvis",
+      "action": "search_the_web",
+      "params": {
+        "query": "lookup train times"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for pizza nearby",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, search for pizza nearby",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis search for pizza nearby",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh search for pizza nearby",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please search for pizza nearby",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for pizza nearby please",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "search for pizza nearby jarvis",
+      "action": "search_the_web",
+      "params": {
+        "query": "search for pizza nearby"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "google the capital of peru",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, google the capital of peru",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis google the capital of peru",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh google the capital of peru",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please google the capital of peru",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "google the capital of peru please",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "google the capital of peru jarvis",
+      "action": "search_the_web",
+      "params": {
+        "query": "google the capital of peru"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "take a screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, take a screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis take a screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh take a screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please take a screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "take a screenshot please",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "take a screenshot jarvis",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "screenshot this",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, screenshot this",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis screenshot this",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh screenshot this",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please screenshot this",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "screenshot this please",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "screenshot this jarvis",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "take screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, take screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis take screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh take screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please take screenshot",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "take screenshot please",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "take screenshot jarvis",
+      "action": "take_screenshot",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "open youtube",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open youtube",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open youtube",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open youtube",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open youtube",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open youtube please",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open youtube jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "youtube"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch github",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, launch github",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis launch github",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh launch github",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please launch github",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch github please",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch github jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "github"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start netflix",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, start netflix",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis start netflix",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh start netflix",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please start netflix",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start netflix please",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start netflix jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "netflix"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open wikipedia",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open wikipedia",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open wikipedia",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open wikipedia",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open wikipedia",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open wikipedia please",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open wikipedia jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "wikipedia"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch reddit",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, launch reddit",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis launch reddit",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh launch reddit",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please launch reddit",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch reddit please",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch reddit jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "reddit"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open twitch",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open twitch",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open twitch",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open twitch",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open twitch",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open twitch please",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open twitch jarvis",
+      "action": "open_url",
+      "params": {
+        "url": "twitch"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open the files app",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open the files app",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open the files app",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open the files app",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open the files app",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open the files app please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open the files app jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open files",
+        "app": "files"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch terminal",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, launch terminal",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis launch terminal",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh launch terminal",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please launch terminal",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch terminal please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch terminal jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open terminal",
+        "app": "terminal"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start spotify",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, start spotify",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis start spotify",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh start spotify",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please start spotify",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start spotify please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "start spotify jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open spotify",
+        "app": "spotify"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open settings",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open settings",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open settings",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open settings",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open settings",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open settings please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open settings jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open settings",
+        "app": "settings"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch discord",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, launch discord",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis launch discord",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh launch discord",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please launch discord",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch discord please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "launch discord jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open discord",
+        "app": "discord"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open calculator",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open calculator",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open calculator",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open calculator",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "please open calculator",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open calculator please",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "open calculator jarvis",
+      "action": "transfer_to_system_control",
+      "params": {
+        "task": "open calculator",
+        "app": "calculator"
+      },
+      "tier": "confirm"
+    },
+    {
+      "text": "give me the hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, give me the hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis give me the hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh give me the hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please give me the hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "give me the hot rod red please",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "give me the hot rod red jarvis",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod redd",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, hot rod redd",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis hot rod redd",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh hot rod redd",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please hot rod redd",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod redd please",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod redd jarvis",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please hot rod red",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod red please",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hot rod red jarvis",
+      "action": "set_color",
+      "params": {
+        "color": "crimson"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "punch it",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, punch it",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis punch it",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh punch it",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please punch it",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "punch it please",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "punch it jarvis",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "punch itt",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, punch itt",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis punch itt",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh punch itt",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please punch itt",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "punch itt please",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "punch itt jarvis",
+      "action": "max_throttle",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "take the wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, take the wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis take the wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh take the wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please take the wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "take the wheel please",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "take the wheel jarvis",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "take tha wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, take tha wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis take tha wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh take tha wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please take tha wheel",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "take tha wheel please",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "take tha wheel jarvis",
+      "action": "autopilot",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go dark",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, go dark",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis go dark",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh go dark",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please go dark",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go dark please",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go dark jarvis",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go darrk",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, go darrk",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis go darrk",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "uh go darrk",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "please go darrk",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go darrk please",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "go darrk jarvis",
+      "action": "stealth_mode",
+      "params": {
+        "mode": "on"
+      },
+      "tier": "act"
+    },
+    {
+      "text": "scan my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, scan my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis scan my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh scan my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please scan my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "scan my box please",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "scan my box jarvis",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "scann my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, scann my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis scann my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh scann my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please scann my box",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "scann my box please",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "scann my box jarvis",
+      "action": "nmap_scan",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "recon my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, recon my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis recon my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh recon my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please recon my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "recon my box please",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "recon my box jarvis",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "reconn my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, reconn my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis reconn my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh reconn my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please reconn my box",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "reconn my box please",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "reconn my box jarvis",
+      "action": "dns_recon",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my exposure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my exposure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my exposure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my exposure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my exposure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my exposure please",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my exposure jarvis",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my expossure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, check my expossure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis check my expossure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh check my expossure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please check my expossure",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my expossure please",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "check my expossure jarvis",
+      "action": "pentest_report",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testing",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, freeze testing",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis freeze testing",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh freeze testing",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please freeze testing",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testing please",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testing jarvis",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testting",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "jarvis, freeze testting",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "hey jarvis freeze testting",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "uh freeze testting",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "please freeze testting",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testting please",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "freeze testting jarvis",
+      "action": "freeze_testing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "do math",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, do math",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis do math",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh do math",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please do math",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "do math please",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "do math jarvis",
+      "action": "do_math",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "media control",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, media control",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis media control",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh media control",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please media control",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "media control please",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "media control jarvis",
+      "action": "media_control",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "open app",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "jarvis, open app",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "hey jarvis open app",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "uh open app",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "please open app",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "open app please",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "open app jarvis",
+      "action": "open_app",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "asdf qwer zxcv",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: keyboard smash, no content words"
+    },
+    {
+      "text": "blorpt fnord wibble",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: nonsense syllables"
+    },
+    {
+      "text": "skibbity bop bop beep",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: babble, no routable token"
+    },
+    {
+      "text": "qwerty uiop asdfgh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: keyboard rows"
+    },
+    {
+      "text": "zzzz zzz mmm hmm",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: filler sounds only"
+    },
+    {
+      "text": "uh um uh um hmm",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: hesitation fillers normalize away"
+    },
+    {
+      "text": "kjsdhf laksjdh flkjh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: random consonant runs"
+    },
+    {
+      "text": "wobble gobble flim flam",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: rhyming nonsense"
+    },
+    {
+      "text": "beep boop beep boop",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: machine noises"
+    },
+    {
+      "text": "la la la tra la la",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: sung syllables"
+    },
+    {
+      "text": "brrr ding dong ping",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: onomatopoeia, no command"
+    },
+    {
+      "text": "yak yak yakety yak",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: repeated nonsense verb"
+    },
+    {
+      "text": "flibberty gibbet squonk",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: invented words"
+    },
+    {
+      "text": "mumble grumble rumble tumble",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: rhyming verbs, no target"
+    },
+    {
+      "text": "zzz snore snore snore",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: sleep sounds"
+    },
+    {
+      "text": "tap tap tippity tap",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: tapping sounds"
+    },
+    {
+      "text": "whoosh swoosh swish",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: motion sounds, no object"
+    },
+    {
+      "text": "gloop glorp snorp",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: invented nouns"
+    },
+    {
+      "text": "higgledy piggledy pop",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: nursery nonsense"
+    },
+    {
+      "text": "okey dokey hokey pokey",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: playful filler, no request"
+    },
+    {
+      "text": "blah blah blah whatever",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: dismissal, no actionable content"
+    },
+    {
+      "text": "meh bleh feh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: single-syllable shrugs"
+    },
+    {
+      "text": "doo wah diddy dum",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: song syllables"
+    },
+    {
+      "text": "shoo bee doo wop",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: scat singing"
+    },
+    {
+      "text": "vroom vroom beep beep",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: car sounds, not a car command"
+    },
+    {
+      "text": "knock knock who is there",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: joke setup with no punchline target"
+    },
+    {
+      "text": "tick tock tick tock",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: clock sounds, not asking anything"
+    },
+    {
+      "text": "chirp chirp tweet tweet",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: bird sounds"
+    },
+    {
+      "text": "splish splash splosh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: water sounds"
+    },
+    {
+      "text": "hocus pocus alakazam",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "gibberish: magic words, no real action"
+    },
+    {
+      "text": "how are you feeling today",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: wellbeing question, no tool"
+    },
+    {
+      "text": "are you awake",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: status pleasantry, not a command"
+    },
+    {
+      "text": "good evening sir",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "chitchat: greeting only"
+    },
+    {
+      "text": "hello hello anybody home",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: greeting with no request"
+    },
+    {
+      "text": "make me laugh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: entertainment ask, no tool covers jokes"
+    },
+    {
+      "text": "say something funny",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: joke request, no tool"
+    },
+    {
+      "text": "do you like me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: affection question"
+    },
+    {
+      "text": "are you my friend",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: relationship question"
+    },
+    {
+      "text": "what is your favorite color",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "chitchat: preference question"
+    },
+    {
+      "text": "do you ever get tired",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: personal question to the agent"
+    },
+    {
+      "text": "happy birthday to me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: celebration, no action"
+    },
+    {
+      "text": "good night sleep well",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: farewell pleasantry"
+    },
+    {
+      "text": "see you later alligator",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: rhyming goodbye"
+    },
+    {
+      "text": "i am bored entertain me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: vague entertainment want, no tool"
+    },
+    {
+      "text": "i love chatting with you",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: sentiment, no request"
+    },
+    {
+      "text": "you are the best",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: compliment only"
+    },
+    {
+      "text": "that was funny",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: reaction, no follow-up action"
+    },
+    {
+      "text": "wow really",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: bare reaction"
+    },
+    {
+      "text": "oh no way",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: surprise, no request"
+    },
+    {
+      "text": "haha very funny",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: laughter, nothing to do"
+    },
+    {
+      "text": "i missed you",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: sentiment on return"
+    },
+    {
+      "text": "welcome back to me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: self greeting"
+    },
+    {
+      "text": "how was your day",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "chitchat: small talk to a machine"
+    },
+    {
+      "text": "what did you dream about",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: impossible personal question"
+    },
+    {
+      "text": "do robots dream",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: philosophy, no tool"
+    },
+    {
+      "text": "are you joyful today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "chitchat: emotion question"
+    },
+    {
+      "text": "sing me a song",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: song request, not a media-control target"
+    },
+    {
+      "text": "recite a bedtime tale",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: story request, no tool"
+    },
+    {
+      "text": "ponder the meaning of existence",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: philosophy, must abstain"
+    },
+    {
+      "text": "do you believe in ghosts",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: belief question"
+    },
+    {
+      "text": "who is your hero",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "chitchat: personal question"
+    },
+    {
+      "text": "what would you wish for",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: hypothetical, no action"
+    },
+    {
+      "text": "converse with me awhile",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: open-ended talk, no task"
+    },
+    {
+      "text": "keep me company",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: companionship, no tool"
+    },
+    {
+      "text": "i am feeling lonely tonight",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "chitchat: emotion sharing, no actionable ask"
+    },
+    {
+      "text": "write my essay on shakespeare",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: long-form writing task"
+    },
+    {
+      "text": "finish my homework for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: schoolwork completion"
+    },
+    {
+      "text": "book me a flight to paris",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: travel booking, no tool"
+    },
+    {
+      "text": "order me a pizza",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: food ordering, no tool"
+    },
+    {
+      "text": "buy me new shoes online",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: shopping checkout, no tool"
+    },
+    {
+      "text": "diagnose my headache",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: medical advice, must refuse"
+    },
+    {
+      "text": "what medicine should i take",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: medical advice"
+    },
+    {
+      "text": "give me legal advice about rent",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: legal advice"
+    },
+    {
+      "text": "write my resignation letter",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: formal letter authorship"
+    },
+    {
+      "text": "do my taxes",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: tax filing"
+    },
+    {
+      "text": "invest my savings for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: financial advice"
+    },
+    {
+      "text": "predict tomorrow's lottery numbers",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: impossible prediction"
+    },
+    {
+      "text": "which city is peru's capital",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: trivia, no tool needed"
+    },
+    {
+      "text": "who won the match last night",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: sports result, no tool maps it"
+    },
+    {
+      "text": "how old is the eiffel tower",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: trivia question"
+    },
+    {
+      "text": "translate this to japanese for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: translation with no input text"
+    },
+    {
+      "text": "teach me calculus",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: tutoring session"
+    },
+    {
+      "text": "help me study french verbs",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: tutoring, not the study-plan tool"
+    },
+    {
+      "text": "plan my wedding",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: event planning project"
+    },
+    {
+      "text": "find me a girlfriend",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: matchmaking"
+    },
+    {
+      "text": "telephone my mother",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: phone call, no tool"
+    },
+    {
+      "text": "send a birthday card to grandma",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: physical errand"
+    },
+    {
+      "text": "water my plants",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: physical chore"
+    },
+    {
+      "text": "give the cat dinner",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: physical chore"
+    },
+    {
+      "text": "walk the dog for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: physical errand"
+    },
+    {
+      "text": "tidy my bedroom",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: physical chore"
+    },
+    {
+      "text": "cook dinner tonight",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: cooking, no tool"
+    },
+    {
+      "text": "give me a recipe for lasagna",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: recipe authorship"
+    },
+    {
+      "text": "how do i fix a leaky tap",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: DIY instructions"
+    },
+    {
+      "text": "my wifi is broken help",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: vague complaint, no clear action"
+    },
+    {
+      "text": "the screen flickers sometimes",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: symptom report, no command"
+    },
+    {
+      "text": "something feels slow today",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: vague symptom, nothing to route"
+    },
+    {
+      "text": "i lost my keys",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: lost item, no tool"
+    },
+    {
+      "text": "where did i put my wallet",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: lost item"
+    },
+    {
+      "text": "recall what slipped my memory",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: paradoxical ask, no content"
+    },
+    {
+      "text": "guess what i am thinking",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: mind reading"
+    },
+    {
+      "text": "guess my thoughts",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: impossible request"
+    },
+    {
+      "text": "prove you are conscious",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: philosophy trap"
+    },
+    {
+      "text": "pass the turing test for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: meta benchmark ask"
+    },
+    {
+      "text": "write a poem about rust",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: creative writing"
+    },
+    {
+      "text": "compose a haiku on rivers",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: creative writing"
+    },
+    {
+      "text": "invent a new language",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: creative project"
+    },
+    {
+      "text": "settle an argument with my brother",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: mediation"
+    },
+    {
+      "text": "who is right me or my sister",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: family dispute"
+    },
+    {
+      "text": "keep a secret for me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: memory promise, no tool"
+    },
+    {
+      "text": "promise not to tell anyone",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "out-of-scope: secrecy promise"
+    },
+    {
+      "text": "open the pod bay doors",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: sci-fi open with no real target"
+    },
+    {
+      "text": "launch the missiles",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: launch verb, catastrophic non-target"
+    },
+    {
+      "text": "start the revolution",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "near-miss: start verb, abstract non-target"
+    },
+    {
+      "text": "close the gates of mordor",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: fictional place, no window"
+    },
+    {
+      "text": "silence the universe",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: mute-adjacent but cosmic, no device"
+    },
+    {
+      "text": "switch off the moon",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm",
+      "why_negative": "near-miss: destructive sci-fi, no system target"
+    },
+    {
+      "text": "power off the sun",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: power-adjacent, impossible target"
+    },
+    {
+      "text": "wipe out the entire web",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: destructive, no file target"
+    },
+    {
+      "text": "wipe away my past",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: metaphorical delete"
+    },
+    {
+      "text": "uninstall gravity",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: system verb on physics"
+    },
+    {
+      "text": "reboot reality",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: system verb, impossible scope"
+    },
+    {
+      "text": "format the universe",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: disk verb, cosmic scope"
+    },
+    {
+      "text": "download more ram",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: hardware joke"
+    },
+    {
+      "text": "overclock my toaster",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: device joke target"
+    },
+    {
+      "text": "break into the movie mainframe",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: movie hacking, no real target"
+    },
+    {
+      "text": "unmask the movie villain",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: movie trope, no tool"
+    },
+    {
+      "text": "enhance that image like on tv",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: tv trope, no image context"
+    },
+    {
+      "text": "zoom in forever",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: no window or image target"
+    },
+    {
+      "text": "i want a ride on a starship",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: teleport request"
+    },
+    {
+      "text": "freeze everyone in place",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: freeze verb, people not tests"
+    },
+    {
+      "text": "go to warp speed",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: starship command"
+    },
+    {
+      "text": "fire the torpedoes",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: weapons command"
+    },
+    {
+      "text": "deploy the airbags",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: car command to a laptop"
+    },
+    {
+      "text": "eject the pilot",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: cockpit command"
+    },
+    {
+      "text": "lock all the doors",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: home-control-adjacent but vague scope"
+    },
+    {
+      "text": "arm the alarm system",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: security action, no device context"
+    },
+    {
+      "text": "defrost the windscreen",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: car chore"
+    },
+    {
+      "text": "parallel park the car",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: driving task"
+    },
+    {
+      "text": "fly the plane",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: vehicle command"
+    },
+    {
+      "text": "captain's log stardate today",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "near-miss: narration, no log tool target"
+    },
+    {
+      "text": "bonjour comment vas tu",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french greeting, no request"
+    },
+    {
+      "text": "guten morgen welt",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: german good morning world"
+    },
+    {
+      "text": "hola que tal amigo",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish greeting"
+    },
+    {
+      "text": "dove sei adesso",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: italian where-are-you, chitchat"
+    },
+    {
+      "text": "esto es una prueba",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish this-is-a-test"
+    },
+    {
+      "text": "je ne sais pas quoi faire",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french idle statement"
+    },
+    {
+      "text": "was machst du heute",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: german what-are-you-doing"
+    },
+    {
+      "text": "mi piace la musica",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: italian i-like-music statement"
+    },
+    {
+      "text": "il fait beau aujourd hui",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french weather remark, not a query"
+    },
+    {
+      "text": "donde esta la biblioteca",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish where-is-library"
+    },
+    {
+      "text": "ich habe hunger",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: german i-am-hungry, no food tool"
+    },
+    {
+      "text": "parlez vous anglais",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french do-you-speak-english"
+    },
+    {
+      "text": "gracias por esta noche",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish thanks, no request"
+    },
+    {
+      "text": "buenas noches amigos",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish goodnight, farewell"
+    },
+    {
+      "text": "au revoir a demain",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french goodbye"
+    },
+    {
+      "text": "bis morgen fruh",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: german see-you-morning"
+    },
+    {
+      "text": "feliz cumpleanos a mi",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish birthday, no action"
+    },
+    {
+      "text": "che bello giorno",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: italian what-a-day remark"
+    },
+    {
+      "text": "c est la vie mon ami",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french idiom, no request"
+    },
+    {
+      "text": "que sera sera",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish-french idiom lyric"
+    },
+    {
+      "text": "la dolce vita e bella",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: italian statement"
+    },
+    {
+      "text": "viva la revolucion fiesta",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish exclamation, no task"
+    },
+    {
+      "text": "guten appetit zusammen",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: german mealtime wish"
+    },
+    {
+      "text": "a bientot mon ami",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: french see-you-soon"
+    },
+    {
+      "text": "hasta luego cocodrilo",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask",
+      "why_negative": "multilingual: spanish rhyming goodbye"
+    },
+    {
+      "text": "morning routine",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "start my morning",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "good morning",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "kick off the day",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "daily startup",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "begin my morning",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "morning bundle",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "start the day",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "focus mode",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "lock in",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "deep work mode",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "do not disturb me",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "restore focus",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "end focus mode",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "unfocus",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "i am back",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "break is over",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "end my focus session",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "focus session over",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "meeting prep",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "who am i meeting next",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "prep for my meeting",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "meeting notes prep",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "prepare my meeting notes",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "help me prepare for my call",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "what meetings do i have",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "confirm"
+    },
+    {
+      "text": "show my meetings today",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "get my meeting ready",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "meeting preparation",
+      "action": "unknown",
+      "params": {},
+      "tier": "ask"
+    },
+    {
+      "text": "brief me this morning",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "what is on today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "give me the morning rundown",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "start of day summary",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "morning status",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    },
+    {
+      "text": "catch me up on today",
+      "action": "morning_briefing",
+      "params": {},
+      "tier": "act"
+    }
+  ]
+}
