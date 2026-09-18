@@ -89,8 +89,13 @@ fn main() {
                 }
             });
 
-            // Supervise sidecars in the background.
+            // Shell owns dotenv: sidecars inherit this process env (see
+            // env_cfg::sidecar_env) and the bridge reports correct flags.
             let repo = env_cfg::repo_root();
+            let dotenv_loaded = env_cfg::load_dotenv_files(&repo);
+            if dotenv_loaded > 0 {
+                println!("jarvis: loaded {dotenv_loaded} dotenv file(s)");
+            }
             let progs = env_cfg::sidecar_programs(&repo);
             for m in &progs.missing {
                 eprintln!("jarvis: missing dependency: {m}");

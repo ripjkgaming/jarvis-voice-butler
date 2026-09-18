@@ -58,6 +58,46 @@ fn is_repo_root(p: &Path) -> bool {
     p.join("src").join("agent.py").is_file() && p.join("pyproject.toml").is_file()
 }
 
+/// Load `<repo>/.env.local` + `<repo>/frontend/.env.local` into the shell's
+/// own process env (never overriding real env). The shell is the only
+/// process that reads both files: sidecars get their contract via
+/// [`sidecar_env`], and the bridge inherits this process env, so its
+/// `/status` presence flags (`livekit_configured`, pipeline name) are
+/// correct without every sidecar re-parsing dotenv. Returns files loaded.
+/// Values are never logged.
+pub fn load_dotenv_files(repo: &std::path::Path) -> usize {
+    let mut loaded = 0;
+    for path in [
+        repo.join(".env.local"),
+        repo.join("frontend").join(".env.local"),
+    ] {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let mut any = false;
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || !line.contains('=') {
+                continue;
+            }
+            let (key, value) = match line.split_once('=') {
+                Some((k, v)) => (k.trim(), v.trim().trim_matches(['"', '\''])),
+                None => continue,
+            };
+            if key.is_empty() || std::env::var_os(key).is_some() {
+                continue;
+            }
+            std::env::set_var(key, value);
+            any = true;
+        }
+        if any {
+            loaded += 1;
+        }
+    }
+    loaded
+}
+
 /// Home dir honoring the `JARVIS_HOME` override (desktop sandbox support).
 pub fn jarvis_home() -> PathBuf {
     if let Some(h) = std::env::var_os("JARVIS_HOME") {
@@ -185,6 +225,41 @@ mod tests {
         std::env::remove_var("AGENT_NAME");
         let env2 = sidecar_env(Path::new("/repo"));
         let _ = env2.get("AGENT_NAME").expect("agent name always set");
+    }
+
+    #[test]
+    fn dotenv_files_load_without_clobbering() {
+        let tmp = std::env::temp_dir().join("jarvis-dotenv-test");
+        std::fs::create_dir_all(tmp.join("frontend")).ok();
+        std::fs::write(tmp.join(".env.local"), "JARVIS_DOTENV_T_A=1\n# comment\n").ok();
+        std::fs::write(
+            tmp.join("frontend/.env.local"),
+            "JARVIS_DOTENV_T_B='two'\nJARVIS_DOTENV_T_C=file-loses\n",
+        )
+        .ok();
+        for v in [
+            "JARVIS_DOTENV_T_A",
+            "JARVIS_DOTENV_T_B",
+            "JARVIS_DOTENV_T_C",
+        ] {
+            std::env::remove_var(v);
+        }
+        std::env::set_var("JARVIS_DOTENV_T_C", "real-env-wins");
+        assert_eq!(load_dotenv_files(&tmp), 2);
+        assert_eq!(std::env::var("JARVIS_DOTENV_T_A").as_deref(), Ok("1"));
+        assert_eq!(std::env::var("JARVIS_DOTENV_T_B").as_deref(), Ok("two"));
+        assert_eq!(
+            std::env::var("JARVIS_DOTENV_T_C").as_deref(),
+            Ok("real-env-wins")
+        );
+        for v in [
+            "JARVIS_DOTENV_T_A",
+            "JARVIS_DOTENV_T_B",
+            "JARVIS_DOTENV_T_C",
+        ] {
+            std::env::remove_var(v);
+        }
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
