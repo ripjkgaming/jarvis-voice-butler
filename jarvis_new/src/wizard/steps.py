@@ -36,7 +36,15 @@ def repo_root() -> Path:
     override = os.environ.get("JARVIS_REPO", "").strip()
     if override:
         return Path(override)
-    return Path.cwd()
+    # Walk up from cwd: `python -m wizard` run from src/ (or any subdir)
+    # must still find the checkout instead of reporting phantom ambers.
+    cwd = Path.cwd()
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / "src" / "agent.py").is_file() and (
+            candidate / "pyproject.toml"
+        ).is_file():
+            return candidate
+    return cwd
 
 
 # ---------------------------------------------------------------- steps

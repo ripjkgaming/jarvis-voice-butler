@@ -63,12 +63,14 @@ def oww_resource_dir(site_packages: Path | None = None) -> Path | None:
     if site_packages is not None:
         cand = site_packages / "openwakeword" / "resources" / "models"
         return cand if cand.is_dir() else None
-    # Probe the venv the wizard runs from + a conventional .venv-wake.
-    for base in (
-        Path.cwd() / ".venv-wake",
-        Path.cwd() / ".venv",
-    ):
-        for sp in (base / "lib" / "python3.11" / "site-packages",):
+    # Lazy import: steps owns repo discovery; top-level would risk a cycle
+    # (steps lazily imports this module in its checks).
+    from wizard.steps import repo_root
+
+    # Probe the checkout's venvs for any python3.x layout (wake is 3.11,
+    # main is 3.14 — never hardcode one).
+    for base in (repo_root() / ".venv-wake", repo_root() / ".venv"):
+        for sp in sorted(base.glob("lib/python3*/site-packages")):
             cand = sp / "openwakeword" / "resources" / "models"
             if cand.is_dir():
                 return cand

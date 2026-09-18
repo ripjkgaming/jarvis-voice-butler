@@ -3,7 +3,7 @@ venv commands, model paths, HF cache audit. No network, no sounddevice."""
 
 from __future__ import annotations
 
-from wizard import deps, gate, livekit, models, venvs
+from wizard import deps, gate, livekit, models, steps, venvs
 from wizard.state import WizardState, state_path
 
 # ------------------------------------------------------------------ state
@@ -249,9 +249,48 @@ def test_oww_resources_required() -> None:
     assert "melspectrogram.onnx" in models.OWW_RESOURCES
 
 
+def test_oww_resource_dir_cwd_independent(monkeypatch, tmp_path) -> None:
+    """Regression: probing from src/ (or any subdir) must still find the
+    checkout venvs instead of reporting models missing."""
+    repo = tmp_path / "repo"
+    sp = (
+        repo
+        / ".venv-wake"
+        / "lib"
+        / "python3.11"
+        / "site-packages"
+        / "openwakeword"
+        / "resources"
+        / "models"
+    )
+    sp.mkdir(parents=True)
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "agent.py").write_text("# fake")
+    (repo / "pyproject.toml").write_text("# fake")
+    monkeypatch.setenv("JARVIS_REPO", str(repo))
+    monkeypatch.chdir(repo / "src")
+    assert models.oww_resource_dir() == sp
+
+
 def test_voice_dir_honors_jarvis_home(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     assert models.voice_dir() == tmp_path / "voices"
+
+
+# ------------------------------------------------------------------ steps
+
+
+def test_repo_root_prefers_env_and_walks_up(monkeypatch, tmp_path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "agent.py").write_text("# fake")
+    (repo / "pyproject.toml").write_text("# fake")
+    sub = repo / "src"
+    monkeypatch.setenv("JARVIS_REPO", str(repo))
+    assert steps.repo_root() == repo
+    monkeypatch.delenv("JARVIS_REPO")
+    monkeypatch.chdir(sub)
+    assert steps.repo_root() == repo
 
 
 # ------------------------------------------------------------------ gate
@@ -266,11 +305,27 @@ def test_hf_cache_summary_marks_used(monkeypatch, tmp_path) -> None:
     (unused / "m.bin").write_bytes(b"b" * 2048)
 
     monkeypatch.setattr(gate, "HF_HUB", tmp_path)
+    monkeypatch.delenv("JARVIS_WHISPER_MODEL", raising=False)
     data = gate.hf_cache_summary()
     assert data["total_bytes"] == 3072
-    assert data["wasted_bytes"] == 2048
+    assert data["wasted_bytes"] == 0
     by_name = {m["name"]: m for m in data["models"]}
     assert by_name["models--Cactus-Compute--needle2"]["used"] is True
+    # Default whisper size (base) is protected: prune-hf must never delete
+    # the direct pipeline's ears (regression: stale audit marked it unused).
+    assert by_name["models--Systran--faster-whisper-base"]["used"] is True
+
+
+def test_hf_audit_follows_whisper_model_env(monkeypatch, tmp_path) -> None:
+    tiny = tmp_path / "models--Systran--faster-whisper-tiny"
+    base = tmp_path / "models--Systran--faster-whisper-base"
+    tiny.mkdir(parents=True)
+    base.mkdir(parents=True)
+    monkeypatch.setattr(gate, "HF_HUB", tmp_path)
+    monkeypatch.setenv("JARVIS_WHISPER_MODEL", "tiny")
+    data = gate.hf_cache_summary()
+    by_name = {m["name"]: m for m in data["models"]}
+    assert by_name["models--Systran--faster-whisper-tiny"]["used"] is True
     assert by_name["models--Systran--faster-whisper-base"]["used"] is False
 
 
@@ -280,6 +335,7 @@ def test_prune_unused_removes_only_unreferenced(monkeypatch, tmp_path) -> None:
     used.mkdir(parents=True)
     unused.mkdir(parents=True)
     monkeypatch.setattr(gate, "HF_HUB", tmp_path)
+    monkeypatch.delenv("JARVIS_WHISPER_MODEL", raising=False)
     removed = gate.prune_unused()
     assert removed == ["models--Systran--faster-whisper-tiny"]
     assert used.exists()

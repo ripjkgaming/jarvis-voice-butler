@@ -3,20 +3,39 @@
 The bridge gate is the plan's finale check: the full pipeline is only
 "green" when the loopback control plane answers. The HF cache audit is
 the plan's delivery pre-win: it inventories the ~3.7GB cache and marks
-which models are actually referenced by this codebase (needle2 is; the
-five faster-whisper checkpoints and the Mistral-Nemo GGUF stub are not).
+which models are actually referenced by this codebase (needle2 plus the
+configured faster-whisper checkpoint for the direct pipeline; the
+Mistral-Nemo GGUF stub and unselected whisper sizes are not).
 """
 
 from __future__ import annotations
 
+import os
 import time
 import urllib.request
 from pathlib import Path
 
 BRIDGE_DEFAULT_PORT = 4317
 HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
-# Models the code actually loads (audited from src/).
+# Models the code actually loads (audited from src/). The whisper entry
+# follows JARVIS_WHISPER_MODEL so prune-hf can never delete the ears out
+# from under the direct pipeline (src/local_stt.py). Unselected sizes stay
+# prunable: faster-whisper re-downloads on demand if later selected.
+WHISPER_HF_REPOS = {
+    "tiny": "models--Systran--faster-whisper-tiny",
+    "base": "models--Systran--faster-whisper-base",
+    "small": "models--Systran--faster-whisper-small",
+    "medium": "models--Systran--faster-whisper-medium",
+    "large-v3-turbo": "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+    "turbo": "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+}
 USED_HF_REPOS = {"models--Cactus-Compute--needle2"}
+
+
+def used_hf_repos() -> set[str]:
+    """Repos prune-hf must keep: needle2 + configured whisper size."""
+    size = os.environ.get("JARVIS_WHISPER_MODEL", "base").strip() or "base"
+    return USED_HF_REPOS | {WHISPER_HF_REPOS.get(size, WHISPER_HF_REPOS["base"])}
 
 
 def bridge_url(port: int = BRIDGE_DEFAULT_PORT) -> str:
@@ -52,6 +71,7 @@ def hf_cache_summary(cache_dir: Path | None = None) -> dict:
     Returns {total_bytes, models: [{name, bytes, used}], wasted_bytes}.
     """
     root = cache_dir or HF_HUB
+    keep = used_hf_repos()
     models: list[dict] = []
     try:
         entries = sorted(root.iterdir())
@@ -67,7 +87,7 @@ def hf_cache_summary(cache_dir: Path | None = None) -> dict:
             {
                 "name": entry.name,
                 "bytes": size,
-                "used": entry.name in USED_HF_REPOS,
+                "used": entry.name in keep,
             }
         )
     wasted = sum(m["bytes"] for m in models if not m["used"])

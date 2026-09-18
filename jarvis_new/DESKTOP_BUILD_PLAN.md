@@ -148,13 +148,86 @@ green → `Jarvis-0.1.0-1.x86_64.rpm` + AppImage (108M). 29/29 wizard
 tests, ruff clean. Remaining: fresh-Nobara-VM install rehearsal (needs
 real sudo + GUI), fd-find + brave-flatpak on this box.
 
-## Phase 4 — Overlay polish + release hygiene (ongoing)
+## Phase 4 — Overlay polish + release hygiene (detailed)
 
-Overlay toggle/always-on-top/blur-hide/click-through orb; real mic mute
-(needs a wake_client control hook — `SIGUSR1` toggle or unix-socket; the one
-IPC gap the bridge left); updater wiring (unsigned v1); log aggregation +
-rotation (`~/.jarvis/logs/`; `actions.log` append-only today); crash
-reporter; `livekit.yaml` egress lockdown once stable.
+Entry criteria: fresh-VM rehearsal done (Phase 3 carryover), GUI launched
+at least once (lifts the autostart gate), Phase 2 acceptance green.
+Order matters: 4.1 → 4.2 → 4.4 → 4.3 → 4.5 → 4.6.
 
-Accept: a week of daily driving, no orphans, no silent mic deaths, updates
-keep wizard state.
+### 4.1 Overlay window behaviors (2–3 days)
+- Toggle (hotkey + `jarvis toggle` already wired — verify against the real
+  webview, not the placeholder), always-on-top (set), blur-hide (focus-out
+  → hide, Tauri `WindowEvent::Focused(false)`), click-through idle
+  (`set_ignore_cursor_events(true)` when orb is idle, off while interacting).
+- Persist geometry: window position/size to `~/.jarvis/overlay.json` on
+  move/resize, restore on boot. Files: `shell/src-tauri/tauri.conf.json`
+  (window opts), `shell/src-tauri/src/tray.rs` + `hotkey.rs` (verify),
+  frontend command-field autofocus on show (listen `jarvis-toggle` event).
+- Accept: Super+J → overlay appears focused in <200ms; Esc/blur hides it;
+  position survives restart.
+
+### 4.2 Real mic mute — the last IPC gap (3–4 days)
+Design (chosen over SIGUSR1: queryable state + no signal collisions):
+- `wake_client.py`: unix-socket listener on `$JARVIS_HOME/wake.sock`
+  (stdlib `socket`, background thread): `{"mute": bool}` → pause/resume the
+  mic pump (`_pump_mic` skips capture while muted, keeps room joined);
+  `{"status": true}` → `{muted, threshold, in_call}`.
+- `bridge.py`: `POST /mic {"muted": bool}` proxy → socket; `GET /mic`
+  → status. Same Bearer gate as other routes. Tests in
+  `tests/test_bridge.py` (socket stub, no mic needed).
+- Shell: `commands.rs` `set_mic_muted(bool)` + `mic_status()` invoke pair;
+  tray menu gains a real Mute checkbox (replaces the Talk-menu placeholder);
+  `jarvis mute|unmute` CLI verbs via single-instance args.
+- HUD: mic button in `command-field`/`agent-control-bar` calls the invoke
+  pair; muted state colors the orb grey (extends `use-jarvis-state`).
+- Accept: tray mute → hotword ignored AND in-call mic silent; unmute
+  restores both; state survives sidecar restart (shell re-asserts on ready).
+
+### 4.3 Updater (2 days + signing later)
+- Add `tauri-plugin-updater` to `shell/src-tauri/Cargo.toml` (NOT currently
+  a dependency — shell, single-instance, autostart, global-shortcut, cli
+  are; updater was deferred), wire `tauri.conf.json` bundle updater
+  section with a local/dev feed URL placeholder.
+- v1 ships checks only ("update available" tray note), no auto-install;
+  code-signing (GPG for rpm, appimage signatures) explicitly deferred to
+  post-v1 — document as such, do not half-implement.
+- Accept: tray reports a staged newer version correctly; updates never wipe
+  `~/.jarvis/wizard-state.json` (regression test at the bundle level:
+  install 0.1.0 → fake-feed 0.2.0 → state file intact).
+
+### 4.4 Logs, rotation, diagnostics (2 days)
+- Manager log rotation: per-sidecar logs in `~/.jarvis/logs/` rotate at
+  10MB × 3 (`shell/src-tauri/src/manager.rs`; std-only rolling writer —
+  no new deps). `actions.log` gets the same treatment via `system/log.py`
+  size check on append (cap ~5MB, spill to `actions.log.1`).
+- `jarvis diagnostics` CLI (single-instance verb): tarball with bridge
+  `/status` + `/config`, last 200 log lines per sidecar, wizard `check`
+  output, versions (shell, venvs, livekit-server, frontend build id).
+  Explicitly excludes secrets (grep tarball in test for key patterns).
+- Crash path: sidecar Down past restart budget → tray red + notification
+  ("Jarvis sidecar down — run `jarvis diagnostics`") instead of today's
+  silent eprintln.
+- Accept: `jarvis diagnostics` bundle contains zero secret values (test);
+  30-day simulated log volume stays under 50MB.
+
+### 4.5 livekit.yaml egress lockdown (1 day, AFTER stability)
+- Default-deny egress in the vendored server config with allowlist:
+  `generativelanguage.googleapis.com` (Gemini), LiveKit Cloud Inference
+  hosts only if the `local` pipeline is ever re-enabled, package registries
+  off. `src/wizard/livekit.py` generates the locked config; wizard gets a
+  `--open-egress` escape hatch for debugging (loud warning).
+- Accept: realtime + direct calls work locked down; `curl example.com`
+  from a tool context fails (prove the default-deny).
+
+### 4.6 Release acceptance (1 week daily-driver + VM)
+- Phase 3 carryover, still open: fresh-Nobara-VM rehearsal (sudo + GUI),
+  fd-find install, brave-flatpak decision (native brave already covers
+  `browser.py` — likely drop the flatpak requirement, update `deps.py`
+  catalog + `system-deps.sh` accordingly).
+- Week of daily driving: zero orphan processes (`pgrep` audit script),
+  zero silent mic deaths, updates keep wizard state, overlay <200ms.
+
+Accept (whole phase): all 4.1–4.5 accepts green + 4.6 week clean.
+Risk: Wayland global-hotkey limits (documented KWin fallback stands);
+code-signing deferred means distro warnings on first install (note on the
+download page next to the footprint).

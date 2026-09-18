@@ -80,9 +80,25 @@ LOG:
     - layout/page static-safe (no headers()/getAppConfig); local fonts only.
     - tauri.conf.json CSP: added script-src 'unsafe-inline' + explicit
       connect-src/font-src/img-src (inline RSC payload needs it).
-    BLOCKER for phase1: shell Rust must add capabilities/ + commands
-    `mint_token` and `app_config` (see CONTRACT above) or the HUD can't
-    connect in the packaged webview. Not a build blocker — export is fine.
+[2026-09-18 11:50 UTC] [phase2] CORRECTION + acceptance re-check: my
+    earlier "BLOCKER for phase1" line was STALE — mint_token + app_config
+    commands (commands.rs), capabilities/default.json, and src/mint_token.py
+    were already in place (22:55) before my DONE. Verified the full chain:
+    - commands wired at main.rs:49-52; JS invoke('mint_token') matches the
+      Rust fn name; arg `roomConfig` (camelCase default) matches `room_config`.
+    - No ACL gate on custom commands: generated acl-manifests.json has NO
+      `__app-acl__` key (has_app_acl_manifest=false), and tauri://localhost
+      (prod) + http://localhost:4000 (dev) are local origins → webview
+      ACL-skip applies (tauri#webview/mod.rs:1823). capabilities/default.json
+      (core:default) only covers plugin/core perms — sufficient.
+    - CSP (my earlier edit) allows inline RSC scripts + connect-src for
+      bridge + ws://127.0.0.1:7880.
+    - src/mint_token.py live-tested here: mints valid 15-min JWT, dispatch
+      RoomAgentDispatch(agent_name=AGENT_NAME) preserved, LIVEKIT_URL local
+      ws://127.0.0.1:7880. Decoded claims: iss/sub/name/video.room ok.
+    - Exported bundle confirmed: app/page chunk contains invoke('mint_token',
+      {roomConfig}) + app_config + __TAURI_INTERNALS__ detection.
+    No blocker remains. Phase 2 frontend port complete.
 [2026-09-17 22:31 UTC] [phase1] ACK phase3/phase0 claims — no conflict with
     shell/. Reminder: sidecars expect the binary at $JARVIS_LIVEKIT_BIN or
     ~/.jarvis/bin/livekit-server and LIVEKIT_URL ws://127.0.0.1:7880.
@@ -143,6 +159,19 @@ LOG:
     end on my side. Note:     bridge /status shows local_unlocked=false /
     livekit_configured=false when launched bare (reads process env only) —
     by contract the Tauri launcher sets these (env_cfg.rs); no change made.
+[2026-09-18 09:30 UTC] [phase1] VERIFY stages 1-3 (all green):
+    stage1: cargo test 13/13, clippy 0, fmt clean, invoke_handler +
+    capabilities + icons all present. stage2: pnpm build green (static,
+    439kB /), frontend/out byte-identical to shell/ui (no drift).
+    stage3: 32/32 wizard tests, livekit-server booted :7880, rpm+AppImage
+    artifacts present, onnx 1.30 both venvs, tflite gone, wizard check all
+    green except fd-find (sudo) + bridge (needs shell running) — both
+    expected. STAGE3 FIXES (mine, all tested): HF audit now protects the
+    configured faster-whisper repo (prune-hf would have deleted the direct
+    pipeline's ears — live hazard, fixed); wizard repo_root walks up + OWW
+    probe is version-agnostic (running from src/ no longer reports phantom
+    ambers). Still genuinely blocked: fd-find install + brave-flatpak
+    decision (sudo), fresh-VM rehearsal (needs VM+GUI). Nothing else open.
 [2026-09-18 08:40 UTC] [phase1] DONE 2nd flag (local-pipeline workaround):
     new JARVIS_PIPELINE=direct — fully cloud-free for the local server.
     Ears: src/local_stt.py FasterWhisperSTT (batch STT plugin, local
