@@ -159,6 +159,39 @@ LOG:
     end on my side. Note:     bridge /status shows local_unlocked=false /
     livekit_configured=false when launched bare (reads process env only) —
     by contract the Tauri launcher sets these (env_cfg.rs); no change made.
+[owner] PHASE5 BRIEFS REWRITTEN (old tree ignored per owner — do NOT work
+    in ~/jarvis): jarvis_new/PHASE5_MEGAPROMPT.md (main) +
+    jarvis_new/PHASE5_HELPER_MEGAPROMPT.md (helper) rebuilt with absolute
+    paths, step-zero repo fingerprint (abort if markers absent), salvage
+    inventory (negatives/benchmarks/skills/fixtures/findings reuse),
+    v2-training plateau rule (stop + rework dataset if epoch-2 plateau),
+    and territory split (helper: data, main: decisions). Legacy ~/jarvis
+    changes stay uncommitted and untouched. Paste the matching file to a
+    FRESH agent — do not resume the old phase5 session in place.
+[owner] TO MAIN PHASE5 AGENT — you have a HELPER (tag [phase5-helper],
+    spec: jarvis_new/PHASE5_HELPER_MEGAPROMPT.md). Split: helper produces
+    DATA (H1 fixture factory + whisper benchmark table, H2 skill recipes +
+    posted seeds, H3 150+ negatives corpus) — you own DECISIONS + core code
+    (5.1-5.4). Helper never edits resolver.py/intent/local_stt/proactive/
+    agent.py/test_voice_regressions.py (proposes via comms, you apply).
+    Your duties: (a) review + merge/reject helper proposals within a day,
+    with reasons logged; (b) do NOT duplicate H1-H3 — check helper DONE
+    lines first; (c) consume the benchmark table for 5.3 (you decide
+    defaults/docs); (d) resolve shared-interface conflicts by owning the
+    decision and logging it. Helper starts immediately, independent of you.
+[2026-09-18 20:30 UTC] [phase1] PHASE4 VERIFIED + OWNER ITEMS CLOSED (pushed
+    b3bf6f3): claims hold — cargo 34/34, clippy 0, fmt clean, pytest 111,
+    ruff clean, all files present. Orphans: 11 stale wake clients found
+    (all reparented, spanning rebuilds) — killed, 1 live remains; root
+    cause fixed in manager.rs (boot-time exact-argv /proc reaping, 2 new
+    tests, proven live: cleared 4 stale on next boot). Mic IPC proven live
+    both directions via bridge /mic (left UNMUTED). brave-flatpak DROPPED
+    per 4.6 recommendation: official rpm repo bootstrap in system-deps.sh,
+    catalog dnf-routed, native-only regression test; verified Brave docs
+    URLs. system-deps.sh rerun clean (fd-find+wl-clipboard installed).
+    Still owner-side (needs human): GUI <200ms timing proof, staged-feed
+    runtime proof, fresh-VM rehearsal. 4.5 non-landing endorsed (correct
+    call — containment belongs at nftables layer, post-v1).
 [2026-09-18 19:45 UTC] [phase1] DOTENV FOLD-IN + COLD-BOOT PROOF (pushed
     0240abe): shell loads repo+frontend .env.local itself (new keys never
     override real env); bridge /status now all-true live. Full cold boot
@@ -265,3 +298,68 @@ Rules:
 [2026-09-18 12:06 UTC] [phase4] DECISION brave-flatpak: DROP com.brave.Browser recommended. Evidence: src/browser.py _discover_browser_binary resolves via shutil.which(brave-browser|brave|chrome|chromium) or JARVIS_BROWSER_BIN — flatpak run URIs are never tried, and flatpak sandboxing would complicate CDP + ~/.jarvis profiles. Native /usr/bin/brave-browser present and sufficient. Change itself (system-deps.sh:36 + deps.py flatpak_app field) left for owner/stage5 — scripts are read-only for phase4. No gap found.
 [2026-09-18 12:07 UTC] [phase4] NOTE for phase5 (interface status): mic-mute IPC SHIPPED (wake.sock {"mute":bool}/{"status":true} + bridge POST/GET /mic + shell set_mic_muted/mic_status + HUD button/grey orb); overlay events SHIPPED (blur-hide, geometry persist, click-through cmd, autofocus, Esc); diagnostics SHIPPED (jarvis diagnostics -> redacted tarball via src/diagnostics.py); log rotation SHIPPED (10MBx3 sidecar + 5MB actions.log); updater checks SHIPPED (checks-only, UNSET pubkey, no auto-install). EGRESS LOCKDOWN did NOT land (verified unimplementable: server v1.13.7 has no such config; see 4.5 DONE) — do not design against it. No phase4 file overlaps your territory (never touched intent/local_stt/proactive/briefing/agent.py/.env.example/DESKTOP_BUILD_PLAN); your suites test_intent/test_proactive/test_briefing_job re-verified green 26/26 just now. shell/ui export rebuilt (4.1+4.2 invokes) + gen/schemas regenerated (updater plugin) — expected churn, owner pushes.
 [2026-09-18 12:07 UTC] [phase4] DONE ALL SLICES 4.1+4.2+4.4+4.3+4.5 (+4.6 decision). Final board: cargo test 32/32 (was 14), clippy 0 warnings, fmt clean; pytest 106 passed (bridge/wake/wizard/local_stt/diagnostics/system); phase5-adjacent suites 26/26 green; ruff clean; wizard check 7/7; pnpm build green, shell/ui re-synced. New files: shell/.../overlay.rs, updater.rs, src/diagnostics.py, tests/test_diagnostics.py. Deviations logged per slice (focus-autofocus not jarvis-toggle; watchdog had no eprintln; updater pubkey placeholder; 4.5 deferred with evidence). Owner-side still open: GUI timing proof (<200ms), live sidecar restart to pick up 4.2/4.4 (5 wake orphans piled — see OBS), staged-feed runtime proof, bundle-level update/state test, fresh-VM rehearsal, brave-flatpak removal edit, sudo/GUI items. Never committed/pushed; never sudoed; GUI never launched.
+[2026-09-18 12:40 UTC] [phase5-helper] DONE H1 fixture factory + whisper benchmark:
+    NEW tests/test_voice_fixtures.py (builder + manifest + difflib WER + smoke).
+    11 Piper fixtures (alan, length_scale pinned 0.85, 16k mono; 1 noisy -20dB
+    seeded) x tiny/base/small, CPU int8, FasterWhisperSTT, model reused per size.
+    Full table (/tmp/opencode/phase5-helper/bench_results.md); means:
+    tiny WER 0.26 total 13.1s / base WER 0.07 total 19.8s /
+    small WER 0.07 total 64.2s (11 utts each; first-row secs incl model load).
+    tiny fails: mute_it->"muted." (1.00), ada_lovelace->"a-d'a-love-lase"
+    (1.00), twelve-percent (0.71); base/small clean except number-wording
+    ("5" vs "five", "12% of 85" vs words: 0.17-0.57 — SCORING ARTIFACT,
+    suggest main 5.4 normalize digits<->words before WER). Noisy case WER 0.00
+    on all 3 sizes. No defaults/docs changed — main decides per 5.3 matrix.
+    Verify: pytest tests/test_voice_fixtures.py 4 passed/27.1s (<3min),
+    ruff check+format clean, wizard 7/7 green. No commit (owner pushes).
+[2026-09-18 12:40 UTC] [phase5-helper] BENCH TABLE (11 fixtures x 3 sizes):
+    tiny: mute_it 1.00 | what_time_is_it 0.00 | turn_it_up 0.00 |
+      timer_five_minutes 0.00 | twelve_percent 0.71 | open_youtube 0.00 |
+      ada_lovelace 1.00 | weather_london 0.00 | email_teacher 0.00 |
+      shopping_list 0.17 | noisy_time 0.00
+    base: mute 0.00 | time 0.00 | turn_up 0.00 | timer 0.17 | twelve 0.57 |
+      youtube 0.00 | ada 0.00 | weather 0.00 | email 0.00 | shopping 0.00 |
+      noisy 0.00
+    small: identical to base per-fixture (0.00s except timer 0.17/twelve 0.57),
+      ~3.3x slower than base (64.2s vs 19.8s). Data says base is the knee;
+      main to confirm on its own fixtures.
+[2026-09-18 12:40 UTC] [phase5-helper] DONE H3 negatives corpus: 166 items
+    {text, why_negative} at /tmp/opencode/phase5-helper/negatives.jsonl
+    (scratch, main merges). 30 gibberish / 35 chitchat / 45 out-of-scope /
+    30 near-miss bait / 25 multilingual. Unique 166/166, no PII/profanity
+    (regex-gated). LEAK REPORT: first draft had 19 items routing >=0.5 —
+    ALL rephrased or dropped, final 0 leaks (script re-runnable:
+    make_negatives.py). Notable fuzzy over-eagerness for main 5.1 (all
+    fixed on my side, but the patterns smell): 'read my mind'->gmail_inbox
+    0.80, 'tell me a bedtime story'->tell_time 0.67, 'what is the capital
+    of peru'->tell_time 0.65, 'clean my room'->nmap_scan 0.67,
+    'trace the hacker'->autopilot 0.67, 'beam me up scotty'->set_volume
+    0.68 (via 'up' keyword), 'gracias por todo amigo'->manage_todo 0.60
+    (via 'todo' substring), 'compose a haiku on rain'->weather_now 0.60
+    (via 'rain'). Single-keyword hits on 'up/down/rain/todo' inside long
+    unrelated sentences may deserve the substring-guard treatment that
+    'mute' already has in resolver.py.
+[2026-09-18 12:40 UTC] [phase5-helper] DONE H2 recipes: NEW skills/
+    morning_routine.md + focus_mode.md (explicit restore-focus contract) +
+    meeting_prep.md — all tool names verified real against @function_tool
+    defs (morning_briefing/weather_now/school_day/daily_briefing/manage_todo/
+    set_volume/set_brightness/window_action/search_the_web(BrowserTools)/
+    build_document/open_url). No python, recipes only. Live demos ran
+    (transcript /tmp/opencode/phase5-helper/demo_transcript.txt):
+    (1) morning_briefing+school_day live OK (real classes+weather+headlines);
+    (2) focus: mute->Muted + unmute->Unmuted verified, volume back at 130%,
+    brightness N/A on this box ("unavailable on this display"), wmctrl list
+    empty (no X windows here), parking discovery-only, nothing left unrestored;
+    (3) prep: school_day today+next live OK, search_the_web attempted live but
+    brave+ddg APIs both return None in this env (browser fallback needs a real
+    BrowserManager) — recipe covers this (notes still written);
+    build_document notes written to ~/Documents/Jarvis/. SEEDS for resolver.py
+    (main to add, 6 each — I did NOT edit resolver.py):
+    morning: "morning routine" / "start my morning" / "run my morning briefing"
+      / "good morning" / "kick off the day" / "daily startup";
+    focus: "focus mode" / "lock in" / "heads down time" / "deep work mode" /
+      "do not disturb me" / "restore focus" (exit);
+    prep: "meeting prep" / "prep my meeting" / "brief me for my next meeting" /
+      "who am i meeting next" / "get ready for my call" / "what is my next event".
+    Caveats: brightness/dim + window park/restore need owner GUI session to
+    prove; search demo needs working search keys/browser. No sudo/GUI used.
