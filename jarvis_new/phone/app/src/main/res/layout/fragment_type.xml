@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+<LinearLayout android:orientation="vertical" android:padding="16dp"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+    <EditText android:id="@+id/edit_type" android:hint="Type on the PC…"
+        android:minLines="3"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btn_send" android:text="Send"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <GridLayout android:columnCount="4"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/key_enter" android:text="Enter" />
+        <Button android:id="@+id/key_esc" android:text="Esc" />
+        <Button android:id="@+id/key_tab" android:text="Tab" />
+        <Button android:id="@+id/key_up" android:text="↑" />
+        <Button android:id="@+id/key_left" android:text="←" />
+        <Button android:id="@+id/key_down" android:text="↓" />
+        <Button android:id="@+id/key_right" android:text="→" />
+    </GridLayout>
+    <TextView android:id="@+id/txt_type_status" android:text=""
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+</LinearLayout>
+</ScrollView>

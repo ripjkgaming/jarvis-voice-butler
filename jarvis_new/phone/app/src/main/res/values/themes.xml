@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.JarvisLink" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#1FD5F9</item>
+        <item name="colorOnPrimary">#05070D</item>
+        <item name="android:windowBackground">#05070D</item>
+    </style>
+</resources>

@@ -90,6 +90,10 @@ def _realtime_llm():
 # Cheap pipeline model IDs (LiveKit Inference; billed from credits).
 CHEAP_STT_MODEL = "assemblyai/universal-streaming"
 CHEAP_LLM_MODEL = "google/gemini-2.5-flash"
+# Direct text brains (Gemini API, no Inference). Stable alias: pinned
+# "gemini-2.5-flash" rotted (retired for new keys -> instant 404).
+# Keep in sync with bridge.py's GEMINI_TEXT_MODEL.
+DIRECT_LLM_MODEL = "gemini-flash-latest"
 # Free cloud fallback voice (debugging + fallback if local voice misbehaves).
 CHEAP_TTS_MODEL = "rime/coda"
 
@@ -175,7 +179,7 @@ def _session_for_pipeline(turn_handling: TurnHandlingOptions) -> AgentSession:
         return AgentSession(
             vad=silero.VAD.load(),
             stt=FasterWhisperSTT(),
-            llm=google.LLM(model="gemini-2.5-flash"),
+            llm=google.LLM(model=DIRECT_LLM_MODEL),
             tts=_session_tts(),
             # No explicit turn_detection: auto mode picks "vad" (a VAD is
             # present, no realtime model), so endpointing stays local too.
@@ -220,7 +224,7 @@ def _default_agent_llm():
                 "JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local."
             )
         if _shared_local_llm is None:
-            _shared_local_llm = google.LLM(model="gemini-2.5-flash")
+            _shared_local_llm = google.LLM(model=DIRECT_LLM_MODEL)
         return _shared_local_llm
     if _shared_local_llm is None:
         _shared_local_llm = inference.LLM(model=CHEAP_LLM_MODEL)

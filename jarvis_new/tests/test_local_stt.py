@@ -86,7 +86,9 @@ def test_direct_sub_agents_get_gemini_direct_brains(monkeypatch) -> None:
     monkeypatch.setattr(agent_mod, "_shared_local_llm", None)
     llm = agent_mod._default_agent_llm()
     assert type(llm).__module__.startswith("livekit.plugins.google")
-    assert getattr(llm, "model", "") == "gemini-2.5-flash"
+    from agent import DIRECT_LLM_MODEL
+
+    assert getattr(llm, "model", "") == DIRECT_LLM_MODEL
 
 
 async def test_direct_pipeline_builds_offline_session(monkeypatch) -> None:

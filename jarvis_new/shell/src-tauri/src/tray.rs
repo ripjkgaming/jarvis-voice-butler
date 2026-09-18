@@ -103,6 +103,9 @@ pub fn show_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("overlay") {
         let _ = win.show();
         let _ = win.set_focus();
+        // The window exists now: apply any click-through the HUD asked for
+        // while it was hidden (see commands::set_overlay_click_through).
+        crate::commands::apply_click_through(app);
     }
 }
 

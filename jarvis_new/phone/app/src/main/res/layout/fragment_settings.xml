@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+<LinearLayout android:orientation="vertical" android:padding="16dp"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+    <TextView android:text="PC tailnet IP" />
+    <EditText android:id="@+id/edit_host" android:hint="100.x.x.x" android:inputType="text"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <TextView android:text="Bridge port" />
+    <EditText android:id="@+id/edit_port" android:text="4317" android:inputType="number"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <TextView android:text="Mic uplink port" />
+    <EditText android:id="@+id/edit_mic_port" android:text="4318" android:inputType="number"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <TextView android:text="Bridge token" />
+    <EditText android:id="@+id/edit_token" android:hint="must match JARVIS_BRIDGE_TOKEN"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btn_save" android:text="Save"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Switch android:id="@+id/switch_mic" android:text="Background mic (hey Jarvis)"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btn_test" android:text="Test connection"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <TextView android:id="@+id/txt_settings_status" android:text=""
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+</LinearLayout>
+</ScrollView>

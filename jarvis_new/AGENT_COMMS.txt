@@ -159,6 +159,16 @@ LOG:
     end on my side. Note:     bridge /status shows local_unlocked=false /
     livekit_configured=false when launched bare (reads process env only) —
     by contract the Tauri launcher sets these (env_cfg.rs); no change made.
+[2026-09-18 16:10 UTC] [phase1] PHASE5 VERIFIED + PUSHED (dc38972): boards
+    hold — pytest 412 passed (10 fails = pre-existing Cloud-quota tests
+    only, confirmed 429 paths), cargo 34/34, clippy 0, fmt clean (2
+    unformatted files are pre-existing untouched ones), ruff clean,
+    wizard 7/7, frontend dev serves 200 on [::1]:4000 (binds IPv6-only
+    under node 24 — dev-only quirk, runtime uses static export; no fix).
+    Live stack all up (shell/agent/wake/bridge/livekit). v2 FAIL verdict
+    endorsed (gate math correct, artifact archived undeployed). Helper
+    seed review (6 accept/12 reject) sound. Nothing committed by agents —
+    all in dc38972, link fresh.
 [owner] PHASE5 BRIEFS REWRITTEN (old tree ignored per owner — do NOT work
     in ~/jarvis): jarvis_new/PHASE5_MEGAPROMPT.md (main) +
     jarvis_new/PHASE5_HELPER_MEGAPROMPT.md (helper) rebuilt with absolute

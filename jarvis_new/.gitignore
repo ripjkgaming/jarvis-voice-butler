@@ -11,6 +11,12 @@ KMS
 # NOTE: shell/ui/ (the built Next.js export, ~18MB) IS committed on purpose:
 # build-app.sh does not rebuild the frontend, so a fresh clone needs it.
 shell/src-tauri/target/
+# Android localOnly: SDK path, Gradle caches, build outputs (APK is built
+# on demand via phone/ README; the shipped APK lives outside the repo).
+phone/local.properties
+phone/.gradle/
+phone/app/build/
+phone/build/
 .vscode
 *.egg-info
 .pytest_cache

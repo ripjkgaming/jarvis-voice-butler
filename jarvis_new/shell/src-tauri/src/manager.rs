@@ -177,7 +177,15 @@ pub fn reap_stale_sidecars(specs: &[SidecarSpec]) -> Vec<u32> {
     signaled
 }
 
-/// Build the four specs from resolved programs. Pure (no spawning).
+/// Port for the remote-mic hotword uplink (src/mic_uplink.py, wake venv).
+pub fn mic_port() -> u16 {
+    std::env::var("JARVIS_MIC_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4318)
+}
+
+/// Build the five specs from resolved programs. Pure (no spawning).
 pub fn build_specs(
     progs: &SidecarPrograms,
     livekit_port: u16,
@@ -235,6 +243,17 @@ pub fn build_specs(
                 path: "/health".into(),
             },
             ready_timeout_s: 15,
+        },
+        SidecarSpec {
+            name: "mic-uplink",
+            program: progs.wake_python.clone(),
+            args: vec![repo
+                .join("src")
+                .join("mic_uplink.py")
+                .to_string_lossy()
+                .into_owned()],
+            ready: ReadyCheck::TcpPort(mic_port()),
+            ready_timeout_s: 20,
         },
     ]
 }
@@ -459,12 +478,14 @@ mod tests {
     }
 
     #[test]
-    fn specs_start_with_livekit_and_end_with_bridge() {
+    fn specs_start_with_livekit_and_end_with_mic_uplink() {
         let specs = build_specs(&fake_progs(), 7880, 4317);
-        assert_eq!(specs.len(), 4);
+        assert_eq!(specs.len(), 5);
         assert_eq!(specs.first().unwrap().name, "livekit");
-        assert_eq!(specs.last().unwrap().name, "bridge");
+        assert_eq!(specs[3].name, "bridge");
+        assert_eq!(specs.last().unwrap().name, "mic-uplink");
         assert!(matches!(specs[0].ready, ReadyCheck::TcpPort(7880)));
+        assert!(matches!(specs[4].ready, ReadyCheck::TcpPort(4318)));
     }
 
     #[test]

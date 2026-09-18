@@ -249,12 +249,39 @@ pub fn hide_overlay(app: AppHandle) -> Result<(), String> {
 /// The HUD sets `true` when the orb is idle and no field is focused, so the
 /// always-on-top window never blocks clicks to windows beneath; any
 /// interaction flips it back off. Missing window = no-op success.
+///
+/// GTK hazard (crashed the 01:00 boot): `set_ignore_cursor_events` on a
+/// hidden/unrealized window unwraps a None GDK window inside tao and
+/// panics the process. So the request is forwarded ONLY while visible;
+/// otherwise the desire is stashed and `apply_click_through` (called from
+/// every show path) applies it once the window exists.
+pub fn click_through_desired() -> bool {
+    CLICK_THROUGH_DESIRED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Apply the stashed click-through desire to a now-visible window.
+pub fn apply_click_through(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.set_ignore_cursor_events(click_through_desired());
+        }
+    }
+}
+
+static CLICK_THROUGH_DESIRED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 pub fn set_overlay_click_through(app: AppHandle, ignore: bool) -> Result<(), String> {
+    CLICK_THROUGH_DESIRED.store(ignore, std::sync::atomic::Ordering::SeqCst);
     match app.get_webview_window(OVERLAY_LABEL) {
-        Some(win) => win
-            .set_ignore_cursor_events(ignore)
-            .map_err(|e| format!("click-through: {e}")),
+        Some(win) => {
+            if win.is_visible().unwrap_or(false) {
+                win.set_ignore_cursor_events(ignore)
+                    .map_err(|e| format!("click-through: {e}"))?;
+            }
+            Ok(())
+        }
         None => Ok(()),
     }
 }

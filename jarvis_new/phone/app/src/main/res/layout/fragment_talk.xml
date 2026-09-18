@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical" android:gravity="center"
+    android:padding="24dp"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <TextView android:id="@+id/txt_talk_out"
+        android:text="Hold the button and speak"
+        android:minHeight="160dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/btn_ptt" android:text="HOLD TO TALK"
+        android:layout_width="220dp" android:layout_height="220dp" />
+</LinearLayout>
