@@ -46,6 +46,10 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_cli::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::app_config,
             commands::mint_token

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 from google.genai import types as genai_types
@@ -49,7 +50,10 @@ from system.pentest import PentestTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 
-load_dotenv(".env.local")
+# Resolve against the checkout root, not cwd: the Tauri shell spawns the
+# worker with cwd=shell/, where a relative ".env.local" never resolves and
+# the worker dies with "api_key is required" (first-run crash loop).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 
 
 def _realtime_llm():
