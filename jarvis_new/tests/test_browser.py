@@ -144,9 +144,33 @@ async def test_tabs_open_switch_and_close() -> None:
         assert closed["closed"] == "helper"
 
         # Closing the only remaining tabs is refused.
-        await manager.close_tab(second["tab"])
+        closed = await manager.close_tab(second["tab"])
         with pytest.raises(BrowserError, match="only open tab"):
             await manager.close_tab("main")
+    finally:
+        await manager.close()
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_type_text_targets_editable_not_labelled_decoys() -> None:
+    """A labelled non-editable element (e.g. DuckDuckGo's aria-labelled
+    "Search mode" toggle) must not steal type_text from the search box."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _DecoySearchHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    manager = BrowserManager(headless=True)
+
+    try:
+        url = f"http://127.0.0.1:{server.server_port}"
+        await manager.open_url(url)
+
+        result = await manager.type_text("search", "LiveKit")
+        assert result["target"] == "search"
+
+        value = await manager._page.locator("#q").input_value()
+        assert value == "LiveKit"
     finally:
         await manager.close()
         server.shutdown()
@@ -195,6 +219,31 @@ class _TestPageHandler(BaseHTTPRequestHandler):
             <label for="search">Search</label>
             <input id="search" type="search" placeholder="Search the site">
             <button>Go</button>
+          </body>
+        </html>
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, message_format: str, *args: object) -> None:
+        return
+
+
+class _DecoySearchHandler(BaseHTTPRequestHandler):
+    """Mimics DuckDuckGo: an aria-labelled toggle div shadows the search box."""
+
+    def do_GET(self) -> None:
+        body = b"""
+        <html>
+          <body>
+            <div role="radiogroup" data-mode="search" aria-label="Search mode">
+              <input type="radio" name="mode" value="web">Web</input>
+              <input type="radio" name="mode" value="ai">AI</input>
+            </div>
+            <input id="q" type="search" placeholder="Search the web" aria-label="Search">
           </body>
         </html>
         """

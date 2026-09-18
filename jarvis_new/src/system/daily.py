@@ -17,12 +17,12 @@ Every tool refuses unless JARVIS_LOCAL=1.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import html
 import json
 import re
 import time
-import urllib.request
 from pathlib import Path
 
 from livekit.agents import RunContext, function_tool
@@ -30,6 +30,11 @@ from livekit.agents.llm import ToolError
 
 from system import LocalSystemError, log_action, require_local
 from system.core import DATA_DIR, TODOS_PATH
+from system.whatsapp import SETUP_HINT as _WA_SETUP_HINT
+from system.whatsapp import alive as _wa_alive
+from system.whatsapp import list_chats as _wa_list_chats
+from system.whatsapp import page_present as _wa_page_present
+from system.whatsapp import read_chat as _wa_read_chat
 
 SCHOOL_ICS = Path.home() / "jarvis" / "data" / "school.ics"
 SCHOOL_JSON = DATA_DIR / "school.json"
@@ -37,7 +42,6 @@ STUDY_PLAN_SRC = Path.home() / "jarvis" / "data" / "study_plan.json"
 STUDY_STATE = DATA_DIR / "study_state.json"
 DOCS_DIR = Path.home() / "Documents" / "Jarvis"
 WA_DRAFTS = DATA_DIR / "wa_drafts.json"
-WA_CDP = "http://127.0.0.1:9223"
 
 
 def _read_json(path: Path, default):
@@ -223,28 +227,17 @@ def render_html(title: str, sections: list[tuple[str, list[str]]]) -> str:
 
 
 def wa_alive() -> bool:
-    try:
-        with urllib.request.urlopen(WA_CDP + "/json/version", timeout=5) as r:
-            return r.status == 200
-    except Exception:
-        return False
+    return _wa_alive()
 
 
 def _wa_targets() -> list:
-    try:
-        with urllib.request.urlopen(WA_CDP + "/json/list", timeout=10) as r:
-            d = json.loads(r.read().decode("utf8", "replace"))
-            return d if isinstance(d, list) else []
-    except Exception:
-        return []
+    from system import whatsapp as _wa
+
+    return _wa._targets()
 
 
 def wa_page_present() -> bool:
-    return any(
-        "web.whatsapp.com" in (t.get("url") or "")
-        for t in _wa_targets()
-        if isinstance(t, dict)
-    )
+    return _wa_page_present()
 
 
 class DailyTools:
@@ -260,6 +253,7 @@ class DailyTools:
             self.build_slides,
             self.build_document,
             self.whatsapp_status,
+            self.whatsapp_chats,
             self.whatsapp_read,
             self.whatsapp_draft,
         ]
@@ -614,48 +608,99 @@ class DailyTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        if not wa_alive():
-            return {"say": "WhatsApp is not reachable. Is Whatsie open?"}
-        if not wa_page_present():
+        if not await asyncio.to_thread(wa_alive):
+            return {"say": _WA_SETUP_HINT}
+        if not await asyncio.to_thread(wa_page_present):
             return {"say": "Whatsie is running but WhatsApp Web is not open."}
         return {"say": "WhatsApp is connected via Whatsie."}
+
+    @function_tool()
+    async def whatsapp_chats(
+        self, context: RunContext, limit: int = 10
+    ) -> dict[str, object]:
+        """List recent WhatsApp chats (names, times, unread counts).
+
+        Args:
+            limit: How many chats (1-20).
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        if not await asyncio.to_thread(wa_alive):
+            raise ToolError(_WA_SETUP_HINT)
+        try:
+            chats = await _wa_list_chats(max(1, min(20, int(limit))))
+        except ImportError:
+            raise ToolError(
+                "WhatsApp reading needs the websockets package: `uv sync` then retry."
+            ) from None
+        except Exception as exc:
+            raise ToolError(f"I could not list WhatsApp chats: {exc}.") from exc
+        if not chats:
+            raise ToolError(
+                "The WhatsApp chat list came back empty. Is Whatsie open "
+                "with WhatsApp Web signed in?"
+            )
+        bits = "; ".join(
+            f"{c['name']} ({c['time']}"
+            + (f", {c['unread']} unread" if c.get("unread") else "")
+            + ")"
+            for c in chats[: max(1, min(20, int(limit)))]
+        )
+        log_action("whatsapp", f"chats {len(chats)}")
+        return {
+            "chats": chats,
+            "say": (f"Recent chats: {bits[:600]}. Opening one marks it read, sir."),
+        }
 
     @function_tool()
     async def whatsapp_read(
         self, context: RunContext, chat: str = "", n: int = 10
     ) -> dict[str, str]:
-        """Read recent WhatsApp messages (marks them read, as WhatsApp does).
-
-        Full message text needs the Whatsie CDP bridge (websockets lib);
-        without it this reports reachability only.
+        """Read recent WhatsApp messages (opening marks them read, as WhatsApp does).
 
         Args:
-            chat: Chat name (empty = reachability check only).
+            chat: Chat name (empty = list recent chats instead).
             n: Last N messages (1-30).
         """
         try:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        if not wa_alive():
-            raise ToolError("WhatsApp is not reachable. Is Whatsie open?")
-        try:
-            import websockets  # noqa: F401
-        except ImportError:
-            log_action("whatsapp", "read (no bridge)")
+        if not await asyncio.to_thread(wa_alive):
+            raise ToolError(_WA_SETUP_HINT)
+        if not (chat or "").strip():
+            chats = await self.whatsapp_chats(context, 10)
             return {
-                "say": (
-                    "WhatsApp is connected but full message reading needs "
-                    "the bridge library. Say draft to queue a reply instead."
-                )
+                "say": str(chats.get("say", "")),
+                "chats": str(chats.get("chats", "")),
             }
-        # Bridge present: reuse the proven CDP reader via subprocess-free
-        # inline evaluate. Kept minimal here; full DOM parsing lives in
-        # the laptop Jarvis whatsapp module.
-        raise ToolError(
-            "Message text reading runs on the full laptop Jarvis; "
-            "here I can take drafts. Say who and what to draft."
-        )
+        try:
+            result = await _wa_read_chat(chat.strip()[:60], max(1, min(30, int(n))))
+        except ImportError:
+            raise ToolError(
+                "WhatsApp reading needs the websockets package: `uv sync` then retry."
+            ) from None
+        except Exception as exc:
+            raise ToolError(f"I could not read WhatsApp: {exc}.") from exc
+        if not result.get("ok"):
+            raise ToolError(str(result.get("err", "could not read that chat"))[:200])
+        msgs = result.get("messages", [])
+        if not msgs:
+            return {"say": f"No readable messages in {result.get('name', chat)[:40]}."}
+        lines = []
+        for m in msgs[-max(1, min(30, int(n))) :]:
+            who = "You" if m.get("me") else (m.get("sender") or "Them")
+            lines.append(f"{who}: {m.get('text', '')[:200]}")
+        text = " | ".join(lines)[:1500]
+        log_action("whatsapp", f"read {result.get('name', chat)[:40]} {len(msgs)}")
+        return {
+            "chat": str(result.get("name", chat)),
+            "say": (
+                f"Last in {result.get('name', chat)[:40]} (now marked read): {text}"
+            ),
+        }
 
     @function_tool()
     async def whatsapp_draft(
@@ -679,7 +724,8 @@ class DailyTools:
         if not isinstance(drafts, list):
             drafts = []
         drafts.append({"chat": chat, "text": text, "ts": time.time()})
-        _write_json(WA_DRAFTS, drafts[-50:])
+        # Infinite retention: keep full draft history, never trim.
+        _write_json(WA_DRAFTS, drafts)
         log_action("whatsapp-draft", f"{chat}: {text[:80]}")
         return {
             "say": f"Draft queued for {chat[:40]}. Approve it on your phone to send."

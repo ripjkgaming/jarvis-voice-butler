@@ -1,9 +1,214 @@
+import asyncio
+import html as _html
+import os
+import re
 from urllib.parse import urlencode
 
+import httpx
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
 from browser import BrowserError, BrowserManager
+
+BRAVE_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+DDG_LITE_ENDPOINT = "https://lite.duckduckgo.com/lite/"
+YOU_SEARCH_ENDPOINT = "https://ydc-index.io/v1/search"
+
+
+def _you_api_key(explicit: str | None = None) -> str:
+    if explicit and explicit.strip():
+        return explicit.strip()
+    return (
+        os.environ.get("YDC_API_KEY", "").strip()
+        or os.environ.get("YOU_API_KEY", "").strip()
+    )
+
+
+def _clean_text(raw: str) -> str:
+    """Strip tags/entities/cruft from a search snippet. Pure."""
+    text = re.sub(r"<[^>]+>", " ", raw or "")
+    text = _html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _format_results(query: str, items: list[tuple[str, str, str]]) -> dict[str, str]:
+    """Shape (title, snippet, url) hits into a tool result. Pure."""
+    lines = [
+        f"{i}. {title} — {snippet} ({url})"
+        for i, (title, snippet, url) in enumerate(items[:5], 1)
+    ]
+    text = f"Top web results for {query}:\n" + "\n".join(lines)
+    return {
+        "say": text,
+        "text": text,
+        "url": items[0][2] if items else "",
+    }
+
+
+async def brave_api_search(
+    query: str, *, api_key: str | None = None
+) -> dict[str, str] | None:
+    """Brave Search API tier: JSON, no browser, no bot walls.
+
+    Needs BRAVE_API_KEY (free 2k queries/mo at search.brave.com).
+    Returns None on any failure so callers fall through.
+    """
+    key = (api_key or os.environ.get("BRAVE_API_KEY", "")).strip()
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(
+                BRAVE_SEARCH_ENDPOINT,
+                params={"q": query.strip(), "count": 5},
+                headers={
+                    "X-Subscription-Token": key,
+                    "Accept": "application/json",
+                },
+            )
+            resp.raise_for_status()
+            results = (resp.json().get("web") or {}).get("results") or []
+        items = [
+            (
+                _clean_text(str(r.get("title", ""))),
+                _clean_text(str(r.get("description", "") or r.get("snippet", ""))),
+                str(r.get("url", "")),
+            )
+            for r in results[:5]
+            if r.get("url")
+        ]
+        if not items:
+            return None
+        out = _format_results(query.strip(), items)
+        out["fallback"] = "brave-api"
+        return out
+    except Exception:
+        return None
+
+
+async def ddg_lite_search(query: str) -> dict[str, str] | None:
+    """Keyless tier: DuckDuckGo's lite endpoint via plain HTTP POST.
+
+    No JS, no automation fingerprints — the bot walls that plague the
+    full DDG/Google pages don't apply here. Returns None on failure.
+    """
+    query = query.strip()
+    if not query:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                DDG_LITE_ENDPOINT,
+                data={"q": query},
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+            resp.raise_for_status()
+            page = resp.text
+        links = re.findall(
+            r'<a rel="nofollow" href="([^"]+)"[^>]*>(.*?)</a>', page, re.S
+        )
+        snippets = re.findall(r"result-snippet\">(.*?)</td>", page, re.S)
+        items = [
+            (
+                _clean_text(title),
+                _clean_text(snippets[i] if i < len(snippets) else ""),
+                url,
+            )
+            for i, (url, title) in enumerate(links[:5])
+            if url.startswith("http")
+        ]
+        if not items:
+            return None
+        out = _format_results(query, items)
+        out["fallback"] = "ddg-lite"
+        return out
+    except Exception:
+        return None
+
+
+async def you_search(
+    query: str, *, api_key: str | None = None
+) -> dict[str, str] | None:
+    """You.com Search API tier: LLM-ready results, no browser, no walls.
+
+    Needs YDC_API_KEY (free $5/mo credits at you.com/platform/api-keys).
+    Returns None on any failure so callers fall through.
+    """
+    key = _you_api_key(api_key)
+    query = query.strip()
+    if not key or not query:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                YOU_SEARCH_ENDPOINT,
+                json={"query": query, "count": 5},
+                headers={
+                    "X-API-Key": key,
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        container = data.get("results", data)
+        results = container.get("web", []) if isinstance(container, dict) else []
+        if isinstance(results, dict):
+            results = [results]
+        items = []
+        for r in results[:5]:
+            if not isinstance(r, dict) or not r.get("url"):
+                continue
+            snippets = (
+                r.get("snippets") or r.get("snippet") or r.get("description") or ""
+            )
+            if isinstance(snippets, list):
+                snippets = " ".join(str(s) for s in snippets)
+            items.append(
+                (
+                    _clean_text(str(r.get("title", ""))),
+                    _clean_text(str(snippets)),
+                    str(r.get("url", "")),
+                )
+            )
+        if not items:
+            return None
+        out = _format_results(query, items)
+        out["fallback"] = "you-search"
+        return out
+    except Exception:
+        return None
+
+
+async def api_search_parallel(query: str) -> dict[str, str] | None:
+    """Race every API provider concurrently; best result wins.
+
+    Providers run in parallel via gather so a slow/dead one never
+    blocks the others. You.com (LLM-ready) outranks Brave (curated
+    JSON) outranks DDG-lite when several hit. Returns None only when
+    every provider fails — callers then fall through to the agent
+    browser. Add future providers (Tavily/Exa/Serper, You Answers) to
+    _API_PROVIDERS as keys arrive.
+    """
+    results = await asyncio.gather(
+        you_search(query),
+        brave_api_search(query),
+        ddg_lite_search(query),
+        return_exceptions=True,
+    )
+    hits = [r for r in results if isinstance(r, dict)]
+    if not hits:
+        return None
+    for preferred in ("you-search", "brave-api", "ddg-lite"):
+        for hit in hits:
+            if hit.get("fallback") == preferred:
+                return hit
+    return hits[0]
+
+
+_API_PROVIDERS = ("you_search", "brave_api_search", "ddg_lite_search")
 
 
 def duckduckgo_search_url(query: str) -> str:
@@ -142,20 +347,24 @@ class BrowserTools:
         context: RunContext,
         query: str,
     ) -> dict[str, str]:
-        """Open fallback DuckDuckGo results in the agent-controlled browser.
+        """Search the web without touching a browser first.
 
         Use this only when the user needs a general internet search and did not name a
         website, service, or domain. If the user names a destination, open its official
         URL directly with open_url instead. Read or inspect the resulting page before
         answering the user.
 
-        When DuckDuckGo serves a bot wall, this automatically retries the
-        same query in the helper Google tab and returns those results
-        (marked with fallback "helper-google") so the turn keeps flowing.
+        Tiered so automated bot checks can't stop a turn: API providers
+        raced in parallel (You.com when YDC_API_KEY is set, Brave Search
+        API when BRAVE_API_KEY is set, plus keyless DuckDuckGo-lite),
+        else the agent browser (DDG, then helper Google on a wall).
 
         Args:
-            query: A concise DuckDuckGo search query containing all relevant context.
+            query: A concise search query containing all relevant context.
         """
+        api_result = await api_search_parallel(query)
+        if api_result is not None:
+            return api_result
         try:
             result = await self.browser.open_url(duckduckgo_search_url(query))
         except (BrowserError, ValueError) as exc:

@@ -33,9 +33,9 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'LiveKit',
-  pageTitle: 'LiveKit Voice Agent',
-  pageDescription: 'A voice agent built with LiveKit',
+  companyName: 'Jarvis',
+  pageTitle: 'Jarvis',
+  pageDescription: 'Offline-first voice butler for your desktop',
 
   supportsChatInput: true,
   supportsVideoInput: true,
@@ -43,9 +43,9 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   isPreConnectBufferEnabled: true,
 
   logo: '/lk-logo.svg',
-  accent: '#002cf2',
+  accent: '#1fd5f9',
   logoDark: '/lk-logo-dark.svg',
-  accentDark: '#1fd5f9',
+  accentDark: '#22d3ee',
   startButtonText: 'Talk to Jarvis',
 
   // optional: audio visualization configuration
@@ -62,10 +62,14 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   //audioVisualizerGridColumnCount: 25,
   //audioVisualizerType: 'wave',
   //audioVisualizerWaveLineWidth: 3,
-  audioVisualizerType: 'aura',
+  // 'bar': the aura shader renders a 300-450px blob that overflows
+  // its 90px session tile and spills across the HUD. The HUD's own
+  // ParticleOrb is the hero visual; the session tile stays minimal.
+  audioVisualizerType: 'bar',
 
-  // agent dispatch configuration
-  agentName: process.env.AGENT_NAME ?? undefined,
+  // agent dispatch configuration — default; the Tauri shell overrides
+  // this at runtime via invoke('app_config').
+  agentName: process.env.NEXT_PUBLIC_AGENT_NAME ?? 'my-agent',
 
   // LiveKit Cloud Sandbox configuration
   sandboxId: undefined,

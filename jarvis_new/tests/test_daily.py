@@ -73,6 +73,7 @@ def test_daily_tools_register_expected_ids() -> None:
         "build_slides",
         "build_document",
         "whatsapp_status",
+        "whatsapp_chats",
         "whatsapp_read",
         "whatsapp_draft",
     ):
@@ -144,6 +145,27 @@ async def test_whatsapp_draft_queues_for_approval(
         DailyTools(), None, chat="Mum", text="running late, home at six"
     )
     assert "Approve it on your phone" in result["say"]
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_draft_keeps_full_history_for_infinite_retention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Infinite retention: drafting beyond 50 items must not trim history."""
+    import json
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    drafts_path = tmp_path / "drafts.json"
+    monkeypatch.setattr("system.daily.WA_DRAFTS", drafts_path)
+    seed = [{"chat": "Mum", "text": f"msg {n}", "ts": 0.0} for n in range(55)]
+    drafts_path.write_text(json.dumps(seed))
+
+    await DailyTools.whatsapp_draft(  # type: ignore[arg-type]
+        DailyTools(), None, chat="Mum", text="msg 56"
+    )
+
+    kept = json.loads(drafts_path.read_text())
+    assert len(kept) == 56
 
 
 @pytest.mark.asyncio

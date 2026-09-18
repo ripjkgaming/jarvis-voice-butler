@@ -123,6 +123,26 @@ async def test_todo_add_list_done_roundtrip(
 
 
 @pytest.mark.asyncio
+async def test_todo_keeps_full_history_for_infinite_retention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Infinite retention: adding beyond 100 items must not trim history."""
+    import json
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    todos_path = tmp_path / "todos.json"
+    monkeypatch.setattr("system.core.TODOS_PATH", todos_path)
+    seed = [{"text": f"task {n}", "done": False, "ts": 0.0} for n in range(105)]
+    todos_path.write_text(json.dumps(seed))
+    tools = SystemTools()
+
+    await SystemTools.manage_todo(tools, None, action="add", text="task 106")  # type: ignore[arg-type]
+
+    kept = json.loads(todos_path.read_text())
+    assert len(kept) == 106
+
+
+@pytest.mark.asyncio
 async def test_alias_save_run_roundtrip(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -244,3 +264,88 @@ def test_remember_alias_description_covers_preferences() -> None:
     remember_info = tools["remember_alias"].info
     for trigger in ("remember that", "favourite", "always call this"):
         assert trigger in remember_info.description
+
+
+def test_resolve_app_prefers_known_candidates() -> None:
+    from system.core import _resolve_app
+
+    seen: list[str] = []
+
+    def fake_which(name: str) -> str | None:
+        seen.append(name)
+        return "/usr/bin/kcalc" if name == "kcalc" else None
+
+    assert _resolve_app("calculator", which=fake_which) == "kcalc"
+    assert _resolve_app("calc", which=fake_which) == "kcalc"
+    assert (
+        _resolve_app(
+            "terminal", which=lambda n: "/usr/bin/konsole" if n == "konsole" else None
+        )
+        == "konsole"
+    )
+
+
+def test_resolve_app_falls_back_to_desktop_entry(tmp_path) -> None:
+    from system.core import _resolve_app
+
+    (tmp_path / "kcalc.desktop").write_text(
+        "[Desktop Entry]\nName=Kaelc\nExec=kcalc %U\n"
+    )
+    (tmp_path / "kcalc2.desktop").write_text(
+        "[Desktop Entry]\nName=KCalc\nExec=/usr/bin/kcalc %U\n"
+    )
+    assert (
+        _resolve_app("kcalc", which=lambda n: None, desktop_dirs=[tmp_path])
+        == "/usr/bin/kcalc"
+    )
+    assert (
+        _resolve_app("no-such-app", which=lambda n: None, desktop_dirs=[tmp_path])
+        is None
+    )
+
+
+def test_resolve_app_finds_flatpak_whatsie() -> None:
+    from system.core import _resolve_app
+
+    assert (
+        _resolve_app(
+            "whatsie", which=lambda n: "/usr/bin/flatpak" if n == "flatpak" else None
+        )
+        == "flatpak:com.ktechpit.whatsie"
+    )
+    assert (
+        _resolve_app(
+            "whatsapp", which=lambda n: "/usr/bin/flatpak" if n == "flatpak" else None
+        )
+        == "flatpak:com.ktechpit.whatsie"
+    )
+
+
+def test_resolve_app_reads_flatpak_desktop_entry(tmp_path) -> None:
+    from system.core import _resolve_app
+
+    apps = tmp_path / "applications"
+    apps.mkdir()
+    (apps / "com.example.chat.desktop").write_text(
+        "[Desktop Entry]\nName=ChatApp\n"
+        "Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 com.example.chat\n"
+    )
+    assert (
+        _resolve_app(
+            "chatapp",
+            which=lambda n: "/usr/bin/flatpak" if n == "flatpak" else None,
+            desktop_dirs=[tmp_path],
+        )
+        == "flatpak:com.example.chat"
+    )
+
+
+async def test_open_app_unknown_suggests_cursor_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from system.core import SystemTools
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    tools = SystemTools()
+    with pytest.raises(ToolError, match="cursor navigation"):
+        await SystemTools.open_app(tools, None, app="zzz-no-such-app")  # type: ignore[arg-type]

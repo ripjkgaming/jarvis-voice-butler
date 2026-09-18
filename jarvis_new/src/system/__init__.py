@@ -47,6 +47,8 @@ async def run_cmd(*argv: str, timeout: float = 10.0) -> tuple[int, str, str]:
     except asyncio.TimeoutError:
         with __import__("contextlib").suppress(Exception):
             proc.kill()
+        with __import__("contextlib").suppress(Exception):
+            await proc.wait()
         return 124, "", f"timed out after {timeout}s: {argv[0]}"
     rc = proc.returncode if proc.returncode is not None else 1
     return (

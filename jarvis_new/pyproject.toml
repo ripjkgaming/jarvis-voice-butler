@@ -11,10 +11,16 @@ requires-python = ">=3.10, <3.15"
 dependencies = [
     "livekit-agents[google,images]>=1.6.9",
     "livekit-plugins-ai-coustics~=0.2",
+    # Cloud-free `direct` pipeline (JARVIS_PIPELINE=direct): local Silero VAD
+    # endpointing + local faster-whisper ears. Pinned to the 1.6 line so
+    # livekit-agents itself never churns (1.8 requires an agents upgrade).
+    "livekit-plugins-silero~=1.6",
+    "faster-whisper>=1.2.1",
     "piper-tts>=1.8.0",
     "playwright>=1.62.0",
-    "pvporcupine>=4.0.3",
     "python-dotenv",
+    "sounddevice>=0.5.5",
+    "websockets>=12.0",
 ]
 
 [dependency-groups]
@@ -22,6 +28,13 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "ruff",
+]
+
+[project.optional-dependencies]
+# Local semantic routing (Needle 2, 14MB offline tool-calling model).
+# Install with: uv sync --extra needle. Disabled at runtime with JARVIS_NEEDLE=0.
+needle = [
+    "cactus-needle>=2.0",
 ]
 
 [tool.uv]

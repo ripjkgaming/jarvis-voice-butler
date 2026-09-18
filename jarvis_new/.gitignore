@@ -6,6 +6,11 @@ __pycache__
 .idea
 KMS
 .venv
+.venv-wake
+# Tauri/Rust build outputs (gigabytes; reproducible via scripts/build-app.sh).
+# NOTE: shell/ui/ (the built Next.js export, ~18MB) IS committed on purpose:
+# build-app.sh does not rebuild the frontend, so a fresh clone needs it.
+shell/src-tauri/target/
 .vscode
 *.egg-info
 .pytest_cache

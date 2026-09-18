@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "next dev --port 4000 --hostname localhost",
-    "build": "next build",
+    "build": "next build && rm -rf ../shell/ui && cp -r out/. ../shell/ui/",
+    "export": "pnpm build",
     "start": "next start --port 4000 --hostname localhost",
     "lint": "next lint",
     "format": "prettier --write .",

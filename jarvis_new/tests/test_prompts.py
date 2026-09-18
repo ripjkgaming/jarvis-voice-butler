@@ -76,3 +76,20 @@ def test_inbox_routing_is_direct_not_browser() -> None:
 
 def test_deep_research_prefers_direct_tools() -> None:
     assert "your OWN start_deep_research" in AGENT_INSTRUCTIONS
+
+
+def test_whatsie_means_whatsapp_desktop() -> None:
+    assert '"whatsie" means the WhatSie WhatsApp desktop client' in AGENT_INSTRUCTIONS
+
+
+def test_cursor_navigation_backs_up_open_app() -> None:
+    assert "Cursor navigation is the fallback" in SYSTEM_INSTRUCTIONS
+    assert 'saying "I can\'t" without trying both is a failure' in SYSTEM_INSTRUCTIONS
+
+
+def test_app_launch_and_multistep_desktop_chain() -> None:
+    assert "ALWAYS call open_app first, NEVER window_action" in SYSTEM_INSTRUCTIONS
+    assert "desktop_screenshot to view and read the resulting output" in SYSTEM_INSTRUCTIONS
+    assert "ONLY THEN call transfer_back_to_main" in SYSTEM_INSTRUCTIONS
+
+

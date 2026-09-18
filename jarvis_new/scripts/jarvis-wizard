@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Jarvis first-run wizard launcher.
+#
+# Runs the wizard from the repo, honoring the same env contract as the
+# shell (JARVIS_HOME, JARVIS_REPO). Uses the system uv-managed venv's
+# python; falls back to the main project venv.
+#
+# Usage:
+#   scripts/jarvis-wizard status
+#   scripts/jarvis-wizard check
+#   scripts/jarvis-wizard run                # full first-run flow
+#   scripts/jarvis-wizard run --step livekit
+#   scripts/jarvis-wizard deps               # system-deps checklist
+#   scripts/jarvis-wizard hf-audit
+#   scripts/jarvis-wizard prune-hf
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export JARVIS_REPO="${JARVIS_REPO:-$REPO_DIR}"
+
+PYTHON_BIN=""
+for candidate in "$REPO_DIR/.venv/bin/python" python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "ERROR: no python found (need python3 + uv)" >&2
+  exit 1
+fi
+
+PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
+  "$PYTHON_BIN" -m wizard "$@"

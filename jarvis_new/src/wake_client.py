@@ -1,19 +1,29 @@
-"""Always-on hands-free client: say "Jarvis" -> talk -> auto-leave.
+"""Always-on hands-free client: say "hey Jarvis" -> talk -> auto-leave.
 
 Idle state costs nothing cloud-side: the laptop mic is monitored
-locally by Porcupine (offline) and no room exists until the keyword
-fires. On wake the client says "Yes, Sir." with the local voice ($0),
-mints a token that dispatches the worker into a fresh room, streams
-the mic, and plays the agent back. When the agent hangs up (60s of
-silence) the room closes and we return to listening.
+locally by openWakeWord (fully offline, no account, no key) and no
+room exists until the keyword fires. On wake the client says
+"Yes, Sir." with the local voice ($0), mints a token that dispatches
+the worker into a fresh room, streams the mic, and plays the agent
+back. When the agent hangs up (60s of silence) the room closes and
+we return to listening.
 
 Needs:
-- PICOVOICE_ACCESS_KEY (free at console.picovoice.ai, no card).
 - LiveKit URL/key/secret, read from frontend/.env.local (already there).
 - AGENT_NAME (default "my-agent") running via the worker.
 
-Run: .venv/bin/python src/wake_client.py  (JARVIS_LOCAL=1 not required;
-this client only joins rooms, it never touches the laptop itself.)
+Wake-word deps (openwakeword needs Python <= 3.11 for tflite wheels,
+but we use the ONNX backend) live in a dedicated venv:
+
+    uv venv .venv-wake --python 3.11
+    uv pip install --python .venv-wake/bin/python -e . openwakeword sounddevice
+    .venv-wake/bin/python src/wake_client.py   # first run downloads models once
+
+(JARVIS_LOCAL=1 not required; this client only joins rooms, it never
+touches the laptop itself.)
+
+JARVIS_WAKE_THRESHOLD (default 0.5) tunes sensitivity; lower hears
+more, higher false-alarms less.
 """
 
 from __future__ import annotations
@@ -28,10 +38,76 @@ from pathlib import Path
 logger = logging.getLogger("jarvis-wake")
 
 MIC_RATE = 48000
-PORCUPINE_RATE = 16000
-BLOCKSIZE = 1536  # 48k samples decimate exactly to Porcupine's 512-frame
+BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
+OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
+WAKE_MODEL = "hey_jarvis"
 AGENT_JOIN_TIMEOUT = 25.0
 IDENTITY = "jarvis-master"
+
+
+def wake_threshold() -> float:
+    """Sensitivity 0..1: explicit > JARVIS_WAKE_THRESHOLD > 0.5 default."""
+    try:
+        return float(os.environ.get("JARVIS_WAKE_THRESHOLD", "0.5"))
+    except ValueError:
+        return 0.5
+
+
+def frame_16k_chunks(
+    pending: list[int], new_samples: list[int], size: int = OWW_FRAME
+) -> tuple[list[list[int]], list[int]]:
+    """Buffer 16k samples into full native frames. Pure.
+
+    Returns (complete_frames, remainder). Remainder carries over so no
+    audio is dropped between mic blocks.
+    """
+    buf = [*pending, *new_samples]
+    frames = [buf[i : i + size] for i in range(0, len(buf) - len(buf) % size, size)]
+    return frames, buf[len(frames) * size :]
+
+
+def wake_score(prediction: dict, name: str = WAKE_MODEL) -> float:
+    """Confidence 0..1 for our model from an openWakeWord prediction. Pure."""
+    try:
+        return float(prediction.get(name, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def room_has_active_call(identities: list[str]) -> bool:
+    """True when a room already hosts a call (user + agent). Pure.
+
+    Rooms are unique per session, so 2+ participants means someone is
+    already talking to an agent — summoning another would layer a
+    second Jarvis voice over the first.
+    """
+    return len(identities) >= 2
+
+
+async def active_call_exists(creds: dict[str, str]) -> bool:
+    """True when any LiveKit room already hosts a call.
+
+    Fails open (returns False) on API errors: a missed double-voice
+    guard is better than going deaf because Cloud hiccuped.
+    """
+    try:
+        from livekit import api
+
+        async with api.LiveKitAPI(
+            creds["LIVEKIT_URL"], creds["LIVEKIT_API_KEY"], creds["LIVEKIT_API_SECRET"]
+        ) as lk:
+            rooms = await lk.room.list_rooms(api.ListRoomsRequest())
+            for room in rooms.rooms:
+                participants = await lk.room.list_participants(
+                    api.ListParticipantsRequest(room=room.name)
+                )
+                if room_has_active_call(
+                    [p.identity for p in participants.participants]
+                ):
+                    return True
+    except Exception as exc:
+        logger.warning("call check failed, summoning anyway: %s", exc)
+    return False
 
 
 def load_livekit_env(path: Path | None = None) -> dict[str, str]:
@@ -49,8 +125,8 @@ def load_livekit_env(path: Path | None = None) -> dict[str, str]:
             key, value = key.strip(), value.strip().strip("\"'")
             if key in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
                 found[key] = value
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("livekit env read failed: %s", exc)
     return found
 
 
@@ -86,8 +162,14 @@ def mint_summon_token(
 
 class WakeClient:
     def __init__(self) -> None:
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+        except Exception as exc:
+            logger.debug("dotenv load failed: %s", exc)
         self._creds = load_livekit_env()
-        self._porcupine_key = os.environ.get("PICOVOICE_ACCESS_KEY", "").strip()
+        self._threshold = wake_threshold()
         self._agent_name = (
             os.environ.get("AGENT_NAME", "my-agent").strip() or "my-agent"
         )
@@ -102,16 +184,14 @@ class WakeClient:
         ]
         if missing:
             raise RuntimeError(f"Missing in frontend/.env.local: {', '.join(missing)}")
-        if not self._porcupine_key:
-            raise RuntimeError(
-                "Set PICOVOICE_ACCESS_KEY (free at console.picovoice.ai, no card) "
-                "to enable the 'Jarvis' wake word."
-            )
 
     def _render_ack(self) -> None:
         """Pre-render 'Yes, Sir.' with the local voice for instant feedback."""
         try:
-            from local_voice import PiperTTS, sentence_split
+            try:
+                from src.local_voice import PiperTTS, sentence_split
+            except ImportError:
+                from local_voice import PiperTTS, sentence_split
 
             plugin = PiperTTS()
             if not plugin._model_path.exists():
@@ -127,18 +207,19 @@ class WakeClient:
     async def run_forever(self) -> None:
         self._check_config()
         self._render_ack()
-        import pvporcupine
+        from openwakeword.model import Model
 
-        porcupine = pvporcupine.create(
-            access_key=self._porcupine_key, keywords=["jarvis"]
+        # ONNX backend: tflite-runtime wheels don't cover this system's
+        # Python, and ONNX scores identically. Models download once on
+        # first run (cached under site-packages/openwakeword/resources).
+        model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
+        logger.warning(
+            "listening for 'hey Jarvis' (offline, nothing leaves the laptop)"
         )
-        logger.warning("listening for 'Jarvis' (offline, nothing leaves the laptop)")
-        try:
-            await self._listen_loop(porcupine)
-        finally:
-            porcupine.delete()
+        await self._listen_loop(model)
 
-    async def _listen_loop(self, porcupine) -> None:
+    async def _listen_loop(self, model) -> None:
+        import numpy as np
         import sounddevice as sd
 
         loop = asyncio.get_running_loop()
@@ -157,6 +238,7 @@ class WakeClient:
             blocksize=BLOCKSIZE,
             callback=_audio_callback,
         ):
+            pending: list[int] = []
             while True:
                 raw = await queue.get()
                 frame_48k = [
@@ -165,14 +247,22 @@ class WakeClient:
                 ]
                 if len(frame_48k) < BLOCKSIZE:
                     continue
-                try:
-                    detected = porcupine.process(downsample_48k_to_16k(frame_48k))
-                except Exception:
-                    continue
-                if detected >= 0:
-                    logger.warning("wake word detected")
-                    self._play_ack()
-                    await self._summon_session()
+                frames, pending = frame_16k_chunks(
+                    pending, downsample_48k_to_16k(frame_48k)
+                )
+                for frame in frames:
+                    try:
+                        score = wake_score(
+                            model.predict(np.array(frame, dtype=np.int16))
+                        )
+                    except Exception as exc:
+                        logger.debug("wake predict failed: %s", exc)
+                        continue
+                    if score >= self._threshold:
+                        logger.warning("wake word detected (%.2f)", score)
+                        self._play_ack()
+                        await self._summon_session()
+                        pending = []
 
     def _play_ack(self) -> None:
         if not self._ack_pcm:
@@ -180,6 +270,9 @@ class WakeClient:
         try:
             import sounddevice as sd
 
+            with contextlib.suppress(Exception):
+                sd.stop()
+                sd.wait()
             sd.play(
                 self._bytes_to_int16(self._ack_pcm),
                 samplerate=self._ack_rate,
@@ -194,8 +287,22 @@ class WakeClient:
 
         return np.frombuffer(raw, dtype=np.int16)
 
+    @staticmethod
+    async def _cancel_task(task: asyncio.Task | None) -> None:
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
     async def _summon_session(self) -> None:
         from livekit import rtc
+
+        # Never layer a second Jarvis over an ongoing call (browser
+        # session or an earlier summon that hasn't hung up yet).
+        if await active_call_exists(self._creds):
+            logger.warning("already in a call; staying out")
+            return
 
         room_name = summon_room_name()
         jwt = mint_summon_token(
@@ -232,12 +339,12 @@ class WakeClient:
                 track = await asyncio.wait_for(agent_audio.get(), AGENT_JOIN_TIMEOUT)
             except TimeoutError:
                 logger.warning("no agent joined; leaving %s", room_name)
-                mic_task.cancel()
+                await self._cancel_task(mic_task)
                 return
             play_task = asyncio.create_task(self._play_agent(track))
             await disconnected.wait()
-            play_task.cancel()
-            mic_task.cancel()
+            await self._cancel_task(play_task)
+            await self._cancel_task(mic_task)
         finally:
             await room.disconnect()
             logger.warning("session over, back to listening")
@@ -292,8 +399,10 @@ class WakeClient:
                 output.write(self._bytes_to_int16(pcm))
         finally:
             if output is not None:
-                with __import__("contextlib").suppress(Exception):
+                with contextlib.suppress(Exception):
                     output.close()
+            with contextlib.suppress(Exception):
+                await stream.aclose()
 
 
 def main() -> None:

@@ -3,10 +3,15 @@ import json
 import pytest
 
 from wake_client import (
+    OWW_FRAME,
     downsample_48k_to_16k,
+    frame_16k_chunks,
     load_livekit_env,
     mint_summon_token,
+    room_has_active_call,
     summon_room_name,
+    wake_score,
+    wake_threshold,
 )
 
 
@@ -66,11 +71,84 @@ def test_mint_summon_token_carries_dispatch() -> None:
     assert claims["roomConfig"]["agents"][0]["agentName"] == "my-agent"
 
 
-def test_wake_client_refuses_without_picovoice_key(
+def test_frame_16k_chunks_buffers_to_native_frames() -> None:
+    frames, pending = frame_16k_chunks([], [1] * (OWW_FRAME * 2 + 100))
+    assert len(frames) == 2
+    assert all(len(f) == OWW_FRAME for f in frames)
+    assert pending == [1] * 100
+    # Remainder carries over: no audio dropped between mic blocks.
+    frames, pending = frame_16k_chunks(pending, [2] * (OWW_FRAME - 100))
+    assert len(frames) == 1
+    assert frames[0] == [1] * 100 + [2] * (OWW_FRAME - 100)
+    assert pending == []
+
+
+def test_wake_score_reads_model_key() -> None:
+    assert wake_score({"hey_jarvis": 0.7}) == 0.7
+    assert wake_score({}) == 0.0
+    assert wake_score({"other": 0.9}) == 0.0
+
+
+def test_wake_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JARVIS_WAKE_THRESHOLD", "0.8")
+    assert wake_threshold() == 0.8
+    monkeypatch.setenv("JARVIS_WAKE_THRESHOLD", "nonsense")
+    assert wake_threshold() == 0.5
+
+
+def test_wake_client_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from wake_client import WakeClient
+
+    # No third-party key exists anymore; config is LiveKit creds only.
+    monkeypatch.delenv("PICOVOICE_ACCESS_KEY", raising=False)
+    client = WakeClient()
+    monkeypatch.setattr(
+        client,
+        "_creds",
+        {
+            "LIVEKIT_URL": "wss://x",
+            "LIVEKIT_API_KEY": "k",
+            "LIVEKIT_API_SECRET": "s",
+        },
+    )
+    client._check_config()  # must not raise
+
+
+def test_wake_client_refuses_without_livekit_creds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from wake_client import WakeClient
 
-    monkeypatch.delenv("PICOVOICE_ACCESS_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="PICOVOICE_ACCESS_KEY"):
-        WakeClient()._check_config()
+    client = WakeClient()
+    monkeypatch.setattr(client, "_creds", {})
+    with pytest.raises(RuntimeError, match="LIVEKIT_URL"):
+        client._check_config()
+
+
+def test_room_has_active_call_needs_user_plus_agent() -> None:
+    assert room_has_active_call([]) is False
+    assert room_has_active_call(["jarvis-master"]) is False
+    assert room_has_active_call(["jarvis-master", "agent-AJ_123"]) is True
+
+
+async def test_summon_stays_out_when_call_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import wake_client
+    from wake_client import WakeClient
+
+    async def _busy(_creds: dict) -> bool:
+        return True
+
+    monkeypatch.setattr(wake_client, "active_call_exists", _busy)
+    client = WakeClient()
+    # Must return before touching livekit.rtc (unavailable/blocked here).
+    await client._summon_session()
+
+
+async def test_active_call_exists_fails_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from wake_client import active_call_exists
+
+    assert await active_call_exists({}) is False

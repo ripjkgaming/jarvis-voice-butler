@@ -1,0 +1,19 @@
+# Jarvis local LiveKit server config — EXAMPLE ONLY. Never commit real keys.
+# The first-run wizard generates the real file at ~/.jarvis/livekit.yaml
+# (0600) with a fresh keypair via `openssl rand -hex` / os.urandom.
+#
+# Required for the desktop app: loopback-only binding, a static keypair
+# shared with .env.local + frontend/.env.local, TURN off, and a short
+# room empty timeout so dead rooms recycle fast.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+keys:
+  devkey: <replace-with-random-hex-secret>
+rtc:
+  use_external_ip: false
+  tcp_port: 7881
+room:
+  empty_timeout: 60
+turn:
+  enabled: false

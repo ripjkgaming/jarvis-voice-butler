@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TokenSource } from 'livekit-client';
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
@@ -9,9 +9,11 @@ import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provi
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { JarvisBackground } from '@/components/app/jarvis-background';
 import { ViewController } from '@/components/app/view-controller';
+import { HudShell } from '@/components/hud/hud-shell';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
+import { isTauri, mintToken, shellAppConfig } from '@/lib/tauri';
 import { getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
@@ -27,21 +29,48 @@ interface AppProps {
   appConfig: AppConfig;
 }
 
+function buildRoomConfig(agentName: string | undefined) {
+  return agentName ? { agents: [{ agent_name: agentName }] } : undefined;
+}
+
 export function App({ appConfig }: AppProps) {
+  const [config, setConfig] = useState(appConfig);
+
+  // In the Tauri shell, agentName lives in the shell config (env AGENT_NAME),
+  // not in a build-time env var. Pull it once on mount.
+  useEffect(() => {
+    if (!isTauri()) return;
+    shellAppConfig()
+      .then((c) => {
+        if (c?.agentName && c.agentName !== config.agentName) {
+          setConfig((prev) => ({ ...prev, agentName: c.agentName }));
+        }
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const tokenSource = useMemo(() => {
-    return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
-      ? getSandboxTokenSource(appConfig)
-      : TokenSource.endpoint('/api/token');
-  }, [appConfig]);
+    if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
+      return getSandboxTokenSource(config);
+    }
+    if (isTauri()) {
+      return TokenSource.custom(async () => mintToken(buildRoomConfig(config.agentName)));
+    }
+    // Plain-browser dev fallback (no shell): legacy endpoint route.
+    return TokenSource.endpoint('/api/token');
+  }, [config]);
 
   const session = useSession(
     tokenSource,
-    appConfig.agentName ? { agentName: appConfig.agentName } : undefined
+    config.agentName ? { agentName: config.agentName } : undefined
   );
 
-  if (IN_DEVELOPMENT && !appConfig.agentName) {
+  if (IN_DEVELOPMENT && !config.agentName) {
     console.warn(
-      '[jarvis] agentName is undefined - no explicit dispatch will be sent and the named worker will NOT join. Restart `pnpm dev` after setting AGENT_NAME in frontend/.env.local.'
+      '[jarvis] agentName is undefined - no explicit dispatch will be sent and the named worker will NOT join. Set AGENT_NAME in the shell env or frontend/.env.local.'
     );
   }
 
@@ -49,9 +78,11 @@ export function App({ appConfig }: AppProps) {
     <AgentSessionProvider session={session}>
       <AppSetup />
       <JarvisBackground />
-      <main className="relative z-10 grid h-svh grid-cols-1 place-content-center">
-        <ViewController appConfig={appConfig} />
-      </main>
+      <HudShell supportsChatInput={config.supportsChatInput ?? true}>
+        <main className="contents">
+          <ViewController appConfig={config} />
+        </main>
+      </HudShell>
       <StartAudioButton label="Start Audio" />
       <Toaster
         icons={{

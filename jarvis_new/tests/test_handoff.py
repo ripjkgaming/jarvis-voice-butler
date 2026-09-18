@@ -58,6 +58,21 @@ async def test_handoff_tools_return_specialist_agents() -> None:
         task="shut down the laptop",  # type: ignore[arg-type]
     )
     assert isinstance(system_agent, SystemAgent)
+    # Specialists own the call after a handoff: way home + hang-up.
+    for specialist in (research_agent, system_agent):
+        specialist_ids = [tool.id for tool in specialist.tools]
+        assert "transfer_back_to_main" in specialist_ids
+        assert "end_call" in specialist_ids
+    back, _ = await SystemAgent.transfer_back_to_main(
+        system_agent,
+        None,  # type: ignore[arg-type]
+    )
+    assert back is assistant
+    back, _ = await ResearchAgent.transfer_back_to_main(
+        research_agent,
+        None,  # type: ignore[arg-type]
+    )
+    assert back is assistant
     # Narrow handoff: dangerous tools in, common tools out.
     narrow_ids = [tool.id for tool in system_agent.tools]
     assert "power_control" in narrow_ids
@@ -67,3 +82,25 @@ async def test_handoff_tools_return_specialist_agents() -> None:
         await research_agent.aclose()
     finally:
         pass
+
+
+@pytest.mark.asyncio
+async def test_handoff_specialist_chains_whatsie_open_and_draft() -> None:
+    """Regression: "open whatsie and send a message" stalled after handoff.
+
+    The filtered SystemAgent behind transfer_to_system_control carried
+    open_app but zero whatsapp tools (they live direct-only on the
+    router), so the specialist could open WhatSie and then do nothing.
+    It must carry open_app AND whatsapp_draft/status to finish the chain
+    before transferring back.
+    """
+    assistant = Assistant(llm=_agent_llm())
+    specialist, _ = await Assistant.transfer_to_system_control(
+        assistant,
+        None,  # type: ignore[arg-type]
+        task="open whatsie and send a message",
+    )
+    ids = [tool.id for tool in specialist.tools]
+    assert "open_app" in ids
+    assert "whatsapp_draft" in ids
+    assert "whatsapp_status" in ids

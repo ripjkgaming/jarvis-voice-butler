@@ -13,6 +13,7 @@ user-facing ToolErrors, never tracebacks.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import datetime
 import html
@@ -352,17 +353,19 @@ class InboxTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         n = max(1, min(10, int(n or 5)))
-        token = _gmail_access_token()
+        token = await asyncio.to_thread(_gmail_access_token)
         params: dict = {"maxResults": n}
         if (query or "").strip():
             params["q"] = query.strip()[:200]
-        listed = _gmail_api("/messages", token, params)
+        listed = await asyncio.to_thread(_gmail_api, "/messages", token, params)
         msgs = listed.get("messages", []) or []
         if not msgs:
             return {"say": "Inbox is clear for that."}
         rows = []
         for m in msgs:
-            full = _gmail_api(f"/messages/{m['id']}", token, {"format": "full"})
+            full = await asyncio.to_thread(
+                _gmail_api, f"/messages/{m['id']}", token, {"format": "full"}
+            )
             parsed = parse_gmail_message(full)
             rows.append(f"{parsed['sender']}: {parsed['subject']}")
         log_action("gmail", f"inbox q={query[:40]} n={len(rows)}")
@@ -381,18 +384,22 @@ class InboxTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        token = _gmail_access_token()
+        token = await asyncio.to_thread(_gmail_access_token)
         ref = (ref or "latest").strip()
         if ref.lower() == "latest" or ref.isdigit():
             idx = 0 if ref.lower() == "latest" else max(0, min(9, int(ref) - 1))
-            listed = _gmail_api("/messages", token, {"maxResults": idx + 1})
+            listed = await asyncio.to_thread(
+                _gmail_api, "/messages", token, {"maxResults": idx + 1}
+            )
             msgs = listed.get("messages", []) or []
             if len(msgs) <= idx:
                 raise ToolError("No such email in the inbox.")
             msg_id = msgs[idx]["id"]
         else:
             msg_id = ref[:100]
-        full = _gmail_api(f"/messages/{msg_id}", token, {"format": "full"})
+        full = await asyncio.to_thread(
+            _gmail_api, f"/messages/{msg_id}", token, {"format": "full"}
+        )
         parsed = parse_gmail_message(full)
         log_action("gmail", f"read {msg_id[:20]}")
         text = parsed["body"] or parsed["snippet"]
@@ -427,7 +434,7 @@ class InboxTools:
         else:
             url = "https://news.google.com/rss?hl=en-GB&gl=GB&ceid=GB:en"
             label, key = "top stories", "top"
-        items = _news_cached(url, key, n)
+        items = await asyncio.to_thread(_news_cached, url, key, n)
         if not items:
             return {"say": "No headlines right now."}
         log_action("news", f"{label} n={len(items)}")
@@ -462,18 +469,19 @@ class InboxTools:
             # Named city: Open-Meteo first (structured, reliable), wttr fallback.
             for attempt in (lambda: open_meteo_line(city), lambda: wttr_line(city)):
                 try:
-                    line = attempt()
+                    line = await asyncio.to_thread(attempt)
                     break
                 except ToolError as exc:
                     errors.append(str(exc))
         else:
             # No city: wttr IP lookup first, then IP city -> Open-Meteo.
             try:
-                line = wttr_line("auto")
+                line = await asyncio.to_thread(wttr_line, "auto")
             except ToolError as exc:
                 errors.append(str(exc))
                 try:
-                    line = open_meteo_line(ip_city())
+                    guessed = await asyncio.to_thread(ip_city)
+                    line = await asyncio.to_thread(open_meteo_line, guessed)
                 except ToolError as exc2:
                     errors.append(str(exc2))
         if not line:

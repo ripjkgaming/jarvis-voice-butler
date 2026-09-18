@@ -1033,11 +1033,18 @@ class BrowserManager:
         raise BrowserError(f"I could not find a visible control named {target!r}.")
 
     async def _resolve_textbox(self, page: Page, target: str) -> Locator:
+        # get_by_label matches ANY labelled element (e.g. DuckDuckGo's
+        # aria-labelled "Search mode" toggle div), so label/role matches are
+        # intersected with actual editable elements. input[type=search] has
+        # the implicit role "searchbox", not "textbox".
+        editable = page.locator("input, textarea, [contenteditable]")
         for locator in (
             page.get_by_role("textbox", name=target, exact=True),
             page.get_by_role("textbox", name=target, exact=False),
-            page.get_by_label(target, exact=True),
-            page.get_by_label(target, exact=False),
+            page.get_by_role("searchbox", name=target, exact=True),
+            page.get_by_role("searchbox", name=target, exact=False),
+            page.get_by_label(target, exact=True).and_(editable),
+            page.get_by_label(target, exact=False).and_(editable),
             page.get_by_placeholder(target, exact=True),
             page.get_by_placeholder(target, exact=False),
         ):

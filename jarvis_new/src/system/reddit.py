@@ -12,6 +12,7 @@ need authenticated API access and are out of scope.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import re
@@ -163,7 +164,8 @@ class RedditTools:
         except Exception:
             pass
         try:
-            items = parse_reddit_feed(_fetch_feed(sub), n)
+            raw = await asyncio.to_thread(_fetch_feed, sub)
+            items = parse_reddit_feed(raw, n)
         except ToolError:
             # Throttled: stale cache beats failure.
             try:

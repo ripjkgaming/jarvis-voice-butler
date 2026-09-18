@@ -440,3 +440,478 @@
     opacity: 0.22;
   }
 }
+
+/* ---- JARVIS HUD shell ---- */
+.hud {
+  position: relative;
+  z-index: 10;
+  height: 100svh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #d9f6ff;
+  font-family: var(--font-commit-mono), monospace;
+}
+.hud__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgb(34 211 238 / 18%);
+  background: linear-gradient(180deg, rgb(2 12 22 / 72%), transparent);
+}
+.hud__grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr);
+  gap: 1px;
+  min-height: 0;
+  background: rgb(34 211 238 / 10%);
+}
+.hud__left,
+.hud__right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  min-height: 0;
+  overflow: auto;
+  background: rgb(1 6 14 / 62%);
+  backdrop-filter: blur(6px);
+}
+/* Slim floating session pill — state-colored via --jarvis-state. */
+.hud-pill {
+  position: fixed;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.4rem 0.9rem 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state, #22d3ee) 45%, transparent);
+  background: rgb(1 8 16 / 78%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--jarvis-state, #22d3ee) 22%, transparent),
+    inset 0 0 18px color-mix(in srgb, var(--jarvis-state, #22d3ee) 8%, transparent);
+  animation:
+    hud-pill-in 0.4s ease-out,
+    hud-pill-glow 2.6s ease-in-out 0.4s infinite alternate;
+}
+.hud-pill__eq {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 16px;
+  color: var(--jarvis-state, #22d3ee);
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.hud-pill__eq i {
+  width: 3px;
+  height: 35%;
+  border-radius: 2px;
+  background: currentColor;
+  animation: hud-eq 0.9s ease-in-out infinite alternate;
+}
+/* Strip the control bar's own box so it melts into the pill. */
+.hud-pill__controls {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.hud-transcript {
+  position: fixed;
+  bottom: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 42rem);
+  z-index: 50;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state, #22d3ee) 35%, transparent);
+  background: rgb(1 8 16 / 82%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 40px rgb(0 0 0 / 50%);
+  overflow: hidden;
+}
+/* Welcome — centered card over a blurred HUD. */
+.hud-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-content: center;
+  padding: 1rem;
+  background: rgb(1 4 10 / 45%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: hud-blur-in 0.5s ease-out;
+}
+.hud--solo {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-bottom: 1rem;
+}
+.hud-solo__orb {
+  width: min(46vh, 320px);
+  height: min(46vh, 320px);
+}
+
+.hud-gauges {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.hud-gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.hud-gauge__label {
+  color: #7dd3fc;
+  opacity: 0.8;
+}
+.hud-gauge__bar {
+  width: 84px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgb(125 211 252 / 15%);
+  overflow: hidden;
+}
+.hud-gauge__fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #22d3ee, #38bdf8);
+  box-shadow: 0 0 8px #22d3ee;
+  transition: width 0.4s linear;
+}
+.hud-gauge__text {
+  color: #e0fbff;
+  min-width: 74px;
+}
+.hud-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: #e0fbff;
+  background: transparent;
+  border: 1px solid rgb(34 211 238 / 25%);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+}
+.hud-status__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--jarvis-state, #22d3ee);
+  box-shadow: 0 0 10px var(--jarvis-state, #22d3ee);
+}
+.hud-status__sep {
+  opacity: 0.4;
+}
+.hud-orb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 300px;
+  border-radius: 50%;
+  transition: transform 0.5s ease;
+}
+.hud-orb[data-boosted='true'] {
+  transform: scale(1.15);
+}
+.hud-orb__canvas {
+  width: 100%;
+  height: 100%;
+}
+.hud-orb__ring {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  border: 1px dashed rgb(34 211 238 / 35%);
+  animation: jarvis-rotate 24s linear infinite;
+  pointer-events: none;
+}
+/* Blurred state-tinted halo breathing behind the orb. Opacity/scale
+   only (never the blur radius) to stay cheap on KDE GPUs. */
+.hud-orb::after {
+  content: '';
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--jarvis-state, #22d3ee) 55%, transparent) 0%,
+    transparent 65%
+  );
+  opacity: 0.28;
+  filter: blur(30px);
+  pointer-events: none;
+  animation: hud-halo-breathe 4s ease-in-out infinite alternate;
+}
+.hud-command {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgb(34 211 238 / 30%);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  background: rgb(2 14 24 / 70%);
+}
+.hud-command__prompt {
+  color: #22d3ee;
+}
+.hud-command__input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: #eafcff;
+  font-size: 13px;
+}
+.hud-command__ghost {
+  position: absolute;
+  left: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgb(125 211 252 / 45%);
+  font-size: 12px;
+  pointer-events: none;
+}
+.hud-command__send {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: #04121c;
+  background: #22d3ee;
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.6rem;
+}
+.hud-caption {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-left: 2px solid #22d3ee;
+  padding: 0.4rem 0.6rem;
+  background: rgb(2 14 24 / 55%);
+  min-height: 2.4rem;
+}
+.hud-caption__bars {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 18px;
+}
+.hud-caption__bars i {
+  width: 2px;
+  height: 30%;
+  background: #22d3ee;
+  animation: hud-eq 1s ease-in-out infinite alternate;
+}
+.hud-caption__text {
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  animation: hud-blur-in 0.45s ease-out;
+}
+.hud-log {
+  border: 1px solid rgb(34 211 238 / 20%);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: rgb(1 8 16 / 80%);
+}
+.hud-log__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  padding: 0.35rem 0.6rem;
+  color: #7dd3fc;
+  border-bottom: 1px solid rgb(34 211 238 / 15%);
+}
+.hud-log__body {
+  max-height: 180px;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.hud-log[data-fullscreen='true'] .hud-log__body {
+  max-height: 40vh;
+}
+.hud-log__line {
+  color: #b8e9f5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.hud-log__empty {
+  color: rgb(125 211 252 / 50%);
+}
+.hud-graph {
+  border: 1px solid rgb(34 211 238 / 20%);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: rgb(1 8 16 / 70%);
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+.hud-graph__head,
+.hud-exec__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  padding: 0.35rem 0.6rem;
+  color: #7dd3fc;
+  border-bottom: 1px solid rgb(34 211 238 / 15%);
+}
+.hud-graph__canvas {
+  width: 100%;
+  height: 240px;
+}
+.hud-exec {
+  border: 1px solid rgb(34 211 238 / 20%);
+  border-radius: 0.6rem;
+  background: rgb(1 8 16 / 70%);
+}
+.hud-exec__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.hud-exec__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+}
+.hud-exec__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+  animation: hud-blink 1s ease-in-out infinite alternate;
+}
+.hud-exec__time {
+  margin-left: auto;
+  color: #7dd3fc;
+}
+.hud-exec__empty {
+  padding: 0.6rem;
+  font-size: 12px;
+  color: rgb(125 211 252 / 50%);
+}
+.hud-radar {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, rgb(34 211 238 / 28%), transparent 22%);
+  animation: jarvis-rotate 2.4s linear infinite;
+  mask-image: radial-gradient(circle at 50% 45%, black 30%, transparent 62%);
+}
+.hud-radar[data-stealth='true'] {
+  background: conic-gradient(from 0deg, rgb(148 163 184 / 22%), transparent 22%);
+}
+.hud-edge {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: auto;
+  background: transparent;
+  border: 2px solid rgb(34 211 238 / 80%);
+  box-shadow:
+    0 0 24px rgb(34 211 238 / 50%),
+    inset 0 0 24px rgb(34 211 238 / 25%);
+  animation: hud-blink 1.2s ease-in-out infinite alternate;
+  cursor: pointer;
+}
+.hud-edge[data-solo='true'] {
+  border-width: 1px;
+  opacity: 0.6;
+}
+@keyframes hud-eq {
+  to {
+    height: 100%;
+  }
+}
+@keyframes hud-blink {
+  to {
+    opacity: 0.45;
+  }
+}
+@keyframes hud-halo-breathe {
+  from {
+    opacity: 0.16;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 0.34;
+    transform: scale(1.06);
+  }
+}
+@keyframes hud-pill-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(14px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes hud-pill-glow {
+  from {
+    box-shadow:
+      0 0 14px color-mix(in srgb, var(--jarvis-state, #22d3ee) 14%, transparent),
+      inset 0 0 18px color-mix(in srgb, var(--jarvis-state, #22d3ee) 8%, transparent);
+  }
+  to {
+    box-shadow:
+      0 0 32px color-mix(in srgb, var(--jarvis-state, #22d3ee) 34%, transparent),
+      inset 0 0 24px color-mix(in srgb, var(--jarvis-state, #22d3ee) 14%, transparent);
+  }
+}
+@keyframes hud-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@media (max-width: 900px) {
+  .hud__grid {
+    grid-template-columns: 1fr;
+  }
+  .hud-gauges {
+    display: none;
+  }
+}

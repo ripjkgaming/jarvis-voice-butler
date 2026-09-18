@@ -25,6 +25,7 @@ import asyncio
 import datetime
 import difflib
 import json
+import os
 import re
 import shutil
 import time
@@ -39,7 +40,7 @@ DATA_DIR = Path.home() / ".jarvis" / "voice-butler"
 TODOS_PATH = DATA_DIR / "todos.json"
 SHORTCUTS_PATH = DATA_DIR / "shortcuts.json"
 SCREENSHOTS_DIR = DATA_DIR / "screenshots"
-HOME_ROOT = Path("/home/ripjk").resolve()
+HOME_ROOT = Path(os.environ.get("JARVIS_HOME", str(Path.home()))).resolve()
 
 _TODO_STOP = {
     "a",
@@ -123,8 +124,33 @@ def _resolve_user_path(p: str) -> Path | None:
     return None
 
 
+VAULT_DIR = Path.home() / ".jarvis" / "vault"
+TODOS_ARCHIVE = VAULT_DIR / "Memory" / "Todos Archive.md"
+
+
+def _archive_todos(done_items: list[dict]) -> None:
+    """Append cleared todos to the vault archive. Never raises."""
+    if not done_items:
+        return
+    try:
+        VAULT_DIR.mkdir(parents=True, exist_ok=True)
+        TODOS_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+        day = datetime.datetime.now().astimezone().date().isoformat()
+        lines = [
+            f"- {day} — {str(i.get('text', ''))[:200]}"
+            for i in done_items
+            if str(i.get("text", "")).strip()
+        ]
+        if not lines:
+            return
+        with TODOS_ARCHIVE.open("a") as fh:
+            fh.write("\n".join(lines) + "\n")
+    except Exception:
+        pass
+
+
 def _trash_path(p: Path) -> Path:
-    d = Path("/home/ripjk/.local/share/Trash/files")
+    d = Path.home() / ".local" / "share" / "Trash" / "files"
     d.mkdir(parents=True, exist_ok=True)
     dest = d / p.name
     i = 1
@@ -162,6 +188,140 @@ def evaluate_math(expr: str) -> float | int:
         ):
             raise ValueError("unsupported expression")
     return eval(compile(node, "<calc>", "eval"), {"__builtins__": {}})
+
+
+_APP_CANDIDATES: dict[str, list[str]] = {
+    "brave": ["brave-browser"],
+    "browser": ["brave-browser", "google-chrome"],
+    "chrome": ["google-chrome"],
+    "code": ["code"],
+    "vscode": ["code"],
+    "konsole": ["konsole"],
+    "terminal": ["konsole"],
+    "dolphin": ["dolphin"],
+    "files": ["dolphin"],
+    "calculator": ["kcalc", "gnome-calculator"],
+    "calc": ["kcalc", "gnome-calculator"],
+    "clcula1tor": ["kcalc", "gnome-calculator"],
+    "calculater": ["kcalc", "gnome-calculator"],
+    "kalculator": ["kcalc", "gnome-calculator"],
+    "kcalc": ["kcalc", "gnome-calculator"],
+    "settings": ["systemsettings"],
+    "spotify": ["spotify"],
+    "discord": ["discord"],
+    "whatsie": ["flatpak:com.ktechpit.whatsie"],
+    "whatsapp": ["flatpak:com.ktechpit.whatsie"],
+}
+
+
+def _desktop_exec(name: str, desktop_dirs: list[Path] | None = None) -> str | None:
+    """Executable for a .desktop entry whose Name matches. Pure-ish (reads files)."""
+    want = (name or "").strip().casefold()
+    if not want:
+        return None
+    dirs = (
+        desktop_dirs
+        if desktop_dirs is not None
+        else [
+            Path.home() / ".local" / "share" / "applications",
+            Path("/usr/share/applications"),
+        ]
+    )
+    for directory in dirs:
+        try:
+            files = sorted(directory.glob("*.desktop"))
+        except OSError:
+            continue
+        for path in files:
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+            entry_name = exec_line = ""
+            for line in text.splitlines():
+                if line.startswith("Name=") and not entry_name:
+                    entry_name = line[5:].strip()
+                elif line.startswith("Exec=") and not exec_line:
+                    exec_line = line[5:].strip()
+                if entry_name and exec_line:
+                    break
+            if not entry_name or not exec_line:
+                continue
+            if want != entry_name.casefold() and want not in entry_name.casefold():
+                continue
+            first = exec_line.split()[0].strip("\"'")
+            if not first:
+                continue
+            if first.startswith("/") and os.access(first, os.X_OK):
+                return first
+            if shutil.which(first):
+                return first
+    return None
+
+
+def _resolve_app(
+    app: str,
+    which=shutil.which,
+    desktop_dirs: list[Path] | None = None,
+) -> str | None:
+    """Spoken app name -> executable or "flatpak:<appid>".
+
+    Pure apart from PATH/.desktop reads.
+    """
+    want = (app or "").strip().lower()
+    candidates = list(_APP_CANDIDATES.get(want, [want]))
+    if want not in candidates:
+        candidates.append(want)
+    for candidate in candidates:
+        if candidate.startswith("flatpak:") and which("flatpak"):
+            return candidate
+        if which(candidate):
+            return candidate
+        for prefix in ("org.kde.", "org.gnome."):
+            if which(f"{prefix}{candidate}"):
+                return f"{prefix}{candidate}"
+    found = _desktop_exec(want, desktop_dirs)
+    if found is not None:
+        return found
+    # Flatpak apps advertise as "flatpak run <appid> ..." in Exec.
+    for directory in (
+        desktop_dirs
+        if desktop_dirs is not None
+        else [
+            Path.home() / ".local" / "share" / "flatpak" / "exports" / "share",
+            Path("/var/lib/flatpak/exports/share"),
+        ]
+    ):
+        try:
+            files = sorted(Path(directory, "applications").glob("*.desktop"))
+        except OSError:
+            continue
+        for path in files:
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+            entry_name = ""
+            appid = ""
+            for line in text.splitlines():
+                if line.startswith("Name=") and not entry_name:
+                    entry_name = line[5:].strip()
+                m = re.search(
+                    r"flatpak run (?:--\S+(?:=\S+)? )*([A-Za-z][A-Za-z0-9_.-]*)",
+                    line,
+                )
+                if m and not appid:
+                    appid = m.group(1)
+                if entry_name and appid:
+                    break
+            if not entry_name or not appid:
+                continue
+            lowered = entry_name.casefold()
+            if (want == lowered or want in lowered or lowered in want) and which(
+                "flatpak"
+            ):
+                return f"flatpak:{appid}"
+    return None
 
 
 class SystemTools:
@@ -597,13 +757,13 @@ class SystemTools:
         if not q:
             raise ToolError("Which file? Give me a name to search.")
         if shutil.which("fdfind"):
-            cmd = ["fdfind", "-i", q, "/home/ripjk", "--max-results", "10"]
+            cmd = ["fdfind", "-i", q, str(HOME_ROOT), "--max-results", "10"]
         elif shutil.which("fd"):
-            cmd = ["fd", "-i", q, "/home/ripjk", "--max-results", "10"]
+            cmd = ["fd", "-i", q, str(HOME_ROOT), "--max-results", "10"]
         else:
             cmd = [
                 "find",
-                "/home/ripjk",
+                str(HOME_ROOT),
                 "-maxdepth",
                 "4",
                 "-iname",
@@ -781,7 +941,9 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        _rc, out, _ = await run_cmd("ls", "-lt", "/home/ripjk/Downloads", timeout=10.0)
+        _rc, out, _ = await run_cmd(
+            "ls", "-lt", str(HOME_ROOT / "Downloads"), timeout=10.0
+        )
         rows = [line for line in (out or "").splitlines()[1:6] if line.strip()]
         if not rows:
             return {"say": "Downloads is empty."}
@@ -814,7 +976,8 @@ class SystemTools:
             if not text:
                 raise ToolError("Add what to the list?")
             items.append({"text": text, "done": False, "ts": time.time()})
-            _write_json(TODOS_PATH, items[-100:])
+            # Infinite retention: keep full history, never trim.
+            _write_json(TODOS_PATH, items)
             log_action("todo-add", text)
             return {"say": f"Added: {text[:100]}."}
         if action == "list":
@@ -847,13 +1010,16 @@ class SystemTools:
             if not hit:
                 raise ToolError(f"Nothing matches {text[:60]}.")
             hit["done"] = True
-            _write_json(TODOS_PATH, items[-100:])
+            # Infinite retention: keep full history, never trim.
+            _write_json(TODOS_PATH, items)
             log_action("todo-done", hit["text"])
             return {"say": f"Done: {hit['text'][:100]}."}
         if action in ("clear", "clear-done"):
+            done_items = [i for i in items if i.get("done")]
+            _archive_todos(done_items)
             items = [i for i in items if not i.get("done")]
-            _write_json(TODOS_PATH, items[-100:])
-            log_action("todo-clear", "")
+            _write_json(TODOS_PATH, items)
+            log_action("todo-clear", f"archived {len(done_items)}")
             return {"say": "Cleared finished items."}
         raise ToolError(f"Unknown todo action {action}.")
 
@@ -937,10 +1103,10 @@ class SystemTools:
 
     @function_tool()
     async def open_app(self, context: RunContext, app: str) -> dict[str, str]:
-        """Open an installed app by .desktop name or executable.
+        """Open an installed app by spoken name, executable, or .desktop entry.
 
         Args:
-            app: e.g. "brave", "code", "konsole", "dolphin".
+            app: e.g. "calculator", "brave", "code", "konsole", "files".
         """
         try:
             require_local()
@@ -949,30 +1115,27 @@ class SystemTools:
         app = app.strip().lower()[:60]
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")
-        known = {
-            "brave": "brave-browser",
-            "chrome": "google-chrome",
-            "code": "code",
-            "vscode": "code",
-            "konsole": "konsole",
-            "terminal": "konsole",
-            "dolphin": "dolphin",
-            "files": "dolphin",
-            "spotify": "spotify",
-            "discord": "discord",
-        }
-        target = known.get(app, app)
-        if shutil.which(target) is None and shutil.which(f"org.kde.{target}"):
-            target = f"org.kde.{target}"
+        target = _resolve_app(app)
+        if target is None:
+            raise ToolError(
+                f"I could not find the app {app} (not on PATH, no .desktop "
+                "entry). Fall back to cursor navigation: desktop_screenshot, "
+                "desktop_locate_text for its icon or name, then desktop_click."
+            )
+        argv = (
+            ["flatpak", "run", target.split("flatpak:", 1)[1]]
+            if target.startswith("flatpak:")
+            else [target]
+        )
         try:
             proc = await asyncio.create_subprocess_exec(
-                target,
+                *argv,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
             )
         except FileNotFoundError:
-            raise ToolError(f"I could not find the app {app}.") from None
+            raise ToolError(f"I could not launch {app}.") from None
         log_action("launch", target)
         return {"say": f"Opening {app}.", "pid": str(proc.pid or 0)}
 

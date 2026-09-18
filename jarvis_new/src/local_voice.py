@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import re
 from pathlib import Path
 
 from livekit.agents import tts, utils
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
+
+logger = logging.getLogger("jarvis-voice")
+
+RENDER_TIMEOUT_S = 15.0
 
 VOICE_DIR = Path.home() / ".jarvis" / "voices"
 DEFAULT_VOICE_NAME = "en_GB-alan-medium"
@@ -147,8 +152,15 @@ class PiperTTS(tts.TTS):
 
             self._voice = PiperVoice.load(str(self._model_path))
         # Adopt the voice's real sample rate (config-dependent).
-        with contextlib.suppress(Exception):
-            self._sample_rate = int(self._voice.config.sample_rate)
+        try:
+            rate = int(self._voice.config.sample_rate)
+        except Exception as exc:
+            logger.warning("keeping default sample rate 22050: %s", exc)
+        else:
+            if rate > 0:
+                self._sample_rate = rate
+            else:
+                logger.warning("keeping default sample rate 22050: bad rate %r", rate)
         return self._voice
 
     def _render_sentence(self, sentence: str) -> bytes:
@@ -196,6 +208,12 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
         plugin: PiperTTS = self._tts  # type: ignore[assignment]
+        # Preload so the emitter below uses the voice's real rate.
+        # Missing model: _render_sentence raises helpfully per text.
+        with contextlib.suppress(RuntimeError):
+            await asyncio.wait_for(
+                asyncio.to_thread(plugin._get_voice), RENDER_TIMEOUT_S
+            )
         output_emitter.initialize(
             request_id=utils.shortuuid(),
             sample_rate=plugin.sample_rate,
@@ -212,8 +230,9 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
                     if buffer.strip():
                         output_emitter.start_segment(segment_id=utils.shortuuid())
                         for sentence in sentence_split(buffer):
-                            pcm = await asyncio.to_thread(
-                                plugin._render_sentence, sentence
+                            pcm = await asyncio.wait_for(
+                                asyncio.to_thread(plugin._render_sentence, sentence),
+                                RENDER_TIMEOUT_S,
                             )
                             if pcm:
                                 output_emitter.push(pcm)
@@ -224,6 +243,11 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
 class _PiperChunkedStream(tts.ChunkedStream):
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
         plugin: PiperTTS = self._tts  # type: ignore[assignment]
+        sentences = sentence_split(self._input_text)
+        if sentences:
+            await asyncio.wait_for(
+                asyncio.to_thread(plugin._get_voice), RENDER_TIMEOUT_S
+            )
         output_emitter.initialize(
             request_id=utils.shortuuid(),
             sample_rate=plugin.sample_rate,
@@ -231,8 +255,11 @@ class _PiperChunkedStream(tts.ChunkedStream):
             mime_type="audio/pcm",
         )
         async with plugin._lock:
-            for sentence in sentence_split(self._input_text):
-                pcm = await asyncio.to_thread(plugin._render_sentence, sentence)
+            for sentence in sentences:
+                pcm = await asyncio.wait_for(
+                    asyncio.to_thread(plugin._render_sentence, sentence),
+                    RENDER_TIMEOUT_S,
+                )
                 if pcm:
                     output_emitter.push(pcm)
         output_emitter.flush()
