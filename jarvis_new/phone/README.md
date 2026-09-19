@@ -4,20 +4,23 @@ Companion app for the Jarvis PC voice butler. Talks to the PC over
 **Tailscale** (tailnet IP + bearer token) — never expose the bridge to
 the open internet.
 
-## Features
+## Features (v1.1)
 
-- **Talk** — hold-to-talk voice: 16k PCM → PC whisper transcript +
-  Gemini-direct reply + Piper audio played back.
+- **Talk** — hold-to-talk voice with a live particle orb (idle/listening/
+  thinking/speaking energy states); screen stays awake while talking.
+- **Chat** — on-phone text conversation with Jarvis (history-aware,
+  screen stays awake while chatting).
 - **Type** — remote keyboard (full text + Enter/Esc/Tab/arrows via wtype).
 - **PC** — volume, media keys, app launcher, live screenshots, ping,
-  lock (confirm-gated in-app).
+  lock/unlock (confirm-gated in-app), screen blackout/restore.
 - **Camera** — see-what-I-see: capture uploads a frame to the PC;
   view the latest frame back.
 - **Link** — settings (host/token/ports), connection test, background
   mic toggle.
 - **Background service** — foreground mic uplink streams 16k PCM to the
   PC `mic_uplink` server for remote "hey Jarvis" detection; on WAKE the
-  phone buzzes and opens Talk. Autostarts on boot (if enabled).
+  phone buzzes and opens Talk. Autostarts on boot (if enabled). Talk +
+  Chat hold a wake lock so the phone stays always-on with you.
 
 ## Install
 

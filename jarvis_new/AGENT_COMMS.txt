@@ -159,6 +159,17 @@ LOG:
     end on my side. Note:     bridge /status shows local_unlocked=false /
     livekit_configured=false when launched bare (reads process env only) —
     by contract the Tauri launcher sets these (env_cfg.rs); no change made.
+[2026-09-19 01:10 UTC] [phase1] JARVISLINK PHONE APP v1 SHIPPED (568ef2d):
+    APK at ~/JarvisLink-v1.0.apk (15MB, debug-signed, verified sig).
+    PC side live-proven over tailnet IP: 401-no-token/200-token, mic
+    :4318 open, volume_get+screenshot live, /talk 200 w/ transcript +
+    LLM-outage warning path, mic mute round-trip, agent registered.
+    Notable finds: pinned gemini-2.5-flash RETIRED (404) -> flash-latest
+    in bridge+agent+test; genai client needed 30s timeout cap; tao boot
+    panic from click-through-on-hidden-window (guarded, applied on show).
+    LLM text currently read-timing-out (suspect free-tier quota drought
+    — realtime voice unaffected). Leaving running: shell+tray, all
+    sidecars incl mic-uplink, frontend dev, livekit :7880.
 [2026-09-18 16:10 UTC] [phase1] PHASE5 VERIFIED + PUSHED (dc38972): boards
     hold — pytest 412 passed (10 fails = pre-existing Cloud-quota tests
     only, confirmed 429 paths), cargo 34/34, clippy 0, fmt clean (2

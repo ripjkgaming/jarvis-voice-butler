@@ -373,3 +373,10 @@ def test_probe_bridge_fails_closed() -> None:
     ok, info = gate.probe_bridge(port=1, timeout=0.2)
     assert ok is False
     assert "error" in info or info == {}
+
+
+def test_bridge_url_honors_bind_env(monkeypatch) -> None:
+    monkeypatch.delenv("JARVIS_BRIDGE_BIND", raising=False)
+    assert gate.bridge_url() == "http://127.0.0.1:4317/health"
+    monkeypatch.setenv("JARVIS_BRIDGE_BIND", "100.77.6.93")
+    assert gate.bridge_url() == "http://100.77.6.93:4317/health"

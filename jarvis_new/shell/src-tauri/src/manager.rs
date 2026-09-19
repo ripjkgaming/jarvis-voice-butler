@@ -116,6 +116,33 @@ pub enum SidecarState {
     Down(String),
 }
 
+/// One supervised sidecar: spec, child, state, restarts-used,
+/// continuously-ready-since (for the 5-minute budget refresh).
+type Supervised = (
+    SidecarSpec,
+    Option<Child>,
+    SidecarState,
+    u8,
+    Option<tokio::time::Instant>,
+);
+
+/// True when a Ready sidecar with spent budget earned a fresh ladder
+/// (healthy continuously for `refresh_s`). Pure (unit-tested).
+pub fn budget_refresh_due(
+    state: &SidecarState,
+    restarts: u8,
+    last_ok: Option<tokio::time::Instant>,
+    refresh_s: u64,
+) -> bool {
+    if restarts == 0 || !matches!(state, SidecarState::Ready) {
+        return false;
+    }
+    match last_ok {
+        Some(since) => since.elapsed() >= Duration::from_secs(refresh_s),
+        None => false,
+    }
+}
+
 /// Exact-argv fingerprint match. Pure (unit-tested).
 pub fn cmdline_matches(want: &[String], got: &[String]) -> bool {
     want.len() == got.len() && want.iter().zip(got.iter()).all(|(a, b)| a == b)
@@ -294,16 +321,21 @@ pub async fn supervise(
     state_tx: watch::Sender<ShellState>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let mut procs: Vec<(SidecarSpec, Option<Child>, SidecarState, u8)> = specs
+    // Tuple: spec, child, state, restarts-used, continuously-ready-since.
+    // The budget refreshes after 5 unbroken healthy minutes, so a sidecar
+    // that runs fine for hours then hits a bad patch gets a full ladder
+    // again instead of staying Down until the shell restarts (matters for
+    // the phone: nobody is at the PC to relaunch).
+    const BUDGET_REFRESH_S: u64 = 300;
+    let mut procs: Vec<Supervised> = specs
         .into_iter()
-        .map(|s| (s, None, SidecarState::Starting, 0))
+        .map(|s| (s, None, SidecarState::Starting, 0, None))
         .collect();
 
-    let announce = |procs: &[(SidecarSpec, Option<Child>, SidecarState, u8)],
-                    tx: &watch::Sender<ShellState>| {
+    let announce = |procs: &[Supervised], tx: &watch::Sender<ShellState>| {
         let alive: Vec<(&str, bool)> = procs
             .iter()
-            .map(|(s, _, st, _)| {
+            .map(|(s, _, st, _, _)| {
                 (
                     s.name,
                     matches!(st, SidecarState::Ready | SidecarState::Restarting(_)),
@@ -341,7 +373,11 @@ pub async fn supervise(
         }
         let mut changed = false;
         for entry in procs.iter_mut() {
-            let (spec, child, state, restarts) = entry;
+            let (spec, child, state, restarts, last_ok) = entry;
+            if budget_refresh_due(state, *restarts, *last_ok, BUDGET_REFRESH_S) {
+                *restarts = 0;
+                *last_ok = Some(tokio::time::Instant::now());
+            }
             let exited = match child {
                 Some(c) => c.try_wait().ok().flatten().is_some(),
                 None => !matches!(state, SidecarState::Down(_)),
@@ -377,7 +413,7 @@ pub async fn supervise(
     }
 
     // Shutdown: kill the whole tree, then wait (no orphans).
-    for (spec, child, _, _) in procs.iter_mut() {
+    for (spec, child, _, _, _) in procs.iter_mut() {
         if let Some(c) = child {
             let _ = c.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
@@ -387,11 +423,11 @@ pub async fn supervise(
 }
 
 async fn start_and_gate(
-    entry: &mut (SidecarSpec, Option<Child>, SidecarState, u8),
+    entry: &mut Supervised,
     env: &HashMap<String, String>,
     log_dir: &std::path::Path,
 ) -> bool {
-    let (spec, child, state, _) = entry;
+    let (spec, child, state, _, last_ok) = entry;
     *state = SidecarState::Starting;
     let log_path = log_dir.join(format!("{}.log", spec.name));
     // Best-effort: a failed rotation must never fail a spawn.
@@ -422,6 +458,7 @@ async fn start_and_gate(
             *child = Some(c);
             if ready {
                 *state = SidecarState::Ready;
+                *last_ok = Some(tokio::time::Instant::now());
             }
             ready
         }
@@ -452,6 +489,22 @@ mod tests {
             repo: PathBuf::from("/repo"),
             missing: vec![],
         }
+    }
+
+    #[test]
+    fn budget_refreshes_only_after_sustained_health() {
+        let old = Some(tokio::time::Instant::now() - Duration::from_secs(301));
+        let fresh = Some(tokio::time::Instant::now());
+        assert!(budget_refresh_due(&SidecarState::Ready, 3, old, 300));
+        assert!(!budget_refresh_due(&SidecarState::Ready, 3, fresh, 300));
+        assert!(!budget_refresh_due(&SidecarState::Ready, 0, old, 300));
+        assert!(!budget_refresh_due(
+            &SidecarState::Down("x".into()),
+            5,
+            old,
+            300
+        ));
+        assert!(!budget_refresh_due(&SidecarState::Ready, 2, None, 300));
     }
 
     #[test]

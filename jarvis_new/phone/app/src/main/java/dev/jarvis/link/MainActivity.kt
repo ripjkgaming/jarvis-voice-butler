@@ -19,6 +19,7 @@ class MainActivity : AppCompatActivity() {
         nav.setOnItemSelectedListener { item ->
             val frag: Fragment = when (item.itemId) {
                 R.id.tab_talk -> TalkFragment()
+                R.id.tab_chat -> ChatFragment()
                 R.id.tab_type -> TypeFragment()
                 R.id.tab_control -> ControlFragment()
                 R.id.tab_camera -> CameraFragment()

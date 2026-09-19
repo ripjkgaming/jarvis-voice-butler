@@ -70,6 +70,17 @@ class LinkApi(prefs: Prefs) {
         )
     }
 
+    data class ChatReply(val reply: String, val warning: String?)
+
+    fun chat(text: String, history: org.json.JSONArray = org.json.JSONArray()): ChatReply {
+        val o = post("/chat", JSONObject().put("text", text).put("history", history))
+        val reply = o.optString("reply")
+        return ChatReply(
+            reply.ifEmpty { o.optString("warning", "(no reply)") },
+            o.optString("warning").ifEmpty { null },
+        )
+    }
+
     fun cameraFrame(imageB64: String): JSONObject =
         post("/camera/frame", JSONObject().put("image_b64", imageB64))
 

@@ -17,6 +17,16 @@ from pathlib import Path
 
 BRIDGE_DEFAULT_PORT = 4317
 HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def bridge_host() -> str:
+    """Where the bridge listens. Honors JARVIS_BRIDGE_BIND (Tailscale phone
+    setups bind the tailnet IP, closing loopback). Pure (env only)."""
+    import os
+
+    return os.environ.get("JARVIS_BRIDGE_BIND", "127.0.0.1").strip() or "127.0.0.1"
+
+
 # Models the code actually loads (audited from src/). The whisper entry
 # follows JARVIS_WHISPER_MODEL so prune-hf can never delete the ears out
 # from under the direct pipeline (src/local_stt.py). Unselected sizes stay
@@ -38,16 +48,29 @@ def used_hf_repos() -> set[str]:
     return USED_HF_REPOS | {WHISPER_HF_REPOS.get(size, WHISPER_HF_REPOS["base"])}
 
 
-def bridge_url(port: int = BRIDGE_DEFAULT_PORT) -> str:
-    return f"http://127.0.0.1:{port}/health"
+def bridge_url(port: int = BRIDGE_DEFAULT_PORT, host: str | None = None) -> str:
+    return f"http://{host or bridge_host()}:{port}/health"
+
+
+def bridge_token() -> str:
+    """Bearer token for the bridge, env first then the 0600 token file."""
+    token = os.environ.get("JARVIS_BRIDGE_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        return (Path.home() / ".jarvis" / "bridge_token").read_text().strip().split()[0]
+    except (OSError, IndexError):
+        return ""
 
 
 def probe_bridge(
     port: int = BRIDGE_DEFAULT_PORT, timeout: float = 1.5
 ) -> tuple[bool, dict]:
-    """GET /health. Returns (ok, body_or_error). I/O (stdlib http)."""
+    """GET /health (with Bearer token when one exists). I/O (stdlib http)."""
     try:
         req = urllib.request.Request(bridge_url(port))
+        if bridge_token():
+            req.add_header("Authorization", f"Bearer {bridge_token()}")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode(errors="replace")
             return resp.status == 200 and '"ok": true' in body, {}

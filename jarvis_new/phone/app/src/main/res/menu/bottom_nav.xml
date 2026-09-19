@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@+id/tab_talk" android:title="Talk" android:icon="@android:drawable/ic_btn_speak_now" />
+    <item android:id="@+id/tab_chat" android:title="Chat" android:icon="@android:drawable/ic_dialog_email" />
     <item android:id="@+id/tab_type" android:title="Type" android:icon="@android:drawable/ic_menu_edit" />
     <item android:id="@+id/tab_control" android:title="PC" android:icon="@android:drawable/ic_menu_manage" />
     <item android:id="@+id/tab_camera" android:title="Camera" android:icon="@android:drawable/ic_menu_camera" />

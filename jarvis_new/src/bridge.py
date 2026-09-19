@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -288,6 +289,57 @@ def _parse_volume_pct(out: str) -> int | None:
     return max(0, min(100, int(match.group(1))))
 
 
+def _parse_kscreen_outputs(out: str) -> list[dict]:
+    """Parse `kscreen-doctor -o` into [{id, name, enabled}]. Pure.
+
+    Lines look like: `Output: 1 HDMI-A-2 <uuid>` followed by a line
+    containing `enabled` or `disabled`. ANSI colors are stripped.
+    """
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", out or "")
+    outputs: list[dict] = []
+    current: dict | None = None
+    for line in clean.splitlines():
+        head = re.match(r"Output:\s*(\d+)\s+(\S+)", line.strip())
+        if head:
+            current = {"id": head.group(1), "name": head.group(2), "enabled": True}
+            outputs.append(current)
+        elif current is not None and "disabled" in line:
+            current["enabled"] = False
+    return outputs
+
+
+def _screens_off_path() -> Path:
+    home = _env("JARVIS_HOME").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / "screens_off.json"
+
+
+def _gemini_reply(transcript: str) -> tuple[str, str | None]:
+    """Direct Gemini reply. Returns (reply, warning_or_None). Lazy import."""
+    try:
+        from google import genai
+    except ImportError:
+        return "", "voice stack missing (google-genai)"
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        return "", "GOOGLE_API_KEY not configured"
+    try:
+        client = genai.Client(api_key=api_key, http_options={"timeout": 30})
+        return (
+            client.models.generate_content(
+                model=GEMINI_TEXT_MODEL,
+                contents=(
+                    "You are Jarvis, a terse British butler voice assistant. "
+                    "Reply in one or two short spoken sentences, no formatting. "
+                    f"User said: {transcript}"
+                ),
+            ).text.strip(),
+            None,
+        )
+    except Exception as exc:
+        return "", f"LLM unavailable: {exc}"[:200]
+
+
 def _tool_result(ok: bool, **fields) -> dict:
     return {"ok": ok, **fields}
 
@@ -368,6 +420,60 @@ def run_phone_tool(tool: str, args: dict) -> dict:
     if tool == "lock":
         rc, _, err = _run(["loginctl", "lock-session"], 5.0)
         return _tool_result(rc == 0, error=None if rc == 0 else err)
+    if tool == "unlock":
+        # Explicit phone-button press = user consent; unlocks own session.
+        rc, _, err = _run(["loginctl", "unlock-session"], 5.0)
+        return _tool_result(rc == 0, error=None if rc == 0 else err)
+    if tool == "screens_state":
+        if _which("kscreen-doctor") is None:
+            return _tool_result(False, error="kscreen-doctor not installed")
+        rc, out, err = _run(["kscreen-doctor", "-o"], 10.0)
+        if rc != 0:
+            return _tool_result(False, error=err or "kscreen-doctor failed")
+        return _tool_result(True, outputs=_parse_kscreen_outputs(out))
+    if tool in ("screen_off", "screen_on"):
+        name = str(args.get("output", "")).strip()
+        if _which("kscreen-doctor") is None:
+            return _tool_result(False, error="kscreen-doctor not installed")
+        rc, out, err = _run(["kscreen-doctor", "-o"], 10.0)
+        if rc != 0:
+            return _tool_result(False, error=err or "kscreen-doctor failed")
+        outputs = _parse_kscreen_outputs(out)
+        targets = [o for o in outputs if not name or o["name"] == name]
+        if not targets:
+            return _tool_result(False, error=f"no such output {name!r}")
+        verb = "disable" if tool == "screen_off" else "enable"
+        failed = []
+        for o in targets:
+            rc, _, err = _run(["kscreen-doctor", f"output.{o['name']}.{verb}"], 10.0)
+            if rc != 0:
+                failed.append(o["name"])
+        if failed:
+            return _tool_result(False, error=f"failed: {failed}")
+        if tool == "screen_off":
+            with contextlib.suppress(OSError):
+                _screens_off_path().write_text(
+                    json.dumps({"off": [o["name"] for o in targets]})
+                )
+            return _tool_result(True, outputs=[o["name"] for o in targets])
+    if tool == "screens_restore":
+        try:
+            saved = json.loads(_screens_off_path().read_text() or "{}")
+        except (OSError, ValueError):
+            saved = {}
+        names = saved.get("off", [])
+        if not names:
+            return _tool_result(False, error="nothing recorded as off")
+        failed = []
+        for name in names:
+            rc, _, err = _run(["kscreen-doctor", f"output.{name}.enable"], 10.0)
+            if rc != 0:
+                failed.append(name)
+        if failed:
+            return _tool_result(False, error=f"failed: {failed}")
+        with contextlib.suppress(OSError):
+            _screens_off_path().unlink(missing_ok=True)
+        return _tool_result(True, outputs=names)
     return _tool_result(False, error=f"unknown tool {tool!r}")
 
 
@@ -437,24 +543,8 @@ def handle_talk(body: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": f"transcribe failed: {exc}"[:200]}
     if not transcript:
         return 200, {"ok": True, "transcript": "", "reply": "", "audio_b64": ""}
-    try:
-        from google import genai
-    except ImportError:
-        return 501, {"ok": False, "error": "voice stack missing (google-genai)"}
-    api_key = os.environ.get("GOOGLE_API_KEY", "")
-    if not api_key:
-        return 501, {"ok": False, "error": "GOOGLE_API_KEY not configured"}
-    try:
-        client = genai.Client(api_key=api_key, http_options={"timeout": 30})
-        reply = client.models.generate_content(
-            model=GEMINI_TEXT_MODEL,
-            contents=(
-                "You are Jarvis, a terse British butler voice assistant. "
-                "Reply in one or two short spoken sentences, no formatting. "
-                f"User said: {transcript}"
-            ),
-        ).text.strip()
-    except Exception as exc:
+    reply, warning = _gemini_reply(transcript)
+    if warning and not reply:
         # Degrade, don't fail: the phone shows what was heard and notes the
         # brain outage (free-tier quota droughts read-timeout this path).
         return 200, {
@@ -462,7 +552,7 @@ def handle_talk(body: dict) -> tuple[int, dict]:
             "transcript": transcript,
             "reply": "",
             "audio_b64": "",
-            "warning": f"LLM unavailable: {exc}"[:200],
+            "warning": warning,
         }
     try:
         try:
@@ -486,6 +576,41 @@ async def _render_tts(tts, text: str) -> tuple[bytes, int]:
     pcm = await asyncio.to_thread(tts._render_sentence, text)
     rate = getattr(tts, "_sample_rate", 22050) or 22050
     return pcm, rate
+
+
+def handle_chat(body: dict) -> tuple[int, dict]:
+    """Text chat for the phone Chat tab. Gemini-direct, no audio.
+
+    Body: {"text": str (1..2000), "history": [[role, text]...] (max 20,
+    optional)}. History roles: user/jarvis. Returns 200
+    {reply} or {reply: "", warning} on LLM outage (same degrade rule).
+    """
+    text = body.get("text", "")
+    if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+        return 400, {"ok": False, "error": "body needs text 1..2000 chars"}
+    history = body.get("history", [])
+    turns = []
+    if isinstance(history, list):
+        for turn in history[-20:]:
+            if (
+                isinstance(turn, list)
+                and len(turn) == 2
+                and turn[0] in ("user", "jarvis")
+                and isinstance(turn[1], str)
+            ):
+                who = "User" if turn[0] == "user" else "Jarvis"
+                turns.append(f"{who}: {turn[1][:1000]}")
+    prompt = (
+        "You are Jarvis, a terse British butler texting with Sir. "
+        "Keep replies short (a few sentences max), plain text, no formatting. "
+    )
+    if turns:
+        prompt += "Conversation so far:\n" + "\n".join(turns) + "\n"
+    prompt += f"Sir: {text.strip()}"
+    reply, warning = _gemini_reply(prompt)
+    if warning and not reply:
+        return 200, {"ok": True, "reply": "", "warning": warning}
+    return 200, {"ok": True, "reply": reply}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -592,6 +717,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
             code, result = handle_talk(body)
+            self._send(code, result)
+            return
+        if route == "/chat":
+            body = _read_json_body(self, 65536)
+            if body is None:
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = handle_chat(body)
             self._send(code, result)
             return
         if route == "/camera/frame":

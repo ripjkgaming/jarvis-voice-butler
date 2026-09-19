@@ -56,6 +56,72 @@ def test_unknown_tool_rejected() -> None:
     assert run_phone_tool("open_app", {"app": "evil"})["ok"] is False
 
 
+def test_kscreen_output_parsing() -> None:
+    from bridge import _parse_kscreen_outputs
+
+    sample = (
+        "\x1b[01;32mOutput: \x1b[0;0m1 HDMI-A-2 uuid-1\n"
+        "\x1b[01;32menabled\x1b[0;0m\n"
+        "Output: 2 DP-1 uuid-2\n"
+        "disabled\n"
+    )
+    outs = _parse_kscreen_outputs(sample)
+    assert outs == [
+        {"id": "1", "name": "HDMI-A-2", "enabled": True},
+        {"id": "2", "name": "DP-1", "enabled": False},
+    ]
+    assert _parse_kscreen_outputs("") == []
+
+
+def test_screens_and_unlock_with_stubbed_runner(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    calls = []
+
+    def fake_run(argv, timeout=10.0):
+        calls.append(argv)
+        if argv[:2] == ["kscreen-doctor", "-o"]:
+            return 0, "Output: 1 HDMI-A-2 x\nenabled\n", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(bridge, "_run", fake_run)
+    monkeypatch.setattr(bridge, "_which", lambda name: f"/usr/bin/{name}")
+    assert run_phone_tool("screens_state", {}) == {
+        "ok": True,
+        "outputs": [{"id": "1", "name": "HDMI-A-2", "enabled": True}],
+    }
+    assert run_phone_tool("unlock", {})["ok"] is True
+    assert calls[-1] == ["loginctl", "unlock-session"]
+    assert run_phone_tool("screen_off", {})["ok"] is True
+    assert ["kscreen-doctor", "output.HDMI-A-2.disable"] in calls
+    assert run_phone_tool("screens_restore", {})["ok"] is True
+    assert ["kscreen-doctor", "output.HDMI-A-2.enable"] in calls
+    assert run_phone_tool("screen_off", {"output": "NOPE"})["ok"] is False
+
+
+def test_chat_validation_and_degraded_reply(monkeypatch) -> None:
+    server, _ = bridge._run_in_thread()
+    try:
+        code, _ = _post(server, "/chat", {})
+        assert code == 400
+        code, _ = _post(server, "/chat", {"text": "x" * 2001})
+        assert code == 400
+        monkeypatch.setattr(
+            bridge, "_gemini_reply", lambda prompt: ("Very good, Sir.", None)
+        )
+        code, body = _post(
+            server, "/chat", {"text": "hello", "history": [["user", "hi"]]}
+        )
+        assert code == 200 and body["reply"] == "Very good, Sir."
+        monkeypatch.setattr(
+            bridge, "_gemini_reply", lambda prompt: ("", "LLM unavailable: down")
+        )
+        code, body = _post(server, "/chat", {"text": "hello"})
+        assert code == 200 and body["reply"] == "" and "warning" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_type_and_tool_routes_with_stubbed_runner(monkeypatch) -> None:
     calls = []
 

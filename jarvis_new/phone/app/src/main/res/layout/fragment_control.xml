@@ -31,6 +31,15 @@
             android:layout_width="0dp" android:layout_height="wrap_content" />
         <Button android:id="@+id/btn_lock" android:text="Lock PC" android:layout_weight="1"
             android:layout_width="0dp" android:layout_height="wrap_content" />
+        <Button android:id="@+id/btn_unlock" android:text="Unlock" android:layout_weight="1"
+            android:layout_width="0dp" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/btn_blackout" android:text="Blackout screens" android:layout_weight="1"
+            android:layout_width="0dp" android:layout_height="wrap_content" />
+        <Button android:id="@+id/btn_restore" android:text="Restore screens" android:layout_weight="1"
+            android:layout_width="0dp" android:layout_height="wrap_content" />
     </LinearLayout>
     <TextView android:id="@+id/txt_control_status" android:text=""
         android:layout_width="match_parent" android:layout_height="wrap_content" />

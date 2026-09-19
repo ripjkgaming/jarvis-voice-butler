@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
 import androidx.fragment.app.Fragment
@@ -13,22 +14,37 @@ import androidx.fragment.app.Fragment
 /** Push-to-talk: hold the button, release to send. Reply plays + shows. */
 class TalkFragment : Fragment() {
     private val recorder = Audio16k.Recorder()
+    private var orb: OrbView? = null
+
+    override fun onResume() {
+        super.onResume()
+        // Always-on while talking: screen never sleeps here.
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onPause() {
+        activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        super.onPause()
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreateView(inflater: LayoutInflater, host: ViewGroup?, state: Bundle?): View {
         val v = inflater.inflate(R.layout.fragment_talk, host, false)
         val btn = v.findViewById<Button>(R.id.btn_ptt)
         val out = v.findViewById<TextView>(R.id.txt_talk_out)
+        orb = v.findViewById(R.id.orb)
         btn.setOnTouchListener { _, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
                     out.text = "Listening…"
+                    orb?.energy = 0.8f
                     if (!recorder.start()) out.text = "Mic unavailable"
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     btn.isEnabled = false
                     out.text = "Thinking…"
+                    orb?.energy = 0.5f
                     val audio = recorder.stopToBase64()
                     Thread {
                         try {
@@ -42,6 +58,7 @@ class TalkFragment : Fragment() {
                             activity?.runOnUiThread {
                                 out.text = show
                                 btn.isEnabled = true
+                                orb?.energy = if (r.audioB64.isNotEmpty()) 1.0f else 0.35f
                                 if (r.audioB64.isNotEmpty()) {
                                     try {
                                         Audio16k.playPcm16(r.audioB64, r.audioRate)

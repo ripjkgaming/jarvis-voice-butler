@@ -85,6 +85,19 @@ class ControlFragment : Fragment() {
                 .setPositiveButton("Lock") { _, _ -> call("Lock") { it.tool("lock") } }
                 .setNegativeButton("Cancel", null).show()
         }
+        v.findViewById<Button>(R.id.btn_unlock).setOnClickListener {
+            AlertDialog.Builder(requireContext()).setTitle("Unlock the PC?")
+                .setPositiveButton("Unlock") { _, _ -> call("Unlock") { it.tool("unlock") } }
+                .setNegativeButton("Cancel", null).show()
+        }
+        v.findViewById<Button>(R.id.btn_blackout).setOnClickListener {
+            AlertDialog.Builder(requireContext()).setTitle("Black out all screens?")
+                .setPositiveButton("Blackout") { _, _ -> call("Blackout") { it.tool("screen_off") } }
+                .setNegativeButton("Cancel", null).show()
+        }
+        v.findViewById<Button>(R.id.btn_restore).setOnClickListener {
+            call("Restore screens") { it.tool("screens_restore") }
+        }
         return v
     }
 }
