@@ -1,9 +1,10 @@
-"""Inbox + briefings: Gmail (readonly), news headlines, weather, morning bundle.
+"""Inbox + briefings: Gmail (read + confirm-gated send), news, weather, bundle.
 
 Ported from proven laptop Jarvis logic (~/jarvis/src/new_jarvis/):
 - gmail.py: Google OAuth token at ~/jarvis/data/gmail_token.json
-  (readonly scope). REST via urllib: refresh access token, list/search
-  messages, read one. Sending was never supported and is not ported.
+  (readonly + send scopes). REST via urllib: refresh access token,
+  list/search messages, read one, send/reply. Sending is confirm-gated:
+  confirm_email_action first, exact draft match, single use.
 - skill_news: Google News RSS (no key), cached 15 min per query.
 - skill_weather: wttr.in one-liner (no key), cached 30 min per city.
 
@@ -182,6 +183,181 @@ def _gmail_api(path: str, token: str, params: dict | None = None) -> dict:
         raise ToolError(f"Gmail did not respond ({exc}).") from exc
 
 
+def _gmail_send_api(token: str, raw_b64: str, thread_id: str | None = None) -> dict:
+    """POST a base64url MIME message. Returns the sent message resource."""
+    payload: dict = {"raw": raw_b64}
+    if thread_id:
+        payload["threadId"] = thread_id
+    req = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode())
+    except Exception as exc:
+        raise ToolError(f"Gmail refused to send ({exc}).") from exc
+
+
+def build_mime_b64(to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+    """Plain-text MIME -> base64url, Gmail /messages/send format. Pure."""
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["To"] = to.strip()
+    msg["Subject"] = subject.strip()
+    if in_reply_to.strip():
+        msg["In-Reply-To"] = in_reply_to.strip()
+        msg["References"] = in_reply_to.strip()
+    msg.set_content(body.strip())
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+
+def _draft_key(to: str, subject: str, body: str) -> str:
+    """Exact-match fingerprint for the email confirm gate. Pure."""
+
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", (s or "").strip().casefold())
+
+    return f"{norm(to)}|{norm(subject)}|{norm(body)}"
+
+
+def _extract_email(header: str) -> str:
+    """'Name <a@b>' -> a@b; bare address passes through. Pure."""
+    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", header or "")
+    return m.group(0).lower() if m else ""
+
+
+def _header(full: dict, name: str) -> str:
+    try:
+        for h in full.get("payload", {}).get("headers", []):
+            if str(h.get("name", "")).lower() == name.lower():
+                return str(h.get("value", ""))
+    except Exception:
+        pass
+    return ""
+
+
+SCHOOL_DOMAINS = ("sji-international.com.sg",)
+
+URGENT_WORDS = (
+    "urgent",
+    "asap",
+    "as soon as possible",
+    "deadline",
+    "due ",
+    "due:",
+    "exam",
+    "test tomorrow",
+    "quiz",
+    "meeting",
+    "appointment",
+    "action required",
+    "important",
+    "emergency",
+    "call me",
+)
+
+NOREPLY_HINTS = ("noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster")
+
+
+def _is_bulk(full: dict, sender: str) -> bool:
+    """Newsletters/bulk/automated: never auto-replied to. Pure."""
+    lowered = sender.casefold()
+    if any(h in lowered for h in NOREPLY_HINTS):
+        return True
+    if _header(full, "List-Unsubscribe"):
+        return True
+    if "bulk" in _header(full, "Precedence").casefold():
+        return True
+    auto = _header(full, "Auto-Submitted").casefold()
+    return auto not in ("", "no")
+
+
+def classify_email(
+    sender: str, subject: str, snippet: str, full: dict | None = None
+) -> dict[str, object]:
+    """High / normal / skip triage for the headless mail watcher. Pure.
+
+    - skip: own mail and undeliverable noise (never pinged, never answered).
+    - high: school domain, urgent words, or fresh classroom assignment.
+      Human senders get an auto-reply; bulk/noreply get a ping only.
+    - normal: everything else (logged; surfaces via inbox tools/briefing).
+    Returns {"level": ..., "reasons": [...], "classroom": bool,
+    "human": bool}.
+    """
+    reasons: list[str] = []
+    addr = _extract_email(sender)
+    owner = __import__("os").environ.get("JARVIS_OWNER_EMAIL", "").strip().casefold()
+    if owner and addr == owner:
+        return {
+            "level": "skip",
+            "reasons": ["own mail"],
+            "classroom": False,
+            "human": False,
+        }
+    text = f"{subject or ''} {snippet or ''}".casefold()
+    classroom = (
+        "classroom" in sender.casefold()
+        or "classroom" in text
+        or "assignment" in (subject or "").casefold()
+    )
+    if classroom:
+        reasons.append("classroom")
+    if any(d in addr for d in SCHOOL_DOMAINS):
+        reasons.append("school domain")
+    hits = [w for w in URGENT_WORDS if w in text or w in sender.casefold()]
+    reasons.extend(f"keyword:{h}" for h in hits)
+    human = True
+    if full is not None:
+        human = not _is_bulk(full, sender)
+        if not human:
+            reasons.append("bulk/noreply")
+    level = (
+        "high"
+        if (classroom or any(d in addr for d in SCHOOL_DOMAINS) or hits)
+        else "normal"
+    )
+    return {
+        "level": level,
+        "reasons": reasons,
+        "classroom": classroom,
+        "human": human,
+    }
+
+
+def autoreply_body(subject: str) -> str:
+    """Conservative acknowledgment template for high-priority mail. Pure."""
+    subject = (subject or "(no subject)").strip()[:120]
+    return (
+        f"Hello — this is an automatic reply from Jarvis, assistant to Sir.\n\n"
+        f"Your email '{subject}' has been flagged as important and will "
+        f"be reviewed shortly. For anything time-critical, please follow "
+        f"up by phone or WhatsApp.\n\n— Jarvis (automated acknowledgment)"
+    )
+
+
+async def _resolve_ref_to_id(token: str, ref: str) -> str:
+    """ "latest" / N / message-id -> Gmail message id. Shared by read/reply."""
+    ref = (ref or "latest").strip()
+    if ref.lower() == "latest" or ref.isdigit():
+        idx = 0 if ref.lower() == "latest" else max(0, min(9, int(ref) - 1))
+        listed = await asyncio.to_thread(
+            _gmail_api, "/messages", token, {"maxResults": idx + 1}
+        )
+        msgs = listed.get("messages", []) or []
+        if len(msgs) <= idx:
+            raise ToolError("No such email in the inbox.")
+        return str(msgs[idx]["id"])
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", ref[:100]):
+        raise ToolError("That is not a valid message reference.")
+    return ref[:100]
+
+
 WMO_DESCRIPTIONS = {
     0: "Clear sky",
     1: "Mainly clear",
@@ -312,12 +488,21 @@ def _news_cached(url: str, key: str, n: int) -> list[dict]:
 class InboxTools:
     """Gmail/news/weather/briefing. Register via .tools on the SystemAgent."""
 
+    def __init__(self) -> None:
+        # Single-use email authorization (mirrors the click/power gates):
+        # confirm_email_action stores a draft fingerprint; gmail_send and
+        # gmail_reply only fire on an exact match, then clear it.
+        self._confirmed_draft: str | None = None
+
     @property
     def tools(self) -> list:
         return [
             self.gmail_status,
             self.gmail_inbox,
             self.gmail_read,
+            self.confirm_email_action,
+            self.gmail_send,
+            self.gmail_reply,
             self.news_digest,
             self.weather_now,
             self.morning_briefing,
@@ -325,7 +510,7 @@ class InboxTools:
 
     @function_tool()
     async def gmail_status(self, context: RunContext) -> dict[str, str]:
-        """Is Gmail connected (readonly OAuth)?"""
+        """Is Gmail connected, and can it send?"""
         try:
             require_local()
         except LocalSystemError as exc:
@@ -333,10 +518,127 @@ class InboxTools:
         saved = _read_json(GMAIL_TOKEN, None)
         if isinstance(saved, dict) and saved.get("refresh_token"):
             account = saved.get("account", "")
+            scopes = saved.get("scopes", ["gmail.readonly"])
+            can_send = any("send" in str(s) for s in scopes)
+            mode = "read and send" if can_send else "read-only"
             return {
-                "say": f"Gmail connected{f' as {account}' if account else ''}, read-only."
+                "say": f"Gmail connected{f' as {account}' if account else ''}, {mode}."
             }
         return {"say": "Gmail is not connected."}
+
+    @function_tool()
+    async def confirm_email_action(
+        self, context: RunContext, to: str, subject: str, body: str
+    ) -> str:
+        """Authorize ONE email send exactly as discussed with the user.
+
+        Call only after the user explicitly approves the recipient,
+        subject, and body. The next gmail_send/gmail_reply must match all
+        three exactly, then the authorization burns.
+
+        Args:
+            to: Recipient address the user approved.
+            subject: Subject line the user approved.
+            body: Body text the user approved.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        if not _extract_email(to):
+            raise ToolError(f"{to!r} is not a valid recipient address.")
+        self._confirmed_draft = _draft_key(to, subject, body)
+        return f"Authorized one email to {to.strip()}."
+
+    def _consume_confirm(self, to: str, subject: str, body: str) -> None:
+        if self._confirmed_draft != _draft_key(to, subject, body):
+            raise ToolError(
+                "That email is not authorized. Read the draft back and ask "
+                "the user to confirm it before sending."
+            )
+        self._confirmed_draft = None
+
+    @function_tool()
+    async def gmail_send(
+        self, context: RunContext, to: str, subject: str, body: str
+    ) -> dict[str, str]:
+        """Send a plain-text email. Requires confirm_email_action first.
+
+        Args:
+            to: Recipient address (must match the confirmed draft).
+            subject: Subject line (must match the confirmed draft).
+            body: Body text, up to ~10k chars (must match).
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        to_addr = _extract_email(to)
+        if not to_addr:
+            raise ToolError(f"{to!r} is not a valid recipient address.")
+        subject, body = (subject or "").strip(), (body or "").strip()
+        if not subject:
+            raise ToolError("An email needs a subject line.")
+        if not body:
+            raise ToolError("An email needs a body.")
+        if len(body) > 10_000:
+            raise ToolError("That body is too long (10k character cap).")
+        self._consume_confirm(to_addr, subject, body)
+        token = await asyncio.to_thread(_gmail_access_token)
+        sent = await asyncio.to_thread(
+            _gmail_send_api, token, build_mime_b64(to_addr, subject, body)
+        )
+        log_action("gmail", f"send to={to_addr} id={str(sent.get('id', ''))[:20]}")
+        return {"say": f"Sent to {to_addr}: {subject[:120]}."}
+
+    @function_tool()
+    async def gmail_reply(
+        self, context: RunContext, ref: str, body: str
+    ) -> dict[str, str]:
+        """Reply to an email in-thread. Requires confirm_email_action first.
+
+        Confirm with to=<original sender>, subject=<Re: subject>,
+        body=<reply text> exactly. Matches like gmail_read: "latest",
+        a message id, or "N" for Nth latest.
+
+        Args:
+            ref: "latest", a Gmail message id, or a number 1-10.
+            body: Reply text, up to ~10k chars (must match the draft).
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        body = (body or "").strip()
+        if not body:
+            raise ToolError("A reply needs a body.")
+        if len(body) > 10_000:
+            raise ToolError("That body is too long (10k character cap).")
+        token = await asyncio.to_thread(_gmail_access_token)
+        msg_id = await _resolve_ref_to_id(token, ref)
+        full = await asyncio.to_thread(
+            _gmail_api, f"/messages/{msg_id}", token, {"format": "full"}
+        )
+        orig_subject = _header(full, "Subject") or "(no subject)"
+        reply_subject = (
+            orig_subject
+            if orig_subject.lower().startswith("re:")
+            else f"Re: {orig_subject}"
+        )
+        orig_from = _extract_email(_header(full, "From"))
+        if not orig_from:
+            raise ToolError("I could not tell who sent that email.")
+        self._consume_confirm(orig_from, reply_subject, body)
+        message_id = _header(full, "Message-ID")
+        thread_id = str(full.get("threadId", "") or "")
+        sent = await asyncio.to_thread(
+            _gmail_send_api,
+            token,
+            build_mime_b64(orig_from, reply_subject, body, message_id),
+            thread_id or None,
+        )
+        log_action("gmail", f"reply {msg_id[:20]} id={str(sent.get('id', ''))[:20]}")
+        return {"say": f"Replied to {orig_from}: {reply_subject[:120]}."}
 
     @function_tool()
     async def gmail_inbox(

@@ -89,7 +89,24 @@ def test_cursor_navigation_backs_up_open_app() -> None:
 
 def test_app_launch_and_multistep_desktop_chain() -> None:
     assert "ALWAYS call open_app first, NEVER window_action" in SYSTEM_INSTRUCTIONS
-    assert "desktop_screenshot to view and read the resulting output" in SYSTEM_INSTRUCTIONS
+    assert (
+        "desktop_screenshot to view and read the resulting output"
+        in SYSTEM_INSTRUCTIONS
+    )
     assert "ONLY THEN call transfer_back_to_main" in SYSTEM_INSTRUCTIONS
 
 
+def test_open_app_never_substitutes_example_apps() -> None:
+    assert "open_app arg discipline" in AGENT_INSTRUCTIONS
+    assert "never substitutes" in AGENT_INSTRUCTIONS
+
+
+def test_standby_rules_gate_speech() -> None:
+    assert "standby" in AGENT_INSTRUCTIONS.lower()
+    assert "by name" in AGENT_INSTRUCTIONS.lower()
+    assert "Never open with an unprompted greeting" in AGENT_INSTRUCTIONS
+
+
+def test_standby_engagement_persists_across_turns() -> None:
+    assert "Engagement persists across turns" in AGENT_INSTRUCTIONS
+    assert "omit it" in AGENT_INSTRUCTIONS

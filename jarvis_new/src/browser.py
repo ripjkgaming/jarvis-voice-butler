@@ -561,7 +561,17 @@ class BrowserManager:
                             locator = await self._resolve_target(page, label)
                         except BrowserError:
                             continue
-                        await locator.click()
+                        try:
+                            # A resolved-but-unclickable candidate (offscreen,
+                            # covered, detached) must not fail the whole sweep:
+                            # skip it and try the next safe label.
+                            await locator.click(timeout=5_000)
+                        except PlaywrightTimeoutError:
+                            continue
+                        except Exception as exc:
+                            if self._is_close_error(exc):
+                                raise
+                            continue
                         with contextlib.suppress(PlaywrightTimeoutError):
                             await page.wait_for_load_state(
                                 "domcontentloaded", timeout=5_000

@@ -3,7 +3,8 @@
 //! Start order (each gate must pass before the next spawns):
 //!   livekit-server (TCP :7880) → agent worker (alive + livekit reachable,
 //!   90s budget for model warmup) → wake_client (alive) → bridge (HTTP
-//!   /health :4317). Overall state is published on a watch channel for the
+//!   /health :4317) → mic-uplink (TCP :4318) → ui (static export on :4000).
+//! Overall state is published on a watch channel for the
 //!   tray. Unexpected exits restart on the [`BACKOFF_SECS`] ladder (max 5),
 //!   then the sidecar is marked Down and the tray goes red. Quit kills the
 //!   whole tree — no orphan python/livekit processes.
@@ -89,8 +90,18 @@ fn mark_down(state: &mut SidecarState, reason: String) {
 pub enum ReadyCheck {
     /// TCP port accepts connections (livekit-server).
     TcpPort(u16),
+    /// TCP port on an explicit bind host (mic uplink may serve tailnet).
+    TcpPortOn { host: String, port: u16 },
     /// Plain-HTTP 200 with `"ok": true` (bridge /health).
     HttpOk { port: u16, path: String },
+    /// HTTP health on an explicit bind host + Bearer token (tailnet-bound
+    /// bridges gate every route when a token is set — tokenless loopback
+    /// probes 401 and read as "down").
+    HttpOkOn {
+        host: String,
+        port: u16,
+        path: String,
+    },
     /// Process alive AND livekit reachable (agent worker: registration
     /// implies a live server; the framework logs no stable marker).
     AgentAlive { livekit_port: u16 },
@@ -204,6 +215,15 @@ pub fn reap_stale_sidecars(specs: &[SidecarSpec]) -> Vec<u32> {
     signaled
 }
 
+/// Port for the bundled web UI (static export in shell/ui, served on
+/// localhost for browser access; the overlay serves the same files).
+pub fn ui_port() -> u16 {
+    std::env::var("JARVIS_UI_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4000)
+}
+
 /// Port for the remote-mic hotword uplink (src/mic_uplink.py, wake venv).
 pub fn mic_port() -> u16 {
     std::env::var("JARVIS_MIC_PORT")
@@ -212,7 +232,7 @@ pub fn mic_port() -> u16 {
         .unwrap_or(4318)
 }
 
-/// Build the five specs from resolved programs. Pure (no spawning).
+/// Build the six specs from resolved programs. Pure (no spawning).
 pub fn build_specs(
     progs: &SidecarPrograms,
     livekit_port: u16,
@@ -265,7 +285,8 @@ pub fn build_specs(
                 .join("bridge.py")
                 .to_string_lossy()
                 .into_owned()],
-            ready: ReadyCheck::HttpOk {
+            ready: ReadyCheck::HttpOkOn {
+                host: env_cfg::bridge_host(),
                 port: bridge_port,
                 path: "/health".into(),
             },
@@ -279,8 +300,27 @@ pub fn build_specs(
                 .join("mic_uplink.py")
                 .to_string_lossy()
                 .into_owned()],
-            ready: ReadyCheck::TcpPort(mic_port()),
+            ready: ReadyCheck::TcpPortOn {
+                host: env_cfg::mic_host(),
+                port: mic_port(),
+            },
             ready_timeout_s: 20,
+        },
+        SidecarSpec {
+            name: "ui",
+            program: progs.agent_python.clone(),
+            args: vec![
+                "-m".into(),
+                "http.server".into(),
+                ui_port().to_string(),
+                "--directory".into(),
+                repo.join("shell")
+                    .join("ui")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+            ready: ReadyCheck::TcpPort(ui_port()),
+            ready_timeout_s: 15,
         },
     ]
 }
@@ -288,10 +328,18 @@ pub fn build_specs(
 fn check_ready(check: &ReadyCheck) -> bool {
     match check {
         ReadyCheck::TcpPort(p) => health::tcp_reachable(*p),
+        ReadyCheck::TcpPortOn { host, port } => health::tcp_reachable_on(host, *port),
         ReadyCheck::HttpOk { port, path } => health::http_get_json(*port, path)
             .ok()
             .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
             .unwrap_or(false),
+        ReadyCheck::HttpOkOn { host, port, path } => {
+            let token = env_cfg::bridge_token();
+            health::http_get_json_authed_on(host, *port, path, token.as_deref())
+                .ok()
+                .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
+                .unwrap_or(false)
+        }
         ReadyCheck::AgentAlive { livekit_port } => health::tcp_reachable(*livekit_port),
         ReadyCheck::ProcessAlive => true,
     }
@@ -343,7 +391,11 @@ pub async fn supervise(
             })
             .collect();
         let bridge_port = progs_bridge_port(&env);
-        let bridge = health::bridge_status(bridge_port);
+        let bridge = health::bridge_status_on(
+            &env_cfg::bridge_host(),
+            bridge_port,
+            env_cfg::bridge_token().as_deref(),
+        );
         let _ = tx.send(health::combine_status(&alive, bridge.as_ref()));
     };
 
@@ -531,14 +583,33 @@ mod tests {
     }
 
     #[test]
-    fn specs_start_with_livekit_and_end_with_mic_uplink() {
+    fn specs_start_with_livekit_and_end_with_ui() {
+        // Pin a clean env: build_specs resolves bind hosts from it.
+        let saved: Vec<(String, Option<String>)> =
+            ["JARVIS_BRIDGE_BIND", "JARVIS_MIC_BIND", "JARVIS_UI_PORT"]
+                .iter()
+                .map(|v| (v.to_string(), std::env::var(v).ok()))
+                .collect();
+        std::env::remove_var("JARVIS_BRIDGE_BIND");
+        std::env::remove_var("JARVIS_MIC_BIND");
+        std::env::remove_var("JARVIS_UI_PORT");
         let specs = build_specs(&fake_progs(), 7880, 4317);
-        assert_eq!(specs.len(), 5);
+        assert_eq!(specs.len(), 6);
         assert_eq!(specs.first().unwrap().name, "livekit");
         assert_eq!(specs[3].name, "bridge");
-        assert_eq!(specs.last().unwrap().name, "mic-uplink");
+        assert_eq!(specs[4].name, "mic-uplink");
+        assert_eq!(specs.last().unwrap().name, "ui");
         assert!(matches!(specs[0].ready, ReadyCheck::TcpPort(7880)));
-        assert!(matches!(specs[4].ready, ReadyCheck::TcpPort(4318)));
+        assert!(
+            matches!(&specs[4].ready, ReadyCheck::TcpPortOn { host, port }
+                if host == "127.0.0.1" && *port == 4318)
+        );
+        for (v, old) in saved {
+            match old {
+                Some(val) => std::env::set_var(&v, val),
+                None => std::env::remove_var(&v),
+            }
+        }
     }
 
     #[test]

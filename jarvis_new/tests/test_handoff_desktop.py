@@ -6,14 +6,18 @@ a follow-up turn on the specialist must work.
 """
 
 import pytest
-from livekit.agents import AgentSession, inference, llm
+from _free_llm import free_eval_llm, patient_run, throttle
+from livekit.agents import AgentSession, llm
 
 from agent import Assistant
 from system.desktop import DesktopTools
 
 
 def _agent_llm() -> llm.LLM:
-    return inference.LLM(model="openai/gpt-4.1-mini")
+    # Free handoff judge (AI Studio key, $0). inference.LLM bills Cloud
+    # credits per call; the fallback chain spreads load across per-model
+    # free quotas just like production.
+    return free_eval_llm()
 
 
 async def _dry_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -28,7 +32,10 @@ def _dry_assistant(agent_llm: llm.LLM) -> Assistant:
 
 
 async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> list[str]:
-    result = await session.run(user_input=prompt)
+    # Pace every prompt: multi-turn handoff tests burst through the
+    # ~10 RPM combined free quota otherwise.
+    await throttle()
+    result = await patient_run(session.run, user_input=prompt)
     return [
         event.item.name
         for event in result.events
@@ -38,6 +45,7 @@ async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> li
 
 @pytest.mark.asyncio
 async def test_handoff_to_system_control_survives() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)
@@ -71,6 +79,7 @@ async def test_desktop_tool_ids_reachable_on_specialist() -> None:
 
 @pytest.mark.asyncio
 async def test_handoff_calculator_launches_open_app() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         specialist, _ = await Assistant.transfer_to_system_control(
@@ -86,4 +95,3 @@ async def test_handoff_calculator_launches_open_app() -> None:
         )
         assert "open_app" in calls
         assert "window_action" not in calls
-

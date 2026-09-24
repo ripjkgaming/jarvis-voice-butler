@@ -236,3 +236,169 @@ def test_ip_city_parses_ipinfo(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda url, timeout=15.0: b'{"city": "Leeds", "country": "GB"}',
     )
     assert ip_city() == "Leeds"
+
+
+def test_send_tools_registered() -> None:
+    ids = [tool.id for tool in InboxTools().tools]
+    for expected in ("confirm_email_action", "gmail_send", "gmail_reply"):
+        assert expected in ids
+
+
+def test_draft_key_ignores_case_and_spacing() -> None:
+    from system.inbox import _draft_key
+
+    assert _draft_key("A@b.com", "Hi", "x") == _draft_key("a@B.COM", "  hi ", "X")
+
+
+def test_extract_email_handles_display_names() -> None:
+    from system.inbox import _extract_email
+
+    assert _extract_email("Teacher <t@school.edu>") == "t@school.edu"
+    assert _extract_email("plain@x.io") == "plain@x.io"
+    assert _extract_email("no address here") == ""
+
+
+def test_mime_roundtrips_through_base64() -> None:
+    from system.inbox import build_mime_b64
+
+    raw = build_mime_b64("a@b.com", "Sub", "Body text", "<mid123>")
+    decoded = base64.urlsafe_b64decode(raw.encode()).decode()
+    assert "a@b.com" in decoded and "Sub" in decoded and "Body text" in decoded
+    assert "mid123" in decoded
+
+
+@pytest.mark.asyncio
+async def test_send_refuses_without_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    calls: list = []
+    monkeypatch.setattr(
+        inbox_mod, "_gmail_send_api", lambda *a, **k: calls.append((a, k)) or {}
+    )
+    tools = InboxTools()
+    with pytest.raises(ToolError, match="not authorized"):
+        await InboxTools.gmail_send(tools, None, "a@b.com", "Hi", "yo")  # type: ignore[arg-type]
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_send_fires_once_on_exact_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr(inbox_mod, "_gmail_access_token", lambda: "tok")
+    sent: list = []
+
+    def _fake_send(token, raw, thread_id=None):
+        sent.append((token, raw, thread_id))
+        return {"id": "sent123"}
+
+    monkeypatch.setattr(inbox_mod, "_gmail_send_api", _fake_send)
+    tools = InboxTools()
+    await InboxTools.confirm_email_action(tools, None, "A@b.com", "Hi", "yo")  # type: ignore[arg-type]
+    result = await InboxTools.gmail_send(tools, None, "a@B.COM", "hi", "YO")  # type: ignore[arg-type]
+    assert "Sent to a@b.com" in result["say"]
+    assert len(sent) == 1 and sent[0][0] == "tok" and sent[0][2] is None
+    # Single-use: second send without re-confirm refuses.
+    with pytest.raises(ToolError, match="not authorized"):
+        await InboxTools.gmail_send(tools, None, "a@b.com", "Hi", "yo")  # type: ignore[arg-type]
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_rejects_bad_recipient_after_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    tools = InboxTools()
+    with pytest.raises(ToolError, match="not a valid recipient"):
+        await InboxTools.confirm_email_action(tools, None, "not-an-email", "Hi", "yo")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_reply_threads_and_matches_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr(inbox_mod, "_gmail_access_token", lambda: "tok")
+    monkeypatch.setattr(
+        inbox_mod,
+        "_gmail_api",
+        lambda path, token, params=None: (
+            {"messages": [{"id": "m1"}]}
+            if path == "/messages"
+            else {
+                "threadId": "t9",
+                "payload": {
+                    "headers": [
+                        {"name": "Subject", "value": "Homework"},
+                        {"name": "From", "value": "Teacher <t@school.edu>"},
+                        {"name": "Message-ID", "value": "<orig1>"},
+                    ]
+                },
+            }
+        ),
+    )
+    sent: list = []
+
+    def _fake_send(token, raw, thread_id=None):
+        sent.append((token, raw, thread_id))
+        return {"id": "sent9"}
+
+    monkeypatch.setattr(inbox_mod, "_gmail_send_api", _fake_send)
+    tools = InboxTools()
+    await InboxTools.confirm_email_action(  # type: ignore[arg-type]
+        tools, None, "t@school.edu", "Re: Homework", "Done, Sir."
+    )
+    result = await InboxTools.gmail_reply(tools, None, "latest", "Done, Sir.")  # type: ignore[arg-type]
+    assert "Replied to t@school.edu" in result["say"]
+    assert len(sent) == 1 and sent[0][2] == "t9"
+    decoded = base64.urlsafe_b64decode(sent[0][1].encode()).decode()
+    assert "orig1" in decoded  # In-Reply-To threading header present
+
+
+def test_classify_school_and_urgent_is_high() -> None:
+    from system.inbox import classify_email
+
+    v = classify_email("Teacher <t@sji-international.com.sg>", "Reminder", "hi")
+    assert v["level"] == "high" and v["human"] is True
+    v = classify_email("Boss <b@corp.com>", "URGENT: call me", "hi")
+    assert v["level"] == "high"
+
+
+def test_classify_bulk_never_human() -> None:
+    from system.inbox import classify_email
+
+    full = {
+        "payload": {
+            "headers": [
+                {"name": "List-Unsubscribe", "value": "<mailto:x>"},
+                {"name": "From", "value": "News <news@site.com>"},
+            ]
+        }
+    }
+    v = classify_email("News <news@site.com>", "URGENT deals", "buy", full)
+    assert v["level"] == "high" and v["human"] is False
+
+
+def test_classify_self_and_plain() -> None:
+    import os
+
+    from system.inbox import classify_email
+
+    os.environ["JARVIS_OWNER_EMAIL"] = "me@gmail.com"
+    try:
+        v = classify_email("Me <me@gmail.com>", "test", "hi")
+        assert v["level"] == "skip"
+        v = classify_email("Friend <f@x.com>", "hello", "how are you")
+        assert v["level"] == "normal" and v["human"] is True
+    finally:
+        del os.environ["JARVIS_OWNER_EMAIL"]
+
+
+def test_autoreply_template_names_subject() -> None:
+    from system.inbox import autoreply_body
+
+    body = autoreply_body("Exam on Friday")
+    assert "Exam on Friday" in body and "automatic" in body

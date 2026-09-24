@@ -9,18 +9,19 @@ description = "Simple voice AI assistant built with LiveKit Agents for Python"
 requires-python = ">=3.10, <3.15"
 
 dependencies = [
-    "livekit-agents[google,images]>=1.6.9",
+    "livekit-agents[google,images]>=1.8.2",
     "livekit-plugins-ai-coustics~=0.2",
     # Cloud-free `direct` pipeline (JARVIS_PIPELINE=direct): local Silero VAD
-    # endpointing + local faster-whisper ears. Pinned to the 1.6 line so
-    # livekit-agents itself never churns (1.8 requires an agents upgrade).
-    "livekit-plugins-silero~=1.6",
+    # endpointing + local faster-whisper ears. Tracks the agents minor line
+    # (>=1.8 for Gemini 3.1 Flash Live support).
+    "livekit-plugins-silero~=1.8",
     "faster-whisper>=1.2.1",
     "piper-tts>=1.8.0",
     "playwright>=1.62.0",
     "python-dotenv",
     "sounddevice>=0.5.5",
     "websockets>=12.0",
+    "opencv-python-headless<5",
 ]
 
 [dependency-groups]

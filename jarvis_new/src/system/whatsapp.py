@@ -6,9 +6,11 @@ endpoints; this module evaluates JavaScript in the WhatsApp page via the
 page's websocket debugger URL (raw ``websockets``, because QtWebEngine's
 CDP is too limited for Playwright's browser-level connect).
 
-Read-only voice access: status / chat list / recent messages. Sending
-stays manual on the phone — drafts queue via DailyTools.whatsapp_draft
-and are never auto-sent.
+Read-only voice access: status / chat list / recent messages. Voice
+drafts queue via DailyTools.whatsapp_draft and are never auto-sent.
+Programmatic sending exists ONLY for the headless mail watcher
+(send_chat, notification pings to the owner's own chat) — never wired
+to a voice tool without a confirm gate.
 
 Setup (one time, on the laptop)::
 
@@ -90,7 +92,10 @@ async def cdp_evaluate(wsurl: str, expr: str, timeout: int = 25):
     import websockets
 
     req_id = next(_cdp_ids)
-    async with websockets.connect(wsurl, max_size=10_000_000, timeout=10) as ws:
+    # websockets>=14 renamed connect()'s `timeout` to `open_timeout`.
+    async with websockets.connect(
+        wsurl, max_size=10_000_000, open_timeout=10
+    ) as ws:
         await ws.send(
             json.dumps(
                 {
@@ -413,3 +418,58 @@ async def read_chat(name: str, n: int = 30) -> dict:
         "is_group": "\n" in (hdr or ""),
         "messages": msgs,
     }
+
+
+async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
+    """Send a WhatsApp message via the open conversation (watcher only).
+
+    Opens the chat, types into the composer page-side, dispatches Enter,
+    then verifies the tail of the thread carries our text. Text is capped
+    at 500 chars. Returns {"ok": True} or {"ok": False, "err": ...}.
+    """
+    text = (text or "").strip()[:500]
+    if not text:
+        return {"ok": False, "err": "empty message"}
+    opened = await open_chat(name)
+    if not opened.get("ok"):
+        return {"ok": False, **opened}
+    esc = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+    type_js = (
+        """(()=>{const box=document.querySelector(
+          'footer [contenteditable="true"]')||document.querySelector(
+          '[data-testid="conversation-compose-box-input"]');
+          if(!box) return 'nobox';
+          box.focus();
+          document.execCommand('selectAll',false,null);
+          const ok=document.execCommand('insertText',false,'"""
+        + esc
+        + """');
+          const cur=(box.innerText||'').slice(0,120);
+          for (const t of ['keydown','keypress']) {
+            box.dispatchEvent(new KeyboardEvent(t,{bubbles:true,
+              cancelable:true,key:'Enter',code:'Enter',keyCode:13,which:13}));
+          }
+          box.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,
+            cancelable:true,key:'Enter',code:'Enter',keyCode:13,which:13}));
+          return 'typed:'+ok+':'+cur;
+        })()"""
+    )
+    typed = await cdp(type_js)
+    if not isinstance(typed, str) or not typed.startswith("typed:"):
+        return {"ok": False, "err": f"composer unreachable ({typed})"}
+    want = text[:60].lower()
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        tail = (
+            await cdp(
+                "(()=>{const all=[...document.querySelectorAll("
+                "'[data-testid=\"msg-container\"]')];"
+                "const last=all[all.length-1];"
+                "return last?last.innerText.slice(-200):'';})()"
+            )
+            or ""
+        )
+        if want[:30] in str(tail).lower():
+            return {"ok": True, "name": opened.get("name", name)}
+        await asyncio.sleep(1.0)
+    return {"ok": False, "err": "send unverified (no tail match)"}
