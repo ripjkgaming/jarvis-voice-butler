@@ -68,9 +68,20 @@ class _ControlScreenState extends State<ControlScreen> {
         .showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _reload() async {
+    await _c.refreshVolume();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.all(16), children: [
+    return RefreshIndicator(
+      color: JarvisTheme.cyan,
+      backgroundColor: JarvisTheme.panel,
+      onRefresh: _reload,
+      child: ListView(
+          padding: const EdgeInsets.all(16),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
       _section('VOLUME', [
         Row(children: [
           IconButton(
@@ -187,7 +198,8 @@ class _ControlScreenState extends State<ControlScreen> {
               icon: const Icon(Icons.keyboard_return)),
         ]),
       ]),
-    ]);
+          ]),
+    );
   }
 
   int _order = 0;

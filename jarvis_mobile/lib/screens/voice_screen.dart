@@ -21,8 +21,18 @@ class VoiceScreen extends StatefulWidget {
 class _VoiceScreenState extends State<VoiceScreen> {
   final VoiceCtrl _call = VoiceCtrl();
   bool _muted = false;
+  bool _unlinked = false;
   List<Map<String, String>> _captions = [];
   Timer? _poll;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Re-check linkage every time the tab appears (set on Home tab).
+    Prefs.host().then((h) {
+      if (mounted) setState(() => _unlinked = h.isEmpty);
+    });
+  }
 
   @override
   void initState() {
@@ -91,7 +101,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
           Center(
             child: Text(
               switch (_call.state) {
-                CallState.idle => 'Tap to summon Jarvis',
+                CallState.idle => _unlinked
+                    ? 'Link the bridge first (Home → link icon)'
+                    : 'Tap to summon Jarvis',
                 CallState.joining => _call.detail.isEmpty
                     ? 'Joining…'
                     : _call.detail,
