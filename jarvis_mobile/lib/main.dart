@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'core/theme.dart';
+import 'screens/chat_screen.dart';
+import 'screens/control_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/soon_screen.dart';
 import 'screens/voice_screen.dart';
@@ -40,10 +42,7 @@ class _TabsState extends State<_Tabs> {
         icon: Icons.chat_bubble_outline,
         title: 'Chat',
         subtitle: 'Phase 3 — text side-channel'),
-    SoonScreen(
-        icon: Icons.tune,
-        title: 'Control',
-        subtitle: 'Phase 4 — PC remote control'),
+    ControlScreen(),
   ];
 
   @override

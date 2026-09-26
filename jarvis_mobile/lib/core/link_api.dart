@@ -2,10 +2,13 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'backend.dart';
+
 /// Dart port of the native LinkApi contract (phone/.../LinkApi.kt)
 /// against the home bridge over Tailscale. Every route is bearer-gated;
 /// failures come back as {ok:false} maps, never throws (callers stay dumb).
-class LinkApi {
+class LinkApi implements ControlBackend {
+  @override
   final String base;
   final String token;
   final http.Client _http;
