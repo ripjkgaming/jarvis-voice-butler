@@ -190,7 +190,13 @@ class _ControlScreenState extends State<ControlScreen> {
     ]);
   }
 
-  Widget _section(String title, List<Widget> kids) => Card(
+  int _order = 0;
+
+  Widget _section(String title, List<Widget> kids) {
+    final index = _order++;
+    return _EnterOnce(
+      delay: Duration(milliseconds: 70 * index.clamp(0, 6)),
+      child: Card(
         margin: const EdgeInsets.only(bottom: 12),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -206,5 +212,51 @@ class _ControlScreenState extends State<ControlScreen> {
                 ...kids,
               ]),
         ),
-      );
+      ),
+    );
+  }
+}
+
+/// Entrance that plays exactly once (initState), never on rebuilds.
+class _EnterOnce extends StatefulWidget {
+  final Duration delay;
+  final Widget child;
+  const _EnterOnce({required this.delay, required this.child});
+
+  @override
+  State<_EnterOnce> createState() => _EnterOnceState();
+}
+
+class _EnterOnceState extends State<_EnterOnce>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 350));
+    Future.delayed(widget.delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _c, curve: Curves.easeOutCubic),
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.04), end: Offset.zero)
+            .animate(
+                CurvedAnimation(parent: _c, curve: Curves.easeOutCubic)),
+        child: widget.child,
+      ),
+    );
+  }
 }

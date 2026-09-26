@@ -10,6 +10,56 @@ import '../widgets/orb.dart';
 /// Phase 1 home: live connection dot, hero orb (shared-element ready),
 /// caption tail, quick actions. Voice/Chat/Control tabs land in later
 /// phases; the API + theme + orb ship now and compile green.
+class _PulseDot extends StatefulWidget {
+  final bool online;
+  const _PulseDot({required this.online});
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1400))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween(begin: 0.45, end: 1.0).animate(
+          CurvedAnimation(parent: _c, curve: Curves.easeInOut)),
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.online ? JarvisTheme.cyan : Colors.redAccent,
+          boxShadow: widget.online
+              ? [
+                  BoxShadow(
+                      color: JarvisTheme.cyan.withAlpha(150),
+                      blurRadius: 8)
+                ]
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -119,21 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Row(children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _online ? JarvisTheme.cyan : Colors.redAccent,
-                  boxShadow: _online
-                      ? [
-                          BoxShadow(
-                              color: JarvisTheme.cyan.withAlpha(150),
-                              blurRadius: 8)
-                        ]
-                      : null,
-                ),
-              ),
+              _PulseDot(online: _online),
               IconButton(
                   icon: const Icon(Icons.link),
                   tooltip: 'Link settings',

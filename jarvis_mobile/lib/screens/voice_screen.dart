@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/link_api.dart';
 import '../core/prefs.dart';
@@ -105,9 +106,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             FilledButton.icon(
-              onPressed: _call.state == CallState.live
-                  ? _call.hangup
-                  : _call.join,
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                if (_call.state == CallState.live) {
+                  _call.hangup();
+                } else {
+                  _call.join();
+                }
+              },
               icon: Icon(_call.state == CallState.live
                   ? Icons.call_end
                   : Icons.mic),

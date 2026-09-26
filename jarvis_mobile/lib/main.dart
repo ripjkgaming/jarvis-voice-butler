@@ -4,7 +4,6 @@ import 'core/theme.dart';
 import 'screens/chat_screen.dart';
 import 'screens/control_screen.dart';
 import 'screens/home_screen.dart';
-import 'screens/soon_screen.dart';
 import 'screens/voice_screen.dart';
 
 /// Jarvis mobile: Home (link+captions) · Voice (LiveKit) · Chat · Control.
@@ -38,10 +37,7 @@ class _TabsState extends State<_Tabs> {
   static const _pages = [
     HomeScreen(),
     VoiceScreen(),
-    SoonScreen(
-        icon: Icons.chat_bubble_outline,
-        title: 'Chat',
-        subtitle: 'Phase 3 — text side-channel'),
+    ChatScreen(),
     ControlScreen(),
   ];
 
