@@ -165,3 +165,101 @@ def test_strip_filler_drops_location_and_politeness() -> None:
     assert strip_filler("steam") == "steam"
     # Never strips the whole query away.
     assert strip_filler("please") == "please"
+
+
+# --- regressions from the live sweep (2026-09-27) ---------------------
+
+LIVE_APPS = [
+    AppEntry(name="Steam", argv=["steam"]),
+    AppEntry(name="LACT", argv=["lact"], keywords="GPU Control Application"),
+    AppEntry(name="ZCode", argv=["zcode"]),
+    AppEntry(name="Visual Studio Code", argv=["code"], keywords="Text Editor vscode"),
+    AppEntry(name="Google Play Store", argv=["gps"]),
+    AppEntry(name="Discord", argv=["discord"]),
+    AppEntry(name="OBS Studio", argv=["obs"]),
+    AppEntry(name="Jarvis Projects", argv=["jp"]),
+    AppEntry(name="ChatGPT", argv=["chatgpt"]),
+]
+LIVE_KNOWN = {"google": "https://www.google.com", "chatgpt": "https://chat.openai.com"}
+
+
+def _live(q, history=()):
+    return resolve_launch(
+        q,
+        apps=LIVE_APPS,
+        history=list(history),
+        known_sites=LIVE_KNOWN,
+        llm=_no_llm,
+        lucky=_no_web,
+    )
+
+
+def test_uninstalled_app_is_not_swapped_for_a_lookalike():
+    # "telegram" ~ "steam" and "slack" ~ "lact" only by letters: search instead.
+    for q in ("telegram", "slack"):
+        d = _live(q)
+        assert d.kind == "url" and d.reason == "web-search", (q, d)
+
+
+def test_spaced_nickname_hits_compact_keyword():
+    d = _live("vs code")
+    assert d.kind == "app" and d.target == "Visual Studio Code"
+
+
+def test_known_site_beats_partial_app_and_history():
+    hist = [("translate - Google Search", "https://www.google.com/search?q=x", 1.0)]
+    d = _live("google", history=hist)
+    assert d.kind == "url" and d.target == "https://www.google.com"
+
+
+def test_exact_app_name_still_beats_known_site():
+    d = _live("chatgpt")
+    assert d.kind == "app" and d.target == "ChatGPT"
+
+
+def test_leading_verbs_and_wakeword_are_stripped():
+    for q, want in (
+        ("open discord", "Discord"),
+        ("fire up obs", "OBS Studio"),
+        ("jarvis open discord", "Discord"),
+        ("Hey Jarvis, please launch the steam app", "Steam"),
+    ):
+        d = _live(q)
+        assert d.kind == "app" and d.target == want, (q, d)
+
+
+def test_strip_filler_leading() -> None:
+    from system.launcher import strip_filler
+
+    assert strip_filler("jarvis, open spotify") == "spotify"
+    assert strip_filler("could you bring up my files") == "files"
+    # A bare verb is kept rather than emptied.
+    assert strip_filler("open") == "open"
+
+
+def test_history_site_named_by_a_query_word(tmp_path):
+    import sqlite3
+
+    from system.launcher import history_sites
+
+    db = tmp_path / "History"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE urls (url TEXT, title TEXT, visit_count INT)")
+    con.execute(
+        "INSERT INTO urls VALUES ('https://classroom.google.com/h', 'Classroom', 40)"
+    )
+    con.commit()
+    con.close()
+    hits = history_sites("google classroom", paths=(db,))
+    assert hits and hits[0][1] == "https://classroom.google.com/h"
+    # Beats a weak app lookalike when the arbiter is offline.
+    apps = [AppEntry(name="Google Chrome", argv=["chrome"], keywords="Web Browser")]
+    d = resolve_launch(
+        "google classroom",
+        apps=apps,
+        history=hits,
+        known_sites={},
+        llm=_no_llm,
+        lucky=_no_web,
+    )
+    assert d.kind == "url" and "classroom" in d.target

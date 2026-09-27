@@ -53,7 +53,25 @@ def test_volume_pct_parsing() -> None:
 
 def test_unknown_tool_rejected() -> None:
     assert run_phone_tool("format_disk", {})["ok"] is False
-    assert run_phone_tool("open_app", {"app": "evil"})["ok"] is False
+
+
+def test_open_app_unmapped_goes_to_launcher_and_never_spawns(monkeypatch) -> None:
+    # Unmapped names reach the universal launcher (never a real launch here:
+    # the old "evil" assertion opened a live web result on the desktop).
+    def _no_spawn(*a, **k):
+        raise AssertionError("test must not launch anything")
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", _no_spawn)
+    seen = []
+    monkeypatch.setattr(
+        bridge, "_launch_anything", lambda n: seen.append(n) or {"ok": True}
+    )
+    assert run_phone_tool("open_app", {"app": "Evil"})["ok"] is True
+    assert seen == ["evil"]
+    monkeypatch.undo()
+    monkeypatch.setattr(bridge.subprocess, "Popen", _no_spawn)
+    assert run_phone_tool("open_app", {"app": "x" * 61})["ok"] is False
+    assert run_phone_tool("open_app", {"app": ""})["ok"] is False
 
 
 def test_kscreen_output_parsing() -> None:
@@ -90,7 +108,7 @@ def test_screens_and_unlock_with_stubbed_runner(monkeypatch, tmp_path) -> None:
         "outputs": [{"id": "1", "name": "HDMI-A-2", "enabled": True}],
     }
     assert run_phone_tool("unlock", {})["ok"] is True
-    assert calls[-1] == ["loginctl", "unlock-session"]
+    assert calls[-1] == ["loginctl", "unlock-sessions"]
     assert run_phone_tool("screen_off", {})["ok"] is True
     assert ["kscreen-doctor", "output.HDMI-A-2.disable"] in calls
     assert run_phone_tool("screens_restore", {})["ok"] is True
@@ -221,9 +239,12 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
     client_sock.settimeout(5)
     client_sock.sendall(b'{"rate": 16000, "channels": 1}\n')
     assert json.loads(client_sock.recv(256).decode()) == {"ok": True}
-    pcm = (b"\x00\x00" * 1280) * 8  # 8 native frames of silence
+    # Voiced frames: PredictGate never scores silence, and idles at every
+    # 3rd frame, so 32 frames -> ~11 predicts; fires on the 3rd, cooldown
+    # eats the rest.
+    pcm = (b"\x00\x10" * 1280) * 16
     client_sock.sendall(pcm)
-    client_sock.sendall(pcm)  # 16 frames total -> fires on 3rd, cooldown eats rest
+    client_sock.sendall(pcm)
     time.sleep(0.5)
     client_sock.setblocking(False)
     got = b""

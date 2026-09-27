@@ -20,9 +20,9 @@ Target: Jarvis overlay free space (Tauri shell `shell/ui`) + HUD web frontend.
 - Built: `vite build -- --base=./` → `shell/ui/globe/` (31MB, relative paths).
 - gods-eye pack loader REQUIRES http(s) asset URLs (`director/packs/source.js`
   throws on `tauri://`), so the window does NOT use the Tauri custom protocol:
-- `globe-assets.service` (systemd user, enabled): `python3 -m http.server 4000
+- `globe-assets.service` (systemd user, enabled): `python3 -m http.server 4001
   --bind 127.0.0.1 --directory .../shell/ui/globe`. Window url =
-  `http://127.0.0.1:4000/index.html`. CSP widened for that origin
+  `http://127.0.0.1:4001/index.html` (port 4001: 4000 belongs to the shell's ui sidecar). CSP widened for that origin
   (script/style/font/img/media) + pre-existing https allowances for tiles,
   fonts, and data layers.
 - Window: label `globe`, 1280×800, normal (not always-on-top), display-only —

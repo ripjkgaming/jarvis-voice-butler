@@ -793,7 +793,7 @@ def test_absolute_volume_routing_and_validation(monkeypatch):
 
 
 def test_screenshot_crops_to_output(monkeypatch, tmp_path):
-    pil = pytest.importorskip("PIL")
+    pytest.importorskip("PIL")
     from PIL import Image
 
     full = tmp_path / "full.png"

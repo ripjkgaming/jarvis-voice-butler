@@ -15,7 +15,7 @@ never double-ping or double-reply. Every outcome is reason-coded to
 actions.log. Failures are swallowed per-message; the job always exits 0.
 
 Install:
-    (crontab -l 2>/dev/null; echo "*/5 * * * * cd /home/ripjk/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 JARVIS_OWNER_EMAIL=ripjkgaming@gmail.com JARVIS_WA_NOTIFY_CHAT='Message yourself' .venv/bin/python src/mail_watch_job.py") | crontab -
+    (crontab -l 2>/dev/null; echo "*/5 * * * * cd /mnt/data/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 JARVIS_OWNER_EMAIL=ripjkgaming@gmail.com JARVIS_WA_NOTIFY_CHAT='Message yourself' .venv/bin/python src/mail_watch_job.py") | crontab -
 """
 
 from __future__ import annotations

@@ -13,7 +13,7 @@ briefings.log for the record; the notification carries the shaped
 text. Every skip is reason-coded to actions.log.
 
 Install (weekdays 07:30):
-    (crontab -l 2>/dev/null; echo "30 7 * * 1-5 cd /home/ripjk/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 .venv/bin/python src/briefing_job.py") | crontab -
+    (crontab -l 2>/dev/null; echo "30 7 * * 1-5 cd /mnt/data/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 .venv/bin/python src/briefing_job.py") | crontab -
 """
 
 from __future__ import annotations

@@ -76,11 +76,28 @@ _TRAILING_FILLER = re.compile(
 )
 
 
+# Leading speech cruft ("hey jarvis, could you open the ...") that reaches
+# the launcher whenever the caller passes the raw phrase instead of a name.
+_LEADING_FILLER = re.compile(
+    r"^(?:(?:hey\s+)?(?:jarvis|jeeves|jarves|jervis)\b[\s,.:;!-]*)?"
+    r"(?:(?:please|can\s+you|could\s+you|would\s+you)\b[\s,]*)*"
+    r"(?:(?:open|launch|start|run|load|fire\s+up|bring\s+up|pull\s+up)\b\s*)?"
+    r"(?:(?:up|the|my|a)\b\s*)*",
+    re.IGNORECASE,
+)
+
+
 def strip_filler(query: str) -> str:
-    """Drop trailing location/politeness words from a launch query. Pure."""
+    """Drop leading wakeword/verb and trailing location/politeness words.
+
+    Pure; never strips the whole query away.
+    """
     q = (query or "").strip().rstrip(".!?")
-    stripped = _TRAILING_FILLER.sub("", q).strip()
+    stripped = _TRAILING_FILLER.sub("", _LEADING_FILLER.sub("", q)).strip()
     return stripped or q
+
+
+_FUZZY_FULL = 0.75
 
 
 def _score(query: str, text: str) -> float:
@@ -101,8 +118,20 @@ def _score(query: str, text: str) -> float:
         return 0.95
     if q in t:  # contiguous substring ("libre" in "libreoffice")
         return 0.9
+    # Spacing-insensitive: "vs code" -> "vscode", "libre office" -> "libreoffice".
+    qc = q.replace(" ", "")
+    if len(qc) >= 4 and qc != q:
+        if qc in tt:
+            return 0.95
+        if qc in t.replace(" ", ""):
+            return 0.9
     overlap = len(qt & tt) / len(qt) if qt else 0.0
     ratio = SequenceMatcher(None, q, t).ratio()
+    # Letters-only resemblance ("telegram"~"steam", "slack"~"lact") is weak
+    # evidence: damp it so an uninstalled app searches instead of launching
+    # a lookalike. Close misspellings (>= 0.75) keep full weight.
+    if ratio < _FUZZY_FULL:
+        ratio *= 0.8
     return max(overlap * 0.85, ratio)
 
 
@@ -224,6 +253,7 @@ def history_sites(
     log-ish visit_count boost. Never raises; returns [] on any failure.
     """
     out: list[tuple[str, str, float]] = []
+    qtokens = set(_norm(query).split())
     for src in paths if paths is not None else _HISTORY_PATHS:
         if not src.exists():
             continue
@@ -255,6 +285,10 @@ def history_sites(
             # Title matches count only weakly so they can't clear the floor
             # alone -- they merely reinforce a domain that already matches.
             s = max(_score(query, host_name), _score(query, title or "") * 0.6)
+            # The site's name is a whole word Sir said ("google classroom"
+            # -> classroom.google.com): solid evidence, not mere lookalike.
+            if len(host_name) >= 4 and host_name in qtokens:
+                s = max(s, 0.8)
             if s < 0.72:
                 continue
             boost = min(0.1, (int(visits or 0)) / 2000)
@@ -394,6 +428,19 @@ def resolve_launch(
     apps = index_apps() if apps is None else apps
     app, app_score = best_app(q, apps)
 
+    # Layer 0: a well-known site named exactly ("google") beats a partial
+    # app hit ("Google Play Store") and stray history rows ("... - Google
+    # Search"); an app named exactly the same ("ChatGPT") still wins.
+    site_key = _norm(q).replace(" ", "")
+    if known_sites and site_key in known_sites and app_score < 1.0:
+        return Decision(
+            "url",
+            known_sites[site_key],
+            say=f"Opening {q}, Sir.",
+            reason="known-site",
+            confidence=0.9,
+        )
+
     # Layer 1: a dominant installed-app match wins immediately.
     if app is not None and app_score >= _APP_STRONG:
         return Decision(
@@ -415,17 +462,6 @@ def resolve_launch(
             say=f"Opening {title}, Sir.",
             reason="history-strong",
             confidence=s,
-        )
-
-    # A well-known site name Sir may not have in history yet.
-    site_key = _norm(q).replace(" ", "")
-    if known_sites and site_key in known_sites:
-        return Decision(
-            "url",
-            known_sites[site_key],
-            say=f"Opening {q}, Sir.",
-            reason="known-site",
-            confidence=0.9,
         )
 
     # Layer 3: ambiguous zone -- gather the near-matches and let the tiny

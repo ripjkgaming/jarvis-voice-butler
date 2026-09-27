@@ -241,12 +241,16 @@ def _audio_run() -> str:
 
 
 def _gate_check() -> tuple[str, str]:
-    from wizard.gate import probe_bridge
+    from wizard.gate import bridge_url, probe_bridge
 
     ok, _ = probe_bridge()
+    url = bridge_url()
     if ok:
-        return GREEN, "bridge /health OK on 127.0.0.1:4317"
-    return AMBER, "bridge /health not answering (start the shell, then rerun)"
+        return GREEN, f"bridge {url} OK"
+    return AMBER, (
+        f"bridge {url} not answering (start the shell; if it binds the "
+        "tailnet, export JARVIS_BRIDGE_BIND like the service does, then rerun)"
+    )
 
 
 def _gate_run() -> str:

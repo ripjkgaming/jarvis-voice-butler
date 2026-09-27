@@ -28,7 +28,7 @@
       {
         "label": "globe",
         "title": "God's Eye (display only)",
-        "url": "http://127.0.0.1:4000/index.html?ambient=1",
+        "url": "http://127.0.0.1:4001/index.html?ambient=1",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -47,7 +47,7 @@
       "menuOnLeftClick": true
     },
     "security": {
-      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 http://127.0.0.1:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:4000; style-src 'self' 'unsafe-inline' http://localhost:4000 http://127.0.0.1:4000 https://fonts.googleapis.com; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* http://100.77.6.93:* ws://127.0.0.1:7880 https: wss:; font-src 'self' data: http://127.0.0.1:* https://fonts.gstatic.com; img-src 'self' data: http://127.0.0.1:* https: blob:; media-src 'self' data: blob: http://127.0.0.1:* https:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 http://127.0.0.1:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:4000 http://127.0.0.1:4001; style-src 'self' 'unsafe-inline' http://localhost:4000 http://127.0.0.1:4000 http://127.0.0.1:4001 https://fonts.googleapis.com; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* http://100.77.6.93:* ws://127.0.0.1:7880 https: wss:; font-src 'self' data: http://127.0.0.1:* https://fonts.gstatic.com; img-src 'self' data: http://127.0.0.1:* https: blob:; media-src 'self' data: blob: http://127.0.0.1:* https:; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {

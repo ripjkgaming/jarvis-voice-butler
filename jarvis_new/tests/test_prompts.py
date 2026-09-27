@@ -88,7 +88,11 @@ def test_cursor_navigation_backs_up_open_app() -> None:
 
 
 def test_app_launch_and_multistep_desktop_chain() -> None:
-    assert "ALWAYS call open_app first, NEVER window_action" in SYSTEM_INSTRUCTIONS
+    assert (
+        "ALWAYS call open_app first with exactly the name Sir said"
+        in SYSTEM_INSTRUCTIONS
+    )
+    assert "NEVER window_action" in SYSTEM_INSTRUCTIONS
     assert (
         "desktop_screenshot to view and read the resulting output"
         in SYSTEM_INSTRUCTIONS
