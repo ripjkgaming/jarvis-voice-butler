@@ -145,3 +145,28 @@ export async function bridgeSummon(): Promise<boolean> {
     return false;
   }
 }
+
+/** Generic authenticated GET for feature clients (lib/projects.ts). */
+export function bridgeGet<T>(path: string): Promise<T | null> {
+  return getJson<T>(path);
+}
+
+/** Generic authenticated POST (JSON in, JSON out). Null on any failure;
+ *  non-2xx bodies are still returned so callers can show the error. */
+export async function bridgePost<T>(path: string, body: unknown): Promise<T | null> {
+  try {
+    const { url, token } = await getEndpoint();
+    const res = await fetch(`${url}${path}`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}

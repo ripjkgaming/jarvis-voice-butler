@@ -118,3 +118,11 @@ def test_standby_engagement_persists_across_turns() -> None:
 
 def test_sober_is_the_roblox_app_not_music() -> None:
     assert "Sober is the Roblox client" in AGENT_INSTRUCTIONS
+
+
+def test_research_search_and_site_opens_never_mix() -> None:
+    assert "Three separate jobs, never mixed" in AGENT_INSTRUCTIONS
+    assert "= research_project" in AGENT_INSTRUCTIONS
+    assert "Never turn a search or a site open into research_project" in AGENT_INSTRUCTIONS
+    assert "= code_project" in AGENT_INSTRUCTIONS
+    assert "= open_projects" in AGENT_INSTRUCTIONS

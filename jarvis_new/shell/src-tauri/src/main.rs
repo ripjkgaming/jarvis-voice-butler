@@ -44,6 +44,10 @@ fn main() {
                 "globe" => tray::toggle_globe(app),
                 "globeshow" => tray::show_globe(app),
                 "globestate" => print_window_state(app, "globe"),
+                "projects" => tray::toggle_projects(app),
+                "projectsshow" => tray::show_projects(app),
+                "projectshide" => tray::hide_projects(app),
+                "projectsstate" => print_window_state(app, "projects"),
                 "state" => print_overlay_state(app),
                 "domstate" => print_dom_state(app),
                 "talk" => {

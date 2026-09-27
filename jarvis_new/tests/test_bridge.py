@@ -580,6 +580,98 @@ def test_gemini_reply_reports_last_error_when_all_saturated(monkeypatch):
     assert len(calls) == 1 + len(bridge.GEMINI_TEXT_FALLBACKS)
 
 
+def test_claude_takes_over_when_gemini_is_saturated(monkeypatch):
+    _fake_genai(monkeypatch, [_UsageError(429)])
+    seen = {}
+
+    def fake_claude(prompt, **kw):
+        seen.update(kw, prompt=prompt)
+        return "Claude here, Sir.", None
+
+    monkeypatch.setattr("claude_cli.claude_reply", fake_claude)
+    reply, warning = bridge._gemini_reply("hello", guest=True)
+    assert (reply, warning) == ("Claude here, Sir.", None)
+    assert seen["model"] == "claude-haiku-4-5" and seen["tools"] == ""
+    assert "guest mode" in seen["system"]  # persona survives the fallback
+
+
+def test_claude_not_used_for_non_usage_errors(monkeypatch):
+    _fake_genai(monkeypatch, [_AuthError()])
+    monkeypatch.setattr(
+        "claude_cli.claude_reply",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("no Claude on auth errors")
+        ),
+    )
+    reply, warning = bridge._gemini_reply("hello")
+    assert reply == "" and "LLM unavailable" in warning
+
+
+def test_claude_failure_keeps_gemini_warning(monkeypatch):
+    _fake_genai(monkeypatch, [_UsageError(429)])
+    monkeypatch.setattr("claude_cli.claude_reply", lambda *a, **k: ("", "down"))
+    reply, warning = bridge._gemini_reply("hello")
+    assert reply == "" and "LLM unavailable" in warning
+
+
+def test_projects_voice_route_beats_app_launcher(monkeypatch):
+    import projects
+
+    monkeypatch.setattr(projects, "BUS", projects.UiBus())
+    hit = bridge._match_voice_tool("Jarvis, open research projects.")
+    assert hit is not None and hit[0] == "projects_ui"
+    assert hit[1]["commands"] == [{"action": "show"}]
+    hit = bridge._match_voice_tool("open research projects and open project two")
+    assert [c["action"] for c in hit[1]["commands"]] == ["show", "select"]
+    # Websites and searches keep their own routes.
+    assert bridge._match_voice_tool("open youtube")[0] == "open_app"
+    assert bridge._match_voice_tool("search for batteries") is None or (
+        bridge._match_voice_tool("search for batteries")[0] != "projects_ui"
+    )
+
+
+def test_projects_http_routes(monkeypatch, tmp_path):
+    import projects
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(projects, "BUS", projects.UiBus())
+    started = {}
+    monkeypatch.setattr(
+        projects,
+        "start_research",
+        lambda topic: started.setdefault("m", {"id": "x", "topic": topic}),
+    )
+    server = _bridge_server()
+    try:
+        status, body = _post(
+            server,
+            "/projects",
+            {"kind": "research", "topic": "solid state"},
+            token="test-token",
+        )
+        assert status == 200 and started["m"]["topic"] == "solid state"
+        status, body = _post(
+            server, "/projects", {"kind": "research", "topic": "x"}, token="test-token"
+        )
+        assert status == 400
+        status, body = _post(
+            server,
+            "/projects",
+            {"kind": "code", "task": "rm", "guest": True},
+            token="test-token",
+        )
+        assert status == 403
+        status, body = _get(server, "/projects", token="test-token")
+        assert status == 200 and body["projects"] == []
+        projects.BUS.push("show")
+        status, body = _get(server, "/projects/ui?since=0", token="test-token")
+        assert status == 200 and body["commands"][0]["action"] == "show"
+        status, body = _get(server, "/projects/../../etc", token="test-token")
+        assert status == 404
+    finally:
+        server.server_close()
+
+
 def test_is_usage_error_classifies(monkeypatch):
     assert bridge._is_usage_error(_UsageError(429)) is True
     assert bridge._is_usage_error(_UsageError(503)) is True

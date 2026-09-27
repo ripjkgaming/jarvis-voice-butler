@@ -52,6 +52,7 @@ from system.devices import DeviceTools
 from system.inbox import InboxTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
+from system.projects_tools import ProjectTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 
@@ -858,6 +859,7 @@ class Assistant(Agent):
         self.inbox_tools = inbox_tools or InboxTools()
         self.reddit_tools = reddit_tools or RedditTools()
         self.osint_tools = OsintTools()
+        self.project_tools = ProjectTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -887,6 +889,9 @@ class Assistant(Agent):
                 # Passive OSINT rides directly (public data, no confirm);
                 # active pentest stays behind the handoff (rare ids).
                 *self.osint_tools.tools,
+                # Background research (Claude) / coding (opencode) projects
+                # + the voice-only Project Archive window.
+                *self.project_tools.tools,
                 *[
                     tool
                     for group in (

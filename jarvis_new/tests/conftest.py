@@ -26,3 +26,10 @@ def _isolated_actions_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(system, "LOG_PATH", tmp_path / "actions.log")
     monkeypatch.setenv("JARVIS_ACTIONS_LOG", str(tmp_path / "actions.log"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never spend Sir's Pro usage from tests: headless Claude is off unless
+    a test opts in (and stubs the runner)."""
+    monkeypatch.setenv("JARVIS_CLAUDE", "0")

@@ -285,6 +285,22 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     lowered = _clean_voice_text(text)
     if not lowered:
         return None
+    # Voice-only Project Archive ("open research projects, navigate to the
+    # battery project and open the first document and start scrolling").
+    # Before the generic open_app route, which would launch "research
+    # projects" as an app.
+    try:
+        import projects as _projects
+
+        cmds = _projects.parse_voice(lowered)
+    except Exception:
+        cmds = None
+    if cmds:
+        return (
+            "projects_ui",
+            {"commands": cmds, "heard": (text or "").strip()[:200]},
+            _projects.reply_for(cmds),
+        )
     for pattern, tool, args_fn, reply in _VOICE_TOOLS:
         match = re.search(pattern, lowered)
         if match:
@@ -874,13 +890,21 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
     request) fails fast with the first error. Lazy import. Guest mode
     answers cold, curt and faintly contemptuous, one short sentence.
     """
+    persona = (
+        "You are Jarvis in guest mode: cold, curt, faintly contemptuous. One "
+        "short spoken sentence, no formatting, no warmth. Answer simple "
+        "questions only; refuse anything else with a frosty no."
+        if guest
+        else "You are Jarvis, a terse British butler voice assistant. Reply in "
+        "one or two short spoken sentences, no formatting."
+    )
     try:
         from google import genai
     except ImportError:
-        return "", "voice stack missing (google-genai)"
+        return _claude_fallback(transcript, persona, "voice stack missing (google-genai)")
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-        return "", "GOOGLE_API_KEY not configured"
+        return _claude_fallback(transcript, persona, "GOOGLE_API_KEY not configured")
     if guest:
         brief = (
             "You are Jarvis in guest mode: cold, curt, faintly contemptuous. "
@@ -913,8 +937,30 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
         except Exception as exc:
             last_err = exc
             if not _is_usage_error(exc):
-                break
-    return "", f"LLM unavailable: {last_err}"[:200]
+                return "", f"LLM unavailable: {last_err}"[:200]
+    # Every Gemini text model is out of quota: Claude (Sir's Pro plan,
+    # cheapest model) keeps chat alive.
+    return _claude_fallback(transcript, persona, f"LLM unavailable: {last_err}"[:200])
+
+
+def _claude_fallback(
+    transcript: str, persona: str, warning: str
+) -> tuple[str, str | None]:
+    """Claude Haiku via headless Claude Code; the original warning if it
+    fails too. Never raises."""
+    try:
+        import claude_cli
+
+        reply, _ = claude_cli.claude_reply(
+            transcript,
+            model=claude_cli.CHAT_MODEL,
+            system=persona,
+            tools="",
+            timeout=45.0,
+        )
+    except Exception:
+        reply = ""
+    return (reply, None) if reply else ("", warning)
 
 
 def _tool_result(ok: bool, **fields) -> dict:
@@ -973,6 +1019,24 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return _tool_result(rc == 0, state=out or None, error=None if rc == 0 else err)
     if tool == "play_media":
         return _play_media(str(args.get("query", "")))
+    if tool == "projects_ui":
+        import projects as _projects
+
+        cmds = args.get("commands")
+        if not isinstance(cmds, list) or not cmds:
+            return _tool_result(False, error="no commands")
+        out = _projects.execute_voice(cmds, heard=str(args.get("heard", ""))[:200])
+        if not out.get("ok"):
+            missing = next((c for c in cmds if c.get("action") == "missing"), None)
+            return _tool_result(
+                False,
+                error=(
+                    f"no project called {missing.get('query')}"
+                    if missing
+                    else "the project archive didn't respond"
+                ),
+            )
+        return _tool_result(True)
     if tool == "open_app":
         name = str(args.get("app", "")).strip().lower().rstrip(".,!? ")
         try:
@@ -1817,6 +1881,44 @@ class _Handler(BaseHTTPRequestHandler):
             code, result = handle_talk(body)
             self._send(code, result)
             return
+        if route == "/projects":
+            import projects as _projects
+
+            body = _read_json_body(self, 16384)
+            if body is None:
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            if body.get("guest") is True:
+                self._send(403, {"ok": False, "error": "guest mode refuses projects"})
+                return
+            kind = body.get("kind")
+            if kind == "research":
+                topic = body.get("topic")
+                if not isinstance(topic, str) or not 3 <= len(topic.strip()) <= 2000:
+                    self._send(400, {"ok": False, "error": "topic 3..2000 chars"})
+                    return
+                meta = _projects.start_research(topic)
+            elif kind == "code":
+                task = body.get("task")
+                if not isinstance(task, str) or not 3 <= len(task.strip()) <= 4000:
+                    self._send(400, {"ok": False, "error": "task 3..4000 chars"})
+                    return
+                meta = _projects.start_code(
+                    task,
+                    directory=str(body.get("directory") or ""),
+                    variant=str(body.get("variant") or ""),
+                )
+            else:
+                self._send(400, {"ok": False, "error": 'kind "research" or "code"'})
+                return
+            self._send(200, {"ok": True, "project": meta})
+            return
+        if route.startswith("/projects/") and route.endswith("/cancel"):
+            import projects as _projects
+
+            pid = route[len("/projects/") : -len("/cancel")]
+            self._send(200, {"ok": _projects.cancel_project(pid)})
+            return
         if route == "/chat":
             body = _read_json_body(self, 65536)
             if body is None:
@@ -1928,6 +2030,27 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "no frames yet"})
                 return
             self._send_bytes(200, "image/jpeg", raw)
+        elif route == "/projects":
+            import projects as _projects
+
+            self._send(200, {"ok": True, "projects": _projects.list_projects()})
+        elif route == "/projects/ui":
+            import projects as _projects
+
+            raw = (qs.get("since") or [None])[0]
+            try:
+                since = int(raw) if raw is not None else None
+            except ValueError:
+                since = None
+            self._send(200, _projects.BUS.since(since))
+        elif route.startswith("/projects/"):
+            import projects as _projects
+
+            proj = _projects.get_project(route.split("/", 2)[2])
+            if proj is None:
+                self._send(404, {"ok": False, "error": "no such project"})
+            else:
+                self._send(200, {"ok": True, "project": proj})
         elif route == "/config":
             self._send(
                 200,

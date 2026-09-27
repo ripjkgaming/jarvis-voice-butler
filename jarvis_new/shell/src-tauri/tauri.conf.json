@@ -26,6 +26,20 @@
         "skipTaskbar": false
       },
       {
+        "label": "projects",
+        "title": "Jarvis — Project Archive",
+        "url": "projects.html",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false
+      },
+      {
         "label": "globe",
         "title": "God's Eye (display only)",
         "url": "http://127.0.0.1:4001/index.html?ambient=1",
