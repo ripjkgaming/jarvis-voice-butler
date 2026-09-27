@@ -80,64 +80,24 @@ def wake_score(prediction: dict, name: str = WAKE_MODEL) -> float:
         return 0.0
 
 
-#: Admission control for the hotword model (perf): the ONNX predict is
-#: the whole wake-loop CPU budget, so frames must earn their inference.
-#: Deep-digital-silence frames (peak below ~-40dBFS — no wake word ever
-#: hides down there) never run. Otherwise an idle stride scores every
-#: 3rd frame; any hint of voice resumes full rate for 2s. A ~1s wake
-#: word still gets 3+ scored looks; worst-case added delay ~160ms.
-_SILENCE_PEAK = 300
-_IDLE_STRIDE = 3
-_ALERT_SCORE = 0.12
-_ALERT_HOLD_S = 2.0
+def score_frames(model, pending16):
+    """Feed EVERY whole native frame to the model, in order. Pure-ish.
 
-
-class PredictGate:
-    """Per-frame ONNX admission decision. Tiny state, pure logic."""
-
-    def __init__(self) -> None:
-        self._skip = 0
-        self._alert_until = 0.0
-
-    def admit(self, peak: int, now: float) -> bool:
-        """True when this frame must be scored. Never raises."""
-        try:
-            if peak < _SILENCE_PEAK:
-                return False
-            if now < self._alert_until:
-                return True
-            if self._skip > 0:
-                self._skip -= 1
-                return False
-            self._skip = _IDLE_STRIDE - 1
-            return True
-        except Exception:
-            return True
-
-    def note_score(self, score: float, now: float) -> None:
-        """Feed a scored result back; voice hints resume full rate."""
-        try:
-            if float(score) >= _ALERT_SCORE:
-                self._alert_until = float(now) + _ALERT_HOLD_S
-        except Exception:
-            pass
-
-
-def frame_peak_int16(frame) -> int:
-    """Peak abs sample without int16 overflow (min(-32768) can't abs).
-
-    Pure; C-speed min/max (no per-sample Python). Accepts numpy int16
-    arrays (zero-copy view) or plain lists.
+    openWakeWord is streaming: predict() appends each frame to its own
+    mel/embedding buffer, so a skipped frame is a hole in the audio it
+    hears. A perf gate that skipped silence + 2 of 3 idle frames took
+    "hey Jarvis" from 1.00 to 0.00 -- never skip. Returns (scores, the
+    partial-frame remainder to keep pending).
     """
-    try:
-        import numpy as np
-
-        arr = np.asanyarray(frame, dtype=np.int16)
-        if arr.size == 0:
-            return 0
-        return int(max(int(arr.max()), -int(arr.min())))
-    except Exception:
-        return _SILENCE_PEAK
+    scores: list[float] = []
+    while pending16.size >= OWW_FRAME:
+        frame = pending16[:OWW_FRAME]
+        pending16 = pending16[OWW_FRAME:]
+        try:
+            scores.append(wake_score(model.predict(frame)))
+        except Exception as exc:
+            logger.debug("wake predict failed: %s", exc)
+    return scores, pending16
 
 
 def room_has_active_call(identities: list[str]) -> bool:
@@ -603,10 +563,7 @@ class WakeClient:
             blocksize=BLOCKSIZE,
             callback=_audio_callback,
         ):
-            import time as _time
-
             pending16 = np.zeros(0, dtype=np.int16)
-            gate = PredictGate()
             while True:
                 raw = await queue.get()
                 # Zero-copy int16 view, vector decimate 48k->16k (was a
@@ -631,24 +588,15 @@ class WakeClient:
                     if not self._in_call:
                         await self._summon_session()
                     continue
-                while pending16.size >= OWW_FRAME:
-                    frame = pending16[:OWW_FRAME]
-                    pending16 = pending16[OWW_FRAME:]
-                    now = _time.monotonic()
-                    if not gate.admit(frame_peak_int16(frame), now):
-                        continue
-                    try:
-                        score = wake_score(model.predict(frame))
-                    except Exception as exc:
-                        logger.debug("wake predict failed: %s", exc)
-                        continue
-                    gate.note_score(score, now)
+                scores, pending16 = score_frames(model, pending16)
+                for score in scores:
                     if score >= self._threshold:
                         logger.warning("wake word detected (%.2f)", score)
                         self._play_ack()
                         summon_overlay()
                         await self._summon_session()
                         pending16 = np.zeros(0, dtype=np.int16)
+                        break
 
     def _play_ack(self) -> None:
         if not self._ack_pcm:

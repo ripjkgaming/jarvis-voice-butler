@@ -4,12 +4,10 @@ import pytest
 
 from wake_client import (
     OWW_FRAME,
-    PredictGate,
     clear_hud_room,
     downsample_48k_to_16k,
     extract_talk_text,
     frame_16k_chunks,
-    frame_peak_int16,
     handle_mic_command,
     handle_talk_request,
     load_livekit_env,
@@ -17,6 +15,7 @@ from wake_client import (
     publish_hud_room,
     read_hud_room,
     room_has_active_call,
+    score_frames,
     shell_talk_candidates,
     summon_overlay,
     summon_room_name,
@@ -405,24 +404,32 @@ def test_mic_control_survives_stale_socket_file(
     assert reply["ok"] is True
 
 
-def test_frame_peak_int16_skips_overflow() -> None:
-    assert frame_peak_int16([0, 0, 0]) == 0
-    assert frame_peak_int16([10, -20, 5]) == 20
-    assert frame_peak_int16([-32768, 100]) == 32768
-    assert frame_peak_int16([]) == 0
+class _StreamModel:
+    """Records every frame; openWakeWord is streaming and needs them all."""
+
+    def __init__(self) -> None:
+        self.frames = []
+
+    def predict(self, frame):
+        self.frames.append(frame.copy())
+        return {"hey_jarvis": 0.0}
 
 
-def test_predict_gate_silence_stride_and_alert() -> None:
-    gate = PredictGate()
-    # Deep silence never scores.
-    assert gate.admit(0, 100.0) is False
-    assert gate.admit(299, 100.0) is False
-    # Idle stride: 1 in 3.
-    admits = [gate.admit(5000, 100.0 + i * 0.08) for i in range(6)]
-    assert admits == [True, False, False, True, False, False]
-    # A voice hint resumes full rate.
-    gate.note_score(0.5, 200.0)
-    assert all(gate.admit(5000, 200.0 + i * 0.08) for i in range(5))
-    # ...until the hold expires, then stride resumes.
-    assert gate.admit(5000, 203.0) in (True, False)
-    assert sum(gate.admit(5000, 203.0 + i * 0.08) for i in range(6)) == 2
+def test_score_frames_feeds_every_frame_including_silence() -> None:
+    # Regression: a perf gate skipped silent frames and 2 of every 3 voiced
+    # ones; the model then saw chopped audio and "hey Jarvis" scored 0.00
+    # (vs 1.00 at full rate) -- the wake word never fired.
+    import numpy as np
+
+    audio = np.concatenate(
+        [
+            np.zeros(OWW_FRAME * 3, dtype=np.int16),  # digital silence
+            np.full(OWW_FRAME * 4, 4000, dtype=np.int16),  # voiced
+            np.arange(100, dtype=np.int16),  # partial frame stays pending
+        ]
+    )
+    model = _StreamModel()
+    scores, rest = score_frames(model, audio)
+    assert len(scores) == len(model.frames) == 7
+    assert np.array_equal(np.concatenate(model.frames), audio[: OWW_FRAME * 7])
+    assert np.array_equal(rest, np.arange(100, dtype=np.int16))

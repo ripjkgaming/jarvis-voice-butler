@@ -239,10 +239,9 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
     client_sock.settimeout(5)
     client_sock.sendall(b'{"rate": 16000, "channels": 1}\n')
     assert json.loads(client_sock.recv(256).decode()) == {"ok": True}
-    # Voiced frames: PredictGate never scores silence, and idles at every
-    # 3rd frame, so 32 frames -> ~11 predicts; fires on the 3rd, cooldown
-    # eats the rest.
-    pcm = (b"\x00\x10" * 1280) * 16
+    # Silence on purpose: every frame must reach the streaming model, quiet
+    # or not (skipping frames broke detection outright).
+    pcm = (b"\x00\x00" * 1280) * 8
     client_sock.sendall(pcm)
     client_sock.sendall(pcm)
     time.sleep(0.5)
@@ -258,5 +257,5 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
         pass
     wake_lines = [ln for ln in got.decode().splitlines() if ln.startswith("WAKE")]
     assert len(wake_lines) == 1  # exactly one: cooldown suppresses the rest
-    assert model.calls >= 3
+    assert model.calls == 16  # every frame scored, none skipped
     client_sock.close()
