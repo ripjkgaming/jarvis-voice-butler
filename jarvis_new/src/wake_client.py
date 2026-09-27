@@ -44,6 +44,9 @@ MIC_RATE = 48000
 BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
 OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
 WAKE_MODEL = "hey_jarvis"
+# Max chars of a typed seed that may ride a talk summon into the call.
+# Spoken openers are short; anything longer belongs in /chat text mode.
+TALK_TEXT_MAX = 500
 AGENT_JOIN_TIMEOUT = 25.0
 IDENTITY = "jarvis-master"
 
@@ -75,6 +78,66 @@ def wake_score(prediction: dict, name: str = WAKE_MODEL) -> float:
         return float(prediction.get(name, 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+#: Admission control for the hotword model (perf): the ONNX predict is
+#: the whole wake-loop CPU budget, so frames must earn their inference.
+#: Deep-digital-silence frames (peak below ~-40dBFS — no wake word ever
+#: hides down there) never run. Otherwise an idle stride scores every
+#: 3rd frame; any hint of voice resumes full rate for 2s. A ~1s wake
+#: word still gets 3+ scored looks; worst-case added delay ~160ms.
+_SILENCE_PEAK = 300
+_IDLE_STRIDE = 3
+_ALERT_SCORE = 0.12
+_ALERT_HOLD_S = 2.0
+
+
+class PredictGate:
+    """Per-frame ONNX admission decision. Tiny state, pure logic."""
+
+    def __init__(self) -> None:
+        self._skip = 0
+        self._alert_until = 0.0
+
+    def admit(self, peak: int, now: float) -> bool:
+        """True when this frame must be scored. Never raises."""
+        try:
+            if peak < _SILENCE_PEAK:
+                return False
+            if now < self._alert_until:
+                return True
+            if self._skip > 0:
+                self._skip -= 1
+                return False
+            self._skip = _IDLE_STRIDE - 1
+            return True
+        except Exception:
+            return True
+
+    def note_score(self, score: float, now: float) -> None:
+        """Feed a scored result back; voice hints resume full rate."""
+        try:
+            if float(score) >= _ALERT_SCORE:
+                self._alert_until = float(now) + _ALERT_HOLD_S
+        except Exception:
+            pass
+
+
+def frame_peak_int16(frame) -> int:
+    """Peak abs sample without int16 overflow (min(-32768) can't abs).
+
+    Pure; C-speed min/max (no per-sample Python). Accepts numpy int16
+    arrays (zero-copy view) or plain lists.
+    """
+    try:
+        import numpy as np
+
+        arr = np.asanyarray(frame, dtype=np.int16)
+        if arr.size == 0:
+            return 0
+        return int(max(int(arr.max()), -int(arr.min())))
+    except Exception:
+        return _SILENCE_PEAK
 
 
 def room_has_active_call(identities: list[str]) -> bool:
@@ -143,6 +206,98 @@ def summon_room_name(now: float | None = None) -> str:
     return f"jarvis-{int(now if now is not None else time.time())}"
 
 
+#: File under $JARVIS_HOME naming the live call room for the HUD.
+HUD_ROOM_FILE = "hud_room"
+
+#: Rooms older than this are treated as stale (crashed wake never cleared).
+HUD_ROOM_MAX_AGE_S = 15 * 60
+
+
+def hud_room_path() -> Path:
+    """Path of the HUD room file. Pure (env only)."""
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / HUD_ROOM_FILE
+
+
+def publish_hud_room(room: str) -> bool:
+    """Publish the live room for the HUD watcher. Fail-soft, never raises."""
+    try:
+        path = hud_room_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(room.strip())
+        return True
+    except OSError as exc:
+        logger.debug("hud room publish failed: %s", exc)
+        return False
+
+
+def clear_hud_room() -> None:
+    """Remove the HUD room file (call over). Fail-soft, never raises."""
+    try:
+        hud_room_path().unlink(missing_ok=True)
+    except OSError as exc:
+        logger.debug("hud room clear failed: %s", exc)
+
+
+def read_hud_room(max_age_s: float = HUD_ROOM_MAX_AGE_S) -> str | None:
+    """Live room for HUD joiners, or None (no call / stale / unreadable).
+
+    Pure-ish (reads one small file). Staleness guards a wake that died
+    without clearing: a real call never idles past the agent's own
+    silence hangup, so anything older than `max_age_s` is garbage.
+    """
+    try:
+        path = hud_room_path()
+        room = path.read_text().strip()
+        if not room:
+            return None
+        age = time.time() - path.stat().st_mtime
+        if age > max_age_s:
+            return None
+        return room
+    except OSError:
+        return None
+
+
+def shell_talk_candidates() -> list[list[str]]:
+    """Argvs that ask the running shell to show the overlay. Pure (env).
+
+    Order: repo debug build, installed binaries on PATH. Every entry ends
+    with the `talk` verb (single-instance CLI: show overlay + EVENT_TALK).
+    """
+    cands: list[list[str]] = []
+    repo = Path(__file__).resolve().parent.parent
+    debug_shell = repo / "shell" / "src-tauri" / "target" / "debug" / "jarvis-shell"
+    cands.append([str(debug_shell), "talk"])
+    cands.append(["jarvis-shell", "talk"])
+    cands.append(["jarvis", "talk"])
+    return cands
+
+
+def summon_overlay() -> None:
+    """Show the HUD overlay, fire-and-forget. Fail-soft, never raises.
+
+    Runs the shell `talk` verb on a daemon thread so the wake loop never
+    blocks on a missing binary: no shell installed, no UI — the headless
+    voice path below still works.
+    """
+
+    def _try() -> None:
+        import subprocess
+
+        for argv in shell_talk_candidates():
+            try:
+                subprocess.run(argv, timeout=5, capture_output=True)
+                return
+            except Exception as exc:
+                logger.debug("overlay summon via %s failed: %s", argv[0], exc)
+                continue
+
+    thread = threading.Thread(target=_try, name="jarvis-summon-ui", daemon=True)
+    thread.start()
+
+
 def wake_socket_path() -> Path:
     """Unix socket for out-of-process mic control. Pure (env only).
 
@@ -182,6 +337,46 @@ def handle_mic_command(
         },
         None,
     )
+
+
+def handle_talk_request(msg: object, *, muted: bool) -> tuple[dict, bool, bool]:
+    """Handle one PTT talk request. Pure.
+
+    Returns ``(reply, wants_talk, unmute)``. ``{"talk": true}`` asks for a
+    voice call right now (HUD NumpadEnter / shell talk) — the same summon
+    the hotword performs, without saying "hey Jarvis". An explicit talk
+    press unmutes first: holding PTT while muted must still let Sir speak.
+    Anything else is rejected with ``wants_talk=False``.
+    """
+    if not isinstance(msg, dict):
+        return {"ok": False, "error": "message must be a JSON object"}, False, False
+    if msg.get("talk") is not True:
+        return (
+            {"ok": False, "error": 'unknown command (want {"talk": true})'},
+            False,
+            False,
+        )
+    return {"ok": True, "talk": "requested", "muted": False}, True, muted
+
+
+def extract_talk_text(msg: object) -> str | None:
+    """Typed seed for a talk summon, if present and sane. Pure.
+
+    Returns the stripped text (1..TALK_TEXT_MAX chars) from
+    ``{"talk": true, "text": "..."}``, else None. Blank, over-long,
+    or non-string text is not a seed — callers treat it as no text
+    (bridge rejects the over-long/wrong-typed cases with 400 first,
+    so reaching here with one just means "plain talk").
+    """
+    if not isinstance(msg, dict):
+        return None
+    text = msg.get("text")
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if not text or len(text) > TALK_TEXT_MAX:
+        return None
+    return text
 
 
 def mint_summon_token(
@@ -225,6 +420,14 @@ class WakeClient:
         self._mic_lock = threading.Lock()
         self._muted = False
         self._in_call = False
+        # PTT talk request (HUD NumpadEnter / shell talk via wake.sock).
+        # Set from the socket thread, consumed by the hotword loop, which
+        # then runs the exact hotword summon path (ack + overlay + call).
+        self._talk_event = threading.Event()
+        # Typed seed for the next summon ("text which activates voice").
+        # Guarded by _mic_lock like the mute state; consumed once by
+        # _summon_session, never kept across calls.
+        self._pending_text = ""
 
     @property
     def muted(self) -> bool:
@@ -296,9 +499,30 @@ class WakeClient:
                     new_muted: bool | None = None
                 else:
                     muted, threshold, in_call = self._mic_snapshot()
-                    reply, new_muted = handle_mic_command(
-                        msg, muted=muted, threshold=threshold, in_call=in_call
-                    )
+                    if isinstance(msg, dict) and msg.get("talk") is True:
+                        reply, wants_talk, unmute = handle_talk_request(
+                            msg, muted=muted
+                        )
+                        new_muted = None
+                        if wants_talk:
+                            if unmute:
+                                self.set_muted(False)
+                            # A typed seed rides the fresh summon into the
+                            # call; mid-call it has nowhere to go (the room
+                            # handle lives in _summon_session), so it is
+                            # dropped and reported rather than kept stale.
+                            seed = extract_talk_text(msg)
+                            if seed and not in_call:
+                                with self._mic_lock:
+                                    self._pending_text = seed
+                                reply["text"] = "seeded"
+                            elif seed:
+                                reply["text"] = "dropped:in-call"
+                            self._talk_event.set()
+                    else:
+                        reply, new_muted = handle_mic_command(
+                            msg, muted=muted, threshold=threshold, in_call=in_call
+                        )
                 if new_muted is not None:
                     self.set_muted(new_muted)
                 with contextlib.suppress(OSError):
@@ -379,33 +603,52 @@ class WakeClient:
             blocksize=BLOCKSIZE,
             callback=_audio_callback,
         ):
-            pending: list[int] = []
+            import time as _time
+
+            pending16 = np.zeros(0, dtype=np.int16)
+            gate = PredictGate()
             while True:
                 raw = await queue.get()
-                frame_48k = [
-                    int.from_bytes(raw[i : i + 2], "little", signed=True)
-                    for i in range(0, len(raw), 2)
-                ]
-                if len(frame_48k) < BLOCKSIZE:
+                # Zero-copy int16 view, vector decimate 48k->16k (was a
+                # per-sample int.from_bytes Python loop + list copies).
+                block = np.frombuffer(raw, dtype=np.int16)
+                if block.size < BLOCKSIZE:
                     continue
-                frames, pending = frame_16k_chunks(
-                    pending, downsample_48k_to_16k(frame_48k)
-                )
+                pending16 = np.concatenate([pending16, block[::3][:512]])
                 if self.muted:
+                    self._talk_event.clear()  # never summon while muted
+                    pending16 = pending16[-OWW_FRAME:]  # bounded while deaf
                     continue  # tray/HUD mute: deaf but still listening locally
-                for frame in frames:
+                if self._talk_event.is_set():
+                    # PTT (HUD NumpadEnter / shell talk): the hotword summon
+                    # path, without the hotword. In-call presses just make
+                    # sure the overlay is up (never layer a second call).
+                    self._talk_event.clear()
+                    pending16 = np.zeros(0, dtype=np.int16)
+                    logger.warning("PTT talk requested")
+                    self._play_ack()
+                    summon_overlay()
+                    if not self._in_call:
+                        await self._summon_session()
+                    continue
+                while pending16.size >= OWW_FRAME:
+                    frame = pending16[:OWW_FRAME]
+                    pending16 = pending16[OWW_FRAME:]
+                    now = _time.monotonic()
+                    if not gate.admit(frame_peak_int16(frame), now):
+                        continue
                     try:
-                        score = wake_score(
-                            model.predict(np.array(frame, dtype=np.int16))
-                        )
+                        score = wake_score(model.predict(frame))
                     except Exception as exc:
                         logger.debug("wake predict failed: %s", exc)
                         continue
+                    gate.note_score(score, now)
                     if score >= self._threshold:
                         logger.warning("wake word detected (%.2f)", score)
                         self._play_ack()
+                        summon_overlay()
                         await self._summon_session()
-                        pending = []
+                        pending16 = np.zeros(0, dtype=np.int16)
 
     def _play_ack(self) -> None:
         if not self._ack_pcm:
@@ -441,12 +684,26 @@ class WakeClient:
     async def _summon_session(self) -> None:
         from livekit import rtc
 
-        # Never layer a second Jarvis over an ongoing call (browser
-        # session or an earlier summon that hasn't hung up yet).
+        # Never layer a second Jarvis over an ongoing call (an earlier
+        # summon that hasn't hung up yet). The HUD stays visible either
+        # way: "hey Jarvis" always summons the UI.
         if await active_call_exists(self._creds):
             logger.warning("already in a call; staying out")
+            summon_overlay()
             return
 
+        # Consume one typed seed (text→voice trigger): delivered as the
+        # opening user turn once the agent joins, then forgotten. Taken
+        # here so a summon that never connects drops it instead of
+        # leaking it into a later, unrelated call.
+        with self._mic_lock:
+            seed_text = self._pending_text
+            self._pending_text = ""
+
+        # The HUD joins this room receive-only (eyes on the call; the mic
+        # permission is denied in the webview, so the HUD never publishes).
+        # Publish the name only once WE are in — the watcher joins live
+        # rooms, never stale names.
         room_name = summon_room_name()
         jwt = mint_summon_token(
             url=self._creds["LIVEKIT_URL"],
@@ -470,12 +727,19 @@ class WakeClient:
 
         await room.connect(self._creds["LIVEKIT_URL"], jwt)
         logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
+        publish_hud_room(room_name)
         self._set_in_call(True)
         try:
-            # Publish the mic.
+            # Publish the mic, stamped SOURCE_MICROPHONE. The default is
+            # SOURCE_UNKNOWN, which AgentSession input streams reject
+            # (accepted_sources={microphone}) — the agent heard silence on
+            # every call while raw subscribers heard us fine.
             source = rtc.AudioSource(MIC_RATE, 1)
             mic_track = rtc.LocalAudioTrack.create_audio_track("jarvis-mic", source)
-            await room.local_participant.publish_track(mic_track)
+            await room.local_participant.publish_track(
+                mic_track,
+                rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
+            )
             mic_task = asyncio.create_task(self._pump_mic(source))
 
             # Wait for the agent, then relay its voice to the speakers.
@@ -486,10 +750,20 @@ class WakeClient:
                 await self._cancel_task(mic_task)
                 return
             play_task = asyncio.create_task(self._play_agent(track))
+            if seed_text:
+                # Text→voice: the typed opener becomes the first user
+                # turn over the standard chat topic, so the agent answers
+                # with voice. Fail-soft: a dropped seed never kills audio.
+                try:
+                    await room.local_participant.send_text(seed_text, topic="lk.chat")
+                    logger.warning("seeded call with typed text")
+                except Exception as exc:
+                    logger.warning("seed text send failed: %s", exc)
             await disconnected.wait()
             await self._cancel_task(play_task)
             await self._cancel_task(mic_task)
         finally:
+            clear_hud_room()
             self._set_in_call(False)
             await room.disconnect()
             logger.warning("session over, back to listening")
@@ -523,7 +797,10 @@ class WakeClient:
                     continue
                 samples = len(raw) // 2
                 frame = rtc.AudioFrame(raw, MIC_RATE, 1, samples)
-                source.capture_frame(frame)
+                # Awaited: newer livekit made capture_frame a coroutine and
+                # fire-and-forget silently drops every mic frame (the agent
+                # heard silence on every call).
+                await source.capture_frame(frame)
 
     async def _play_agent(self, track) -> None:
         """Play the agent's voice on the laptop speakers."""

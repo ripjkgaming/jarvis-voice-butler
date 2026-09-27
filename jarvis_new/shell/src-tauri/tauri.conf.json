@@ -15,13 +15,29 @@
         "label": "overlay",
         "title": "Jarvis",
         "url": "index.html",
-        "width": 420,
-        "height": 640,
-        "decorations": false,
-        "transparent": true,
+        "width": 1280,
+        "height": 720,
+        "minWidth": 960,
+        "minHeight": 540,
+        "decorations": true,
+        "transparent": false,
         "alwaysOnTop": true,
         "visible": false,
-        "skipTaskbar": true
+        "skipTaskbar": false
+      },
+      {
+        "label": "globe",
+        "title": "God's Eye (display only)",
+        "url": "http://127.0.0.1:4000/index.html?ambient=1",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false
       }
     ],
     "trayIcon": {
@@ -31,22 +47,32 @@
       "menuOnLeftClick": true
     },
     "security": {
-      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 http://127.0.0.1:*; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' http://localhost:4000; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* ws://127.0.0.1:7880; font-src 'self' data:; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 http://127.0.0.1:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:4000; style-src 'self' 'unsafe-inline' http://localhost:4000 http://127.0.0.1:4000 https://fonts.googleapis.com; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* http://100.77.6.93:* ws://127.0.0.1:7880 https: wss:; font-src 'self' data: http://127.0.0.1:* https://fonts.gstatic.com; img-src 'self' data: http://127.0.0.1:* https: blob:; media-src 'self' data: blob: http://127.0.0.1:* https:; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["rpm", "appimage"],
+    "targets": [
+      "rpm",
+      "appimage"
+    ],
     "category": "Utility",
     "shortDescription": "Jarvis voice butler",
     "longDescription": "Offline-first voice butler: hotword summon, local tools, HUD overlay.",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
     "linux": {
       "rpm": {
-        "depends": ["webkit2gtk4.1"]
+        "depends": [
+          "webkit2gtk4.1"
+        ]
       },
       "appimage": {
-        "bundleMediaFramework": true
+        "bundleMediaFramework": false
       }
     }
   },
@@ -56,7 +82,9 @@
     },
     "updater": {
       "active": true,
-      "endpoints": ["https://example.invalid/jarvis/updates.json"],
+      "endpoints": [
+        "https://example.invalid/jarvis/updates.json"
+      ],
       "pubkey": "UNSET-v1-checks-only-no-signing-yet"
     },
     "cli": {

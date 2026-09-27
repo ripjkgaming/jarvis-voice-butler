@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { bridgeActions } from '@/lib/bridge';
 
-/** Tails ~/.jarvis/actions.log via bridge /actions (last ~50, 2s poll). */
+/** Tails the local JARVIS activity log via bridge /actions (last ~50, 2s poll). */
 export function CommandLog({ fullscreen = false }: { fullscreen?: boolean }) {
   const [lines, setLines] = useState<string[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -35,8 +35,8 @@ export function CommandLog({ fullscreen = false }: { fullscreen?: boolean }) {
   return (
     <div className="hud-log" data-fullscreen={fullscreen ? 'true' : 'false'}>
       <div className="hud-log__head">
-        <span>TERMINAL</span>
-        <span className="hud-log__path">~/.jarvis/actions.log</span>
+        <span>ACTIVITY LOG</span>
+        <span className="hud-log__path">RECENT SYSTEM ACTIONS</span>
       </div>
       <div ref={boxRef} className="hud-log__body">
         {lines.length === 0 ? (

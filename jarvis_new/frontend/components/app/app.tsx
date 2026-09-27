@@ -6,13 +6,13 @@ import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
-import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { JarvisBackground } from '@/components/app/jarvis-background';
 import { ViewController } from '@/components/app/view-controller';
 import { HudShell } from '@/components/hud/hud-shell';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
+import { getHudRoom } from '@/lib/hud-room';
 import { isTauri, mintToken, shellAppConfig } from '@/lib/tauri';
 import { getSandboxTokenSource } from '@/lib/utils';
 
@@ -27,10 +27,6 @@ function AppSetup() {
 
 interface AppProps {
   appConfig: AppConfig;
-}
-
-function buildRoomConfig(agentName: string | undefined) {
-  return agentName ? { agents: [{ agent_name: agentName }] } : undefined;
 }
 
 export function App({ appConfig }: AppProps) {
@@ -57,7 +53,9 @@ export function App({ appConfig }: AppProps) {
       return getSandboxTokenSource(config);
     }
     if (isTauri()) {
-      return TokenSource.custom(async () => mintToken(buildRoomConfig(config.agentName)));
+      // Receive-only: join the live wake room (set by the room watcher).
+      // No room → reject (minting blind would summon a stray second call).
+      return TokenSource.custom(async () => mintToken(getHudRoom() ?? undefined));
     }
     // Plain-browser dev fallback (no shell): legacy endpoint route.
     return TokenSource.endpoint('/api/token');
@@ -75,15 +73,16 @@ export function App({ appConfig }: AppProps) {
   }
 
   return (
-    <AgentSessionProvider session={session}>
+    // Muted renderer: the native wake client owns the laptop speakers, so
+    // the webview must never double-play the agent. Eyes here, ears there.
+    <AgentSessionProvider session={session} muted>
       <AppSetup />
       <JarvisBackground />
-      <HudShell supportsChatInput={config.supportsChatInput ?? true}>
+      <HudShell>
         <main className="contents">
-          <ViewController appConfig={config} />
+          <ViewController />
         </main>
       </HudShell>
-      <StartAudioButton label="Start Audio" />
       <Toaster
         icons={{
           warning: <WarningIcon weight="bold" />,

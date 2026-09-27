@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../widgets/hud.dart';
 
-/// Placeholder tab for the next phase (Chat, then Control).
+/// Cinematic placeholder for future phases. Kept for the "soon" slot.
 class SoonScreen extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -17,17 +18,43 @@ class SoonScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 56, color: JarvisTheme.cyanDim),
-        const SizedBox(height: 12),
-        Text(title,
-            style: const TextStyle(
-                color: JarvisTheme.text, fontSize: 18)),
-        const SizedBox(height: 4),
-        Text(subtitle,
-            style: const TextStyle(
-                color: JarvisTheme.muted, fontSize: 13)),
-      ]),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: HudPanel(
+          glow: true,
+          padding: const EdgeInsets.symmetric(
+              horizontal: 24, vertical: 32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color:
+                        JarvisTheme.cyan.withValues(alpha: 0.5)),
+                boxShadow: [
+                  BoxShadow(
+                      color: JarvisTheme.cyan
+                          .withValues(alpha: 0.2),
+                      blurRadius: 24),
+                ],
+              ),
+              child: Icon(icon,
+                  size: 34, color: JarvisTheme.cyan),
+            ),
+            const SizedBox(height: 16),
+            Text(title.toUpperCase(),
+                style: JarvisTheme.label(JarvisTheme.text, 14)),
+            const SizedBox(height: 8),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: JarvisTheme.caption),
+            const SizedBox(height: 16),
+            const HudLoading(label: 'COMING ONLINE'),
+          ]),
+        ),
+      ),
     );
   }
 }

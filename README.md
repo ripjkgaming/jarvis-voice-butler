@@ -144,8 +144,8 @@ The agent is designed to recognize named sites (YouTube, Google, Amazon) and ope
 
 | Component | Technology |
 |---|---|
-| Agent Framework | LiveKit Agents 1.6.10 |
-| LLM | Google Gemini 3.1 Flash Live |
+| Agent Framework | LiveKit Agents 1.8.2 |
+| LLM | Google Gemini 3.8 Live (voice) / Gemini 3.8 Flash (text brains) |
 | Browser Automation | Playwright (Chromium) |
 | Noise Cancellation | AI Coustics |
 | Web Frontend | Next.js 15, React 19, Tailwind CSS v4 |

@@ -18,6 +18,7 @@ telemetry can never break a voice session).
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 
@@ -32,6 +33,7 @@ MAX_CALLS_PER_TURN = 12
 class TurnSummary:
     total_s: float = 0.0
     calls: list[tuple[str, float]] = field(default_factory=list)
+    phases: list[tuple[str, float]] = field(default_factory=list)
 
     @property
     def tool_s(self) -> float:
@@ -44,6 +46,14 @@ class TurnSummary:
         name, ms = max(self.calls, key=lambda c: c[1])
         return (name, ms / 1000.0)
 
+    def phase_gap(self, first: str, second: str) -> float | None:
+        """Seconds between two phase marks (e.g. think time). Pure."""
+        t0 = next((t for p, t in self.phases if p == first), None)
+        t1 = next((t for p, t in self.phases if p == second), None)
+        if t0 is None or t1 is None:
+            return None
+        return max(0.0, t1 - t0)
+
 
 class LatencyTracker:
     """In-memory turn registry. One global instance (see TRACKER)."""
@@ -51,11 +61,35 @@ class LatencyTracker:
     def __init__(self) -> None:
         self._turn_start: float | None = None
         self._calls: list[tuple[str, float]] = []
+        self._phases: list[tuple[str, float]] = []
+        self.pending: int = 0
+        self.last_tool_end: float | None = None
         self.last: TurnSummary = TurnSummary()
+
+    def call_started(self) -> None:
+        with contextlib.suppress(Exception):
+            self.pending += 1
+
+    def call_finished(self, tool: str, elapsed_ms: float) -> None:
+        with contextlib.suppress(Exception):
+            self.pending = max(0, self.pending - 1)
+            self.last_tool_end = time.monotonic()
+            self.record_tool_call(tool, elapsed_ms)
 
     def turn_begin(self, now: float | None = None) -> None:
         self._turn_start = now if now is not None else time.monotonic()
         self._calls = []
+        self._phases = [("heard", self._turn_start)]
+
+    def mark(self, phase: str, now: float | None = None) -> None:
+        """Phase stamp inside a turn: thinking (agent state), speaking
+        (first audio), tools_done. Ignored outside a turn."""
+        if self._turn_start is None:
+            return
+        with contextlib.suppress(Exception):
+            self._phases.append(
+                (str(phase), now if now is not None else time.monotonic())
+            )
 
     def record_tool_call(self, tool: str, elapsed_ms: float) -> TurnSummary | None:
         """Record one finished tool call. Returns the turn summary iff this
@@ -75,7 +109,9 @@ class LatencyTracker:
         total = max(
             0.0, end - (self._turn_start if self._turn_start is not None else end)
         )
-        self.last = TurnSummary(total_s=total, calls=list(self._calls))
+        base = self._turn_start
+        phases = [(p, t - base) for p, t in self._phases] if base is not None else []
+        self.last = TurnSummary(total_s=total, calls=list(self._calls), phases=phases)
         return self.last
 
 
@@ -89,10 +125,39 @@ def should_announce(summary: TurnSummary) -> bool:
 
 def format_breakdown(summary: TurnSummary) -> str:
     """One-line log/caption form. Pure."""
+    think = summary.phase_gap("heard", "thinking")
+    voice = summary.phase_gap("thinking", "speaking")
+    staged = ""
+    if think is not None or voice is not None:
+        staged = (f" [think {think:.1f}s" if think is not None else " [think ?") + (
+            f" speak {voice:.1f}s]" if voice is not None else "]"
+        )
     if not summary.calls:
-        return f"turn {summary.total_s:.1f}s, no tools (all model)"
+        return f"turn {summary.total_s:.1f}s{staged}, no tools (all model)"
     bits = ", ".join(f"{name} {ms / 1000.0:.1f}s" for name, ms in summary.calls)
-    return f"turn {summary.total_s:.1f}s: {bits}"
+    return f"turn {summary.total_s:.1f}s{staged}: {bits}"
+
+
+def is_quota_error(exc: BaseException) -> bool:
+    """True when the failure chain shows rate limiting / exhausted quota.
+
+    Shared by tests and the live graceful-degrade hook. Only quota
+    evidence matches — deterministic errors raise through immediately.
+    """
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        text = f"{type(exc).__name__} {exc}".lower()
+        if (
+            "429" in text
+            or "quota exceeded" in text
+            or "resource_exhausted" in text
+            or "rate limited" in text
+            or "rate_limit" in text
+        ):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def format_spoken(summary: TurnSummary) -> str:

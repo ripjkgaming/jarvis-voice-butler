@@ -16,3 +16,13 @@ def _isolated_browser_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv(
         "JARVIS_BROWSER_RESEARCH_PROFILE", str(tmp_path / "brave-research-profile")
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_actions_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep test tool calls out of Sir's real ~/.jarvis/actions.log (the
+    HUD activity feed tails it)."""
+    import system
+
+    monkeypatch.setattr(system, "LOG_PATH", tmp_path / "actions.log")
+    monkeypatch.setenv("JARVIS_ACTIONS_LOG", str(tmp_path / "actions.log"))

@@ -99,9 +99,30 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// Show + focus the overlay window. No-op when it is already visible.
+/// Also enforces the 16:9 HUD size: a stale portrait geometry (or a user
+/// resize below usability) grows back to 1280x720 in place. Fail-soft.
+/// A never-placed window (persisted position still 0,0 — nobody dragged
+/// it yet) is centered on the current screen instead: (0,0) hides under
+/// panels on some KWin layouts and Wayland gives clients no say anyway.
 pub fn show_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("overlay") {
+        if let Ok(size) = win.outer_size() {
+            if size.width < 1000 || size.height < 600 {
+                let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                    width: crate::overlay::OVERLAY_WIDTH,
+                    height: crate::overlay::OVERLAY_HEIGHT,
+                }));
+            }
+        }
+        let path = crate::overlay::geometry_path(&crate::env_cfg::jarvis_home());
+        let never_placed = match crate::overlay::load_geometry(&path) {
+            Some(g) => g.x == 0 && g.y == 0,
+            None => true,
+        };
         let _ = win.show();
+        if never_placed {
+            let _ = win.center();
+        }
         let _ = win.set_focus();
         // The window exists now: apply any click-through the HUD asked for
         // while it was hidden (see commands::set_overlay_click_through).
@@ -118,6 +139,29 @@ pub fn toggle_overlay(app: &AppHandle) {
             }
             _ => show_overlay(app),
         }
+    }
+}
+
+/// Toggle the God's-Eye globe window (`jarvis globe` / voice "launch
+/// gods eye view"). Display-only: the page itself runs ?ambient=1
+/// (auto-spin, pointer-events off), so show/hide is the only control.
+pub fn toggle_globe(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("globe") {
+        match win.is_visible() {
+            Ok(true) => {
+                let _ = win.hide();
+            }
+            _ => show_globe(app),
+        }
+    }
+}
+
+/// Show + focus the globe window (voice launch is show-only: saying
+/// "launch" twice must never hide it out from under Sir).
+pub fn show_globe(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("globe") {
+        let _ = win.show();
+        let _ = win.set_focus();
     }
 }
 

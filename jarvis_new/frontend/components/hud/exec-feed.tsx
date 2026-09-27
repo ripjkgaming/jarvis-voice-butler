@@ -30,7 +30,7 @@ export function ExecFeed({ live }: { live: HudTask[] }) {
         <span className="hud-exec__count">{items.length}/5 live</span>
       </div>
       {items.length === 0 ? (
-        <p className="hud-exec__empty">— no active tasks —</p>
+        <p className="hud-exec__empty">All systems quiet. Waiting for your next instruction.</p>
       ) : (
         <ul className="hud-exec__list">
           {items.map((t) => (

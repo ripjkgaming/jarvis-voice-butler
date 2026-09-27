@@ -35,13 +35,16 @@ def require_local() -> None:
         )
 
 
-async def run_cmd(*argv: str, timeout: float = 10.0) -> tuple[int, str, str]:
+async def run_cmd(
+    *argv: str, timeout: float = 10.0, env: dict[str, str] | None = None
+) -> tuple[int, str, str]:
     """Run a command with argv (no shell). Returns (rc, stdout, stderr)."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
     except FileNotFoundError:
         return 127, "", f"command not found: {argv[0]}"

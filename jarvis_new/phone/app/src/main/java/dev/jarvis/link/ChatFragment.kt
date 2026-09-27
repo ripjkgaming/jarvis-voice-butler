@@ -25,8 +25,11 @@ class ChatFragment : Fragment() {
 
         override fun onCreateViewHolder(parent: ViewGroup, type: Int): Holder {
             val tv = TextView(parent.context).apply {
-                setPadding(24, 16, 24, 16)
-                textSize = 16f
+                setPadding(28, 20, 28, 20)
+                textSize = 15f
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    context, R.drawable.hud_panel
+                )
             }
             return Holder(tv)
         }
@@ -34,10 +37,46 @@ class ChatFragment : Fragment() {
         override fun onBindViewHolder(h: Holder, position: Int) {
             val m = messages[position]
             h.view.text = (if (m.fromJarvis) "Jarvis: " else "You: ") + m.text
-            h.view.setBackgroundColor(if (m.fromJarvis) 0xFF0A1A33.toInt() else 0xFF12233D.toInt())
+            h.view.setTextColor(
+                if (m.fromJarvis) 0xFF9BE9FF.toInt() else 0xFFE8F6FF.toInt()
+            )
+            // Long-press a Jarvis reply to speak it aloud via a laptop
+            // voice call seeded with the reply text (Flutter ChatScreen
+            // long-press -> summonSpoken -> POST /summon {text}).
+            h.view.setOnLongClickListener(
+                if (!m.fromJarvis) null else View.OnLongClickListener {
+                    summonSpoken(m.text)
+                    true
+                }
+            )
         }
 
         override fun getItemCount() = messages.size
+    }
+
+    /** POST /summon seeded with spoken text: laptop Jarvis says it aloud. */
+    private fun summonSpoken(text: String) {
+        Thread {
+            try {
+                val r = LinkApi(Prefs(requireContext())).summon(text)
+                RemoteLauncher.handleAction(context, r.optJSONObject("action"))
+                activity?.runOnUiThread {
+                    android.widget.Toast.makeText(
+                        requireContext(),
+                        if (r.optBoolean("ok", true)) "Summoned — switch to Voice."
+                        else "Summon failed.",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            } catch (e: Exception) {
+                activity?.runOnUiThread {
+                    android.widget.Toast.makeText(
+                        requireContext(), "Error: ${e.message}",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }.also { it.isDaemon = true; it.start() }
     }
 
     override fun onResume() {
@@ -59,6 +98,9 @@ class ChatFragment : Fragment() {
         adapter = Adapter()
         list.layoutManager = LinearLayoutManager(requireContext()).apply { stackFromEnd = true }
         list.adapter = adapter
+        list.layoutAnimation = android.view.animation.AnimationUtils.loadLayoutAnimation(
+            requireContext(), R.anim.hud_list
+        )
         if (messages.isEmpty()) {
             messages.add(Msg(true, "At your service, Sir."))
             adapter.notifyItemInserted(0)
@@ -74,15 +116,17 @@ class ChatFragment : Fragment() {
             send.isEnabled = false
             Thread {
                 try {
-                    val hist = org.json.JSONArray()
-                    for (m in messages.dropLast(1).takeLast(20)) {
-                        hist.put(
-                            org.json.JSONArray()
-                                .put(if (m.fromJarvis) "jarvis" else "user")
-                                .put(m.text)
+                    // Multi-turn history: last 20 messages, like Flutter historyOf.
+                    val hist = ChatHistory.toJson(
+                        ChatHistory.historyOf(
+                            messages.dropLast(1).map {
+                                (if (it.fromJarvis) "jarvis" else "user") to it.text
+                            }
                         )
-                    }
-                    val reply = LinkApi(Prefs(requireContext())).chat(text, hist).reply
+                    )
+                    val res = LinkApi(Prefs(requireContext())).chat(text, hist)
+                    RemoteLauncher.handleAction(context, res.action)
+                    val reply = res.reply
                     activity?.runOnUiThread {
                         messages.add(Msg(true, reply))
                         adapter.notifyItemInserted(messages.size - 1)

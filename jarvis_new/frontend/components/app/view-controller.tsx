@@ -1,60 +1,52 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useSessionContext } from '@livekit/components-react';
-import type { AppConfig } from '@/app-config';
-import { WelcomeView } from '@/components/app/welcome-view';
-import { SessionPill } from '@/components/hud/session-pill';
+import { bridgeRoom } from '@/lib/bridge';
 
-const MotionWelcomeView = motion.create(WelcomeView);
+/**
+ * Buttonless call indicator. The Tauri webview has no WebRTC (system
+ * WebKitGTK exposes no RTCPeerConnection), so the HUD can never join a
+ * LiveKit room — voice lives entirely in the native wake client. This
+ * watcher mirrors the call lifecycle instead: a live wake room reads as
+ * an ongoing call, silence reads as standby. No buttons, no errors.
+ */
+export function ViewController() {
+  const [room, setRoom] = useState<string | null>(null);
 
-const VIEW_MOTION_PROPS = {
-  variants: {
-    visible: {
-      opacity: 1,
-    },
-    hidden: {
-      opacity: 0,
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
-  transition: {
-    duration: 0.5,
-    ease: 'linear',
-  },
-};
-
-interface ViewControllerProps {
-  appConfig: AppConfig;
-}
-
-export function ViewController({ appConfig }: ViewControllerProps) {
-  const { isConnected, start } = useSessionContext();
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const live = await bridgeRoom();
+      if (!cancelled) setRoom(live);
+    };
+    void poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
     <AnimatePresence mode="wait">
-      {/* Welcome view — centered card over a blurred HUD */}
-      {!isConnected && (
-        <div key="welcome-overlay" className="hud-welcome">
-          <MotionWelcomeView
-            key="welcome"
-            {...VIEW_MOTION_PROPS}
-            startButtonText={appConfig.startButtonText}
-            onStartCall={start}
-          />
-        </div>
-      )}
-      {/* Session view — slim floating pill; visuals stay at the orb */}
-      {isConnected && (
-        <SessionPill
-          key="session-pill"
-          supportsChatInput={appConfig.supportsChatInput}
-          supportsVideoInput={appConfig.supportsVideoInput}
-          supportsScreenShare={appConfig.supportsScreenShare}
+      <motion.div
+        key={room ? 'incall' : 'standby'}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.4 }}
+        className="hud-linking"
+        data-state={room ? 'incall' : 'standby'}
+        aria-live="polite"
+      >
+        <span
+          className="hud-linking__pulse"
+          data-state={room ? 'incall' : 'standby'}
+          aria-hidden="true"
         />
-      )}
+        {room ? `in call · ${room}` : 'standing by, Sir…'}
+      </motion.div>
     </AnimatePresence>
   );
 }

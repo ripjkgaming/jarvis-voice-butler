@@ -14,7 +14,7 @@ import androidx.fragment.app.Fragment
 /** Push-to-talk: hold the button, release to send. Reply plays + shows. */
 class TalkFragment : Fragment() {
     private val recorder = Audio16k.Recorder()
-    private var orb: OrbView? = null
+    private var orb: ArcReactorView? = null
 
     override fun onResume() {
         super.onResume()
@@ -33,12 +33,17 @@ class TalkFragment : Fragment() {
         val btn = v.findViewById<Button>(R.id.btn_ptt)
         val out = v.findViewById<TextView>(R.id.txt_talk_out)
         orb = v.findViewById(R.id.orb)
+        TtsManager.init(requireContext())
         btn.setOnTouchListener { _, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
                     out.text = "Listening…"
                     orb?.energy = 0.8f
-                    if (!recorder.start()) out.text = "Mic unavailable"
+                    HotwordGate.pttHeld = true
+                    if (!recorder.start()) {
+                        out.text = "Mic unavailable"
+                        HotwordGate.pttHeld = false
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -46,14 +51,15 @@ class TalkFragment : Fragment() {
                     out.text = "Thinking…"
                     orb?.energy = 0.5f
                     val audio = recorder.stopToBase64()
+                    HotwordGate.pttHeld = false
                     Thread {
                         try {
                             val r = LinkApi(Prefs(requireContext())).talk(audio)
+                            RemoteLauncher.handleAction(context, r.action)
+                            val replyText = r.reply.ifEmpty { r.warning ?: "(no reply)" }
                             val show = buildString {
                                 append("You: ").append(r.transcript).append("\n\n")
-                                append("Jarvis: ").append(
-                                    r.reply.ifEmpty { r.warning ?: "(no reply)" }
-                                )
+                                append("Jarvis: ").append(replyText)
                             }
                             activity?.runOnUiThread {
                                 out.text = show
@@ -63,6 +69,8 @@ class TalkFragment : Fragment() {
                                     try {
                                         Audio16k.playPcm16(r.audioB64, r.audioRate)
                                     } catch (_: Exception) { }
+                                } else {
+                                    TtsManager.speak(replyText)
                                 }
                             }
                         } catch (e: Exception) {

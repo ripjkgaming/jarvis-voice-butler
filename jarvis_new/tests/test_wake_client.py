@@ -4,12 +4,21 @@ import pytest
 
 from wake_client import (
     OWW_FRAME,
+    PredictGate,
+    clear_hud_room,
     downsample_48k_to_16k,
+    extract_talk_text,
     frame_16k_chunks,
+    frame_peak_int16,
     handle_mic_command,
+    handle_talk_request,
     load_livekit_env,
     mint_summon_token,
+    publish_hud_room,
+    read_hud_room,
     room_has_active_call,
+    shell_talk_candidates,
+    summon_overlay,
     summon_room_name,
     wake_score,
     wake_socket_path,
@@ -148,6 +157,78 @@ async def test_summon_stays_out_when_call_active(
     await client._summon_session()
 
 
+def test_shell_talk_candidates_end_with_talk() -> None:
+    for argv in shell_talk_candidates():
+        assert argv[-1] == "talk"
+    assert len(shell_talk_candidates()) >= 1
+
+
+def test_summon_overlay_never_raises() -> None:
+    # Fire-and-forget daemon thread; must not raise even with no shell.
+    summon_overlay()
+
+
+async def test_summon_joins_without_deferral(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Wake joins immediately now: the HUD is receive-only (no mic in the
+    webview), so there is no race to defer — one call check, then join."""
+    import wake_client
+    from wake_client import WakeClient
+
+    class _ReachedConnectError(Exception):
+        pass
+
+    class _FakeRoom:
+        def on(self, *args, **kwargs):
+            def deco(fn):
+                return fn
+
+            return deco
+
+        async def connect(self, *args, **kwargs):
+            raise _ReachedConnectError("reached-connect")
+
+    calls = {"n": 0}
+
+    async def _idle(_creds: dict) -> bool:
+        calls["n"] += 1
+        return False
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(wake_client, "active_call_exists", _idle)
+    import livekit.rtc
+
+    monkeypatch.setattr(livekit.rtc, "Room", _FakeRoom)
+    client = WakeClient()
+    with pytest.raises(_ReachedConnectError):
+        await client._summon_session()
+    assert calls["n"] == 1
+
+
+def test_hud_room_publish_read_clear(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert read_hud_room() is None
+    assert publish_hud_room("jarvis-123") is True
+    assert read_hud_room() == "jarvis-123"
+    clear_hud_room()
+    assert read_hud_room() is None
+
+
+def test_hud_room_stale_reads_as_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import os
+    import time
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert publish_hud_room("jarvis-old") is True
+    path = tmp_path / "hud_room"
+    old = time.time() - 20 * 60
+    os.utime(path, (old, old))
+    assert read_hud_room() is None
+
+
 async def test_active_call_exists_fails_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -199,6 +280,46 @@ def test_handle_mic_command_status_reports_state() -> None:
         "in_call": True,
     }
     assert new_muted is None  # status never flips the mute
+
+
+def test_handle_talk_request_unmuted() -> None:
+    reply, wants_talk, unmute = handle_talk_request({"talk": True}, muted=False)
+    assert reply == {"ok": True, "talk": "requested", "muted": False}
+    assert wants_talk is True
+    assert unmute is False  # already live: nothing to unmute
+
+
+def test_handle_talk_request_muted_unmutes_first() -> None:
+    # PTT is an explicit talk action: holding it while muted still summons.
+    reply, wants_talk, unmute = handle_talk_request({"talk": True}, muted=True)
+    assert reply == {"ok": True, "talk": "requested", "muted": False}
+    assert wants_talk is True
+    assert unmute is True
+
+
+def test_handle_talk_request_rejects_garbage() -> None:
+    for bad in ({"talk": False}, {"talk": "yes"}, {"frobnicate": 1}, [1], "talk", None):
+        reply, wants_talk, unmute = handle_talk_request(bad, muted=False)
+        assert reply["ok"] is False
+        assert wants_talk is False
+        assert unmute is False
+
+
+def test_extract_talk_text_accepts_short_text() -> None:
+    assert (
+        extract_talk_text({"talk": True, "text": "  tell me the news "})
+        == "tell me the news"
+    )
+    assert extract_talk_text({"talk": True, "text": "x" * 500}) == "x" * 500
+
+
+def test_extract_talk_text_rejects_blank_long_and_nonstr() -> None:
+    assert extract_talk_text({"talk": True}) is None
+    assert extract_talk_text({"talk": True, "text": "   "}) is None
+    assert extract_talk_text({"talk": True, "text": 42}) is None
+    assert extract_talk_text({"talk": True, "text": "x" * 501}) is None
+    assert extract_talk_text("talk") is None
+    assert extract_talk_text(None) is None
 
 
 def test_handle_mic_command_rejects_garbage() -> None:
@@ -282,3 +403,26 @@ def test_mic_control_survives_stale_socket_file(
     else:
         raise AssertionError("listener never came up over stale file")
     assert reply["ok"] is True
+
+
+def test_frame_peak_int16_skips_overflow() -> None:
+    assert frame_peak_int16([0, 0, 0]) == 0
+    assert frame_peak_int16([10, -20, 5]) == 20
+    assert frame_peak_int16([-32768, 100]) == 32768
+    assert frame_peak_int16([]) == 0
+
+
+def test_predict_gate_silence_stride_and_alert() -> None:
+    gate = PredictGate()
+    # Deep silence never scores.
+    assert gate.admit(0, 100.0) is False
+    assert gate.admit(299, 100.0) is False
+    # Idle stride: 1 in 3.
+    admits = [gate.admit(5000, 100.0 + i * 0.08) for i in range(6)]
+    assert admits == [True, False, False, True, False, False]
+    # A voice hint resumes full rate.
+    gate.note_score(0.5, 200.0)
+    assert all(gate.admit(5000, 200.0 + i * 0.08) for i in range(5))
+    # ...until the hold expires, then stride resumes.
+    assert gate.admit(5000, 203.0) in (True, False)
+    assert sum(gate.admit(5000, 203.0 + i * 0.08) for i in range(6)) == 2

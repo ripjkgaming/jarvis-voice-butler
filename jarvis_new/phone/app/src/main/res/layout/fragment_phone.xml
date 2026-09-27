@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+<LinearLayout android:orientation="vertical" android:padding="16dp"
+    android:background="@drawable/hud_panel"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+    <EditText android:id="@+id/phone_number" android:hint="Phone number"
+        android:inputType="phone"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/phone_call" android:text="Call"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_sms" android:text="SMS"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_wa" android:text="WhatsApp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <EditText android:id="@+id/phone_text" android:hint="Message / clipboard text"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/phone_copy" android:text="Copy"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_tts" android:text="Speak it"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_mic" android:text="PC mute"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/phone_vol" android:text="PC volume"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_play" android:text="Play/pause"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/phone_unlock" android:text="PC unlock"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <TextView android:id="@+id/phone_status" android:text=""
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <TextView android:text="Laptop-pushed actions need a bridge /phone queue (not in v1.3)."
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+</LinearLayout>
+</ScrollView>

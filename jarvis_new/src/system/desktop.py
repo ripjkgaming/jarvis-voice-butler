@@ -217,8 +217,108 @@ def desktop_size_from_outputs(outputs: list[dict]) -> tuple[int, int] | None:
     return right - left, bottom - top
 
 
+# --- sandbox backend (nested X display; never touches the real desktop) ---
+#
+# uinput is a KERNEL device: its events reach the real session no matter
+# which compositor is nested on top, so it can never be sandboxed. With
+# JARVIS_DESKTOP_SANDBOX=<display> (e.g. ":99", a Xephyr/Xvfb server) every
+# eye and hand goes through that X display instead: ImageMagick `import`
+# for capture, xdotool (XTEST, scoped to that display) for input.
+SANDBOX_ENV = "JARVIS_DESKTOP_SANDBOX"
+
+
+def sandbox_display() -> str | None:
+    """The sandbox X display when sandbox mode is on, else None. Pure."""
+    value = os.environ.get(SANDBOX_ENV, "").strip()
+    return value if re.fullmatch(r":\d{1,3}", value) else None
+
+
+def sandbox_env(display: str) -> dict[str, str]:
+    """Child env pinned to the sandbox display (X11 only, no Wayland)."""
+    env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
+    env.update(
+        DISPLAY=display,
+        QT_QPA_PLATFORM="xcb",
+        GDK_BACKEND="x11",
+        XDG_SESSION_TYPE="x11",
+        # No portal in the sandbox: Qt's KDE theme otherwise blocks startup
+        # ~25s on a D-Bus call to a portal that can't run there.
+        QT_QPA_PLATFORMTHEME="generic",
+        QT_NO_XDG_DESKTOP_PORTAL="1",
+        GTK_USE_PORTAL="0",
+    )
+    return env
+
+
+_XDO_BUTTONS = {"left": "1", "middle": "2", "right": "3"}
+
+
+class XdoInput:
+    """Same interface as UInputMouse, driven by xdotool on the sandbox."""
+
+    def __init__(self, display: str) -> None:
+        import shutil
+        import subprocess
+
+        if shutil.which("xdotool") is None:
+            raise DesktopError("Sandbox input needs xdotool installed.")
+        self._display = display
+        self._subprocess = subprocess
+
+    def _xdo(self, *args: str) -> None:
+        proc = self._subprocess.run(
+            ["xdotool", *args],
+            env=sandbox_env(self._display),
+            capture_output=True,
+            timeout=15,
+        )
+        if proc.returncode != 0:
+            raise DesktopError(
+                f"Sandbox input failed: {proc.stderr.decode(errors='replace')[:200]}"
+            )
+
+    def move(self, x: int, y: int) -> None:
+        self._xdo("mousemove", str(int(x)), str(int(y)))
+
+    def click(self, button: str = "left") -> None:
+        self._xdo("click", _XDO_BUTTONS.get(button, "1"))
+
+    def scroll(self, dx: int, dy: int) -> None:
+        if dy:
+            self._xdo("click", "4" if dy > 0 else "5")
+        if dx:
+            self._xdo("click", "7" if dx > 0 else "6")
+
+    def tap(self, code: int) -> None:
+        names = {v: k for k, v in KEY_CODES.items()}
+        self._xdo("key", names.get(code, "Return"))
+
+    def type_text(self, text: str) -> None:
+        self._xdo("type", "--delay", "12", "--", text)
+
+    def close(self) -> None:
+        pass
+
+
+def _make_input(width: int, height: int):
+    """Sandbox xdotool input when sandboxed, else the real uinput device."""
+    display = sandbox_display()
+    if display is not None:
+        return XdoInput(display)
+    return UInputMouse(width, height)
+
+
 async def _desktop_size() -> tuple[int, int]:
     """Live desktop pixel size via kscreen-doctor. Raises DesktopError."""
+    display = sandbox_display()
+    if display is not None:
+        rc, out, err = await run_cmd(
+            "xdotool", "getdisplaygeometry", timeout=10.0, env=sandbox_env(display)
+        )
+        m = re.match(r"(\d+)\s+(\d+)", out or "")
+        if rc != 0 or not m:
+            raise DesktopError(f"Sandbox display unreadable: {err or out}.")
+        return int(m.group(1)), int(m.group(2))
     rc, out, err = await run_cmd("kscreen-doctor", "-o", timeout=10.0)
     if rc != 0:
         raise DesktopError(
@@ -435,8 +535,23 @@ class DesktopTools:
             raise ToolError(str(exc)) from exc
         from system.core import SystemTools
 
+        display = sandbox_display()
         try:
-            shot = await SystemTools().take_os_screenshot(context, monitor=monitor)  # type: ignore[arg-type]
+            if display is not None:
+                path = f"/tmp/jarvis-sandbox-{int(time.time() * 1000)}.png"
+                rc, _, err = await run_cmd(
+                    "import",
+                    "-window",
+                    "root",
+                    path,
+                    timeout=15.0,
+                    env=sandbox_env(display),
+                )
+                if rc != 0:
+                    raise ToolError(f"Sandbox screenshot failed: {err[:200]}.")
+                shot = {"path": path}
+            else:
+                shot = await SystemTools().take_os_screenshot(context, monitor=monitor)  # type: ignore[arg-type]
         except ToolError:
             raise
         except Exception as exc:
@@ -479,7 +594,24 @@ class DesktopTools:
         shot = await self.desktop_screenshot(context)
         path = str(shot["path"])
         width, height = int(shot["width"]), int(shot["height"])
-        rc, out, err = await run_cmd("tesseract", path, "stdout", "tsv", timeout=30.0)
+        # UI text is small, sparse and low-contrast: default tesseract reads
+        # nothing off a calculator display. 2x grayscale + sparse-text mode
+        # (psm 11) reads it. Grid coords are ratios, so passing the upscaled
+        # size keeps every box mapping exact.
+        ocr_path = path
+        with contextlib.suppress(Exception):
+            from PIL import Image
+
+            with Image.open(path) as img:
+                big = img.convert("L").resize(
+                    (width * 2, height * 2), Image.Resampling.LANCZOS
+                )
+                ocr_path = path.rsplit(".", 1)[0] + "-ocr.png"
+                big.save(ocr_path)
+                width, height = width * 2, height * 2
+        rc, out, err = await run_cmd(
+            "tesseract", ocr_path, "stdout", "--psm", "11", "tsv", timeout=30.0
+        )
         if rc != 0:
             raise ToolError(
                 f"I could not read the screen: {(err or 'tesseract failed')[:200]}."
@@ -544,7 +676,7 @@ class DesktopTools:
             self._need_confirm()
             width, height = await _desktop_size()
             px, py = rel_to_abs(x, y, width, height)
-            mouse = UInputMouse(width, height)
+            mouse = _make_input(width, height)
             try:
                 await asyncio.to_thread(mouse.move, px, py)
                 await asyncio.to_thread(mouse.click, button)
@@ -581,7 +713,7 @@ class DesktopTools:
             self._need_confirm()
             width, height = await _desktop_size()
             try:
-                mouse = UInputMouse(width, height)
+                mouse = _make_input(width, height)
             except DesktopError:
                 mouse = None
             if mouse is not None:
@@ -622,7 +754,7 @@ class DesktopTools:
             self._need_confirm()
             width, height = await _desktop_size()
             try:
-                mouse = UInputMouse(width, height)
+                mouse = _make_input(width, height)
             except DesktopError:
                 mouse = None
             if mouse is not None:
@@ -673,7 +805,7 @@ class DesktopTools:
                 dx = 1
             else:
                 dx = -1
-            mouse = UInputMouse(width, height)
+            mouse = _make_input(width, height)
             try:
                 for _ in range(count):
                     await asyncio.to_thread(mouse.scroll, dx, dy)

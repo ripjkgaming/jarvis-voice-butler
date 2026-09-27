@@ -13,7 +13,14 @@ Credentials: env first (`LIVEKIT_URL/API_KEY/API_SECRET`), then
 as `wake_client.load_livekit_env`). Fails with a non-zero exit and a
 `{"error": ...}` line — never a traceback on stdout.
 
-Usage: `python src/mint_token.py [agent-name] [room-name]`
+Usage: `python src/mint_token.py [agent-name] [room-name] [join]`
+
+- summon mode (default): fresh random room + agent dispatch (the HUD
+  used to start its own calls this way).
+- join mode (`join` as third arg with an explicit room): token for the
+  named room WITHOUT dispatch — for joining a live wake summoned room
+  receive-only (the agent is already there; a second dispatch would
+  summon a second voice).
 """
 
 from __future__ import annotations
@@ -21,9 +28,17 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import sys
 from datetime import timedelta
 from pathlib import Path
+
+_ROOM_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def valid_room_name(name: object) -> bool:
+    """Room names are wake-generated `jarvis-<epoch>`; strict allowlist. Pure."""
+    return isinstance(name, str) and _ROOM_RE.fullmatch(name) is not None
 
 
 def _load_dotenv(path: Path, found: dict) -> None:
@@ -52,7 +67,14 @@ def load_creds() -> dict:
     return creds
 
 
-def main(argv: list[str]) -> int:
+def mint_token_payload(
+    room: str = "", dispatch: bool = True, agent_name: str = ""
+) -> dict:
+    """Mint a join token. Import-safe core of main() for bridge reuse.
+
+    Raises RuntimeError when LiveKit creds are missing (callers map to
+    503), ValueError on a bad room name.
+    """
     from livekit.api import (
         AccessToken,
         RoomAgentDispatch,
@@ -67,14 +89,14 @@ def main(argv: list[str]) -> int:
         if not creds.get(k)
     ]
     if missing:
-        print(json.dumps({"error": f"missing LiveKit creds: {', '.join(missing)}"}))
-        return 2
-
-    agent_name = (
-        argv[1] if len(argv) > 1 else os.environ.get("AGENT_NAME", "")
-    ).strip() or "my-agent"
+        raise RuntimeError(f"missing LiveKit creds: {', '.join(missing)}")
+    agent = (agent_name or os.environ.get("AGENT_NAME", "")).strip() or "my-agent"
+    # CLI parity: an invalid room falls back to random (bridge validates
+    # explicitly and answers 400 instead).
     room = (
-        argv[2] if len(argv) > 2 else f"voice_assistant_room_{random.randint(0, 9999)}"
+        room
+        if valid_room_name(room)
+        else f"voice_assistant_room_{random.randint(0, 9999)}"
     )
     identity = f"voice_assistant_user_{random.randint(0, 9999)}"
 
@@ -89,20 +111,30 @@ def main(argv: list[str]) -> int:
             can_subscribe=True,
         )
     )
-    token.with_room_config(
-        RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name)])
-    )
-    token.with_ttl(timedelta(minutes=15))
-    print(
-        json.dumps(
-            {
-                "serverUrl": creds["LIVEKIT_URL"],
-                "roomName": room,
-                "participantName": "user",
-                "participantToken": token.to_jwt(),
-            }
+    if dispatch:
+        token.with_room_config(
+            RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent)])
         )
-    )
+    token.with_ttl(timedelta(minutes=15))
+    return {
+        "serverUrl": creds["LIVEKIT_URL"],
+        "roomName": room,
+        "participantName": "user",
+        "participantToken": token.to_jwt(),
+    }
+
+
+def main(argv: list[str]) -> int:
+    agent_name = (
+        argv[1] if len(argv) > 1 else os.environ.get("AGENT_NAME", "")
+    ).strip() or "my-agent"
+    room_arg = argv[2] if len(argv) > 2 else ""
+    join_mode = len(argv) > 3 and argv[3] == "join" and valid_room_name(room_arg)
+    try:
+        print(json.dumps(mint_token_payload(room_arg, not join_mode, agent_name)))
+    except RuntimeError as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 2
     return 0
 
 

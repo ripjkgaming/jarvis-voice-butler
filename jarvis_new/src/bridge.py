@@ -19,9 +19,16 @@ Endpoints (all JSON):
     POST /mic       {"muted": bool} -> proxied to the wake_client listener
                    on $JARVIS_HOME/wake.sock (2s timeout); 503 fail-soft
                    {"ok": false} when the listener is absent
+    POST /summon    {} -> PTT talk request to the wake listener (same
+                   summon the "hey Jarvis" hotword performs, no hotword
+                   needed); HUD NumpadEnter + shell talk arrive here.
+                   503 fail-soft when the listener is absent
     GET  /mic       wake_client mute status passthrough; 200 {"ok": false}
                    when the listener is absent
-
+    GET  /room      live wake room for HUD receive-only join
+                   {"ok": true, "room": name|null} (null = no call)
+    GET  /captions  tail of ~/.jarvis/captions.log (?limit=1..50, default 20)
+                   [{ts, role, text}] for HUDs without a LiveKit client
 Deliberately NOT here: hangup, sendText, hotword events. Those live
 inside the LiveKit room (token via the shell's mint_token command) and
 have no out-of-process API yet. Every endpoint is fail-soft: a missing
@@ -69,10 +76,286 @@ DEFAULT_PORT = 4317
 _WAKE_RPC_TIMEOUT = 2.0
 _STARTED_AT = time.time()
 _PHONE_WHISPER = None  # lazy singleton for /talk (wake venv has it too)
-# Stable alias for direct text calls. Pinned "gemini-2.5-flash" rotted
-# (retired for new keys -> instant 404); keep in sync with agent.py's
-# DIRECT_LLM_MODEL.
-GEMINI_TEXT_MODEL = "gemini-flash-latest"
+# Stable text model for direct REST calls (the /chat + /talk side-channels).
+# Env-overridable (JARVIS_TEXT_MODEL). 2026-09: gemini-3.8-flash (GA) is the
+# newest text Flash; the old 3.5-flash-lite default existed only for its free
+# tier (~500 RPD). 3.8-flash is free-of-charge on the free tier too.
+# NOTE: *-live models are NOT usable here: they reject generateContent and
+# demand the Live API websocket (bidiGenerateContent) — there is no
+# "3.8-flash-live" SKU. The voice brain lives in agent.py's RealtimeModel
+# (live voice API namespace); the two must not be "kept in sync".
+GEMINI_TEXT_MODEL = os.environ.get("JARVIS_TEXT_MODEL", "gemini-3.8-flash")
+# High-usage backups for direct text calls: tried in order when the
+# previous ID hits quota/rate limits (429/5xx/overloaded). Separate
+# quotas per model ID, so a saturated primary still leaves options.
+# (gemini-2.5-flash retired — 404s for new keys — so backup is 3.6-flash,
+# mirroring agent.py TEXT_FALLBACK_CHAIN.)
+GEMINI_TEXT_FALLBACKS = ("gemini-3.7-flash", "gemini-3.6-flash")
+
+# Guest mode (phone sends {"guest": true}): cold persona, and only the
+# harmless tools below are allowed. Everything else is refused with a
+# frosty one-liner — enforced here so no client can bypass it.
+_GUEST_VOICE_TOOLS = frozenset(
+    {
+        "volume_get",
+        "volume_up",
+        "volume_down",
+        "volume_mute",
+        "volume_unmute",
+        "volume_set",
+        "media_play_pause",
+        "media_next",
+        "media_prev",
+        "play_media",
+    }
+)
+_GUEST_REFUSAL = "No. Guests don't get that."
+
+# Spoken/chatted text -> allowlisted PC tool. First regex match wins, so
+# unlock sits before lock ("unlock" contains "lock") and unmute before
+# mute. Entries: (pattern, tool, args_from_match, success_reply).
+# A None reply means the reply is built dynamically per tool.
+_VOICE_TOOLS = (
+    (
+        # "play some music" / "play a video": no subject -> saved playlist.
+        r"^play\s+(?:me\s+)?(?:some|a|any|my)?\s*"
+        r"(?:music|songs?|videos?|something|playlist)(?:\s+on\s+youtube)?[.!?]*$",
+        "play_media",
+        lambda m: {"query": ""},
+        None,
+    ),
+    (
+        # "play <anything>" -> first matching YouTube video in Brave.
+        # Bare "play", "play it", "play next ..." stay on the media controls.
+        r"^play\s+(?!(?:pause|it|that|again|next|previous|prev|last|(?:the\s+)?(?:next|previous|last)\s+\w+)\b)(.{2,120}?)"
+        r"(?:\s+on\s+youtube)?[.!?]*$",
+        "play_media",
+        lambda m: {"query": _clean_play_query(m.group(1))},
+        None,
+    ),
+    (r"\bunlock\b", "unlock", lambda m: {}, "Unlocked, Sir."),
+    (r"\block\b", "lock", lambda m: {}, "Locked, Sir."),
+    (r"un-?mute", "volume_unmute", lambda m: {}, "Unmuted, Sir."),
+    (r"\bmute\b", "volume_mute", lambda m: {}, "Muted, Sir."),
+    (
+        r"(?:set|turn|change|put)?\s*volume\s*(?:to|at)?\s*(\d{1,3})\s*(?:%|percent)?|"
+        r"\bmax(?:imum)?\s*volume\b",
+        "volume_set",
+        lambda m: {
+            "level": 100 if m.group(0).strip().startswith("max") else int(m.group(1))
+        },
+        None,
+    ),
+    (
+        r"volume up|turn (it|the volume) up|louder",
+        "volume_up",
+        lambda m: {},
+        "Turned it up, Sir.",
+    ),
+    (
+        r"volume down|turn (it|the volume) down|quieter",
+        "volume_down",
+        lambda m: {},
+        "Turned it down, Sir.",
+    ),
+    (r"volume|how loud", "volume_get", lambda m: {}, None),
+    (
+        r"\bnext\b|skip( this| the)?( track| song)?",
+        "media_next",
+        lambda m: {},
+        "Skipped, Sir.",
+    ),
+    (
+        r"\bprevious\b|last (track|song)|go back",
+        "media_prev",
+        lambda m: {},
+        "Back one, Sir.",
+    ),
+    (r"\bpause\b|\bresume\b|\bplay\b", "media_play_pause", lambda m: {}, "Done, Sir."),
+    (
+        r"screenshot|capture (the |my )?screen|picture of (the |my )?screen",
+        "screenshot",
+        lambda m: {},
+        "Screenshot taken, Sir — it's on the Screens tab.",
+    ),
+    (
+        r"black ?out|turn off (the |my )?screens?|screens? off",
+        "screen_off",
+        lambda m: {},
+        "Screens off, Sir.",
+    ),
+    (
+        r"\brestore\b|turn (the |my )?screens? back on|screens? back",
+        "screens_restore",
+        lambda m: {},
+        "Screens back, Sir.",
+    ),
+    (
+        r"open (brave|files|terminal|calculator|whatsie)",
+        "open_app",
+        lambda m: {"app": m.group(1)},
+        None,
+    ),
+    (
+        r"^(?:start|open|begin)\s+(?:a\s+|the\s+)?remote(?:\s+desktop)?\s+session\b",
+        "remote_start",
+        lambda m: {},
+        "Remote session ready, Sir.",
+    ),
+    (
+        r"^remote\s+(?:into|in to)\s+(?:my\s+|the\s+)?(?:laptop|pc|computer)\b",
+        "remote_start",
+        lambda m: {},
+        "Remote session ready, Sir.",
+    ),
+    (
+        # Bare noun: STT leaves trailing punctuation ("remote session.") and
+        # sometimes a trailing "please" or plural — tolerate all three.
+        r"^remote\s+sessions?\b(?:\s+please)?\s*[.?!]*$",
+        "remote_start",
+        lambda m: {},
+        "Remote session ready, Sir.",
+    ),
+    (
+        r"^(?:end|stop|close)\s+(?:the\s+)?remote(?:\s+desktop)?\s+session\b",
+        "remote_stop",
+        lambda m: {},
+        "Remote session closed, Sir.",
+    ),
+    (
+        # Universal launcher: anything else Sir asks to open (apps, visited
+        # sites, or the top web result). Anchored so "start the music" style
+        # media phrases above always win first.
+        r"^(?:open|launch|start|fire up)\s+"
+        r"(?!(?:the\s+|my\s+)?(?:music|song|track|playback|playlist|timer|stopwatch|recording)\b)"
+        r"(?:the\s+|my\s+)?(.{2,60})$",
+        "open_app",
+        lambda m: {"app": m.group(1).strip()},
+        None,
+    ),
+    (
+        r"\bping\b|\bnotify\b|send( a)? notification",
+        "notify",
+        lambda m: {"title": "Jarvis phone", "body": "Ping from phone"},
+        "Pinged, Sir.",
+    ),
+    (
+        r"^type (.+)",
+        "type",
+        lambda m: {"text": m.group(1).strip()[:500]},
+        "Typed, Sir.",
+    ),
+)
+
+
+# Leading speech cruft that STT leaves on commands ("jarvis, start a
+# remote session", "hey jarvis stop it", "please lock the pc"). The layered
+# resolver's normalize() strips wakewords/punctuation; the instant regexes
+# below must do the same, or every ^-anchored pattern (remote start/stop,
+# the universal launcher, type) misses whenever Sir's name — or "please" —
+# leads. Stripped only at the START so a "type …" payload keeps its words.
+_WAKEWORD_PREFIX = re.compile(
+    r"^(?:hey\s+)?(?:jarvis|jeeves|jarves|jervis)\b[\s,.:;\-!?'\"]*"
+)
+_FILLER_PREFIX = re.compile(r"^(?:please|hey|uh|um|er|ah)\b[\s,.:;\-!?'\"]*")
+
+
+def _clean_voice_text(text: str) -> str:
+    """Lowercased command with leading wakeword/filler stripped. Pure."""
+    cleaned = (text or "").lower().strip()
+    prev = None
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = _WAKEWORD_PREFIX.sub("", cleaned).strip()
+        cleaned = _FILLER_PREFIX.sub("", cleaned).strip()
+    return cleaned
+
+
+def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
+    """Map spoken/chatted text to (tool, args, reply). None = pure chat.
+
+    Pure: regexes over the cleaned text (lowercased, leading wakeword and
+    filler stripped), first match wins.
+    """
+    lowered = _clean_voice_text(text)
+    if not lowered:
+        return None
+    for pattern, tool, args_fn, reply in _VOICE_TOOLS:
+        match = re.search(pattern, lowered)
+        if match:
+            try:
+                args = args_fn(match)
+            except (IndexError, AttributeError):
+                continue
+            if tool == "type" and not (isinstance(args, dict) and args.get("text")):
+                continue
+            return tool, args if isinstance(args, dict) else {}, reply
+    return None
+
+
+_PLAY_FILLER = re.compile(
+    r"^(?:me\s+)?(?:(?:a|an|some|the)\s+)?(?:(?:music\s+)?videos?|songs?|tracks?|music)"
+    r"\s+(?:by|from|of|about)\s+",
+)
+_YT_PLAYLIST = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+_YT_VIDEO_ID = re.compile(r'"videoId":"([A-Za-z0-9_-]{11})"')
+
+
+def _clean_play_query(text: str) -> str:
+    """Strip filler: a video by grant wisler -> grant wisler. Pure."""
+    q = (text or "").strip().rstrip(".!?")
+    return _PLAY_FILLER.sub("", q).strip() or q
+
+
+def _youtube_url(query: str, fetch=None) -> str:
+    """First YouTube video for the query, else the results page. Never raises."""
+    import urllib.parse
+
+    results = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(
+        query
+    )
+    try:
+        if fetch is None:
+            req = urllib.request.Request(
+                results,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "en",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                html = resp.read(2_000_000).decode("utf-8", "replace")
+        else:
+            html = fetch(results)
+        m = _YT_VIDEO_ID.search(html)
+        if m:
+            return f"https://www.youtube.com/watch?v={m.group(1)}"
+    except Exception:
+        pass
+    return results
+
+
+def _play_media(query: str) -> dict:
+    """Open YouTube in Sir's Brave: first matching video, or the playlist."""
+    query = (query or "").strip()[:200]
+    url = _youtube_url(query) if query else _YT_PLAYLIST
+    brave = _which("brave-browser") or _which("brave")
+    argv = [brave, "--new-window", url] if brave else ["xdg-open", url]
+    try:
+        subprocess.Popen(
+            argv,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return _tool_result(False, error=str(exc)[:200])
+    return _tool_result(True, query=query, url=url)
+
+
 _TYPE_MAX = 500
 _TOOL_BODY_MAX = 65536
 _TALK_AUDIO_MAX = 2 * 1024 * 1024
@@ -88,6 +371,43 @@ _APP_MAP = {
     "whatsie": ["flatpak", "run", "com.ktechpit.whatsie"],
 }
 
+# RustDesk remote-session script (scripts/remote_session.sh next to src/).
+_REMOTE_SCRIPT = (
+    Path(__file__).resolve().parent.parent / "scripts" / "remote_session.sh"
+)
+_REMOTE_VERBS = {
+    "remote_start": "start",
+    "remote_stop": "stop",
+    "remote_status": "status",
+}
+
+
+def _remote_host() -> str | None:
+    """Laptop Tailscale IPv4 (first line of `tailscale ip -4`). None if absent."""
+    rc, out, _ = _run(["tailscale", "ip", "-4"], 5.0)
+    if rc != 0 or not out.strip():
+        return None
+    host = out.strip().splitlines()[0].strip()
+    if not re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", host):
+        return None
+    return host
+
+
+def _run_remote_tool(tool: str) -> dict:
+    """Run scripts/remote_session.sh via _run; return parsed JSON + host."""
+    verb = _REMOTE_VERBS[tool]
+    _rc, out, err = _run([str(_REMOTE_SCRIPT), verb], 15.0)
+    try:
+        data = json.loads(out.strip() or "{}")
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict) or "ok" not in data:
+        return _tool_result(False, error=(err or out or "remote script failed")[:200])
+    host = _remote_host()
+    if host:
+        data["host"] = host
+    return data
+
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
@@ -98,6 +418,54 @@ def _actions_log_path() -> Path:
     if override:
         return Path(override)
     return Path.home() / ".jarvis" / "actions.log"
+
+
+def _hud_room_path() -> Path:
+    home = _env("JARVIS_HOME").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / "hud_room"
+
+
+def read_hud_room(max_age_s: float = 15 * 60) -> str | None:
+    """Live wake room for HUD joiners, or None (no call / stale / bad).
+
+    Pure-ish (one small file read). Mirrors wake_client.read_hud_room so
+    the bridge stays dependency-free.
+    """
+    try:
+        path = _hud_room_path()
+        room = path.read_text().strip()
+        if not room or len(room) > 64:
+            return None
+        if time.time() - path.stat().st_mtime > max_age_s:
+            return None
+        return room
+    except OSError:
+        return None
+
+
+def read_captions(limit: int = 20) -> list[dict]:
+    """Tail of ~/.jarvis/captions.log as [{ts, role, text}]. Never raises.
+
+    Mirrors hud_events.read_captions so the bridge stays dependency-free.
+    """
+    try:
+        home = _env("JARVIS_HOME").strip()
+        base = Path(home) if home else Path.home() / ".jarvis"
+        lines = (base / "captions.log").read_text().splitlines()[-max(1, limit) :]
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in lines:
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            ts = int(parts[0])
+        except ValueError:
+            continue
+        out.append({"ts": ts, "role": parts[1], "text": parts[2]})
+    return out
 
 
 def _wake_socket_path() -> Path:
@@ -150,11 +518,104 @@ def _whatsapp_reachable(timeout: float = 1.0) -> bool | None:
         return False
 
 
+# Last telemetry pushed by the phone (POST /phone/telemetry). In-memory:
+# a bridge restart simply shows "no link" until the next push (~60s).
+_PHONE_TELEMETRY: dict = {}
+_PHONE_STALE_S = 10 * 60
+
+
+def record_phone_telemetry(body: dict) -> dict | None:
+    """Validate + store a phone telemetry push. Returns the stored dict."""
+    battery = body.get("battery")
+    if isinstance(battery, bool) or not isinstance(battery, (int, float)):
+        return None
+    if not 0 <= battery <= 100:
+        return None
+    _PHONE_TELEMETRY.clear()
+    _PHONE_TELEMETRY.update(
+        battery=int(battery),
+        charging=body.get("charging") is True,
+        ts=time.time(),
+    )
+    return dict(_PHONE_TELEMETRY)
+
+
+def _phone_stats(now: float | None = None) -> dict | None:
+    """Phone battery + link age, or None when never seen / stale. Pure-ish."""
+    if not _PHONE_TELEMETRY:
+        return None
+    age = (now or time.time()) - _PHONE_TELEMETRY["ts"]
+    if age > _PHONE_STALE_S:
+        return None
+    return {
+        "battery": _PHONE_TELEMETRY["battery"],
+        "charging": _PHONE_TELEMETRY["charging"],
+        "age_s": int(age),
+    }
+
+
+def _read_sys(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _laptop_power(root: Path = Path("/sys/class/power_supply")) -> dict | None:
+    """Laptop battery %, state, AC and draw in watts from sysfs. Never raises."""
+    bats = sorted(root.glob("BAT*"))
+    if not bats:
+        return None
+    bat = bats[0]
+    cap = _read_sys(bat / "capacity")
+    out: dict = {
+        "battery": int(cap) if cap and cap.isdigit() else None,
+        "status": _read_sys(bat / "status") or "Unknown",
+    }
+    power = _read_sys(bat / "power_now")
+    watts = None
+    if power and power.lstrip("-").isdigit():
+        watts = abs(int(power)) / 1e6
+    else:
+        cur, volt = _read_sys(bat / "current_now"), _read_sys(bat / "voltage_now")
+        if cur and volt and cur.lstrip("-").isdigit() and volt.isdigit():
+            watts = abs(int(cur)) * int(volt) / 1e12
+    out["watts"] = round(watts, 1) if watts is not None else None
+    for ac in [*root.glob("AC*"), *root.glob("ADP*")]:
+        online = _read_sys(ac / "online")
+        if online is not None:
+            out["ac"] = online == "1"
+            break
+    return out
+
+
+def _cpu_temp_c(root: Path = Path("/sys/class/thermal")) -> float | None:
+    """CPU package temperature (TCPU / x86_pkg_temp preferred, else max)."""
+    temps: dict[str, float] = {}
+    for zone in root.glob("thermal_zone*"):
+        kind, raw = _read_sys(zone / "type"), _read_sys(zone / "temp")
+        if kind and raw and raw.lstrip("-").isdigit():
+            temps[kind] = int(raw) / 1000
+    for preferred in ("x86_pkg_temp", "TCPU", "cpu_thermal", "coretemp"):
+        if preferred in temps:
+            return round(temps[preferred], 1)
+    return round(max(temps.values()), 1) if temps else None
+
+
 def _sys_stats() -> dict:
     stats: dict = {}
+    # Real HUD telemetry: phone battery ("suit power"), laptop power
+    # ("arc reactor"), CPU temp, and whether a voice call is live.
+    stats["phone"] = _phone_stats()
+    stats["laptop_power"] = _laptop_power()
+    stats["cpu_temp_c"] = _cpu_temp_c()
+    stats["call_live"] = read_hud_room() is not None
     try:
         with open("/proc/loadavg") as fh:
             stats["load_1_5_15"] = fh.read().split()[:3]
+        # Core count lets gauges normalize load (load-per-core) and size
+        # CPU speedometers without a second sampling pass.
+        stats["cpu_count"] = os.cpu_count() or 1
         mem: dict = {}
         with open("/proc/meminfo") as fh:
             for line in fh:
@@ -265,6 +726,42 @@ def _read_json_body(handler: BaseHTTPRequestHandler, limit: int) -> dict | None:
     return body if isinstance(body, dict) else None
 
 
+def _launch_anything(name: str) -> dict:
+    """Universal launcher for names outside the fixed map. Never raises.
+
+    Installed app -> visited site -> closest app -> top web result, with
+    the local router model arbitrating ambiguity (system/launcher.py).
+    """
+    if not name or len(name) > 60:
+        return _tool_result(False, error="which app?")
+    try:
+        from system.launcher import resolve_launch
+
+        try:
+            known = __import__("tools").KNOWN_SITES
+        except Exception:
+            known = None
+        decision = resolve_launch(name, known_sites=known)
+    except Exception as exc:
+        return _tool_result(False, error=f"launcher failed: {str(exc)[:120]}")
+    if decision.kind == "app" and decision.argv:
+        argv = list(decision.argv)
+    else:
+        if not re.match(r"^https?://[A-Za-z0-9]", decision.target):
+            return _tool_result(False, error="unsafe url")
+        argv = ["xdg-open", decision.target]
+    try:
+        subprocess.Popen(
+            argv,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return _tool_result(False, error=str(exc)[:200])
+    return _tool_result(True, app=decision.target, via=decision.reason)
+
+
 def _app_map() -> dict[str, list[str]]:
     try:
         extra = json.loads(_env("JARVIS_APP_MAP", "") or "{}")
@@ -282,18 +779,23 @@ def _app_map() -> dict[str, list[str]]:
 
 
 def _parse_volume_pct(out: str) -> int | None:
-    """Parse `pactl get-sink-volume` ("... / 100%") to 0-100. Pure."""
+    """Parse `pactl get-sink-volume` ("... / 120%") to 0-150. Pure.
+
+    Sinks allow over-amplification past 100%, so the clamp is 150 to
+    match volume_set — clamping lower made honest read-backs lie.
+    """
     match = re.search(r"(\d{1,3})\s*%", out or "")
     if not match:
         return None
-    return max(0, min(100, int(match.group(1))))
+    return max(0, min(150, int(match.group(1))))
 
 
 def _parse_kscreen_outputs(out: str) -> list[dict]:
-    """Parse `kscreen-doctor -o` into [{id, name, enabled}]. Pure.
+    """Parse `kscreen-doctor -o` into [{id, name, enabled, geometry}]. Pure.
 
     Lines look like: `Output: 1 HDMI-A-2 <uuid>` followed by a line
-    containing `enabled` or `disabled`. ANSI colors are stripped.
+    containing `enabled` or `disabled`, plus `Geometry: X,Y WxH`.
+    ANSI colors are stripped. Geometry is {"x","y","w","h"} or absent.
     """
     clean = re.sub(r"\x1b\[[0-9;]*m", "", out or "")
     outputs: list[dict] = []
@@ -303,8 +805,19 @@ def _parse_kscreen_outputs(out: str) -> list[dict]:
         if head:
             current = {"id": head.group(1), "name": head.group(2), "enabled": True}
             outputs.append(current)
-        elif current is not None and "disabled" in line:
+            continue
+        if current is None:
+            continue
+        if "disabled" in line:
             current["enabled"] = False
+        geo = re.search(r"Geometry:\s*(\d+),(\d+)\s+(\d+)x(\d+)", line)
+        if geo:
+            current["geometry"] = {
+                "x": int(geo.group(1)),
+                "y": int(geo.group(2)),
+                "w": int(geo.group(3)),
+                "h": int(geo.group(4)),
+            }
     return outputs
 
 
@@ -314,8 +827,48 @@ def _screens_off_path() -> Path:
     return base / "screens_off.json"
 
 
-def _gemini_reply(transcript: str) -> tuple[str, str | None]:
-    """Direct Gemini reply. Returns (reply, warning_or_None). Lazy import."""
+def _is_usage_error(exc: Exception) -> bool:
+    """True for quota/rate/overload failures worth retrying on a backup.
+
+    Pure: matches 429/5xx status codes and quota/overload/timeout
+    wording. Auth (401/403), bad-request (400) and missing-model (404)
+    fail fast — no backup would answer those either.
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    try:
+        code = int(code) if code is not None else 0
+    except (TypeError, ValueError):
+        code = 0
+    if code == 429 or 500 <= code <= 599:
+        return True
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(
+        marker in text
+        for marker in (
+            "resource_exhausted",
+            "quota",
+            "rate limit",
+            "rate_limit",
+            "ratelimit",
+            "overload",
+            "too many requests",
+            "timeout",
+            "timed out",
+            "deadline exceeded",
+            "temporarily unavailable",
+            "service unavailable",
+        )
+    )
+
+
+def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None]:
+    """Direct Gemini reply with high-usage backups. Returns (reply, warning).
+
+    Tries GEMINI_TEXT_MODEL then GEMINI_TEXT_FALLBACKS, moving on only
+    on usage errors (429/quota/5xx/timeout). Anything else (auth, bad
+    request) fails fast with the first error. Lazy import. Guest mode
+    answers cold, curt and faintly contemptuous, one short sentence.
+    """
     try:
         from google import genai
     except ImportError:
@@ -323,21 +876,40 @@ def _gemini_reply(transcript: str) -> tuple[str, str | None]:
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         return "", "GOOGLE_API_KEY not configured"
-    try:
-        client = genai.Client(api_key=api_key, http_options={"timeout": 30})
-        return (
-            client.models.generate_content(
-                model=GEMINI_TEXT_MODEL,
-                contents=(
-                    "You are Jarvis, a terse British butler voice assistant. "
-                    "Reply in one or two short spoken sentences, no formatting. "
-                    f"User said: {transcript}"
-                ),
-            ).text.strip(),
-            None,
+    if guest:
+        brief = (
+            "You are Jarvis in guest mode: cold, curt, faintly contemptuous. "
+            "One short spoken sentence, no formatting, no warmth. Answer "
+            "simple questions only; refuse anything else with a frosty no. "
+            f"Guest said: {transcript}"
         )
-    except Exception as exc:
-        return "", f"LLM unavailable: {exc}"[:200]
+    else:
+        brief = (
+            "You are Jarvis, a terse British butler voice assistant. "
+            "Reply in one or two short spoken sentences, no formatting. "
+            f"User said: {transcript}"
+        )
+    # No custom http_options: SDK 2.x mis-handles a timeout dict
+    # (instant ReadTimeout on every call) — defaults work.
+    client = genai.Client(api_key=api_key)
+    chain = [GEMINI_TEXT_MODEL, *GEMINI_TEXT_FALLBACKS]
+    seen = set()
+    models = [m for m in chain if not (m in seen or seen.add(m))]
+    last_err: Exception | None = None
+    for model_id in models:
+        try:
+            return (
+                client.models.generate_content(
+                    model=model_id,
+                    contents=brief,
+                ).text.strip(),
+                None,
+            )
+        except Exception as exc:
+            last_err = exc
+            if not _is_usage_error(exc):
+                break
+    return "", f"LLM unavailable: {last_err}"[:200]
 
 
 def _tool_result(ok: bool, **fields) -> dict:
@@ -364,6 +936,24 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         delta = "+5%" if tool == "volume_up" else "-5%"
         rc, _, err = _run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", delta], 5.0)
         return _tool_result(rc == 0, error=None if rc == 0 else err)
+    if tool == "volume_set":
+        # Absolute level 0..150 (pactl allows >100% boost). Always
+        # verifies by reading back: the reply reports the real level,
+        # never the requested one.
+        if _which("pactl") is None:
+            return _tool_result(False, error="pactl not installed")
+        try:
+            level = int(args.get("level", -1))
+        except (TypeError, ValueError):
+            return _tool_result(False, error="level must be 0..150")
+        if not 0 <= level <= 150:
+            return _tool_result(False, error="level must be 0..150")
+        rc, _, err = _run(
+            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"], 5.0
+        )
+        if rc != 0:
+            return _tool_result(False, error=err or "pactl failed")
+        return run_phone_tool("volume_get", {})
     if tool in ("volume_mute", "volume_unmute"):
         toggle = "1" if tool == "volume_mute" else "0"
         rc, _, err = _run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", toggle], 5.0)
@@ -376,14 +966,13 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         }[tool]
         rc, out, err = _run(["playerctl", action], 5.0)
         return _tool_result(rc == 0, state=out or None, error=None if rc == 0 else err)
+    if tool == "play_media":
+        return _play_media(str(args.get("query", "")))
     if tool == "open_app":
         name = str(args.get("app", "")).strip().lower()
         entry = _app_map().get(name)
         if entry is None:
-            return _tool_result(
-                False,
-                error=f"unknown app {name!r} (allowed: {sorted(_app_map())})",
-            )
+            return _launch_anything(name)
         if _which(entry[0]) is None and entry[0] != "flatpak":
             return _tool_result(False, error=f"{entry[0]} not installed")
         try:
@@ -397,6 +986,28 @@ def run_phone_tool(tool: str, args: dict) -> dict:
             return _tool_result(False, error=str(exc)[:200])
         return _tool_result(True, app=name)
     if tool == "screenshot":
+        # args.output: "all"/"" = whole desktop; otherwise an output id
+        # or name from screens_state ("HDMI-A-2"). Spectacle can't shoot
+        # one output non-interactively, so shoot fullscreen once and crop
+        # to the output's kscreen geometry with Pillow.
+        want = str(args.get("output", "") or "").strip()
+        region = None
+        if want and want.lower() != "all":
+            rc, out, err = _run(["kscreen-doctor", "-o"], 10.0)
+            if rc != 0:
+                return _tool_result(False, error=err or "kscreen-doctor failed")
+            outs = _parse_kscreen_outputs(out)
+            hit = [
+                o for o in outs if o["name"].lower() == want.lower() or o["id"] == want
+            ]
+            if not hit:
+                return _tool_result(
+                    False,
+                    error=f"no such output {want!r} (have {[o['name'] for o in outs]})",
+                )
+            region = hit[0].get("geometry")
+            if not region:
+                return _tool_result(False, error=f"no geometry for {want!r}")
         shot = _which("spectacle") or _which("import")
         if shot is None:
             return _tool_result(False, error="need spectacle or imagemagick")
@@ -408,21 +1019,51 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         if rc != 0 or not path.is_file():
             return _tool_result(False, error=err or "capture failed")
         try:
-            image_b64 = base64.b64encode(path.read_bytes()).decode()
+            raw = path.read_bytes()
+            if region:
+                try:
+                    from PIL import Image
+
+                    with Image.open(path) as img:
+                        img = img.convert("RGB")
+                        left = max(0, region["x"])
+                        top = max(0, region["y"])
+                        box = (
+                            left,
+                            top,
+                            min(img.width, left + region["w"]),
+                            min(img.height, top + region["h"]),
+                        )
+                        crop = img.crop(box)
+                        out_path = path.with_name(path.stem + "-crop.png")
+                        crop.save(out_path, "PNG")
+                        raw = out_path.read_bytes()
+                        out_path.unlink(missing_ok=True)
+                except ImportError:
+                    return _tool_result(False, error="Pillow missing for crop")
+                except Exception as exc:
+                    return _tool_result(False, error=f"crop failed: {exc}"[:150])
+            image_b64 = base64.b64encode(raw).decode()
         finally:
             path.unlink(missing_ok=True)
-        return _tool_result(True, image_b64=image_b64, format="png")
+        result = _tool_result(True, image_b64=image_b64, format="png")
+        if region:
+            result["output"] = want
+        return result
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
         rc, _, err = _run(["notify-send", title, body], 5.0)
         return _tool_result(rc == 0, error=None if rc == 0 else err)
     if tool == "lock":
-        rc, _, err = _run(["loginctl", "lock-session"], 5.0)
+        # lock-sessions (plural, all) — bare lock-session locks only the
+        # caller's session (the headless manager session under systemd,
+        # no seat) and returns 0 while the graphical seat stays unlocked.
+        rc, _, err = _run(["loginctl", "lock-sessions"], 5.0)
         return _tool_result(rc == 0, error=None if rc == 0 else err)
     if tool == "unlock":
         # Explicit phone-button press = user consent; unlocks own session.
-        rc, _, err = _run(["loginctl", "unlock-session"], 5.0)
+        rc, _, err = _run(["loginctl", "unlock-sessions"], 5.0)
         return _tool_result(rc == 0, error=None if rc == 0 else err)
     if tool == "screens_state":
         if _which("kscreen-doctor") is None:
@@ -474,6 +1115,11 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         with contextlib.suppress(OSError):
             _screens_off_path().unlink(missing_ok=True)
         return _tool_result(True, outputs=names)
+    if tool in ("remote_start", "remote_stop", "remote_status"):
+        # RustDesk (direct IP, Tailscale) via scripts/remote_session.sh (argv, timeout 15).
+        # Returns the script's JSON plus the tailscale host. No log_action
+        # import here (bridge stays stdlib-only), so no logging.
+        return _run_remote_tool(tool)
     return _tool_result(False, error=f"unknown tool {tool!r}")
 
 
@@ -502,6 +1148,340 @@ def store_camera_frame(image_b64: str) -> dict:
     for stale in olds[: max(0, len(olds) - _CAM_KEEP)]:
         stale.unlink(missing_ok=True)
     return _tool_result(True, name=name, bytes=len(raw))
+
+
+def handle_type(body: dict) -> tuple[int, dict]:
+    """Remote keyboard: {"text": ...} or {"key": ...} via wtype.
+
+    Shared by POST /type and voice-command routing ("type hello").
+    Returns (http_code, payload); never raises.
+    """
+    text, key = body.get("text", ""), body.get("key", "")
+    if key:
+        if not isinstance(key, str) or len(key) > 40:
+            return 400, {"ok": False, "error": "bad key"}
+        rc, _, err = _run(["wtype", "-k", key], 10.0)
+    else:
+        if not isinstance(text, str) or not text or len(text) > _TYPE_MAX:
+            return 400, {"ok": False, "error": f"text 1..{_TYPE_MAX} chars"}
+        rc, _, err = _run(["wtype", "--", text], 10.0)
+    if rc != 0:
+        return 500, {"ok": False, "error": err or "wtype failed"}
+    return 200, {"ok": True}
+
+
+def _speak_quietly(reply: str) -> tuple[str, int]:
+    """Render TTS for an action reply. ("", 22050) when TTS is down.
+
+    The phone falls back to on-device TTS for empty audio, so a dead
+    voice stack degrades the reply instead of failing the action.
+    """
+    try:
+        try:
+            from src.local_voice import PiperTTS
+        except ImportError:
+            from local_voice import PiperTTS
+
+        out = asyncio.run(_render_tts(PiperTTS(), reply))
+        return base64.b64encode(out[0]).decode(), out[1]
+    except Exception:
+        return "", 22050
+
+
+def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
+    """Execute one routed voice command. "type" goes via wtype."""
+    if tool == "type":
+        return handle_type(args)
+    result = run_phone_tool(tool, args if isinstance(args, dict) else {})
+    if tool == "screenshot" and result.get("ok"):
+        result = {"ok": True}  # voice can't show the image; keep replies light
+    return (200 if result.get("ok") else 500, result)
+
+
+def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
+    """Success replies that need the tool result. Pure."""
+    if tool in ("volume_get", "volume_set"):
+        vol = result.get("volume")
+        if isinstance(vol, int):
+            state = "muted" if result.get("muted") else "live"
+            return f"Volume {vol} percent, {state}, Sir."
+        return "Volume unknown, Sir."
+    if tool == "play_media":
+        q = args.get("query") or ""
+        return f"Playing {q} on YouTube, Sir." if q else "Playing your playlist, Sir."
+    if tool == "open_app":
+        return f"Opening {result.get('app') or args.get('app', 'it')}, Sir."
+    return "Done, Sir."
+
+
+def _voice_tool_reply(
+    cmd: tuple[str, dict, str | None], transcript: str, guest: bool
+) -> tuple[int, dict]:
+    """Execute a routed voice command for /talk (with Piper audio).
+
+    Never claims success on failure: a dead tool answers with what went
+    wrong instead of a cheerful lie. Returns (http_code, payload) with
+    an "action" block the phone may show.
+    """
+    tool, args, ok_reply = cmd
+    if guest and tool not in _GUEST_VOICE_TOOLS:
+        audio_b64, rate = _speak_quietly(_GUEST_REFUSAL)
+        return 200, {
+            "ok": True,
+            "transcript": transcript,
+            "reply": _GUEST_REFUSAL,
+            "audio_b64": audio_b64,
+            "audio_rate": rate,
+            "action": {"tool": tool, "ok": False, "denied": "guest mode"},
+        }
+    code, result = _run_voice_action(tool, args)
+    if code == 200 and result.get("ok"):
+        reply = (
+            ok_reply
+            if ok_reply is not None
+            else _dynamic_voice_reply(tool, args, result)
+        )
+    else:
+        reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
+    audio_b64, rate = _speak_quietly(reply)
+    action = {"tool": tool, "ok": bool(result.get("ok"))}
+    if not result.get("ok"):
+        action["error"] = result.get("error")
+    elif tool == "remote_start":
+        if result.get("host"):
+            action["host"] = result["host"]
+        if result.get("port"):
+            action["port"] = result["port"]
+    return 200, {
+        "ok": True,
+        "transcript": transcript,
+        "reply": reply,
+        "audio_b64": audio_b64,
+        "audio_rate": rate,
+        "action": action,
+    }
+
+
+# ---- Instant command route: text -> tool in ms, never touching an LLM.
+#
+# Separate from /chat and /talk on purpose: those are conversational
+# (STT + Gemini + Piper TTS, seconds end to end, and they 429 on quota
+# droughts). /route is deterministic plumbing for commands: regex
+# (microseconds), then the layered intent resolver (exact/keyword/fuzzy
+# local, Needle-2 semantic when installed — hundreds of ms, offline),
+# then straight to the tool with a canned reply. No audio, no LLM.
+_PHONE_ALIASES: dict[str, dict] = {
+    # Paraphrases the voice regexes miss; merged with the resolver's
+    # own seeds (resolve_intent takes them as extra aliases).
+    "secure my laptop": {"action": "lock_pc", "params": {}},
+    "secure the computer": {"action": "lock_pc", "params": {}},
+    "lock up the pc": {"action": "lock_pc", "params": {}},
+    "lock everything": {"action": "lock_pc", "params": {}},
+    "let me in": {"action": "unlock_pc", "params": {}},
+    "unlock the laptop": {"action": "unlock_pc", "params": {}},
+    "unlock my pc": {"action": "unlock_pc", "params": {}},
+    "snap the screen": {"action": "take_screenshot", "params": {}},
+    "grab the screen": {"action": "take_screenshot", "params": {}},
+    "kill the screens": {"action": "screens_off", "params": {}},
+    "wake the screens": {"action": "screens_restore", "params": {}},
+}
+
+# Resolver agent-actions -> phone bridge tools (param mapping inline).
+# Anything absent here is not phone-executable and stays a no-route.
+_ROUTE_VOLUME = {
+    "up": "volume_up",
+    "down": "volume_down",
+    "mute": "volume_mute",
+    "unmute": "volume_unmute",
+    "status": "volume_get",
+}
+_ROUTE_MEDIA = {
+    "play": "media_play_pause",
+    "pause": "media_play_pause",
+    "next": "media_next",
+    "previous": "media_prev",
+}
+_ROUTE_APPS = {
+    "files": "files",
+    "terminal": "terminal",
+    "calculator": "calculator",
+    "browser": "brave",
+    "whatsie": "whatsie",
+}
+
+
+def _resolve_intent(text: str):
+    """Layered intent resolve, or None when the resolver is unavailable.
+
+    Thin wrapper so tests can monkeypatch without importing intent.
+    """
+    try:
+        from intent.resolver import resolve_intent
+
+        return resolve_intent(text, _PHONE_ALIASES)
+    except Exception:
+        return None
+
+
+def _safe_math(expr: str) -> float | None:
+    """Tiny safe arithmetic eval (+-*/%** parens). None = not arithmetic."""
+    import ast
+    import operator
+
+    ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+        ast.USub: operator.neg,
+        ast.UAdd: operator.pos,
+    }
+
+    def walk(node):
+        if isinstance(node, ast.Expression):
+            return walk(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            return ops[type(node.op)](walk(node.left), walk(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
+            return ops[type(node.op)](walk(node.operand))
+        raise ValueError("not arithmetic")
+
+    try:
+        if not expr or len(expr) > 60:
+            return None
+        return walk(ast.parse(expr.strip(), mode="eval"))
+    except Exception:
+        return None
+
+
+def _tell_time_reply() -> str:
+    return time.strftime("It's %-I:%M %p, Sir.")
+
+
+def _route_from_intent(result) -> tuple[str, dict, str | None] | None:
+    """IntentResult -> (tool, args, reply). None = not phone-executable."""
+    action = result.action
+    params = result.params or {}
+    if action == "set_volume":
+        tool = _ROUTE_VOLUME.get(str(params.get("action", "")))
+        return (tool, {}, None) if tool else None
+    if action == "media_control":
+        tool = _ROUTE_MEDIA.get(str(params.get("action", "")))
+        return (tool, {}, None) if tool else None
+    if action == "open_app":
+        raw = str(params.get("app", "")).strip()
+        app = _ROUTE_APPS.get(raw, raw)
+        return ("open_app", {"app": app}, None) if app else None
+    if action == "tell_time":
+        return ("tell_time", {}, None)
+    if action == "do_math":
+        return ("do_math", {"expr": str(params.get("expr", ""))}, None)
+    if action == "lock_pc":
+        return ("lock", {}, "Locked, Sir.")
+    if action == "unlock_pc":
+        return ("unlock", {}, "Unlocked, Sir.")
+    if action == "take_screenshot":
+        return (
+            "screenshot",
+            {},
+            "Screenshot taken, Sir — it's on the Screens tab.",
+        )
+    if action == "screens_off":
+        return ("screen_off", {}, "Screens off, Sir.")
+    if action == "screens_restore":
+        return ("screens_restore", {}, "Screens back, Sir.")
+    if action == "transfer_to_system_control":
+        # "secure my laptop" lands here via Needle/fuzzy: re-match the
+        # task for a concrete phone tool, else refuse to half-act.
+        return _match_voice_tool(str(params.get("task", "")))
+    return None
+
+
+def handle_route(body: dict) -> tuple[int, dict]:
+    """POST /route {"text": ...}: text -> executed tool in milliseconds.
+
+    Layers: voice regexes (µs) -> layered resolver incl. Needle (ms).
+    Acts only at act-tier confidence (>=0.8); confirm-tier returns the
+    clarification as the reply with no action; anything else is an
+    honest no-route (the phone falls back to /chat). No LLM, no TTS —
+    the phone speaks the reply on-device. Never raises.
+    """
+    text = body.get("text", "")
+    if not isinstance(text, str) or not text.strip() or len(text) > 500:
+        return 400, {"ok": False, "error": "body needs text 1..500 chars"}
+    guest = body.get("guest") is True
+    clean = text.strip()
+
+    def denied(tool: str) -> tuple[int, dict]:
+        return 200, {
+            "ok": True,
+            "reply": _GUEST_REFUSAL,
+            "action": {"tool": tool, "ok": False, "denied": "guest mode"},
+        }
+
+    def done(tool: str, args: dict, ok_reply: str | None) -> tuple[int, dict]:
+        if guest and tool not in _GUEST_VOICE_TOOLS:
+            return denied(tool)
+        if tool == "tell_time":
+            return 200, {
+                "ok": True,
+                "reply": _tell_time_reply(),
+                "action": {"tool": "tell_time", "ok": True},
+            }
+        if tool == "do_math":
+            value = _safe_math(args.get("expr", ""))
+            if value is None:
+                return 404, {"ok": False, "error": "no-route"}
+            shown = int(value) if float(value).is_integer() else round(value, 4)
+            return 200, {
+                "ok": True,
+                "reply": f"That's {shown}, Sir.",
+                "action": {"tool": "do_math", "ok": True},
+            }
+        if tool == "type":
+            code, result = handle_type(args)
+        else:
+            result = _run_voice_action(tool, args)
+            result = result[1]
+            code = 200 if result.get("ok") else 500
+        if code == 200 and result.get("ok"):
+            reply = (
+                ok_reply
+                if ok_reply is not None
+                else _dynamic_voice_reply(tool, args, result)
+            )
+        else:
+            reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
+        action: dict = {"tool": tool, "ok": bool(result.get("ok"))}
+        if not result.get("ok"):
+            action["error"] = result.get("error")
+        elif tool == "remote_start":
+            if result.get("host"):
+                action["host"] = result["host"]
+            if result.get("port"):
+                action["port"] = result["port"]
+        return 200, {"ok": True, "reply": reply, "action": action}
+
+    cmd = _match_voice_tool(clean)
+    if cmd is not None:
+        return done(*cmd)
+    result = _resolve_intent(clean)
+    if result is None:
+        return 404, {"ok": False, "error": "no-route"}
+    if result.should_act:
+        routed = _route_from_intent(result)
+        if routed is not None:
+            return done(*routed)
+        return 404, {"ok": False, "error": "no-route"}
+    if result.should_confirm and result.clarification:
+        return 200, {"ok": True, "reply": result.clarification}
+    if result.clarification:
+        return 200, {"ok": True, "reply": result.clarification}
+    return 404, {"ok": False, "error": "no-route"}
 
 
 def handle_talk(body: dict) -> tuple[int, dict]:
@@ -543,7 +1523,11 @@ def handle_talk(body: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": f"transcribe failed: {exc}"[:200]}
     if not transcript:
         return 200, {"ok": True, "transcript": "", "reply": "", "audio_b64": ""}
-    reply, warning = _gemini_reply(transcript)
+    guest = body.get("guest") is True
+    cmd = _match_voice_tool(transcript)
+    if cmd is not None:
+        return _voice_tool_reply(cmd, transcript, guest)
+    reply, warning = _gemini_reply(transcript, guest)
     if warning and not reply:
         # Degrade, don't fail: the phone shows what was heard and notes the
         # brain outage (free-tier quota droughts read-timeout this path).
@@ -582,12 +1566,56 @@ def handle_chat(body: dict) -> tuple[int, dict]:
     """Text chat for the phone Chat tab. Gemini-direct, no audio.
 
     Body: {"text": str (1..2000), "history": [[role, text]...] (max 20,
-    optional)}. History roles: user/jarvis. Returns 200
-    {reply} or {reply: "", warning} on LLM outage (same degrade rule).
+    optional), "voice": bool (optional)}. History roles: user/jarvis.
+    Returns 200 {reply} or {reply: "", warning} on LLM outage (same
+    degrade rule). With "voice": true the text instead summons a voice
+    call seeded with it (text→voice trigger): 200 {"voice": "summoned"}
+    and the answer comes back spoken. When the wake listener is down it
+    degrades to the normal text reply so the phone always gets something.
+    Voice seeds cap at 500 chars (400 beyond that).
     """
     text = body.get("text", "")
     if not isinstance(text, str) or not text.strip() or len(text) > 2000:
         return 400, {"ok": False, "error": "body needs text 1..2000 chars"}
+    if body.get("voice") is True:
+        seed = text.strip()
+        if len(seed) > 500:
+            return (
+                400,
+                {"ok": False, "error": "voice seed max 500 chars"},
+            )
+        reply = _wake_rpc({"talk": True, "text": seed})
+        if reply is not None:
+            return 200, {"ok": True, "voice": "summoned"}
+        # Listener absent: fall through to the text answer below.
+    guest = body.get("guest") is True
+    cmd = _match_voice_tool(text.strip())
+    if cmd is not None:
+        tool, args, ok_reply = cmd
+        if guest and tool not in _GUEST_VOICE_TOOLS:
+            return 200, {
+                "ok": True,
+                "reply": _GUEST_REFUSAL,
+                "action": {"tool": tool, "ok": False, "denied": "guest mode"},
+            }
+        code, result = _run_voice_action(tool, args)
+        if code == 200 and result.get("ok"):
+            reply = (
+                ok_reply
+                if ok_reply is not None
+                else _dynamic_voice_reply(tool, args, result)
+            )
+        else:
+            reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
+        action = {"tool": tool, "ok": bool(result.get("ok"))}
+        if not result.get("ok"):
+            action["error"] = result.get("error")
+        elif tool == "remote_start":
+            if result.get("host"):
+                action["host"] = result["host"]
+            if result.get("port"):
+                action["port"] = result["port"]
+        return 200, {"ok": True, "reply": reply, "action": action}
     history = body.get("history", [])
     turns = []
     if isinstance(history, list):
@@ -600,10 +1628,17 @@ def handle_chat(body: dict) -> tuple[int, dict]:
             ):
                 who = "User" if turn[0] == "user" else "Jarvis"
                 turns.append(f"{who}: {turn[1][:1000]}")
-    prompt = (
-        "You are Jarvis, a terse British butler texting with Sir. "
-        "Keep replies short (a few sentences max), plain text, no formatting. "
-    )
+    if guest:
+        prompt = (
+            "You are Jarvis in guest mode: cold, curt, faintly contemptuous. "
+            "Keep replies to one short sentence, plain text, no formatting. "
+            "Answer simple questions only; refuse anything else with frost. "
+        )
+    else:
+        prompt = (
+            "You are Jarvis, a terse British butler texting with Sir. "
+            "Keep replies short (a few sentences max), plain text, no formatting. "
+        )
     if turns:
         prompt += "Conversation so far:\n" + "\n".join(turns) + "\n"
     prompt += f"Sir: {text.strip()}"
@@ -666,6 +1701,20 @@ class _Handler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == "/phone/telemetry":
+            body = _read_json_body(self, 1024)
+            stored = record_phone_telemetry(body) if isinstance(body, dict) else None
+            if stored is None:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": 'body must be {"battery": 0-100, "charging": bool}',
+                    },
+                )
+            else:
+                self._send(200, {"ok": True})
+            return
         if route == "/mic":
             body = _read_json_body(self, 1024)
             if not isinstance(body, dict) or not isinstance(body.get("muted"), bool):
@@ -677,33 +1726,54 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, reply)
             return
+        if route == "/summon":
+            # PTT: HUD NumpadEnter / shell talk. Optional {"text": "..."}
+            # seeds the call: the wake listener delivers it as the opening
+            # user turn once the agent joins (text→voice). Blank/missing
+            # text is plain talk; wrong types or >500 chars are 400.
+            # (Cap mirrors wake_client.TALK_TEXT_MAX; kept local so the
+            # bridge never imports the wake venv's modules.)
+            body = _read_json_body(self, 1024)
+            talk: dict = {"talk": True}
+            if isinstance(body, dict) and body.get("text") is not None:
+                seed = body.get("text")
+                if isinstance(seed, str) and not seed.strip():
+                    pass  # blank reads as plain talk
+                elif not isinstance(seed, str):
+                    self._send(400, {"ok": False, "error": "text must be a string"})
+                    return
+                elif len(seed.strip()) > 500:
+                    self._send(400, {"ok": False, "error": "seed text max 500 chars"})
+                    return
+                else:
+                    talk["text"] = seed.strip()
+            reply = _wake_rpc(talk)
+            if reply is None:
+                self._send(503, {"ok": False, "error": "wake listener unavailable"})
+                return
+            self._send(200, reply)
+            return
         if route == "/type":
             body = _read_json_body(self, 4096)
             if body is None:
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
-            text, key = body.get("text", ""), body.get("key", "")
-            if key:
-                if not isinstance(key, str) or len(key) > 40:
-                    self._send(400, {"ok": False, "error": "bad key"})
-                    return
-                rc, _, err = _run(["wtype", "-k", key], 10.0)
-            else:
-                if not isinstance(text, str) or not text or len(text) > _TYPE_MAX:
-                    self._send(
-                        400, {"ok": False, "error": f"text 1..{_TYPE_MAX} chars"}
-                    )
-                    return
-                rc, _, err = _run(["wtype", "--", text], 10.0)
-            if rc != 0:
-                self._send(500, {"ok": False, "error": err or "wtype failed"})
+            if body.get("guest") is True:
+                self._send(403, {"ok": False, "error": "guest mode refuses type"})
                 return
-            self._send(200, {"ok": True})
+            code, result = handle_type(body)
+            self._send(code, result)
             return
         if route == "/tool":
             body = _read_json_body(self, _TOOL_BODY_MAX)
             if body is None or not isinstance(body.get("tool"), str):
                 self._send(400, {"ok": False, "error": 'body needs {"tool": str}'})
+                return
+            if body.get("guest") is True and body["tool"] not in _GUEST_VOICE_TOOLS:
+                self._send(
+                    403,
+                    {"ok": False, "error": f"guest mode refuses {body['tool']!r}"},
+                )
                 return
             args = body.get("args", {})
             result = run_phone_tool(
@@ -726,6 +1796,50 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             code, result = handle_chat(body)
             self._send(code, result)
+            return
+        if route == "/route":
+            # Instant command path: text -> tool in ms, no LLM, no TTS.
+            # 200 with action, 200 with bare reply (confirm/clarify),
+            # 404 no-route (caller falls back to /chat), 400 bad body.
+            body = _read_json_body(self, 4096)
+            if body is None:
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = handle_route(body)
+            self._send(code, result)
+            return
+        if route == "/token":
+            # Mobile room join: mint a 15-min LiveKit token (dispatches
+            # the agent unless {"dispatch": false} joins a live room).
+            # Same shape as mint_token.py CLI output. Body optional:
+            # {"room": "jarvis-123", "dispatch": true}.
+            from mint_token import mint_token_payload, valid_room_name
+
+            body = _read_json_body(self, 1024)
+            if body is None:
+                body = {}
+            room = body.get("room", "")
+            if not isinstance(room, str):
+                self._send(400, {"ok": False, "error": "room must be a string"})
+                return
+            if room and not valid_room_name(room):
+                self._send(400, {"ok": False, "error": "bad room name"})
+                return
+            dispatch = body.get("dispatch", True)
+            if not isinstance(dispatch, bool):
+                dispatch = True
+            try:
+                payload = mint_token_payload(room, dispatch)
+            except RuntimeError as exc:
+                self._send(503, {"ok": False, "error": str(exc)[:200]})
+                return
+            except ImportError:
+                self._send(501, {"ok": False, "error": "livekit sdk not installed"})
+                return
+            except Exception as exc:
+                self._send(500, {"ok": False, "error": str(exc)[:200]})
+                return
+            self._send(200, {"ok": True, **payload})
             return
         if route == "/camera/frame":
             body = _read_json_body(self, 8 * 1024 * 1024 + 1024)
@@ -770,6 +1884,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": False, "error": "wake listener unavailable"})
             else:
                 self._send(200, reply)
+        elif route == "/room":
+            self._send(200, {"ok": True, "room": read_hud_room()})
+        elif route == "/captions":
+            try:
+                limit = max(1, min(50, int(qs.get("limit", ["20"])[0])))
+            except ValueError:
+                limit = 20
+            self._send(200, {"ok": True, "captions": read_captions(limit)})
         elif route == "/camera/latest":
             latest = _phone_cam_dir() / "latest.jpg"
             try:

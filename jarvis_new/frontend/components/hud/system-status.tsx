@@ -11,7 +11,9 @@ export function SystemStatus({ profile = 'Sir' }: { profile?: string }) {
     <button
       type="button"
       onClick={toggle}
-      title="Toggle dual / solo display mode"
+      title={`Display mode: ${mode.toUpperCase()} — activate for ${mode === 'dual' ? 'SOLO' : 'DUAL'} (or press D)`}
+      aria-label={`Display mode ${mode}. Activate to switch to ${mode === 'dual' ? 'solo' : 'dual'}.`}
+      aria-keyshortcuts="d"
       className="hud-status"
       style={{ ['--jarvis-state' as string]: color }}
     >

@@ -1,93 +1,87 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { ArcReactor } from '@/components/hud/arc-reactor';
+import { hash01, useBakedCanvas } from '@/hooks/hud/use-baked-frames';
 import { MUTED_COLOR, useJarvisState, useMicMuted } from '@/hooks/hud/use-jarvis-state';
 
-const PARTICLES = 220;
+const PARTICLE_CAP = 220;
+const PARTICLE_FLOOR = 80;
+
+function particleBudget(width: number, height: number): number {
+  // Scale the swarm to the canvas area so small windows stay cheap and
+  // large ones stay dense. ~1 particle per 9000 px², clamped.
+  const area = Math.max(1, width * height);
+  return Math.max(PARTICLE_FLOOR, Math.min(PARTICLE_CAP, Math.round(area / 9000)));
+}
 
 /**
- * Canvas 2D particle orb (KDE GPU-safe, no WebGL).
- * Audio FFT would drive amplitude via the aura visualizer; here an
- * idle drift + state-tinted glow stands in and scales ~15% on Green/Orange.
+ * Particle orb, baked: the full drift loop is pre-rendered once per
+ * (color, boosted, size) into stitched frame canvases; playback is a
+ * single `drawImage` blit per tick — no per-frame particle math, no
+ * gradients at runtime. (KDE GPU-safe 2D canvas, no WebGL.)
  */
 export function ParticleOrb() {
-  const ref = useRef<HTMLCanvasElement>(null);
   const { color: stateColor, boosted, jarvis } = useJarvisState();
   const { muted } = useMicMuted();
-  // Muted mic greys the orb (tray/HUD/CLI mute all funnel through here).
+  // Muted mic greys the orb (tray/HUD/mute all funnel through here).
   const color = muted === true ? MUTED_COLOR : stateColor;
 
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    let raf = 0;
-    let t = 0;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const resize = () => {
-      const r = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.floor(r.width * dpr));
-      canvas.height = Math.max(1, Math.floor(r.height * dpr));
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
-    const seeds = Array.from({ length: PARTICLES }, (_, i) => ({
-      a: (i / PARTICLES) * Math.PI * 2,
-      r: 0.35 + Math.random() * 0.6,
-      s: 0.4 + Math.random() * 1.2,
-      w: 1 + Math.random() * 2,
-    }));
-
-    const draw = () => {
-      t += 0.016;
-      const { width: W, height: H } = canvas;
-      ctx.clearRect(0, 0, W, H);
-      const cx = W / 2;
-      const cy = H / 2;
-      const base = Math.min(W, H) * 0.32;
+  const canvasRef = useBakedCanvas({
+    frames: 30,
+    // Idle overlay parks on frame 0 (zero wakeups); motion resumes on call.
+    fps: 12,
+    paused: jarvis === 'idle',
+    scale: 0.5,
+    seed: 1237,
+    bakeKey: `${color}|${boosted ? 'b' : ''}`,
+    render: (ctx, w, h, i, n) => {
+      // Frame-stable swarm: every particle derives from its index hash,
+      // so the drift is identical on every loop and every re-bake.
+      const budget = particleBudget(w, h);
+      const loopT = 30 / 12;
+      const t = (i / n) * loopT;
+      const cx = w / 2;
+      const cy = h / 2;
+      const base = Math.min(w, h) * 0.32;
       const amp = 1 + Math.sin(t * 2.2) * 0.03 + (boosted ? 0.06 : 0);
-
-      // core glow
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, base * 1.6);
       g.addColorStop(0, `${color}55`);
       g.addColorStop(0.55, `${color}18`);
       g.addColorStop(1, 'transparent');
       ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
-
+      ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = color;
-      for (const p of seeds) {
-        const ang = p.a + t * 0.25 * p.s;
-        const rad = base * p.r * amp * (1 + Math.sin(t * 3 + p.a * 4) * 0.05);
+      for (let k = 0; k < budget; k += 1) {
+        const a = (k / budget) * Math.PI * 2;
+        const rr = 0.35 + hash01(k, 1) * 0.6;
+        const ss = 0.4 + hash01(k, 2) * 1.2;
+        const ww = 1 + hash01(k, 3) * 2;
+        const ang = a + t * 0.25 * ss;
+        const rad = base * rr * amp * (1 + Math.sin(t * 3 + a * 4) * 0.05);
         const x = cx + Math.cos(ang) * rad;
         const y = cy + Math.sin(ang * 1.3) * rad * 0.9;
-        ctx.globalAlpha = 0.35 + 0.45 * Math.abs(Math.sin(t * p.s + p.a));
+        ctx.globalAlpha = 0.35 + 0.45 * Math.abs(Math.sin(t * ss + a));
         ctx.beginPath();
-        ctx.arc(x, y, p.w * dpr, 0, Math.PI * 2);
+        ctx.arc(x, y, ww, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
-      raf = requestAnimationFrame(draw);
-    };
-    raf = requestAnimationFrame(draw);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
-    };
-  }, [color, boosted]);
+    },
+  });
 
   return (
     <div
-      className="hud-orb"
+      className="hud-orb im-reactor"
       data-state={jarvis}
       data-muted={muted === true ? 'true' : 'false'}
       data-boosted={boosted ? 'true' : 'false'}
       style={{ ['--jarvis-state' as string]: color }}
     >
-      <canvas ref={ref} className="hud-orb__canvas" aria-hidden="true" />
+      <ArcReactor />
+      <canvas ref={canvasRef} className="hud-orb__canvas im-reactor__canvas" aria-hidden="true" />
       <div className="hud-orb__ring" />
+      <div className="hud-orb__ticks" aria-hidden="true" />
+      <div className="hud-orb__ticks hud-orb__ticks--rev" aria-hidden="true" />
     </div>
   );
 }

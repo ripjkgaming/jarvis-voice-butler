@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="ArcReactorView">
+        <attr name="reactorCore" format="enum">
+            <enum name="cyan" value="0" />
+            <enum name="red" value="1" />
+        </attr>
+    </declare-styleable>
+</resources>

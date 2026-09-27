@@ -41,6 +41,11 @@ fn main() {
             let verb = args.get(1).map(String::as_str).unwrap_or("toggle");
             match verb {
                 "quit" => app.exit(0),
+                "globe" => tray::toggle_globe(app),
+                "globeshow" => tray::show_globe(app),
+                "globestate" => print_window_state(app, "globe"),
+                "state" => print_overlay_state(app),
+                "domstate" => print_dom_state(app),
                 "talk" => {
                     tray::show_overlay(app);
                     let _ = app.emit(tray::EVENT_TALK, ());
@@ -59,11 +64,13 @@ fn main() {
         ))
         .invoke_handler(tauri::generate_handler![
             commands::app_config,
+            commands::bridge_info,
             commands::mint_token,
             commands::hide_overlay,
             commands::set_overlay_click_through,
             commands::set_mic_muted,
-            commands::mic_status
+            commands::mic_status,
+            commands::talk
         ])
         // No `capabilities/` dir in Phase 1: the placeholder UI makes zero
         // frontend→backend calls, and all plugin use below is Rust-side
@@ -93,6 +100,21 @@ fn main() {
             // Overlay geometry: restore last position/size (fail-soft to
             // the tauri.conf.json defaults when nothing was ever saved).
             restore_overlay_geometry(app.handle());
+
+            // Cold-start verb: the single-instance callback only fires for
+            // a SECOND launch, so a first launch like `jarvis talk` (used
+            // by the KWin Meta+J shortcut, which must work when the app is
+            // not running yet) would otherwise start silently to the tray.
+            // Mirror the `talk` arm here: show the window now, emit TALK
+            // after a short delay so the frontend has mounted its listener.
+            if std::env::args().nth(1).as_deref() == Some("talk") {
+                tray::show_overlay(app.handle());
+                let talk_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let _ = talk_handle.emit(tray::EVENT_TALK, ());
+                });
+            }
 
             // v1 update check (checks only, never installs): one boot-time
             // pass, fail-soft. A staged newer version surfaces as a tray
@@ -188,8 +210,56 @@ fn main() {
     });
 }
 
-/// `jarvis mute|unmute` from a second CLI launch: remember the desire and
-/// push it to the wake listener off the single-instance callback thread.
+/// `jarvis state`: report overlay visibility + geometry on stdout for
+/// scripting and diagnostics. Runs in the second (requesting) process via
+/// the single-instance callback — prints against the PRIMARY window.
+fn print_overlay_state(app: &tauri::AppHandle) {
+    print_window_state(app, commands::OVERLAY_LABEL);
+}
+
+/// `jarvis globestate`: same visibility report for the globe window.
+fn print_window_state(app: &tauri::AppHandle, label: &str) {
+    // stderr: unbuffered past the primary's redirected log (stdout would
+    // sit in the block buffer until exit).
+    match app.get_webview_window(label) {
+        None => eprintln!("{label}: missing"),
+        Some(win) => {
+            let visible = win.is_visible().unwrap_or(false);
+            let minimized = win.is_minimized().unwrap_or(false);
+            let focused = win.is_focused().unwrap_or(false);
+            let pos = win.outer_position().map(|p| format!("{},{}", p.x, p.y));
+            let size = win
+                .outer_size()
+                .map(|s| format!("{}x{}", s.width, s.height));
+            eprintln!(
+                "{label}: visible={visible} minimized={minimized} focused={focused} pos={} size={}",
+                pos.unwrap_or_else(|_| "?".to_string()),
+                size.unwrap_or_else(|_| "?".to_string())
+            );
+        }
+    }
+}
+fn print_dom_state(app: &tauri::AppHandle) {
+    // stderr (unbuffered). Asks the live webview what it actually
+    // rendered — settles "blank page" vs "unmapped window" for good.
+    match app.get_webview_window(commands::OVERLAY_LABEL) {
+        None => eprintln!("domstate: missing"),
+        Some(win) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null}); } catch (e) { return 'ERR:' + e; } })()";
+            match win.eval_with_callback(js, move |v| {
+                let _ = tx.send(v);
+            }) {
+                Err(e) => eprintln!("domstate: eval failed ({e})"),
+                Ok(()) => match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                    Ok(v) => eprintln!("domstate: {v}"),
+                    Err(_) => eprintln!("domstate: timeout waiting for webview"),
+                },
+            }
+        }
+    }
+}
+
 fn set_mute_from_cli(app: &tauri::AppHandle, muted: bool) {
     commands::set_desired_mute(app, muted);
     let handle = app.clone();
@@ -221,12 +291,22 @@ fn run_diagnostics_from_cli() {
 
 /// Restore the persisted overlay geometry (Phase 4.1). No-op when nothing
 /// was saved yet or the window is missing; never fails the boot.
+/// Pre-16:9 portrait geometries migrate to 1280x720 in place (position kept).
 fn restore_overlay_geometry(app: &tauri::AppHandle) {
     let path = overlay::geometry_path(&env_cfg::jarvis_home());
-    let geom = match overlay::load_geometry(&path) {
+    let mut geom = match overlay::load_geometry(&path) {
         Some(g) => g,
         None => return,
     };
+    if overlay::needs_migration(&geom) {
+        geom.width = overlay::OVERLAY_WIDTH;
+        geom.height = overlay::OVERLAY_HEIGHT;
+        // Persist the migration so the next boot is already correct.
+        // Fail-soft: a failed save must never hide the window.
+        if let Err(e) = overlay::save_geometry(&path, &geom) {
+            eprintln!("jarvis: overlay geometry migrate-save failed ({e})");
+        }
+    }
     if let Some(win) = app.get_webview_window(commands::OVERLAY_LABEL) {
         let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
             x: geom.x,
@@ -239,11 +319,18 @@ fn restore_overlay_geometry(app: &tauri::AppHandle) {
     }
 }
 
-/// Overlay window events: focus-out hides (blur-hide), move/resize persist
-/// geometry for the next boot. Everything fail-soft.
+/// Overlay window events: move/resize persist geometry for the next boot
+/// so the window behaves like a normal movable window. No blur-hide: the
+/// window stays where put until hidden via the header ×, Esc, Super+J, the
+/// tray, or `jarvis toggle`. Everything fail-soft.
 fn on_overlay_window_event(app: &tauri::AppHandle, event: tauri::WindowEvent) {
     match event {
-        tauri::WindowEvent::Focused(false) => {
+        // [X] / Alt+F4 / taskbar-close must HIDE, never destroy: a closed
+        // window keeps reporting visible=true while compositing nothing,
+        // which reads exactly like "the overlay vanished". Super+J / tray
+        // / `jarvis talk` bring it back.
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
             if let Some(win) = app.get_webview_window(commands::OVERLAY_LABEL) {
                 let _ = win.hide();
             }

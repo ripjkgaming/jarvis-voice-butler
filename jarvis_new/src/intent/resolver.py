@@ -148,16 +148,113 @@ _SITE_NAMES = frozenset(
 )
 
 # Verbs that open an app/site: voice says launch/start as often as open.
-_OPEN_VERBS = frozenset({"open", "launch", "start"})
+# "take" covers "take me to <site>" (screenshot has no app slot, so
+# "take screenshot" never misfires here).
+_OPEN_VERBS = frozenset({"open", "launch", "start", "take"})
 
-_VOLUME_UP = frozenset({"up", "louder", "raise", "higher", "increase"})
-_VOLUME_DOWN = frozenset({"down", "quieter", "lower", "reduce", "decrease"})
+# Destructive verbs: combined with another action verb in one breath
+# ("open youtube and shut down the laptop") the request is multi-intent
+# with irreversible parts — abstain so the agent asks, never half-acts.
+_DESTRUCTIVE = frozenset({"shut down", "shutdown", "delete", "power off", "format"})
+
+# Number words: quantities signal arithmetic ("fifteen times eleven").
+_NUMBER_WORDS = frozenset(
+    {
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+        "hundred",
+        "thousand",
+    }
+)
+
+_TLDS = (
+    "com",
+    "org",
+    "net",
+    "io",
+    "edu",
+    "gov",
+    "sg",
+    "uk",
+    "de",
+    "co",
+    "ai",
+    "app",
+    "dev",
+)
+
+_VOLUME_UP = frozenset({"up", "louder", "loud", "raise", "higher", "increase"})
+_VOLUME_DOWN = frozenset({"down", "quieter", "quiet", "lower", "reduce", "decrease"})
 
 # Content-word routes: (keywords, action). Slot words (app/site names,
 # volume directions) are detected separately and count as extra hits.
 _KEYWORD_ROUTES: tuple[tuple[frozenset[str], str], ...] = (
-    (frozenset({"gmail", "inbox", "email"}), "gmail_inbox"),
+    (
+        frozenset({"gmail", "inbox", "email", "teacher", "mail", "sent"}),
+        "gmail_inbox",
+    ),
     (frozenset({"time", "clock", "hour"}), "tell_time"),
+    # Search rides above volume: direction words ("look UP", "scroll
+    # down") otherwise steal search verbs at equal confidence. Volume's
+    # exact seeds still win outright at 1.0.
+    (frozenset({"search", "google", "lookup", "look"}), "search_the_web"),
+    (
+        frozenset(
+            {
+                "percent",
+                "times",
+                "plus",
+                "minus",
+                "divided",
+                "multiply",
+                "calculate",
+                "calculator",
+            }
+        ),
+        "do_math",
+    ),
+    (frozenset({"music", "pause", "resume"}), "media_control"),
+    # Read vs write split: "read the chat" looks things up, "message
+    # mum" composes. Without the split, every whatsapp noun misroutes.
+    (
+        frozenset(
+            {"read", "show", "list", "recent", "latest", "newest", "unread"}
+        ),
+        "whatsapp_read",
+    ),
+    # Bare "send" excluded from this set: "send a birthday card" is
+    # physical mail, not a chat draft. ("send a whatsapp" still fires
+    # via "whatsapp".)
+    (
+        frozenset({"message", "draft", "whatsapp", "reply", "texted"}),
+        "whatsapp_draft",
+    ),
     (
         frozenset(
             {
@@ -168,18 +265,38 @@ _KEYWORD_ROUTES: tuple[tuple[frozenset[str], str], ...] = (
                 "muted",
                 "unmute",
                 "sound",
+                "loud",
+                "quiet",
                 "up",
                 "down",
             }
         ),
         "set_volume",
     ),
-    (frozenset({"weather", "rain", "forecast"}), "weather_now"),
+    (
+        frozenset(
+            {
+                "weather",
+                "rain",
+                "raining",
+                "forecast",
+                "sunny",
+                "cloudy",
+                "snow",
+                "storm",
+                "temperature",
+                "humidity",
+            }
+        ),
+        "weather_now",
+    ),
     (frozenset({"briefing", "brief"}), "daily_briefing"),
     (frozenset({"whatsapp"}), "whatsapp_read"),
     (frozenset({"todo", "todos", "remind", "reminder"}), "manage_todo"),
-    (frozenset({"screenshot"}), "take_screenshot"),
-    (frozenset({"search", "google", "lookup"}), "search_the_web"),
+    (
+        frozenset({"screenshot", "picture", "capture"}),
+        "take_screenshot",
+    ),
 )
 
 
@@ -224,15 +341,47 @@ def keyword_route(clean: str) -> IntentResult | None:
     if not words:
         return None
     best: IntentResult | None = None
+    query_len = len(words)
     for keywords, action in _KEYWORD_ROUTES:
+        # Generic read-verbs only count inside a WhatsApp query, else
+        # "list my todos" / "read the news" misroute to chat.
+        if action == "whatsapp_read" and "whatsapp" not in words:
+            continue
         hits = words & keywords
         if not hits:
             continue
         extra = 0
-        if action == "set_volume" and (
-            (words & _VOLUME_UP) or (words & _VOLUME_DOWN) or ("mute" in words)
-        ):
-            extra += 1
+        if action == "set_volume":
+            # A bare direction ("look UP", "scroll DOWN") is not a volume
+            # command: the direction bonus needs a volume-context word or
+            # a short imperative ("turn it up"). Exact seeds bypass this.
+            direction = (words & _VOLUME_UP) or (words & _VOLUME_DOWN)
+            context = words & {
+                "volume",
+                "louder",
+                "quieter",
+                "sound",
+                "music",
+                "speaker",
+                "speakers",
+                "mute",
+                "muted",
+                "unmute",
+            }
+            if (
+                (direction and context)
+                or (direction and query_len <= 4)
+                or "mute" in words
+            ):
+                extra += 1
+            # Explicit device + percent is volume, not arithmetic ("set
+            # volume to thirty percent"). Scoped to percent so plain
+            # "turn the volume up" keeps its confirm-tier score.
+            if "volume" in words and "percent" in words:
+                extra += 2
+        if action == "do_math":
+            # Quantities corroborate arithmetic ("fifteen times eleven").
+            extra += len(words & _NUMBER_WORDS)
         score = round(min(0.85, 0.6 + 0.08 * (len(hits) - 1 + extra)), 3)
         if best is None or score > best.confidence:
             best = IntentResult(
@@ -289,9 +438,16 @@ class IntentResult:
 def normalize(text: str) -> str:
     """Lowercase, strip punctuation/wakewords. Pure."""
     text = (text or "").lower()
-    text = re.sub(r"\b(jarvis|hey|please|uh|um)\b", " ", text)
+    text = re.sub(r"\b(jarvis|jeeves|jarves|jervis|hey|please|uh|um)\b", " ", text)
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _spoken_domain(text: str) -> str | None:
+    """'open example dot com' -> 'example.com'. Pure, STT-shaped domains."""
+    spoken = re.sub(r"\s+dot\s+", ".", (text or "").lower()).strip()
+    match = re.search(r"\b([a-z0-9][a-z0-9-]*\.(" + "|".join(_TLDS) + r"))\b", spoken)
+    return match.group(1) if match else None
 
 
 def resolve_intent(text: str, aliases: dict[str, dict] | None = None) -> IntentResult:
@@ -302,6 +458,23 @@ def resolve_intent(text: str, aliases: dict[str, dict] | None = None) -> IntentR
         return IntentResult(
             action="unknown",
             clarification="I didn't quite catch that, Sir. Once more?",
+        )
+    # Spoken-dot domains route before anything fuzzy ("open example dot
+    # com" must never become a search or a shrug).
+    domain = _spoken_domain(text)
+    if domain and any(
+        verb in clean.split() for verb in ("open", "launch", "start", "take", "go")
+    ):
+        return IntentResult(action="open_url", params={"url": domain}, confidence=0.85)
+    # Destructive + another action verb in one breath is multi-intent with
+    # irreversible parts: abstain so the agent asks, never half-acts.
+    if any(d in clean for d in _DESTRUCTIVE) and any(
+        verb in clean.split()
+        for verb in ("open", "launch", "start", "send", "turn", "play")
+    ):
+        return IntentResult(
+            action="unknown",
+            clarification="That sounds like two jobs, one of them destructive, Sir — which first?",
         )
     if clean in table:
         hit = table[clean]

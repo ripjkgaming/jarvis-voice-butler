@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'backend.dart';
+import 'phone_telemetry.dart';
 
 /// Dart port of the native LinkApi contract (phone/.../LinkApi.kt)
 /// against the home bridge over Tailscale. Every route is bearer-gated;
 /// failures come back as {ok:false} maps, never throws (callers stay dumb).
-class LinkApi implements ControlBackend {
+class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   @override
   final String base;
   final String token;
@@ -70,6 +71,15 @@ class LinkApi implements ControlBackend {
       _post('/type', {'text': text});
   Future<Map<String, dynamic>> pressKey(String key) =>
       _post('/type', {'key': key});
+
+  /// Report the phone's own battery so the laptop HUD can show it.
+  /// Built by [buildPhoneTelemetryPayload] (core/phone_telemetry.dart);
+  /// never throws — unreachable bridges come back as {ok:false}.
+  @override
+  Future<Map<String, dynamic>> phoneTelemetry(
+          {required int battery, required bool charging}) =>
+      _post('/phone/telemetry',
+          buildPhoneTelemetryPayload(battery: battery, charging: charging));
   Future<Map<String, dynamic>> tool(String tool,
           [Map<String, dynamic>? args]) =>
       _post('/tool', {'tool': tool, 'args': args ?? {}});

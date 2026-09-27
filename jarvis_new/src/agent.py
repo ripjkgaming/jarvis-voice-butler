@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
+import difflib
 import os
 import random
+import re
 import time
 from pathlib import Path
 
@@ -155,13 +157,146 @@ def _idle_exceeded(
     return (now - last_active) >= idle_seconds
 
 
+def _wake_summoned(room: object) -> bool:
+    """Was this room opened by the offline wake-word client?
+
+    wake_client joins as identity "jarvis-master" and dispatches the
+    worker; the spoken "hey Jarvis" is spent on the detector and never
+    reaches the agent as a transcript. Without this check the agent
+    joins to silence and standby hushes it forever. Frontend/app joins
+    use participantName "user", never this identity. Pure (no I/O)."""
+    try:
+        parts = getattr(room, "remote_participants", None) or {}
+        items = parts.values() if hasattr(parts, "values") else parts
+        for participant in items or []:
+            if getattr(participant, "identity", "") == "jarvis-master":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _join_decision(wake: bool, status: str) -> str:
+    """Standby join outcome. Pure, tested.
+
+    Wake summons always greet (a voice summons proves presence better
+    than the camera). Otherwise: face -> greet, confirmed-empty -> one
+    dry remark, unreadable camera -> silence.
+    """
+    if wake or status == "present":
+        return "greet"
+    if status == "absent":
+        return "remark"
+    return "silent"
+
+
+#: Heard-as spellings of the name (live STT gave "Jeeves" for Jarvis).
+#: difflib alone cannot work: jeeves/jarvis scores 0.5 while the
+#: background word "jars" scores 0.8, so known manglings are listed.
+NAME_ALIASES = frozenset(
+    {"jarvis", "jeeves", "jarves", "jarviss", "jarvise", "jervis", "jarwis"}
+)
+
+
+def _name_called(text: str) -> bool:
+    """Was Jarvis addressed, allowing STT mangling? "Jarvis", "Jeeves",
+    "hey Jarvis" all count; background words ("service", "jars",
+    "harvest") do not. A near-miss name is still a summons — never
+    silence, never comment on the mishearing. Pure."""
+    lowered = text.casefold()
+    if "jarvis" in lowered:
+        return True
+    words = set(re.findall(r"[a-z']+", lowered))
+    if words & NAME_ALIASES:
+        return True
+    return any(
+        len(word) >= 5
+        and difflib.get_close_matches(word, ["jarvis"], n=1, cutoff=0.8)
+        for word in words
+    )
+
+
 def _is_summons(text: str) -> bool:
-    """Short name-call ("Jarvis?", "hey Jarvis") vs a full addressed
-    request ("Jarvis, what time is it"). Only short summons get the
-    spoken "Yes, Sir?" ack: long utterances already carry their request
-    to the model, and acking over them stomps the turn. Pure."""
-    words = text.split()
-    return "jarvis" in text.casefold() and len(words) <= 4
+    """Short name-call ("Jarvis?", "hey Jarvis", "Jeeves?") vs a full
+    addressed request ("Jarvis, what time is it"). Only short summons get
+    the spoken "Yes, Sir?" ack: long utterances already carry their
+    request to the model, and acking over them stomps the turn. Pure."""
+    return _name_called(text) and len(text.split()) <= 4
+
+
+#: Desktop fast path (Needle routing for voice turns). Kill switch:
+#: JARVIS_DESKTOP_FASTPATH=0 restores pure-model behavior.
+def _desktop_fastpath_enabled() -> bool:
+    return os.environ.get("JARVIS_DESKTOP_FASTPATH", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+#: Max words for a fast-path command. Anything longer is dictation or a
+#: complex request and stays with the model — this also stops mid-sentence
+#: regex misfires ("louder" inside a research ramble).
+_FASTPATH_MAX_WORDS = 12
+
+
+def _fastpath_short(text: str) -> str | None:
+    """Trimmed text when fast-path eligible, else None. Pure."""
+    clean = (text or "").strip()
+    if not clean or len(clean.split()) > _FASTPATH_MAX_WORDS:
+        return None
+    return clean
+
+
+def desktop_fast_prefix(text: str) -> tuple | None:
+    """Microsecond regex pre-match for a voice turn. Pure, never executes.
+
+    Returns the (tool, args, reply) cmd tuple or None. The transcript
+    hook uses a hit to drop the pending model turn synchronously, before
+    the slower resolve+execute task runs.
+    """
+    try:
+        if not _desktop_fastpath_enabled():
+            return None
+        clean = _fastpath_short(text)
+        if clean is None:
+            return None
+        from bridge import _match_voice_tool
+
+        return _match_voice_tool(clean)
+    except Exception:
+        return None
+
+
+def desktop_fast_command(text: str) -> dict | None:
+    """Full instant resolve+execute for a voice turn (regex → resolver →
+    Needle, same as phone /route). Import-safe and fail-open.
+
+    Returns the /route payload (reply + ok action) when the text resolved
+    to an executed command, else None (the model handles it). Desktop is
+    never guest. May block on subprocess tools — callers run it off the
+    event loop.
+    """
+    try:
+        if not _desktop_fastpath_enabled():
+            return None
+        clean = _fastpath_short(text)
+        if clean is None:
+            return None
+        from bridge import handle_route
+
+        code, payload = handle_route({"text": clean})
+        if (
+            code == 200
+            and isinstance(payload, dict)
+            and payload.get("reply")
+            and (payload.get("action") or {}).get("ok") is True
+        ):
+            return payload
+        return None
+    except Exception:
+        return None
 
 
 async def _reply_or_say(
@@ -204,7 +339,30 @@ def _session_tts():
     return PiperTTS()
 
 
-def _session_for_pipeline(turn_handling: TurnHandlingOptions) -> AgentSession:
+def vad_kwargs() -> dict:
+    """Silero endpointing knobs, env-overridable. Pure (env only).
+
+    min_silence_duration is the big one: seconds of quiet before a turn
+    ends (default 0.55). Lower answers faster but clips pauses; higher
+    waits out thinking pauses. activation_threshold is mic sensitivity.
+    """
+
+    def _num(name: str, default: float) -> float:
+        try:
+            return float(os.environ.get(name, "").strip() or default)
+        except (ValueError, AttributeError):
+            return default
+
+    return {
+        "min_speech_duration": _num("JARVIS_VAD_MIN_SPEECH", 0.05),
+        "min_silence_duration": _num("JARVIS_VAD_MIN_SILENCE", 0.55),
+        "activation_threshold": _num("JARVIS_VAD_THRESHOLD", 0.5),
+    }
+
+
+def _session_for_pipeline(
+    turn_handling: TurnHandlingOptions, vad: object = None
+) -> AgentSession:
     """Voice session for the active pipeline.
 
     Both branches carry the same IDLE_HANGUP_SECONDS away budget. The
@@ -219,7 +377,11 @@ def _session_for_pipeline(turn_handling: TurnHandlingOptions) -> AgentSession:
         return AgentSession(
             turn_handling=turn_handling,
             user_away_timeout=IDLE_HANGUP_SECONDS,
-            vad=silero.VAD.load() if silero is not None else None,
+            vad=(
+                vad
+                if vad is not None
+                else (silero.VAD.load(**vad_kwargs()) if silero is not None else None)
+            ),
         )
     if _pipeline_name() == "direct":
         # Cloud-free stack for a local livekit-server: the default
@@ -236,9 +398,14 @@ def _session_for_pipeline(turn_handling: TurnHandlingOptions) -> AgentSession:
                 "JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local."
             )
         return AgentSession(
-            vad=silero.VAD.load(),
+            vad=vad if vad is not None else silero.VAD.load(**vad_kwargs()),
             stt=FasterWhisperSTT(),
-            llm=google.LLM(model=DIRECT_LLM_MODEL),
+            # 60s HTTP deadline: the plugin default (5s) is rejected by
+            # current Gemini models (400 "minimum deadline 10s").
+            llm=google.LLM(
+                model=DIRECT_LLM_MODEL,
+                http_options=genai_types.HttpOptions(timeout=60_000),
+            ),
             tts=_session_tts(),
             # No explicit turn_detection: auto mode picks "vad" (a VAD is
             # present, no realtime model), so endpointing stays local too.
@@ -250,7 +417,7 @@ def _session_for_pipeline(turn_handling: TurnHandlingOptions) -> AgentSession:
             user_away_timeout=IDLE_HANGUP_SECONDS,
         )
     return AgentSession(
-        # Ears: budget streaming STT. Brains: still Gemini (with 2.5-flash
+        # Ears: budget streaming STT. Brains: still Gemini (with 3.6-flash
         # backup when 3.8-flash is saturated). Mouth: the downloaded local
         # voice (zero inference burn).
         # See all available models at https://docs.livekit.io/agents/models/stt/
@@ -315,6 +482,10 @@ def _default_agent_llm():
     return _shared_local_llm
 
 
+#: Seconds before a running tool earns a "still on it" progress caption.
+SLOW_TOOL_S = 5.0
+
+
 def _wrap_tools_with_timing(tools: list) -> list:
     """Time every tool call and feed src/latency.py. Idempotent.
 
@@ -345,14 +516,39 @@ def _wrap_tools_with_timing(tools: list) -> list:
         ):  # type: ignore[no-untyped-def]
             start = time.monotonic()
             try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            async def _nudge() -> None:
+                # P3: tools past SLOW_TOOL_S get a progress caption so a
+                # long page load reads as working, not dead air.
+                await asyncio.sleep(SLOW_TOOL_S)
+                try:
+                    from hud_events import caption as _cap
+
+                    _cap("jarvis", f"(still on it: {_tid}…)")
+                except Exception:
+                    pass
+                try:
+                    if log_action is not None:
+                        log_action("latency-slow", f"{_tid} >{SLOW_TOOL_S:.0f}s")
+                except Exception:
+                    pass
+
+            slow_task = loop.create_task(_nudge()) if loop is not None else None
+            TRACKER.call_started()
+            try:
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
                 if _inspect.isawaitable(res):
                     return await res
                 return res
             finally:
+                if slow_task is not None:
+                    slow_task.cancel()
                 try:
                     ms = (time.monotonic() - start) * 1000.0
-                    TRACKER.record_tool_call(_tid, ms)
+                    TRACKER.call_finished(_tid, ms)
                     if log_action is not None:
                         log_action("latency", f"{_tid} {ms:.0f}ms")
                 except Exception:
@@ -361,6 +557,49 @@ def _wrap_tools_with_timing(tools: list) -> list:
         tool._func = _timed  # type: ignore[attr-defined]
         tool._jarvis_timed = True  # type: ignore[attr-defined]
     return tools
+
+
+async def _specialist_watchdog(session: object, entered_at: float) -> None:
+    """One-shot stuck check 30s after a handoff landing.
+
+    If no tool is running AND nothing finished recently, the specialist
+    is in the known silent stalemate (handoff done, zero tools, zero
+    words): nudge it to report or transfer back, else say a fallback
+    line. Anything but infinite quiet. Never raises.
+    """
+    await asyncio.sleep(30.0)
+    try:
+        from latency import TRACKER
+
+        with contextlib.suppress(Exception):
+            from system import log_action as _log_watch
+
+            _log_watch(
+                "handoff",
+                f"watchdog pending={TRACKER.pending} last_end={TRACKER.last_tool_end}",
+            )
+        recent = (
+            TRACKER.last_tool_end is not None
+            and (time.monotonic() - TRACKER.last_tool_end) < 25.0
+        )
+        if TRACKER.pending > 0 or recent:
+            return  # working or just finished; stay out of the way
+        try:
+            await session.generate_reply(  # type: ignore[union-attr]
+                instructions=(
+                    "You went quiet after a handoff. If the task is done "
+                    "or stuck, report briefly and call "
+                    "transfer_back_to_main. If still working, say one "
+                    "progress line."
+                )
+            )
+        except Exception:
+            with contextlib.suppress(Exception):
+                await session.say(  # type: ignore[union-attr]
+                    "Still on it, Sir — one moment."
+                )
+    except Exception:
+        pass
 
 
 def _end_call_tool() -> EndCallTool:
@@ -390,6 +629,7 @@ class ResearchAgent(Agent):
 
     def __init__(self, llm=None, parent: Agent | None = None) -> None:
         self._parent = parent
+        self.task = ""
         self.research_browser = BrowserManager.create_research_manager()
         self.research_tools = BrowserTools(self.research_browser)
         self._end_call_tool = _end_call_tool()
@@ -405,14 +645,27 @@ class ResearchAgent(Agent):
     # the handoff lands dead with no turn at all. Tool-first: speech
     # only as progress, like SystemAgent.on_enter.
     async def on_enter(self) -> None:
-        with __import__("contextlib").suppress(Exception):
+        # generate_reply is unreliable on some Gemini Live models (it may
+        # refuse commentary turns): say a deterministic fallback instead
+        # of landing silent, then arm the stuck watchdog.
+        entered = time.monotonic()
+        try:
             await self.session.generate_reply(
                 instructions=(
-                    "The handoff message holds your research topic. Begin the "
+                    f"Your research topic, verbatim from Sir: {self.task!r}. Begin the "
                     "task instantly by calling the first tool. Chain tools "
                     "silently until done, then report results and "
                     "transfer_back_to_main. Anything you speak must be progress "
                     "or results — never a bare acknowledgement."
+                )
+            )
+        except Exception:
+            with __import__("contextlib").suppress(Exception):
+                await self.session.say("On it, Sir — researching now.")
+        with __import__("contextlib").suppress(Exception):
+            asyncio.get_running_loop().call_soon(
+                lambda: asyncio.get_running_loop().create_task(
+                    _specialist_watchdog(self.session, entered)
                 )
             )
 
@@ -432,6 +685,8 @@ RARE_SYSTEM_TOOL_IDS: frozenset[str] = frozenset(
     {
         "power_control",
         "confirm_power_action",
+        "run_command",
+        "confirm_command_action",
         "open_app",
         "window_action",
         "media_control",
@@ -507,6 +762,7 @@ class SystemAgent(Agent):
         parent: Agent | None = None,
     ) -> None:
         self._parent = parent
+        self.task = ""
         self._end_call_tool = _end_call_tool()
         self.system_tools = SystemTools()
         self.device_tools = DeviceTools()
@@ -550,14 +806,26 @@ class SystemAgent(Agent):
     # refuse commentary turns): never let it raise out of on_enter, or
     # the handoff lands dead with no turn at all.
     async def on_enter(self) -> None:
-        with __import__("contextlib").suppress(Exception):
+        # Same deal as ResearchAgent: never land silent, arm the watchdog.
+        entered = time.monotonic()
+        try:
             await self.session.generate_reply(
                 instructions=(
-                    "The handoff message holds your task. Do not greet or announce "
-                    "readiness: begin the task instantly by calling the first tool. "
+                    f"Your task, verbatim from Sir: {self.task!r}. Act on exactly "
+                    "the app or site named there, never a substitute from your "
+                    "examples. Do not greet or announce readiness: begin the task instantly by calling the first tool. "
                     "Chain tools silently until done, then report results and "
                     "transfer_back_to_main. Anything you speak must be progress or "
                     "results — never a bare acknowledgement."
+                )
+            )
+        except Exception:
+            with __import__("contextlib").suppress(Exception):
+                await self.session.say("On it, Sir.")
+        with __import__("contextlib").suppress(Exception):
+            asyncio.get_running_loop().call_soon(
+                lambda: asyncio.get_running_loop().create_task(
+                    _specialist_watchdog(self.session, entered)
                 )
             )
 
@@ -670,6 +938,7 @@ class Assistant(Agent):
             self._research_agent = ResearchAgent(
                 llm=llm if llm is not None else None, parent=self
             )
+        self._research_agent.task = topic
         return (
             self._research_agent,
             f"Handing off to deep research on {topic}.",
@@ -696,6 +965,10 @@ class Assistant(Agent):
                 only_ids=RARE_SYSTEM_TOOL_IDS | HANDOFF_WHATSAPP_IDS,
                 parent=self,
             )
+        # LiveKit commits this tool's output to OUR chat_ctx, not the
+        # specialist's: without this the specialist never saw the task and
+        # opened its worked example (Calculator -> KCalc) for every launch.
+        self._system_agent.task = task
         return self._system_agent, f"Handing off to system control: {task}."
 
     @function_tool()
@@ -704,7 +977,22 @@ class Assistant(Agent):
         return self, "Returning to Jarvis."
 
 
-server = AgentServer()
+def _idle_procs() -> int:
+    """Warm standby job processes. Pure (env only).
+
+    LiveKit defaults to one per CPU (12 here x ~366MB each = 4.4GB
+    resident just to stand by), which keeps this 15GB laptop swap-bound;
+    swap storms stall the audio loop for seconds (measured in
+    agent.log). One user needs one active call plus a spare: 2.
+    Override with JARVIS_IDLE_PROCS.
+    """
+    try:
+        return max(1, int(os.environ.get("JARVIS_IDLE_PROCS", "").strip() or 2))
+    except (ValueError, AttributeError):
+        return 2
+
+
+server = AgentServer(num_idle_processes=_idle_procs())
 
 
 @server.rtc_session(agent_name=os.environ.get("AGENT_NAME", "my-agent"))
@@ -714,6 +1002,12 @@ async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    # Warm the local launch-router model off the event loop so the first
+    # ambiguous "open <thing>" costs ~0.5s, not a ~6s cold load.
+    if os.environ.get("JARVIS_LOCAL") == "1":
+        from system.launcher import warm_router
+
+        asyncio.get_running_loop().run_in_executor(None, warm_router)
 
     # Browser must never block the agent joining the room: a visible
     # Chromium (headless=False) fails on headless servers and steals
@@ -751,7 +1045,14 @@ async def my_agent(ctx: JobContext):
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation={"enabled": True},
     )
-    session = _session_for_pipeline(turn_handling)
+    # P1 pre-warm: Silero's onnx session build blocks ~200ms on the audio
+    # loop if built inline (measured in agent.log). Build it in a thread
+    # while nothing else needs the loop yet; _session_for_pipeline reuses it.
+    _vad = None
+    if silero is not None and _pipeline_name() in ("realtime", "direct"):
+        with contextlib.suppress(Exception):
+            _vad = await asyncio.to_thread(silero.VAD.load, **vad_kwargs())
+    session = _session_for_pipeline(turn_handling, vad=_vad)
     # NOTE: local-pipeline expressive mode stays off (see _session_for_pipeline):
     # expressive=True needs a markup-capable TTS such as Fish Audio.
     # _session_tts() returns local Piper by default.
@@ -786,15 +1087,82 @@ async def my_agent(ctx: JobContext):
     try:
         from hud_events import caption as _hud_caption
 
+        _partial = {"text": "", "at": 0.0}
+
         def _on_user_transcript(event) -> None:
             try:
                 text = str(getattr(event, "transcript", "") or "").strip()
-                if getattr(event, "is_final", False) and text:
-                    _hud_caption("sir", text)
-                    with __import__("contextlib").suppress(Exception):
-                        import latency as _lat_begin
+                if not text:
+                    return
+                if not getattr(event, "is_final", False):
+                    # Live subtitles: interim lines as the words land,
+                    # throttled so the tail reads as typing, not lag.
+                    try:
+                        from hud_events import partial_changed as _partial_due
 
-                        _lat_begin.TRACKER.turn_begin()
+                        now = time.monotonic()
+                        if _partial_due(_partial["text"], _partial["at"], text, now):
+                            _partial["text"] = " ".join(text.split())
+                            _partial["at"] = now
+                            _hud_caption("sir", f"{_partial['text']}…")
+                    except Exception:
+                        pass
+                    return
+                _partial["text"] = ""
+                _partial["at"] = 0.0
+                _hud_caption("sir", text)
+                with __import__("contextlib").suppress(Exception):
+                    import latency as _lat_begin
+
+                    _lat_begin.TRACKER.turn_begin()
+                    # Desktop fast path (Needle routing): act-tier simple
+                    # commands ("lock the computer", "turn it up") execute
+                    # in ms and the pending model turn is dropped so it
+                    # never double-responds. Two stages: a microsecond
+                    # regex pre-match clears the turn synchronously, then
+                    # a thread runs the full resolve (resolver + Needle)
+                    # for paraphrases. Fail-open throughout: any doubt
+                    # falls through to the model untouched.
+                    try:
+                        _prefix_hit = desktop_fast_prefix(text)
+                    except Exception:
+                        _prefix_hit = None
+                    if _prefix_hit is not None:
+                        with __import__("contextlib").suppress(Exception):
+                            session.clear_user_turn()
+                    _lat_begin.TRACKER.mark("fastpath")
+
+                    async def _run_fast() -> None:
+                        try:
+                            _payload = await asyncio.to_thread(
+                                desktop_fast_command, text
+                            )
+                        except Exception:
+                            return
+                        if not isinstance(_payload, dict):
+                            return
+                        with __import__("contextlib").suppress(Exception):
+                            session.clear_user_turn()
+                        _mark_active()
+                        _reply = str(_payload.get("reply") or "Done, Sir.")
+                        try:
+                            await session.say(_reply)
+                        except Exception:
+                            return
+                        with __import__("contextlib").suppress(Exception):
+                            _hud_caption("jarvis", _reply)
+                        with __import__("contextlib").suppress(Exception):
+                            import latency as _lat_fast
+
+                            _lat_fast.TRACKER.turn_end()
+
+                    try:
+                        _floop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        _floop = asyncio.get_event_loop()
+                    _floop.call_soon(
+                        lambda lp=_floop: lp.create_task(_run_fast())
+                    )
                     # Wake word: the name spoken engages standby at once —
                     # no camera needed when Sir is clearly talking to us.
                     # Ack only bare summons; a full addressed request goes
@@ -802,7 +1170,7 @@ async def my_agent(ctx: JobContext):
                     # causes the "yes sir then silence" stall: the ack
                     # stomps the turn and standby rules hush the rest).
                     try:
-                        if "jarvis" in text.casefold() and not _presence["engaged"]:
+                        if _name_called(text) and not _presence["engaged"]:
                             _presence["engaged"] = True
                             _presence["empty_streak"] = 0
                             _presence["absence_remarked"] = False
@@ -810,8 +1178,12 @@ async def my_agent(ctx: JobContext):
                                 return
 
                             async def _ack_summons() -> None:
-                                with __import__("contextlib").suppress(Exception):
+                                try:
                                     await session.say("Yes, Sir?")
+                                except Exception:
+                                    return
+                                with __import__("contextlib").suppress(Exception):
+                                    _hud_caption("jarvis", "Yes, Sir?")
 
                             try:
                                 _wloop = asyncio.get_running_loop()
@@ -898,6 +1270,57 @@ async def my_agent(ctx: JobContext):
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
 
+    # P0 turn phases: thinking/speaking transitions timestamp the model's
+    # think time and voice start inside every turn's latency breakdown.
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(event) -> None:
+        try:
+            if str(getattr(event, "new_state", "")) in ("thinking", "speaking"):
+                import latency as _lat_state
+
+                _lat_state.TRACKER.mark(str(event.new_state))
+        except Exception:
+            pass
+
+    # P4 graceful degrade: quota exhaustion used to kill the turn with a
+    # bare exception. Name the cause out loud (cooldown-gated) instead.
+    _quota_said_at = {"at": 0.0}
+
+    @session.on("error")
+    def _on_session_error(event) -> None:
+        try:
+            import latency as _lat_err
+
+            if not _lat_err.is_quota_error(getattr(event, "error", None)):
+                return
+            now = time.monotonic()
+            if now - _quota_said_at["at"] < 120.0:
+                return
+            _quota_said_at["at"] = now
+            with contextlib.suppress(Exception):
+                from system import log_action as _log_err
+
+                _log_err("latency", "quota-exhausted degrade line spoken")
+
+            async def _degrade_line() -> None:
+                with contextlib.suppress(Exception):
+                    await session.say(
+                        "The speech brain is rate-limited, Sir — tools "
+                        "still work. Try again in a minute."
+                    )
+
+            try:
+                _eloop = asyncio.get_running_loop()
+            except RuntimeError:
+                _eloop = asyncio.get_event_loop()
+            _eloop.call_soon(lambda lp=_eloop: lp.create_task(_degrade_line()))
+        except Exception:
+            pass
+
+    # Build the brain BEFORE connecting so pydantic/LLM schema warmup
+    # overlaps the network join instead of blocking the audio loop after.
+    assistant = Assistant(browser)
+
     # Join the room FIRST so the worker is visibly present even while
     # models warm up. session.start before ctx.connect() leaves the
     # room with no agent and the UI stuck on "connecting".
@@ -911,7 +1334,7 @@ async def my_agent(ctx: JobContext):
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(browser),
+        agent=assistant,
         room=ctx.room,
         room_options=room_io.RoomOptions(
             video_input=True,
@@ -1046,23 +1469,48 @@ async def my_agent(ctx: JobContext):
         except Exception:
             return {"status": "unknown", "faces": -1, "say": "Presence check failed."}
 
-    async def _say(line: str) -> None:
-        with contextlib.suppress(Exception):
+    async def _say(line: str) -> bool:
+        # Captioned on success: say() alone emits no message event, so
+        # without this the overlay never shows proactive speech.
+        try:
             await session.say(line)
+        except Exception:
+            return False
+        with contextlib.suppress(Exception):
+            _hud_caption("jarvis", line)
+        return True
 
     async def _greet() -> None:
-        await _say(f"Good day, Sir. What do you require?{_budget_aside()}")
+        # One retry: the realtime speech scheduler is occasionally not up
+        # on the first say ("skipping new realtime generation"), which
+        # used to mute the whole call.
+        if await _say(f"Good day, Sir. What do you require?{_budget_aside()}"):
+            return
+        await asyncio.sleep(2.0)
+        await _say("Good day, Sir. What do you require?")
 
-    # Join gate: greet only a confirmed face; one dry remark on a
-    # confirmed-empty desk; silence when the camera is unreadable.
+    # Join gate: a wake summons IS the engagement (the spoken words were
+    # spent on the offline detector and never arrive as a transcript, so
+    # waiting for a name here means eternal silence). Otherwise greet a
+    # confirmed face, remark once on a confirmed-empty desk, and stay
+    # silent when the camera is unreadable. Greet with one retry: the
+    # realtime speech scheduler is occasionally not up on first say.
     _join = await _presence_snapshot()
-    if _join.get("status") == "present":
+    _wake = _wake_summoned(ctx.room)
+    _decision = _join_decision(_wake, str(_join.get("status", "unknown")))
+    with contextlib.suppress(Exception):
+        from system import log_action as _log_join
+
+        _log_join(
+            "presence", f"join wake={_wake} cam={_join.get('status')} -> {_decision}"
+        )
+    if _decision == "greet":
         _presence["engaged"] = True
         await _greet()
-    elif _join.get("status") == "absent":
+    elif _decision == "remark":
         _presence["absence_remarked"] = True
         await _say(_absent_lines[0])
-    # "unknown": silent standby; the idle hangup closes us if nobody comes.
+    # "silent": standby; the idle hangup closes us if nobody comes.
 
     async def _presence_loop() -> None:
         """Camera check-ins every 5-30 min: greet the arrived, check on the

@@ -280,7 +280,7 @@ def test_rare_tools_live_behind_narrow_handoff() -> None:
 
     assistant = Assistant(browser=None, llm=None)
     ids = [tool.id for tool in assistant.tools]
-    assert len(RARE_SYSTEM_TOOL_IDS) == 30
+    assert len(RARE_SYSTEM_TOOL_IDS) == 32
     for rare in RARE_SYSTEM_TOOL_IDS:
         assert rare not in ids
     assert "transfer_to_system_control" in ids
@@ -327,3 +327,63 @@ async def test_session_for_pipeline_carries_full_away_budget(
         monkeypatch.setenv("JARVIS_PIPELINE", pipeline)
         session = _session_for_pipeline(TurnHandlingOptions())
         assert session._opts.user_away_timeout == 60.0
+
+
+def test_idle_procs_default_saves_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent as agent_mod
+
+    monkeypatch.delenv("JARVIS_IDLE_PROCS", raising=False)
+    assert agent_mod._idle_procs() == 2
+    monkeypatch.setenv("JARVIS_IDLE_PROCS", "4")
+    assert agent_mod._idle_procs() == 4
+    monkeypatch.setenv("JARVIS_IDLE_PROCS", "junk")
+    assert agent_mod._idle_procs() == 2
+
+
+def test_desktop_fast_prefix_is_regex_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent import desktop_fast_prefix
+
+    monkeypatch.delenv("JARVIS_DESKTOP_FASTPATH", raising=False)
+    hit = desktop_fast_prefix("lock the computer")
+    assert hit is not None and hit[0] == "lock"
+    assert desktop_fast_prefix("tell me about black holes") is None
+    assert desktop_fast_prefix("") is None
+    # Long dictation never fast-paths, even with a command word inside.
+    assert desktop_fast_prefix(
+        "so I was reading about how to make things louder in the mix "
+        "and the article said the mastering engineer always checks"
+    ) is None
+    monkeypatch.setenv("JARVIS_DESKTOP_FASTPATH", "0")
+    assert desktop_fast_prefix("lock the computer") is None
+
+
+def test_desktop_fast_command_executes_or_abstains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent as agent_mod
+    import bridge as bridge_mod
+
+    monkeypatch.delenv("JARVIS_DESKTOP_FASTPATH", raising=False)
+    monkeypatch.setattr(
+        bridge_mod,
+        "handle_route",
+        lambda body: (200, {"ok": True, "reply": "Locked, Sir.",
+                            "action": {"tool": "lock", "ok": True}}),
+    )
+    payload = agent_mod.desktop_fast_command("lock the computer")
+    assert payload is not None and payload["reply"] == "Locked, Sir."
+    # Clarifications and failures abstain (model handles them).
+    monkeypatch.setattr(
+        bridge_mod,
+        "handle_route",
+        lambda body: (200, {"ok": True, "reply": "Louder — correct?"}),
+    )
+    assert agent_mod.desktop_fast_command("crank it") is None
+    monkeypatch.setattr(
+        bridge_mod, "handle_route", lambda body: (404, {"ok": False})
+    )
+    assert agent_mod.desktop_fast_command("ramble on") is None
+    monkeypatch.setenv("JARVIS_DESKTOP_FASTPATH", "off")
+    assert agent_mod.desktop_fast_command("lock the computer") is None

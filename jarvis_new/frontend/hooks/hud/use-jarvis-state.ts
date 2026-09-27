@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgent } from '@livekit/components-react';
+import { bridgeRoom } from '@/lib/bridge';
 import { isTauri, micStatus, setMicMuted } from '@/lib/tauri';
 
 /**
  * Maps the LiveKit agent state machine to the JARVIS status word.
  * Cyan = IDLE, everything else = ACTIVE + sub-state.
  * Priority for orb tint: Orange > Green > Purple > Cyan.
+ *
+ * No LiveKit client runs in the Tauri webview (no WebRTC in WebKitGTK),
+ * so the agent state is always disconnected there — call presence from
+ * the bridge room watcher stands in as LISTENING (purple) instead.
  */
 export type JarvisState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -36,8 +41,31 @@ export function agentStateToJarvis(agentState: string | undefined): JarvisState 
 
 export function useJarvisState() {
   const { state: agentState } = useAgent();
+  // Call presence without a session: poll the live wake room (3s,
+  // fail-soft). A room means someone is talking to Jarvis right now.
+  const [inCall, setInCall] = useState(false);
 
-  const jarvis = useMemo(() => agentStateToJarvis(agentState), [agentState]);
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        if (!cancelled) setInCall((await bridgeRoom()) !== null);
+      } catch {
+        /* keep last state */
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const jarvis = useMemo(() => {
+    const fromAgent = agentStateToJarvis(agentState);
+    return fromAgent === 'idle' && inCall ? 'listening' : fromAgent;
+  }, [agentState, inCall]);
   const color = JARVIS_COLORS[jarvis];
   const label = jarvis === 'idle' ? '[IDLE] JARVIS' : `[ACTIVE] ${jarvis.toUpperCase()}`;
   const active = jarvis !== 'idle';
