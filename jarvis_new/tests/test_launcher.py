@@ -263,3 +263,101 @@ def test_history_site_named_by_a_query_word(tmp_path):
         lucky=_no_web,
     )
     assert d.kind == "url" and "classroom" in d.target
+
+
+# --- owner's priority apps (always win, on every launch path) ---------
+
+PRI_APPS = [
+    AppEntry(name="Sober", argv=["flatpak", "run", "org.vinegarhq.Sober"]),
+    AppEntry(
+        name="DaVinci Resolve",
+        argv=["/usr/bin/env", "QT_QPA_PLATFORM=xcb", "/opt/resolve/bin/resolve"],
+    ),
+    AppEntry(name="Dolphin", argv=["/usr/bin/dolphin"], keywords="File Manager"),
+    AppEntry(name="Konsole", argv=["/usr/bin/konsole"], keywords="Terminal"),
+    AppEntry(name="wdb terminal", argv=["/usr/bin/konsole", "-e", "python3", "x.py"]),
+    AppEntry(name="Brave Web Browser", argv=["/usr/bin/brave-browser-stable"]),
+    AppEntry(name="Brave", argv=["flatpak", "run", "com.brave.Browser"]),
+    AppEntry(name="Spotify", argv=["spotify"], keywords="music"),
+]
+
+
+def test_priority_apps_resolve_first():
+    from system.launcher import priority_app
+
+    cases = {
+        "sober": ["flatpak", "run", "org.vinegarhq.Sober"],
+        "Sober.": ["flatpak", "run", "org.vinegarhq.Sober"],
+        "roblox": ["flatpak", "run", "org.vinegarhq.Sober"],
+        "sober on the laptop please": ["flatpak", "run", "org.vinegarhq.Sober"],
+        "davinci resolve": [
+            "/usr/bin/env",
+            "QT_QPA_PLATFORM=xcb",
+            "/opt/resolve/bin/resolve",
+        ],
+        "resolve": ["/usr/bin/env", "QT_QPA_PLATFORM=xcb", "/opt/resolve/bin/resolve"],
+        "files": ["/usr/bin/dolphin"],
+        "dolphin": ["/usr/bin/dolphin"],
+        "file manager": ["/usr/bin/dolphin"],
+        "konsole": ["/usr/bin/konsole"],
+        "terminal": ["/usr/bin/konsole"],
+        "brave": ["/usr/bin/brave-browser-stable"],
+        "brave browser": ["/usr/bin/brave-browser-stable"],
+    }
+    for q, argv in cases.items():
+        d = priority_app(q, apps=PRI_APPS, running=lambda d: False)
+        assert d is not None and d.kind == "app" and d.argv == argv, (q, d)
+        assert d.reason == "priority"
+    assert priority_app("spotify", apps=PRI_APPS) is None
+
+
+def test_claude_runs_in_konsole():
+    from system.launcher import priority_app
+
+    for q in ("claude", "claude code", "Claude."):
+        d = priority_app(q, apps=PRI_APPS, which=lambda b: f"/usr/bin/{b}")
+        assert d is not None and d.argv[:1] == ["/usr/bin/konsole"], (q, d)
+        assert d.argv[-2:] == ["-e", "/usr/bin/claude"]
+        assert d.target == "Claude"
+
+
+def test_resolve_launch_uses_priority_before_fuzzy():
+    # "terminal" used to hit the "wdb terminal" script entry.
+    d = resolve_launch(
+        "terminal",
+        apps=PRI_APPS,
+        history=[],
+        known_sites={},
+        llm=_no_llm,
+        lucky=_no_web,
+    )
+    assert d.argv == ["/usr/bin/konsole"]
+
+
+def test_single_instance_priority_app_already_running():
+    # Sober pops a "Crash: already running" dialog on a second launch.
+    from system.launcher import priority_app
+
+    d = priority_app("sober", apps=PRI_APPS, running=lambda d: True)
+    assert d is not None and d.argv == [] and "already running" in d.say
+    d = priority_app("resolve", apps=PRI_APPS, running=lambda d: True)
+    assert d is not None and d.argv == []
+    # Multi-window apps always launch a fresh window.
+    d = priority_app("konsole", apps=PRI_APPS, running=lambda d: True)
+    assert d is not None and d.argv == ["/usr/bin/konsole"]
+
+
+def test_is_running_checks(monkeypatch):
+    from system import launcher
+
+    monkeypatch.setattr(
+        launcher,
+        "_run_quiet",
+        lambda argv: "org.vinegarhq.Sober\ncom.x.Y\n" if argv[0] == "flatpak" else "",
+    )
+    assert launcher.is_running(["flatpak", "run", "org.vinegarhq.Sober"]) is True
+    assert launcher.is_running(["flatpak", "run", "com.other.App"]) is False
+    monkeypatch.setattr(
+        launcher, "_run_quiet", lambda argv: "4242\n" if argv[0] == "pgrep" else ""
+    )
+    assert launcher.is_running(["/usr/bin/env", "A=1", "/opt/resolve/bin/resolve"])

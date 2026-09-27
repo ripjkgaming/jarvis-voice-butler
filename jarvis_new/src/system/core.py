@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import datetime
 import difflib
 import json
@@ -1245,9 +1246,28 @@ class SystemTools:
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")
         url = (url or "").strip()[:500]
-        target = _resolve_app(app)
         say = f"Opening {app}."
-        if target is not None:
+        pri = None
+        if not url:
+            # Sir's priority apps (Sober, Resolve, Dolphin, Claude-in-Konsole,
+            # Konsole, Brave) win before any other resolution.
+            from system.launcher import priority_app
+
+            with contextlib.suppress(Exception):
+                pri = priority_app(app)
+        target = None if pri is not None else _resolve_app(app)
+        if target is not None and Path(target).name == "env":
+            # .desktop Exec "env VAR=... /opt/app/bin/app" resolved to bare
+            # `env` (does nothing): let the launcher use the full argv.
+            target = None
+        if pri is not None and not pri.argv:
+            # Single-instance app already up (Sober/Resolve): no duplicate.
+            return {"say": pri.say or f"{pri.target} is already running, Sir."}
+        if pri is not None:
+            argv = list(pri.argv)
+            target = pri.target
+            say = pri.say or say
+        elif target is not None:
             argv = (
                 ["flatpak", "run", target.split("flatpak:", 1)[1]]
                 if target.startswith("flatpak:")
@@ -1489,6 +1509,7 @@ class SystemTools:
             text = "(no output)"
         return {"say": f"Exit {rc}: {text[:1500]}", "rc": str(rc), "output": text}
 
+
 # run_command denylist: patterns that never execute even when confirmed.
 # No shell is ever used (argv only), so operators are rejected outright
 # rather than escaped. Pure data for _command_denied().
@@ -1530,4 +1551,3 @@ def command_denied(cmd: str) -> str | None:
         if re.search(pattern, lowered):
             return reason
     return None
-

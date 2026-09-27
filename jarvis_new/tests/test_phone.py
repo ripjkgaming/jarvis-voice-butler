@@ -259,3 +259,77 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
     assert len(wake_lines) == 1  # exactly one: cooldown suppresses the rest
     assert model.calls == 16  # every frame scored, none skipped
     client_sock.close()
+
+
+def test_polite_and_questioned_launches_hit_the_instant_route() -> None:
+    # Regression: "Can you launch Sober?" missed the ^open|launch regex,
+    # fell to the voice model, which opened Spotify ("Sober" the song).
+    from bridge import _match_voice_tool
+
+    for text, app in (
+        ("Can you launch Sober?", "sober"),
+        ("Jarvis, could you please open Sober?", "sober"),
+        ("You launch Roblox?", "roblox"),
+        ("Launch Sober.", "sober"),
+        ("Launch DaVinci Resolve.", "davinci resolve"),
+        ("Would you open Claude for me?", "claude for me"),
+        ("Bring up Sober", "sober"),
+        ("Pull up Dolphin!", "dolphin"),
+    ):
+        hit = _match_voice_tool(text)
+        assert hit is not None and hit[0] == "open_app", (text, hit)
+        assert hit[1]["app"] == app, (text, hit)
+    hit = _match_voice_tool("bring up the volume")
+    assert hit is None or hit[0] != "open_app"
+
+
+def test_phone_open_app_prefers_priority_apps(monkeypatch) -> None:
+    from system.launcher import Decision
+
+    spawned = []
+    monkeypatch.setattr(
+        bridge.subprocess, "Popen", lambda argv, **k: spawned.append(argv)
+    )
+    monkeypatch.setattr(
+        "system.launcher.priority_app",
+        lambda q, **k: (
+            Decision("app", "Sober", argv=["flatpak", "run", "sober"])
+            if q.startswith("sober")
+            else None
+        ),
+    )
+    out = run_phone_tool("open_app", {"app": "sober."})
+    assert out["ok"] is True and spawned == [["flatpak", "run", "sober"]]
+
+
+def test_phone_open_app_already_running_does_not_spawn(monkeypatch) -> None:
+    from system.launcher import Decision
+
+    monkeypatch.setattr(
+        bridge.subprocess,
+        "Popen",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no spawn")),
+    )
+    monkeypatch.setattr(
+        "system.launcher.priority_app",
+        lambda q, **k: Decision(
+            "app", "Sober", argv=[], say="Sober is already running, Sir."
+        ),
+    )
+    out = run_phone_tool("open_app", {"app": "sober"})
+    assert out["ok"] is True and out.get("app") == "Sober"
+
+
+def test_already_running_reply_is_honest() -> None:
+    from bridge import _dynamic_voice_reply
+
+    assert (
+        _dynamic_voice_reply(
+            "open_app", {"app": "sober"}, {"app": "Sober", "state": "already running"}
+        )
+        == "Sober is already running, Sir."
+    )
+    assert (
+        _dynamic_voice_reply("open_app", {"app": "konsole"}, {"app": "Konsole"})
+        == "Opening Konsole, Sir."
+    )

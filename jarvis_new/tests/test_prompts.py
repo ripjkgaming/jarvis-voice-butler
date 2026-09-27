@@ -114,3 +114,7 @@ def test_standby_rules_gate_speech() -> None:
 def test_standby_engagement_persists_across_turns() -> None:
     assert "Engagement persists across turns" in AGENT_INSTRUCTIONS
     assert "omit it" in AGENT_INSTRUCTIONS
+
+
+def test_sober_is_the_roblox_app_not_music() -> None:
+    assert "Sober is the Roblox client" in AGENT_INSTRUCTIONS

@@ -227,6 +227,111 @@ def best_app(query: str, apps: list[AppEntry]) -> tuple[AppEntry | None, float]:
     return best, round(best_score, 3)
 
 
+# --- priority apps -----------------------------------------------------
+
+# Sir's everyday apps: exact spoken aliases that always win, on every launch
+# path (desktop voice, phone, agent open_app), before any fuzzy/LLM layer.
+# Each maps to .desktop entry names tried in order (argv comes from the
+# entry, so e.g. Resolve keeps its env/GPU prefix), or a special builder.
+PRIORITY_APPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("sober", "roblox", "sober roblox", "sobre", "soba"), ("Sober",)),
+    (
+        ("davinci resolve", "davinci", "resolve", "da vinci resolve", "da vinci"),
+        ("DaVinci Resolve",),
+    ),
+    (("files", "file manager", "dolphin", "my files", "file explorer"), ("Dolphin",)),
+    (("konsole", "terminal", "console", "the terminal", "shell"), ("Konsole",)),
+    (
+        ("brave", "brave browser", "browser", "web browser"),
+        ("Brave Web Browser", "Brave"),
+    ),
+)
+_CLAUDE_ALIASES = frozenset({"claude", "claude code", "claud", "clod"})
+# Apps that refuse a second instance (Sober pops a "Crash: already running"
+# dialog): if one is up, say so instead of launching a duplicate.
+_SINGLE_INSTANCE = frozenset({"Sober", "DaVinci Resolve"})
+
+
+def _run_quiet(argv: list[str]) -> str:
+    """stdout of a short read-only command, "" on any failure."""
+    try:
+        import subprocess
+
+        return subprocess.run(argv, capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return ""
+
+
+def is_running(argv: list[str]) -> bool:
+    """True when the program an argv launches is already running."""
+    if len(argv) >= 3 and Path(argv[0]).name == "flatpak" and argv[1] == "run":
+        running = _run_quiet(["flatpak", "ps", "--columns=application"]).split()
+        return argv[2] in running
+    # Skip env-style prefixes ("env VAR=1 /opt/app/bin/app") to the binary.
+    binary = next((a for a in reversed(argv) if a.startswith("/") and "=" not in a), "")
+    return bool(binary) and bool(
+        _run_quiet(["pgrep", "-f", "-x", f"{binary}.*"]).strip()
+    )
+
+
+def _priority_key(query: str) -> str:
+    return _norm(strip_filler(query))
+
+
+def priority_app(
+    query: str,
+    apps: list[AppEntry] | None = None,
+    which=shutil.which,
+    running=None,
+) -> Decision | None:
+    """Decision for one of Sir's priority apps, else None. Reads no network."""
+    key = _priority_key(query)
+    if not key:
+        return None
+    if key in _CLAUDE_ALIASES:
+        # Claude Code is a terminal program: run it inside Konsole.
+        konsole, claude = which("konsole"), which("claude")
+        if konsole and claude:
+            return Decision(
+                "app",
+                "Claude",
+                argv=[konsole, "--workdir", str(Path.home()), "-e", claude],
+                say="Opening Claude in Konsole, Sir.",
+                reason="priority",
+                confidence=1.0,
+            )
+        return None
+    for aliases, entry_names in PRIORITY_APPS:
+        if key not in aliases:
+            continue
+        index = index_apps() if apps is None else apps
+        by_name = {a.name.lower(): a for a in index}
+        for name in entry_names:
+            app = by_name.get(name.lower())
+            if app is not None and app.name in _SINGLE_INSTANCE:
+                check = running or (lambda d: is_running(d.argv))
+                if check(app):
+                    return Decision(
+                        "app",
+                        app.name,
+                        argv=[],
+                        say=f"{app.name} is already running, Sir.",
+                        reason="priority-running",
+                        confidence=1.0,
+                    )
+            if app is not None:
+                return Decision(
+                    "app",
+                    app.name,
+                    argv=list(app.argv),
+                    say=f"Opening {app.name}, Sir.",
+                    reason="priority",
+                    confidence=1.0,
+                )
+        return None
+    return None
+
+
 # --- layer 2: browser history ----------------------------------------
 
 _HISTORY_PATHS = (
@@ -426,6 +531,9 @@ def resolve_launch(
         )
 
     apps = index_apps() if apps is None else apps
+    pri = priority_app(q, apps=apps)
+    if pri is not None:
+        return pri
     app, app_score = best_app(q, apps)
 
     # Layer 0: a well-known site named exactly ("google") beats a partial

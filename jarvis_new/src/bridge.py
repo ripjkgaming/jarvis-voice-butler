@@ -226,9 +226,12 @@ _VOICE_TOOLS = (
         # Universal launcher: anything else Sir asks to open (apps, visited
         # sites, or the top web result). Anchored so "start the music" style
         # media phrases above always win first.
-        r"^(?:open|launch|start|fire up)\s+"
-        r"(?!(?:the\s+|my\s+)?(?:music|song|track|playback|playlist|timer|stopwatch|recording)\b)"
-        r"(?:the\s+|my\s+)?(.{2,60})$",
+        # A leading "you" survives STT eating "can" ("you launch roblox?");
+        # trailing punctuation never reaches the app name.
+        r"^(?:you\s+)?(?:open|launch|start|fire up|bring up|pull up)\s+"
+        r"(?!(?:the\s+|my\s+)?(?:music|song|track|playback|playlist|timer|stopwatch|recording"
+        r"|volume|sound|brightness|screen)\b)"
+        r"(?:the\s+|my\s+)?(.{2,60}?)[\s.,!?]*$",
         "open_app",
         lambda m: {"app": m.group(1).strip()},
         None,
@@ -257,7 +260,9 @@ _VOICE_TOOLS = (
 _WAKEWORD_PREFIX = re.compile(
     r"^(?:hey\s+)?(?:jarvis|jeeves|jarves|jervis)\b[\s,.:;\-!?'\"]*"
 )
-_FILLER_PREFIX = re.compile(r"^(?:please|hey|uh|um|er|ah)\b[\s,.:;\-!?'\"]*")
+_FILLER_PREFIX = re.compile(
+    r"^(?:please|hey|uh|um|er|ah|(?:can|could|would|will)\s+you)\b[\s,.:;\-!?'\"]*"
+)
 
 
 def _clean_voice_text(text: str) -> str:
@@ -969,7 +974,27 @@ def run_phone_tool(tool: str, args: dict) -> dict:
     if tool == "play_media":
         return _play_media(str(args.get("query", "")))
     if tool == "open_app":
-        name = str(args.get("app", "")).strip().lower()
+        name = str(args.get("app", "")).strip().lower().rstrip(".,!? ")
+        try:
+            from system.launcher import priority_app
+
+            pri = priority_app(name)
+        except Exception:
+            pri = None
+        if pri is not None and not pri.argv:
+            # Single-instance app already up: never spawn a duplicate.
+            return _tool_result(True, app=pri.target, state="already running")
+        if pri is not None and pri.argv:
+            try:
+                subprocess.Popen(  # argv from Sir's priority table / .desktop
+                    pri.argv,
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError as exc:
+                return _tool_result(False, error=str(exc)[:200])
+            return _tool_result(True, app=pri.target)
         entry = _app_map().get(name)
         if entry is None:
             return _launch_anything(name)
@@ -1210,7 +1235,10 @@ def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
         q = args.get("query") or ""
         return f"Playing {q} on YouTube, Sir." if q else "Playing your playlist, Sir."
     if tool == "open_app":
-        return f"Opening {result.get('app') or args.get('app', 'it')}, Sir."
+        name = result.get("app") or args.get("app", "it")
+        if result.get("state") == "already running":
+            return f"{name} is already running, Sir."
+        return f"Opening {name}, Sir."
     return "Done, Sir."
 
 

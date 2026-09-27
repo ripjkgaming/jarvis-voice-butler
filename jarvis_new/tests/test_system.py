@@ -359,7 +359,8 @@ async def test_open_app_unknown_falls_back_to_web_search(
     monkeypatch.setattr(
         "system.launcher.resolve_launch",
         lambda q, **k: Decision(
-            "url", "https://example.com/first",
+            "url",
+            "https://example.com/first",
             say="Nothing of yours matched, Sir — opening the top result.",
             reason="web-search",
         ),
@@ -738,3 +739,75 @@ async def test_run_command_timeout_and_cap(
     await SystemTools.confirm_command_action(tools, ctx, "sleep 30")
     out = await SystemTools.run_command(tools, ctx, "sleep 30", 1)
     assert out["rc"] == "124"
+
+
+async def test_open_app_priority_app_wins(monkeypatch) -> None:
+    """Sir's priority apps skip _resolve_app and the fuzzy launcher."""
+    from system.core import SystemTools
+    from system.launcher import Decision
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr(
+        "system.launcher.priority_app",
+        lambda q, **k: Decision(
+            "app",
+            "Sober",
+            argv=["flatpak", "run", "org.vinegarhq.Sober"],
+            say="Opening Sober, Sir.",
+        ),
+    )
+    monkeypatch.setattr(
+        "system.core._resolve_app",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("not reached")),
+    )
+    launched: dict = {}
+
+    class _Proc:
+        pid = 9
+
+    async def _fake_exec(*argv, **kwargs):
+        launched["argv"] = list(argv)
+        return _Proc()
+
+    async def _no_wmctrl(*a, **k):
+        return 1, "", ""
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("system.core.run_cmd", _no_wmctrl)
+    tools = SystemTools.__new__(SystemTools)
+    tools._tasks = set()
+    out = await SystemTools.open_app(tools, None, app="sober")  # type: ignore[arg-type]
+    assert launched["argv"] == ["flatpak", "run", "org.vinegarhq.Sober"]
+    assert out["say"] == "Opening Sober, Sir."
+
+
+async def test_open_app_env_exec_uses_launcher_argv(monkeypatch) -> None:
+    """A .desktop 'env VAR=.. /opt/app' must not launch bare `env`."""
+    from system.core import SystemTools
+    from system.launcher import Decision
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr("system.launcher.priority_app", lambda q, **k: None)
+    monkeypatch.setattr("system.core._resolve_app", lambda *a, **k: "/usr/bin/env")
+    monkeypatch.setattr(
+        "system.launcher.resolve_launch",
+        lambda q, **k: Decision("app", "Thing", argv=["/usr/bin/env", "A=1", "/opt/t"]),
+    )
+    launched: dict = {}
+
+    class _Proc:
+        pid = 9
+
+    async def _fake_exec(*argv, **kwargs):
+        launched["argv"] = list(argv)
+        return _Proc()
+
+    async def _no_wmctrl(*a, **k):
+        return 1, "", ""
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("system.core.run_cmd", _no_wmctrl)
+    tools = SystemTools.__new__(SystemTools)
+    tools._tasks = set()
+    await SystemTools.open_app(tools, None, app="thing")  # type: ignore[arg-type]
+    assert launched["argv"] == ["/usr/bin/env", "A=1", "/opt/t"]
