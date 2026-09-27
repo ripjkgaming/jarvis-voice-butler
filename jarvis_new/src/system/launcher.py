@@ -250,6 +250,25 @@ _CLAUDE_ALIASES = frozenset({"claude", "claude code", "claud", "clod"})
 # Apps that refuse a second instance (Sober pops a "Crash: already running"
 # dialog): if one is up, say so instead of launching a duplicate.
 _SINGLE_INSTANCE = frozenset({"Sober", "DaVinci Resolve"})
+# Apps Sir never wants opened (a misheard "Sober" once launched Spotify).
+# Checked at every launch site against the name, target, argv and URL.
+# JARVIS_BLOCKED_APPS (comma list) adds more.
+_BLOCKED_APPS = frozenset({"spotify"})
+
+
+def blocked_apps() -> frozenset[str]:
+    extra = os.environ.get("JARVIS_BLOCKED_APPS", "")
+    return _BLOCKED_APPS | {w.strip().lower() for w in extra.split(",") if w.strip()}
+
+
+def is_blocked(*parts: object) -> str | None:
+    """The blocked app any launch part names (app, target, argv, URL), or None."""
+    text = " ".join(str(p) for p in parts if p).lower()
+    return next((b for b in sorted(blocked_apps()) if b in text), None)
+
+
+def blocked_say(name: str) -> str:
+    return f"{name.title()} is disabled on this machine, Sir. I won't open it."
 
 
 def _run_quiet(argv: list[str]) -> str:

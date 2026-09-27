@@ -3261,3 +3261,72 @@ html.hud-hidden *::after { animation-play-state: paused !important; }
   inset: 3px auto auto 50%; width: 12px; height: 12px; margin-left: -6px;
 }
 .hud-suit .hud-core__ring svg.hud-suit__flow { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ============ Live research strip (under the ticker) ============ */
+.hud-research {
+  --hr-amber: #ffb547;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(255, 181, 71, 0.22);
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.07), transparent 70%);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+}
+.hud-research--compact {
+  position: relative;
+  z-index: 2;
+  padding: 4px 10px;
+}
+.hud-research__job {
+  display: grid;
+  grid-template-columns: auto minmax(0, 14ch) minmax(60px, 1fr) 5ch minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--stark-hot, #d9fbff);
+}
+.hud-research__tag {
+  color: var(--hr-amber);
+  letter-spacing: 0.26em;
+  font-size: 9.5px;
+}
+.hud-research__title,
+.hud-research__stage {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hud-research__stage {
+  color: var(--hr-amber);
+}
+.hud-research__track {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 181, 71, 0.35);
+}
+.hud-research__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.5), var(--hr-amber));
+  box-shadow: 0 0 8px rgba(255, 181, 71, 0.6);
+  transition: width 0.9s ease-out;
+}
+.hud-research__pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.hud-research--compact .hud-research__job {
+  grid-template-columns: auto minmax(60px, 1fr) 5ch;
+}
+.hud-research--compact .hud-research__title,
+.hud-research--compact .hud-research__stage {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-research__fill {
+    transition: none;
+  }
+}

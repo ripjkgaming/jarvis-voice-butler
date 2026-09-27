@@ -8,6 +8,7 @@ import { LiveCaption } from '@/components/hud/live-caption';
 import { NodeGraph } from '@/components/hud/node-graph';
 import { ParticleOrb } from '@/components/hud/particle-orb';
 import { RadarSweep } from '@/components/hud/radar-sweep';
+import { ResearchStrip } from '@/components/hud/research-strip';
 import { StarkDials } from '@/components/hud/stark-dials';
 import { StateBanner } from '@/components/hud/state-banner';
 import { SysCore } from '@/components/hud/sys-core';
@@ -30,6 +31,7 @@ type TickSeg = { text: string; warn?: boolean };
 function tickerSegments(sys: BridgeSys | null): TickSeg[] | null {
   if (!sys) return null;
   const phone = sys.phone ?? null;
+  const onTailnet = sys.phone_tailnet?.online === true;
   const lp = sys.laptop_power ?? null;
 
   const suit: TickSeg = phone
@@ -39,7 +41,9 @@ function tickerSegments(sys: BridgeSys | null): TickSeg[] | null {
         }`,
         warn: !phone.charging && phone.battery < 20,
       }
-    : { text: 'SUIT POWER — NO PHONE LINK', warn: true };
+    : onTailnet
+      ? { text: 'SUIT POWER — APP IDLE' }
+      : { text: 'SUIT POWER — NO PHONE LINK', warn: true };
 
   let reactor: TickSeg;
   if (!lp) {
@@ -58,7 +62,9 @@ function tickerSegments(sys: BridgeSys | null): TickSeg[] | null {
 
   const uplink: TickSeg = phone
     ? { text: `PHONE LINKED ${Math.round(phone.age_s)}S AGO` }
-    : { text: 'PHONE OFFLINE', warn: true };
+    : onTailnet
+      ? { text: 'PHONE ON TAILNET' }
+      : { text: 'PHONE OFFLINE', warn: true };
 
   const grid: TickSeg = { text: sys.call_live ? 'VOICE CALL LIVE' : 'VOICE STANDBY' };
 
@@ -76,7 +82,7 @@ function footStatus(sys: BridgeSys | null): { text: string; warn: boolean } {
   if (!sys) return { text: 'SYNCING…', warn: false };
   const issues: string[] = [];
   const phone = sys.phone ?? null;
-  if (!phone) issues.push('PHONE OFFLINE');
+  if (!phone && sys.phone_tailnet?.online !== true) issues.push('PHONE OFFLINE');
   const temp = typeof sys.cpu_temp_c === 'number' ? sys.cpu_temp_c : null;
   if (temp !== null && temp >= 85) issues.push(`CORE ${Math.round(temp)}°C`);
   const lp = sys.laptop_power ?? null;
@@ -190,6 +196,7 @@ export function HudShell({ children }: Props) {
           <ParticleOrb />
         </div>
         <StateBanner compact />
+        <ResearchStrip sys={sys} compact />
         <VoiceDock active={jarvis !== 'idle'} />
         <LiveCaption />
         <CommandLog fullscreen />
@@ -232,6 +239,7 @@ export function HudShell({ children }: Props) {
       </header>
       <StateBanner />
       <HudTicker sys={sys} />
+      <ResearchStrip sys={sys} />
       <div className="hud__grid">
         <section className="hud__left" aria-label="Core interaction">
           <div className="hud__orb-wrap">
@@ -248,7 +256,7 @@ export function HudShell({ children }: Props) {
         </section>
       </div>
       <footer className="stark-foot" aria-hidden="true">
-        <span className="stark-foot__brand">STARK INDUSTRIES</span>
+        <span className="stark-foot__brand">CODENAME // LOCKE</span>
         <span className="stark-foot__mid">DESKTOP COMMAND // LOCAL GRID</span>
         <HudFootRight sys={sys} />
       </footer>

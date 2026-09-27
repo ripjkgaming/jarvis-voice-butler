@@ -22,6 +22,10 @@ export type ProjectMeta = {
   summary?: string;
   sources?: string[];
   error?: string | null;
+  /** Live research progress (0-100), current step, web steps taken. */
+  progress?: number;
+  stage?: string;
+  steps?: number;
 };
 
 export type ProjectDocument = { name: string; title?: string; text: string };
@@ -34,7 +38,16 @@ export type ProjectDetail = ProjectMeta & {
 /** Voice → UI commands queued by the bridge ("open the second document"). */
 export type UiCommand = {
   seq: number;
-  action: 'show' | 'select' | 'open_document' | 'close_document' | 'scroll' | 'back' | 'filter';
+  action:
+    | 'show'
+    | 'select'
+    | 'open_document'
+    | 'close_document'
+    | 'scroll'
+    | 'back'
+    | 'filter'
+    | 'delete_pending'
+    | 'deleted';
   /** select: by id (bridge-resolved name match) or by 1-based list index. */
   project_id?: string;
   index?: number;

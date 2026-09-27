@@ -246,7 +246,6 @@ KNOWN_SITES: dict[str, str] = {
     "stackoverflow": "https://stackoverflow.com",
     "chatgpt": "https://chat.openai.com",
     "netflix": "https://www.netflix.com",
-    "spotify": "https://open.spotify.com",
     "ebay": "https://www.ebay.com",
     "walmart": "https://www.walmart.com",
     "target": "https://www.target.com",

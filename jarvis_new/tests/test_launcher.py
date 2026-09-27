@@ -361,3 +361,21 @@ def test_is_running_checks(monkeypatch):
         launcher, "_run_quiet", lambda argv: "4242\n" if argv[0] == "pgrep" else ""
     )
     assert launcher.is_running(["/usr/bin/env", "A=1", "/opt/resolve/bin/resolve"])
+
+
+def test_spotify_is_blocked_everywhere(monkeypatch):
+    from system.launcher import is_blocked
+
+    monkeypatch.delenv("JARVIS_BLOCKED_APPS", raising=False)
+    assert is_blocked("spotify") == "spotify"
+    assert is_blocked("music", "https://open.spotify.com/track/x") == "spotify"
+    assert is_blocked("sober", "flatpak", "run", "org.vinegarhq.Sober") is None
+    monkeypatch.setenv("JARVIS_BLOCKED_APPS", "Discord")
+    assert is_blocked("discord") == "discord"
+
+
+def test_bridge_refuses_spotify():
+    import bridge
+
+    out = bridge.run_phone_tool("open_app", {"app": "Spotify"})
+    assert out["ok"] is False and "disabled" in out["error"].lower()

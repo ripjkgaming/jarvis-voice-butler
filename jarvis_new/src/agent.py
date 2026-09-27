@@ -6,6 +6,7 @@ import random
 import re
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from dotenv import load_dotenv
 from google.genai import types as genai_types
@@ -22,7 +23,9 @@ from livekit.agents import (
     room_io,
 )
 from livekit.agents.beta.tools import EndCallTool
+from livekit.agents import llm
 from livekit.agents.llm import FallbackAdapter, RealtimeModelFallbackAdapter
+from livekit.agents.types import NOT_GIVEN
 from livekit.agents.voice import UserStateChangedEvent
 from livekit.plugins import google
 
@@ -53,6 +56,7 @@ from system.inbox import InboxTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
+from system.quotes_tools import QuoteTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 
@@ -60,6 +64,128 @@ from tools import BrowserTools
 # worker with cwd=shell/, where a relative ".env.local" never resolves and
 # the worker dies with "api_key is required" (first-run crash loop).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+
+
+_TOOL_NUDGE_S = 1.5
+
+
+def _patch_gemini_turn_end() -> bool:
+    """Stop Gemini Live answering one turn behind (manual activity mode).
+
+    At end of turn the plugin's generate_reply sends activity_end (which
+    already asks Gemini to answer the audio just spoken) AND an empty
+    turn_complete client turn. On 3.x Live models that empty turn starts
+    a reply to the context *before* the new audio lands, so Sir heard
+    the previous answer ("2401 - 1605" -> "2401") while the real one was
+    dropped as "server content but no active generation". Suppress only
+    that empty trailing turn; instructed replies (greetings) are
+    untouched. JARVIS_GEMINI_TURN_PATCH=0 disables. Idempotent.
+    """
+    if os.environ.get("JARVIS_GEMINI_TURN_PATCH", "1").strip() == "0":
+        return False
+    try:
+        from google.genai import types as _gt
+        from livekit.agents.types import NOT_GIVEN
+        from livekit.plugins.google.realtime import realtime_api as _ra
+    except Exception:
+        return False
+    sess = _ra.RealtimeSession
+    if getattr(sess, "_jarvis_turn_patch", False):
+        return True
+    orig_generate = sess.generate_reply
+    orig_send = sess._send_client_event
+
+    def generate_reply(self, *, instructions=NOT_GIVEN, **kwargs):
+        self._jarvis_audio_turn = bool(
+            self._in_user_activity
+            and instructions is NOT_GIVEN
+            and not _ra._needs_reply_placeholder(self._opts.model)
+        )
+        try:
+            return orig_generate(self, instructions=instructions, **kwargs)
+        finally:
+            self._jarvis_audio_turn = False
+
+    def _send_client_event(self, event):
+        if (
+            getattr(self, "_jarvis_audio_turn", False)
+            and isinstance(event, _gt.LiveClientContent)
+            and not event.turns
+        ):
+            return None
+        out = orig_send(self, event)
+        if isinstance(event, _gt.LiveClientToolResponse):
+            # Without that empty turn, Gemini sits on a tool result and never
+            # speaks it (maths computed, silence). Nudge only if no reply has
+            # started shortly after, so a normal continuation isn't doubled.
+            def _nudge(sess=self) -> None:
+                gen = sess._current_generation
+                if gen is None or gen._done:
+                    orig_send(sess, _gt.LiveClientContent(turns=[], turn_complete=True))
+
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().call_later(_TOOL_NUDGE_S, _nudge)
+        return out
+
+    sess.generate_reply = generate_reply
+    sess._send_client_event = _send_client_event
+    sess._jarvis_turn_patch = True
+    return True
+
+
+_patch_gemini_turn_end()
+
+
+def _say_instructions(text: str) -> str:
+    return (
+        "Say exactly the following line to Sir, word for word, in your "
+        f"normal voice, and nothing else: {text}"
+    )
+
+
+def _patch_say_without_tts() -> bool:
+    """Make session.say() speak on the Gemini Live pipeline.
+
+    The realtime session has no TTS and Gemini Live doesn't support say(),
+    so every say() raised and was swallowed: instant commands (maths,
+    volume, project navigation) ran silently. Without a TTS, route the
+    line through the realtime model as a verbatim reply instead, so it
+    comes out in the same voice. Idempotent.
+    """
+    if getattr(AgentSession, "_jarvis_say_patch", False):
+        return True
+    orig_say = AgentSession.say
+
+    def say(self, text, *, audio=NOT_GIVEN, allow_interruptions=NOT_GIVEN, add_to_chat_ctx=True):
+        activity = getattr(self, "_activity", None)
+        rt = activity is not None and isinstance(
+            getattr(activity, "llm", None), llm.RealtimeModel
+        )
+        if (
+            rt
+            and self.tts is None
+            and audio is NOT_GIVEN
+            and isinstance(text, str)
+            and not activity.llm.capabilities.supports_say
+        ):
+            return self.generate_reply(
+                instructions=_say_instructions(text),
+                allow_interruptions=allow_interruptions,
+            )
+        return orig_say(
+            self,
+            text,
+            audio=audio,
+            allow_interruptions=allow_interruptions,
+            add_to_chat_ctx=add_to_chat_ctx,
+        )
+
+    AgentSession.say = say
+    AgentSession._jarvis_say_patch = True
+    return True
+
+
+_patch_say_without_tts()
 
 
 def _realtime_llm():
@@ -177,6 +303,35 @@ def _wake_summoned(room: object) -> bool:
     return False
 
 
+def _wake_reason(room: object) -> str:
+    """What summoned this call, from the wake client's token attributes:
+    "daddy" (the "wake up, daddy's home" phrase), "wake", or "" (not a
+    wake summons). Pure (no I/O)."""
+    try:
+        parts = getattr(room, "remote_participants", None) or {}
+        items = parts.values() if hasattr(parts, "values") else parts
+        for participant in items or []:
+            if getattr(participant, "identity", "") == "jarvis-master":
+                attrs = getattr(participant, "attributes", None) or {}
+                return str(attrs.get("jarvis.wake") or "wake")
+    except Exception:
+        pass
+    return ""
+
+
+DADDY_GREETING = "Welcome back, Sir."
+
+
+def _briefing_instructions(raw: str) -> str:
+    """Turn the briefing bundle into one spoken reply. Pure."""
+    return (
+        "Deliver Sir's morning briefing now, in three or four natural "
+        "spoken sentences: the weather, each headline in a few words, "
+        "school, then todos. Use only these facts and do not call any "
+        f"tools: {raw}"
+    )
+
+
 def _join_decision(wake: bool, status: str) -> str:
     """Standby join outcome. Pure, tested.
 
@@ -240,6 +395,9 @@ def _desktop_fastpath_enabled() -> bool:
 #: complex request and stays with the model — this also stops mid-sentence
 #: regex misfires ("louder" inside a research ramble).
 _FASTPATH_MAX_WORDS = 12
+# Answers Gemini Live already gives on its own (it hears the audio before
+# our transcript arrives): a fast-path reply would only say it twice.
+_MODEL_OWNED_FASTPATH = frozenset({"do_math", "projects_ui"})
 
 
 def _fastpath_short(text: str) -> str | None:
@@ -265,7 +423,10 @@ def desktop_fast_prefix(text: str) -> tuple | None:
             return None
         from bridge import _match_voice_tool
 
-        return _match_voice_tool(clean)
+        hit = _match_voice_tool(clean)
+        if hit is not None and hit[0] in _MODEL_OWNED_FASTPATH and _pipeline_name() == "realtime":
+            return None
+        return hit
     except Exception:
         return None
 
@@ -287,6 +448,12 @@ def desktop_fast_command(text: str) -> dict | None:
             return None
         from bridge import handle_route
 
+        if desktop_fast_prefix(text) is None and _pipeline_name() == "realtime":
+            from bridge import _match_voice_tool
+
+            hit = _match_voice_tool(clean)
+            if hit is not None and hit[0] in _MODEL_OWNED_FASTPATH:
+                return None
         code, payload = handle_route({"text": clean})
         if (
             code == 200
@@ -860,6 +1027,9 @@ class Assistant(Agent):
         self.reddit_tools = reddit_tools or RedditTools()
         self.osint_tools = OsintTools()
         self.project_tools = ProjectTools()
+        self.quote_tools = QuoteTools(
+            system=self.system_tools, inbox=self.inbox_tools, browser=self.browser_tools
+        )
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -892,6 +1062,8 @@ class Assistant(Agent):
                 # Background research (Claude) / coding (opencode) projects
                 # + the voice-only Project Archive window.
                 *self.project_tools.tools,
+                # Movie / meme lines -> fixed safe actions (src/quotes.py).
+                *self.quote_tools.tools,
                 *[
                     tool
                     for group in (
@@ -1509,7 +1681,20 @@ async def my_agent(ctx: JobContext):
         _log_join(
             "presence", f"join wake={_wake} cam={_join.get('status')} -> {_decision}"
         )
-    if _decision == "greet":
+    if _decision == "greet" and _wake_reason(ctx.room) == "daddy":
+        # "Wake up, daddy's home": the custom welcome plus the briefing.
+        _presence["engaged"] = True
+        await _say(DADDY_GREETING)
+        try:
+            _brief = await assistant.inbox_tools.morning_briefing(
+                SimpleNamespace(session=session)
+            )
+            # One instructed turn: the raw bundle has emoji and fragments,
+            # and a verbatim say() made Gemini re-fetch it with tools.
+            await session.generate_reply(instructions=_briefing_instructions(str(_brief.get("say") or "")))
+        except Exception:
+            await _say("The briefing is unavailable just now, Sir.")
+    elif _decision == "greet":
         _presence["engaged"] = True
         await _greet()
     elif _decision == "remark":

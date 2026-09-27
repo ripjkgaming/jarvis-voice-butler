@@ -745,3 +745,121 @@
     animation: none;
   }
 }
+
+/* ---------- live research progress ---------- */
+.bar,
+.barCompact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.bar {
+  padding: 12px 14px 12px 16px;
+  border-left: 2px solid var(--pa-amber);
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.08), transparent 80%);
+}
+.barCompact {
+  gap: 4px;
+  margin-top: 6px;
+}
+.barHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 9.5px;
+  letter-spacing: 0.3em;
+  color: var(--pa-amber);
+}
+.barHead b {
+  font-weight: 700;
+}
+.barHead span {
+  color: var(--pa-hot);
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+.barTrack {
+  position: relative;
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 181, 71, 0.4);
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 181, 71, 0.07) 0 6px,
+    transparent 6px 8px
+  );
+}
+.barCompact .barTrack {
+  height: 3px;
+  border-color: rgba(255, 181, 71, 0.28);
+}
+.barFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.55), var(--pa-amber));
+  box-shadow: 0 0 10px rgba(255, 181, 71, 0.55);
+  transition: width 0.9s ease-out;
+}
+.barFill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 245, 225, 0.55), transparent);
+  transform: translateX(-100%);
+  animation: pa-bar-sweep 1.8s ease-in-out infinite;
+}
+@keyframes pa-bar-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+.barStage {
+  overflow: hidden;
+  font-family: var(--pa-sans);
+  font-size: 12.5px;
+  color: var(--pa-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.barCompact .barStage {
+  font-family: var(--pa-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--pa-amber);
+}
+
+/* ---------- voice delete confirmation ---------- */
+.deleteBanner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--pa-red);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 106, 92, 0.12) 0 10px,
+    rgba(255, 106, 92, 0.04) 10px 20px
+  );
+  color: var(--pa-red);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  animation: pa-pulse 1.2s ease-in-out infinite;
+}
+.deleteBanner span {
+  color: var(--pa-hot);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barFill::after,
+  .deleteBanner {
+    animation: none;
+  }
+  .barFill {
+    transition: none;
+  }
+}

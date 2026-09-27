@@ -340,7 +340,8 @@ def extract_talk_text(msg: object) -> str | None:
 
 
 def mint_summon_token(
-    *, url: str, api_key: str, api_secret: str, room: str, agent_name: str
+    *, url: str, api_key: str, api_secret: str, room: str, agent_name: str,
+    reason: str = "wake",
 ) -> str:
     """JWT that joins `room` and dispatches the worker. Pure (no I/O)."""
     from livekit.api import (
@@ -352,6 +353,8 @@ def mint_summon_token(
 
     token = AccessToken(api_key, api_secret)
     token.with_identity(IDENTITY).with_name("Sir")
+    # Why we summoned ("wake", "daddy"): the agent picks its greeting.
+    token.with_attributes({"jarvis.wake": reason})
     token.with_grants(VideoGrants(room_join=True, room=room))
     token.with_room_config(
         RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name)])
@@ -374,6 +377,12 @@ class WakeClient:
         )
         self._ack_pcm: bytes = b""
         self._ack_rate = 22050
+        # "daddy" second wake phrase (keyword_spot): Whisper worker is
+        # spawned lazily on the first utterance it has to check.
+        from keyword_spot import WhisperWorker
+
+        self._spotter = WhisperWorker()
+        self._spot_tasks: set = set()
         # Mic mute state (tray/HUD driven via the wake.sock listener below).
         # Guarded by a lock: set from the socket thread, read from the
         # asyncio mic loops and the hotword loop.
@@ -564,6 +573,27 @@ class WakeClient:
             callback=_audio_callback,
         ):
             pending16 = np.zeros(0, dtype=np.int16)
+            import keyword_spot as _spot
+
+            spot_on = _spot.enabled()
+            segmenter = _spot.Segmenter() if spot_on else None
+            spot_state = {"busy": False, "last": 0.0}
+
+            async def _check_daddy(seg) -> None:
+                try:
+                    text = await loop.run_in_executor(None, self._spotter.transcribe, seg)
+                finally:
+                    spot_state["busy"] = False
+                if not _spot.has_daddy(text) or self._in_call or self.muted:
+                    return
+                now = time.monotonic()
+                if now - spot_state["last"] < _spot.COOLDOWN_S:
+                    return
+                spot_state["last"] = now
+                logger.warning("daddy wake heard: %r", text[:80])
+                summon_overlay()
+                await self._summon_session(reason="daddy")
+
             while True:
                 raw = await queue.get()
                 # Zero-copy int16 view, vector decimate 48k->16k (was a
@@ -588,6 +618,13 @@ class WakeClient:
                     if not self._in_call:
                         await self._summon_session()
                     continue
+                if segmenter is not None and not self._in_call:
+                    for seg in segmenter.feed(block[::3][:512]):
+                        if not spot_state["busy"]:
+                            spot_state["busy"] = True
+                            task = asyncio.create_task(_check_daddy(seg))
+                            self._spot_tasks.add(task)
+                            task.add_done_callback(self._spot_tasks.discard)
                 scores, pending16 = score_frames(model, pending16)
                 for score in scores:
                     if score >= self._threshold:
@@ -629,7 +666,7 @@ class WakeClient:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
-    async def _summon_session(self) -> None:
+    async def _summon_session(self, reason: str = "wake") -> None:
         from livekit import rtc
 
         # Never layer a second Jarvis over an ongoing call (an earlier
@@ -659,6 +696,7 @@ class WakeClient:
             api_secret=self._creds["LIVEKIT_API_SECRET"],
             room=room_name,
             agent_name=self._agent_name,
+            reason=reason,
         )
         room = rtc.Room()
         disconnected = asyncio.Event()

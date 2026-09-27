@@ -39,6 +39,7 @@ const PHRASES = [
   'go back · close the document',
   'research … · build me a script that …',
   'abort this project',
+  'delete this project · confirm delete',
   'close research projects',
 ];
 
@@ -93,6 +94,8 @@ export function ProjectArchive() {
   // clock at build time would mismatch on hydration.
   const [now, setNow] = useState(0);
   const [heard, setHeard] = useState<Heard[]>([]);
+  // Voice delete is two-step: the bridge parks it until "confirm delete".
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; at: number } | null>(null);
 
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const docs = useMemo(() => documentsOf(detail), [detail]);
@@ -126,6 +129,9 @@ export function ProjectArchive() {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
 
   const selectedRunning = projects?.find((p) => p.id === selectedId)?.status === 'running';
   useEffect(() => {
@@ -295,9 +301,20 @@ export function ProjectArchive() {
           if (!sheetRef.current && cmd.mode !== 'stop') pendingScroll.current = cmd;
           else scrollCmd(cmd);
           break;
+        case 'delete_pending':
+          if (cmd.project_id) {
+            selectProject(cmd.project_id);
+            setPendingDelete({ id: cmd.project_id, at: Date.now() });
+          }
+          break;
+        case 'deleted':
+          setPendingDelete(null);
+          if (cmd.project_id && selectedIdRef.current === cmd.project_id) selectProject(null);
+          refreshList();
+          break;
       }
     },
-    [docIndex, openDocument, scrollCmd, selectProject]
+    [docIndex, openDocument, scrollCmd, selectProject, refreshList]
   );
 
   const runRef = useRef(runCommand);
@@ -395,6 +412,9 @@ export function ProjectArchive() {
                     </i>
                     <span>{ago(p.created_at, now)}</span>
                   </span>
+                  {p.status === 'running' && p.kind === 'research' ? (
+                    <ResearchBar pct={p.progress ?? 0} stage={p.stage} compact />
+                  ) : null}
                 </span>
                 <span className={styles[`st_${p.status}`]}>{STATUS_LABEL[p.status]}</span>
               </li>
@@ -435,8 +455,6 @@ export function ProjectArchive() {
           {!meta ? (
             <div className={styles.empty}>
               <Reticle />
-              <p>SAY A PROJECT NAME OR NUMBER</p>
-              <small>“Jarvis, navigate to the … project and open the first document.”</small>
             </div>
           ) : (
             <div className={styles.sheetWrap}>
@@ -471,6 +489,18 @@ export function ProjectArchive() {
                     </div>
                   ) : null}
                 </dl>
+                {pendingDelete && pendingDelete.id === meta.id && now - pendingDelete.at < 30000 ? (
+                  <div className={styles.deleteBanner} role="alert">
+                    <b>CONFIRM ERASURE</b>
+                    <span>
+                      SAY “CONFIRM DELETE” ·{' '}
+                      {Math.max(0, Math.ceil((30000 - (now - pendingDelete.at)) / 1000))}S
+                    </span>
+                  </div>
+                ) : null}
+                {meta.status === 'running' && meta.kind === 'research' && !openDoc ? (
+                  <ResearchBar pct={meta.progress ?? 0} stage={meta.stage} steps={meta.steps} />
+                ) : null}
                 {meta.summary && !openDoc ? (
                   <div className={styles.summary}>
                     <span>SUMMARY</span>
@@ -538,5 +568,48 @@ export function ProjectArchive() {
         <span>{scrolling ? `AUTO-SCROLL ${speed.toUpperCase()}` : 'STANDING BY'}</span>
       </footer>
     </div>
+  );
+}
+
+/** Live research progress: amber bar that fills as the engine searches,
+ *  reads and writes. `compact` is the one-line version for index rows. */
+function ResearchBar({
+  pct,
+  stage,
+  steps,
+  compact = false,
+}: {
+  pct: number;
+  stage?: string;
+  steps?: number;
+  compact?: boolean;
+}) {
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  return (
+    <span
+      className={compact ? styles.barCompact : styles.bar}
+      role="progressbar"
+      aria-valuenow={clamped}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`Research ${clamped}% · ${stage ?? 'starting'}`}
+    >
+      {!compact ? (
+        <span className={styles.barHead}>
+          <b>RESEARCH IN PROGRESS</b>
+          <span>
+            {typeof steps === 'number' ? `${steps} WEB STEP${steps === 1 ? '' : 'S'} · ` : ''}
+            {pad(clamped)}%
+          </span>
+        </span>
+      ) : null}
+      <span className={styles.barTrack}>
+        <span className={styles.barFill} style={{ width: `${clamped}%` }} />
+      </span>
+      <span className={styles.barStage}>
+        {compact ? `${clamped}% · ` : ''}
+        {stage ?? 'Starting'}
+      </span>
+    </span>
   );
 }

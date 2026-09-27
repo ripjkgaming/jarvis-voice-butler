@@ -210,7 +210,6 @@ _APP_CANDIDATES: dict[str, list[str]] = {
     "kalculator": ["kcalc", "gnome-calculator"],
     "kcalc": ["kcalc", "gnome-calculator"],
     "settings": ["systemsettings"],
-    "spotify": ["spotify"],
     "discord": ["discord"],
     "whatsie": ["flatpak:com.ktechpit.whatsie"],
     "whatsapp": ["flatpak:com.ktechpit.whatsie"],
@@ -1303,6 +1302,10 @@ class SystemTools:
                 argv = ["xdg-open", decision.target]
                 target = decision.target
             say = decision.say or say
+        from system.launcher import blocked_say, is_blocked
+
+        if blocked := is_blocked(app, url, target, *argv):
+            raise ToolError(blocked_say(blocked))
         try:
             rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
             before = _window_ids_from_wmctrl(out) if rc == 0 else set()
@@ -1347,6 +1350,20 @@ class SystemTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         action = action.lower()
+        from system import kwin_windows
+
+        if kwin_windows.available() and action in kwin_windows.ACTIONS:
+            # Plasma Wayland: wmctrl can't see native windows (it listed
+            # nothing and "close" silently no-oped), so drive KWin directly.
+            if not query.strip():
+                raise ToolError("Which window? Give me part of its title.")
+            hit = await asyncio.to_thread(kwin_windows.act, action, query.strip())
+            if hit is None:
+                raise ToolError(f"No window matching {query.strip()[:60]}.")
+            title, n = hit
+            log_action("window", f"{action} {title[:80]}")
+            more = f" ({n - 1} more matched; name it more exactly)" if n > 1 else ""
+            return {"say": f"Window {action}: {title[:70]}.{more}"}
         if action == "list":
             _rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
             if _rc != 0:

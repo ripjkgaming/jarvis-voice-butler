@@ -67,3 +67,44 @@ def test_name_aliases_cover_heard_manglings() -> None:
         assert _name_called(heard), heard
     for ambient in ("service", "jars", "harvest", "nervous"):
         assert not _name_called(ambient), ambient
+
+
+def test_wake_reason_reads_the_wake_clients_tag():
+    from types import SimpleNamespace
+
+    from agent import DADDY_GREETING, _wake_reason
+
+    def room(*parts):
+        return SimpleNamespace(remote_participants={p.identity: p for p in parts})
+
+    master = SimpleNamespace(identity="jarvis-master", attributes={"jarvis.wake": "daddy"})
+    plain = SimpleNamespace(identity="jarvis-master", attributes={})
+    user = SimpleNamespace(identity="user", attributes={"jarvis.wake": "daddy"})
+    assert _wake_reason(room(master)) == "daddy"
+    assert _wake_reason(room(plain)) == "wake"
+    assert _wake_reason(room(user)) == ""
+    assert _wake_reason(SimpleNamespace()) == ""
+    assert DADDY_GREETING == "Welcome back, Sir."
+
+
+def test_summon_token_carries_the_reason():
+    import jwt as _jwt  # noqa: F401  (pyjwt ships with livekit-api)
+
+    from wake_client import mint_summon_token
+
+    tok = mint_summon_token(
+        url="ws://x", api_key="k", api_secret="s" * 32, room="r", agent_name="a",
+        reason="daddy",
+    )
+    import base64
+    import json
+
+    body = json.loads(base64.urlsafe_b64decode(tok.split(".")[1] + "=="))
+    assert body["attributes"] == {"jarvis.wake": "daddy"}
+
+
+def test_briefing_instructions_forbid_tools_and_keep_facts():
+    from agent import _briefing_instructions
+
+    text = _briefing_instructions("Auto: +19°C top stories: A; B. School: none")
+    assert "do not call any tools" in text and "+19°C" in text and "headline" in text

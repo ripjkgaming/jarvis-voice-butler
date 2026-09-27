@@ -224,9 +224,16 @@ def _announce(meta: dict) -> None:
         meta.get("status", ""), meta.get("status", "")
     )
     kind = "Research" if meta.get("kind") == "research" else "Coding job"
+    replace = ["-r", str(meta["notify_id"])] if meta.get("notify_id") else []
+    done = meta.get("status") == "done"
+    hint = ["-h", "int:value:100"] if done else []
+    body = meta.get("title", "")[:120]
+    if meta.get("notify_id"):
+        body = f"{text_bar(100) if done else ''}\n{body}".strip()
     with contextlib.suppress(Exception):
         subprocess.run(
-            ["notify-send", f"Jarvis: {kind} {verb}", meta.get("title", "")[:120]],
+            ["notify-send", "-a", "Jarvis", "-t", "8000", *replace, *hint,
+             f"Jarvis: {kind} {verb}", body],
             timeout=5,
             capture_output=True,
         )
@@ -234,6 +241,136 @@ def _announce(meta: dict) -> None:
         from system import log_action
 
         log_action("project", f"{meta.get('kind')} {meta.get('status')} {meta['id']}")
+
+
+def delete_project(pid: str) -> bool:
+    """Cancel if running, then remove the project folder. Never raises."""
+    if not valid_id(pid) or _read_meta(pid) is None:
+        return False
+    with contextlib.suppress(Exception):
+        cancel_project(pid)
+    try:
+        shutil.rmtree(_dir(pid))
+    except OSError:
+        return False
+    if BUS.selected_id == pid:
+        BUS.selected_id = None
+    with contextlib.suppress(Exception):
+        from system import log_action
+
+        log_action("project", f"deleted {pid}")
+    return True
+
+
+# --- research progress ----------------------------------------------------
+
+
+def research_progress(steps: int, writing: bool, done: bool = False) -> int:
+    """Percent for a research run from what it has done. Pure.
+
+    There is no known total, so web steps climb toward 80 (fast at first,
+    then slower); prose starting jumps to 88; only the result is 100.
+    """
+    import math
+
+    if done:
+        return 100
+    pct = 5 + 75 * (1 - math.exp(-steps / 6.0)) if steps else 3
+    if writing:
+        pct = max(pct, 88)
+    return int(min(pct, 97))
+
+
+def text_bar(pct: int, cells: int = 16) -> str:
+    """▰▰▰▱▱▱ progress bar for plain-text notifications. Pure."""
+    filled = max(0, min(cells, round(pct / 100 * cells)))
+    return "▰" * filled + "▱" * (cells - filled)
+
+
+def research_stage(ev: dict) -> str:
+    """Human stage line for one progress event. Pure."""
+    from urllib.parse import urlparse
+
+    kind = ev.get("kind")
+    if kind == "search":
+        return f"Searching: {ev.get('detail', '')}"[:90]
+    if kind == "fetch":
+        host = urlparse(ev.get("detail", "")).netloc.removeprefix("www.")
+        return f"Reading: {host or 'a source'}"[:90]
+    if kind == "writing":
+        return "Writing the report"
+    return "Working"
+
+
+class ResearchProgress:
+    """Folds stream events into meta.progress/stage + a live notification.
+
+    Meta writes and notification updates are throttled; the notification
+    is one KDE toast updated in place (notify-send -r) with a progress
+    bar (the int:value hint), later replaced by the ready/failed toast.
+    """
+
+    def __init__(self, meta: dict, *, notify=True, min_gap_s: float = 1.5) -> None:
+        self.pid = meta["id"]
+        self.title = meta.get("title", "")[:80]
+        self.steps = 0
+        self.writing = False
+        self.stage = "Starting"
+        self.notify = notify
+        self.notify_id: str | None = None
+        self.min_gap_s = min_gap_s
+        self._last = 0.0
+        self._flush(force=True)
+
+    def on_event(self, ev: dict) -> None:
+        kind = ev.get("kind")
+        if kind in ("search", "fetch"):
+            self.steps += 1
+        elif kind == "writing":
+            if self.writing:
+                return
+            self.writing = True
+        else:
+            return
+        self.stage = research_stage(ev)
+        self._flush()
+
+    @property
+    def percent(self) -> int:
+        return research_progress(self.steps, self.writing)
+
+    def _flush(self, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last < self.min_gap_s:
+            return
+        self._last = now
+        meta = _read_meta(self.pid)
+        if not meta or meta.get("status") != "running":
+            return
+        meta.update(progress=self.percent, stage=self.stage, steps=self.steps)
+        if self.notify:
+            self._notify()
+            if self.notify_id:
+                meta["notify_id"] = self.notify_id
+        _write_meta(meta)
+
+    def _notify(self) -> None:
+        # -t 0 keeps the toast up so it fills live (an expired toast only
+        # updates silently in history). Plasma ignores the value hint on
+        # plain toasts, so the bar is drawn in text too.
+        argv = ["notify-send", "-a", "Jarvis", "-p", "-t", "0",
+                "-h", f"int:value:{self.percent}"]
+        if self.notify_id:
+            argv += ["-r", self.notify_id]
+        argv += [
+            f"Jarvis: researching · {self.percent}%",
+            f"{text_bar(self.percent)}\n{self.title}\n{self.stage}",
+        ]
+        with contextlib.suppress(Exception):
+            out = subprocess.run(argv, timeout=5, capture_output=True, text=True)
+            got = (out.stdout or "").strip()
+            if got.isdigit():
+                self.notify_id = got
 
 
 # --- research -------------------------------------------------------------
@@ -260,14 +397,25 @@ def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
     meta = _new_meta("research", topic, topic, claude_cli.RESEARCH_MODEL)
 
     def work() -> None:
-        reply, warning = claude_cli.claude_reply(
-            RESEARCH_BRIEF.format(topic=topic),
-            model=claude_cli.RESEARCH_MODEL,
-            system=RESEARCH_SYSTEM,
-            tools="WebSearch,WebFetch",
-            timeout=RESEARCH_TIMEOUT_S,
-            runner=runner,
-        )
+        if runner is not None:
+            reply, warning = claude_cli.claude_reply(
+                RESEARCH_BRIEF.format(topic=topic),
+                model=claude_cli.RESEARCH_MODEL,
+                system=RESEARCH_SYSTEM,
+                tools="WebSearch,WebFetch",
+                timeout=RESEARCH_TIMEOUT_S,
+                runner=runner,
+            )
+        else:
+            progress = ResearchProgress(meta)
+            reply, warning = claude_cli.claude_stream(
+                RESEARCH_BRIEF.format(topic=topic),
+                model=claude_cli.RESEARCH_MODEL,
+                system=RESEARCH_SYSTEM,
+                tools="WebSearch,WebFetch",
+                timeout=RESEARCH_TIMEOUT_S,
+                on_event=progress.on_event,
+            )
         current = _read_meta(meta["id"]) or meta
         if current.get("status") == "cancelled":
             return
@@ -278,7 +426,10 @@ def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
                 (_dir(meta["id"]) / "sources.md").write_text(
                     "## Sources\n\n" + "\n".join(f"- {u}" for u in sources) + "\n"
                 )
-            current.update(status="done", summary=summary, sources=sources)
+            current.update(
+                status="done", summary=summary, sources=sources, progress=100,
+                stage="Report ready",
+            )
         else:
             current.update(status="failed", error=warning or "no report")
         _write_meta(current)
@@ -479,6 +630,16 @@ class UiBus:
         self.selected_id: str | None = None
         self.filter = "all"
         self.last_active = 0.0
+        # Voice delete is two-step: "delete this project" parks it here,
+        # "confirm delete" within DELETE_CONFIRM_S erases it.
+        self.pending_delete: dict | None = None
+
+    def delete_pending(self, now: float | None = None) -> dict | None:
+        p = self.pending_delete
+        now = time.monotonic() if now is None else now
+        if p and now - p["at"] <= DELETE_CONFIRM_S:
+            return p
+        return None
 
     def push(self, action: str, **fields) -> int:
         with self._lock:
@@ -509,6 +670,7 @@ class UiBus:
             }
 
 
+DELETE_CONFIRM_S = 30.0
 BUS = UiBus()
 
 
@@ -535,8 +697,8 @@ _RULES: tuple[tuple[str, str], ...] = (
     ("show", rf"^(?:open|show|bring up|pull up|launch)(?: me)?(?: my| the)? {_PROJ}(?: window| archive)?$"),
     ("show", r"^(?:open|show)(?: the)? project archive$"),
     ("hide", rf"^(?:close|hide)(?: my| the)? {_PROJ}(?: window| archive)?$"),
-    ("select_n", rf"^(?:open|select|show|go to|navigate to|switch to|jump to)(?: the)? project(?: number)? {_ORD}$"),
-    ("select_n", rf"^(?:open|select|show|go to|navigate to|switch to|jump to)(?: the)? {_ORD} project$"),
+    ("select_n", rf"^(?:(?:open|select|show|go to|navigate to|switch to|jump to|do|pick|choose|take|load|pull up|bring up)(?: up)?(?: the)? )?project(?: number)? {_ORD}$"),
+    ("select_n", rf"^(?:open|select|show|go to|navigate to|switch to|jump to|do|pick|choose|take|load|pull up|bring up)(?: up)?(?: the)? {_ORD} project$"),
     ("doc", rf"^(?:open|show|read|go to|pull up|bring up)(?: up)?(?: the)? {_ORD} (?:document|doc|file|one|report)$"),
     ("doc", rf"^(?:open |show |read )?(?:the )?(?:document|doc|file)(?: number)? {_ORD}$"),
     ("scroll_start", r"^(?:start |begin |keep |now )?(?:scrolling|scroll)(?: down)?(?: through(?: it| them| this)?)?(?: (?:really |very |nice and )?(slowly|slow|gently|quickly|quick|fast|medium))?$"),
@@ -550,6 +712,11 @@ _RULES: tuple[tuple[str, str], ...] = (
     ("close_doc", r"^close(?: the| this)? (?:document|doc|file)$"),
     ("back", r"^(?:go )?back$"),
     ("abort", r"^(?:abort|cancel|kill|stop)(?: this| the| that| my)?(?: research| coding| code)? (?:project|job)$"),
+    ("confirm_delete", r"^(?:yes )?(?:confirm(?: the)? (?:delete|deletion)|confirm|yes delete(?: it)?|delete it)$"),
+    ("delete", r"^(?:delete|remove|erase|trash|get rid of)(?: this| the| that| my)?(?: research| coding| code)? project$"),
+    ("delete_n", rf"^(?:delete|remove|erase|trash)(?: the)? project(?: number)? {_ORD}$"),
+    ("delete_n", rf"^(?:delete|remove|erase|trash)(?: the)? {_ORD} project$"),
+    ("delete_name", rf"^(?:delete|remove|erase|trash|get rid of)(?: the| my)? (.+?) {_PROJ}$"),
     ("select_name", rf"^(?:navigate|go|switch|jump) to(?: the)? (.+?)(?: {_PROJ})?$"),
     ("select_name", rf"^(?:open|select|show)(?: the| my)? (.+?) {_PROJ}$"),
 )  # fmt: skip
@@ -573,7 +740,32 @@ def _norm(text: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9' ]+", " ", (text or "").lower()).split())
 
 
+# Politeness and wake words around a command ("jarvis can you open
+# project two please"); STT mangles the name ("jafis", "javis").
+_POLITE_HEAD = re.compile(
+    r"^(?:(?:hey|ok|okay|yo)\s+)?(?:(?:jarvis|jafis|javis|jarvus|travis)\s+)?"
+    r"(?:(?:can|could|would|will) you(?: please)?\s+|please\s+|i want (?:you )?to\s+|"
+    r"let'?s\s+|now\s+)*"
+)
+_POLITE_TAIL = re.compile(r"\s+(?:please|for me|now|jarvis|thanks|thank you)$")
+
+
+_FILLER_ONLY = re.compile(
+    r"^(?:(?:hey|ok|okay|yo|jarvis|jafis|javis|jarvus|travis|please|now|so|um|uh|"
+    r"can you|could you|would you|will you|for me|thanks|thank you)\s*)+$"
+)
+
+
+def _strip_polite(clause: str) -> str:
+    out = _POLITE_HEAD.sub("", clause, count=1)
+    prev = None
+    while prev != out:
+        prev, out = out, _POLITE_TAIL.sub("", out)
+    return out.strip() or clause
+
+
 def _match_clause(clause: str) -> tuple[str, re.Match] | None:
+    clause = _strip_polite(clause)
     for name, rx in _COMPILED:
         m = rx.match(clause)
         if m:
@@ -615,7 +807,7 @@ def parse_voice(text: str, projects: list[dict] | None = None) -> list[dict] | N
         _norm(piece)
         for chunk in _SPLIT.split((text or "").lower())
         for piece in _VERB_CUT.split(chunk)
-        if _norm(piece)
+        if _norm(piece) and not _FILLER_ONLY.match(_norm(piece))
     ]
     # Re-join fragments that only parse together ("research and development
     # project"): greedily merge an unparsed piece into the previous one.
@@ -634,6 +826,12 @@ def parse_voice(text: str, projects: list[dict] | None = None) -> list[dict] | N
         name, m = hit
         if name == "show":
             cmds.append({"action": "show"})
+            # "open research projects" also narrows the list, so a later
+            # "project two" counts within what Sir is looking at.
+            kind = re.search(r"\b(research|coding|code)\b", m.group(0))
+            if kind:
+                f = "research" if kind.group(1) == "research" else "code"
+                cmds.append({"action": "filter", "filter": f})
         elif name == "hide":
             cmds.append({"action": "hide"})
         elif name == "filter":
@@ -684,10 +882,30 @@ def parse_voice(text: str, projects: list[dict] | None = None) -> list[dict] | N
             cmds.append({"action": "back"})
         elif name == "abort":
             cmds.append({"action": "abort"})
+        elif name == "delete":
+            cmds.append({"action": "delete"})
+        elif name == "delete_n":
+            cmds.append({"action": "delete", "index": _ordinal(m.group(1))})
+        elif name == "delete_name":
+            if plist is None:
+                plist = list_projects()
+            proj = _find_project(m.group(1), plist)
+            if proj is None:
+                cmds.append({"action": "missing", "query": m.group(1)})
+            else:
+                cmds.append(
+                    {"action": "delete", "project_id": proj["id"], "title": proj.get("title", "")}
+                )
+        elif name == "confirm_delete":
+            # A bare "confirm" is only ours while a delete is waiting.
+            if BUS.delete_pending() is None:
+                return None
+            cmds.append({"action": "confirm_delete"})
     # Bare navigation words ("back", "faster", "go to the top") are only
     # ours when the archive is the active surface: require a projects
     # clause in the utterance or a prior voice selection.
-    strong = {"show", "hide", "select", "open_document", "filter", "abort", "missing"}
+    strong = {"show", "hide", "select", "open_document", "filter", "abort", "missing",
+              "delete", "confirm_delete"}
     if not any(c["action"] in strong for c in cmds) and not BUS.active():
         return None
     return cmds
@@ -726,6 +944,14 @@ def reply_for(cmds: list[dict]) -> str:
         }.get(last.get("mode", ""), "Very good.")
     if a == "open_document":
         return f"Document {_speak_ordinal(last.get('index', 1))}, Sir."
+    if a == "delete":
+        what = (
+            last.get("title")
+            or (f"project {_speak_ordinal(last['index'])}" if "index" in last else "this project")
+        )
+        return f"Say 'confirm delete' to erase {what}, Sir. It cannot be undone."
+    if a == "confirm_delete":
+        return "Deleted, Sir."
     if a == "select":
         t = last.get("title")
         return f"{t}, Sir." if t else "Right away, Sir."
@@ -791,6 +1017,35 @@ def execute_voice(cmds: list[dict], heard: str = "", run=subprocess.run) -> dict
         if a == "abort":
             pid = BUS.selected_id
             ok = bool(pid and cancel_project(pid)) and ok
+            continue
+        if a == "delete":
+            pid = c.get("project_id")
+            if not pid and "index" in c:
+                plist = [
+                    p
+                    for p in list_projects()
+                    if BUS.filter == "all" or p.get("kind") == BUS.filter
+                ]
+                i = c["index"] - 1 if c["index"] > 0 else len(plist) - 1
+                pid = plist[i]["id"] if 0 <= i < len(plist) else None
+            pid = pid or BUS.selected_id
+            meta = _read_meta(pid) if pid else None
+            if not meta:
+                ok = False
+                continue
+            BUS.pending_delete = {"id": pid, "title": meta.get("title", ""), "at": time.monotonic()}
+            show()
+            BUS.push("delete_pending", heard=echo, project_id=pid)
+            echo = None
+            continue
+        if a == "confirm_delete":
+            pending = BUS.delete_pending()
+            BUS.pending_delete = None
+            if not pending or not delete_project(pending["id"]):
+                ok = False
+                continue
+            BUS.push("deleted", heard=echo, project_id=pending["id"])
+            echo = None
             continue
         if a == "select" and not c.get("project_id") and "index" in c:
             plist = [

@@ -240,9 +240,16 @@ export function SysCore() {
   const arcWarn = hasData && (arcBatt === null || (arcBatt < 20 && laptop?.ac !== true));
 
   const ageS = phone ? phone.age_s : null;
-  const uplinkValue = !hasData || ageS === null ? '—' : `${Math.round(ageS)}S`;
-  const uplinkSub = !hasData ? '—' : phone ? 'AGO' : 'OFFLINE';
-  const uplinkWarn = hasData && !phone;
+  const uplinkValue = !hasData
+    ? '—'
+    : ageS !== null
+      ? `${Math.round(ageS)}S`
+      : sys?.phone_tailnet?.online
+        ? 'ON'
+        : '—';
+  const onTailnet = sys?.phone_tailnet?.online === true;
+  const uplinkSub = !hasData ? '—' : phone ? 'AGO' : onTailnet ? 'TAILNET' : 'OFFLINE';
+  const uplinkWarn = hasData && !phone && !onTailnet;
   const uplinkPct = phone ? Math.max(0, (1 - phone.age_s / UPLINK_FULL_S) * 100) : 0;
 
   const tempValue = !hasData || temp === null ? '—' : `${Math.round(temp)}°C`;

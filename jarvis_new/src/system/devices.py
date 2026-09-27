@@ -633,12 +633,15 @@ class DeviceTools:
             "files": "dolphin",
             "sober": "sober",
             "roblox": "sober",
-            "spotify": "spotify",
             "discord": "discord",
         }
         target = known.get(app.strip().lower(), app.strip())
         if target == "sober" and shutil.which("sober") is None:
             target = "flatpak run org.vinegarhq.Sober"
+        from system.launcher import blocked_say, is_blocked
+
+        if blocked := is_blocked(app, target):
+            raise ToolError(blocked_say(blocked))
         try:
             argv = target.split() if " " in target else [target]
             await asyncio.create_subprocess_exec(

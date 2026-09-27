@@ -153,19 +153,34 @@ class ProjectTools:
         }
 
     @function_tool()
-    async def open_projects(self, context: RunContext) -> dict[str, str]:
-        """Show Sir's Project Archive window (research + coding projects).
+    async def open_projects(self, context: RunContext, command: str = "") -> dict[str, str]:
+        """Show Sir's Project Archive window and steer it by voice.
 
-        For "open / show my (research) projects". Navigation inside it
-        ("open the second document", "start scrolling") is handled by the
-        instant voice route; this only brings the window up.
+        For "open / show my (research) projects", and for anything that
+        navigates inside it ("open project two", "open the first document",
+        "start scrolling", "go back"): pass Sir's words as `command`.
+
+        Args:
+            command: Sir's navigation words, verbatim (e.g. "open project
+                two and open the first document"). Empty = just show it.
         """
+        import projects as _projects
+
+        cmds = [{"action": "show"}]
+        if command.strip():
+            parsed = await asyncio.to_thread(_projects.parse_voice, command)
+            if parsed is None:
+                raise ToolError(
+                    "I didn't catch which project or document, Sir. "
+                    "Try 'open project two' or 'open the first document'."
+                )
+            cmds = parsed
         got = await asyncio.to_thread(
             _bridge_call,
             "POST",
             "/tool",
-            {"tool": "projects_ui", "args": {"commands": [{"action": "show"}]}},
+            {"tool": "projects_ui", "args": {"commands": cmds, "heard": command[:200]}},
         )
         if not (got or {}).get("ok"):
-            raise ToolError("The project archive didn't respond.")
-        return {"say": "Your projects, Sir."}
+            raise ToolError((got or {}).get("error") or "The project archive didn't respond.")
+        return {"say": _projects.reply_for(cmds) if command.strip() else "Your projects, Sir."}

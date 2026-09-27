@@ -118,9 +118,19 @@ class LatencyTracker:
 TRACKER = LatencyTracker()
 
 
+def wait_s(summary: TurnSummary) -> float:
+    """What Sir actually waited: until first audio when known. Pure.
+
+    total_s runs until the reply is committed, which on Gemini Live is
+    after the whole answer has played, so a long answer that started in
+    4 s looked like a 15 s stall and got a spoken timing report.
+    """
+    return next((t for p, t in summary.phases if p == "speaking"), summary.total_s)
+
+
 def should_announce(summary: TurnSummary) -> bool:
     """Only real stalls with an attributable tool cause get spoken."""
-    return summary.total_s >= SPEAK_THRESHOLD_S and bool(summary.calls)
+    return wait_s(summary) >= SPEAK_THRESHOLD_S and bool(summary.calls)
 
 
 def format_breakdown(summary: TurnSummary) -> str:

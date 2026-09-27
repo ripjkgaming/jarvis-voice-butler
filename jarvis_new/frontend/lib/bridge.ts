@@ -44,6 +44,10 @@ export type BridgeSys = {
   mem_bytes?: { MemTotal?: number; MemAvailable?: number };
   home_free_bytes?: number;
   phone?: { battery: number; charging: boolean; age_s: number } | null;
+  /** Phone presence per Tailscale; null = tailscale unavailable. */
+  phone_tailnet?: { online: boolean; name: string } | null;
+  /** Running research jobs with live progress (0-100) and current step. */
+  research?: { id: string; title: string; progress: number; stage: string }[];
   laptop_power?: {
     battery: number | null;
     status: string;

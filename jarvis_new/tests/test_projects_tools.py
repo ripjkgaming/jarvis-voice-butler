@@ -100,3 +100,21 @@ def test_spoken_result():
         {"status": "failed", "title": "x", "error": "rate limited"}
     )
     assert "done" in spoken_result({"status": "done", "kind": "code", "title": "x"})
+
+
+async def test_open_projects_carries_navigation(monkeypatch):
+    sent = []
+
+    def fake(method, path, body=None):
+        sent.append(body)
+        return {"ok": True}
+
+    monkeypatch.setattr(projects_tools, "_bridge_call", fake)
+    monkeypatch.setattr("projects.BUS.active", lambda: True, raising=False)
+    out = await ProjectTools.open_projects(
+        ProjectTools(), _ctx(), command="can you do project two"
+    )
+    assert sent[-1]["args"]["commands"] == [{"action": "select", "index": 2}]
+    assert out["say"]
+    with pytest.raises(ToolError):
+        await ProjectTools.open_projects(ProjectTools(), _ctx(), command="make me a sandwich")

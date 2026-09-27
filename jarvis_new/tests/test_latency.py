@@ -256,3 +256,16 @@ async def test_watchdog_stays_quiet_while_working(monkeypatch) -> None:
     await _specialist_watchdog(FakeSession(), entered_at=0.0)
     assert said == []
     TRACKER.pending = 0
+
+
+def test_long_answer_that_started_fast_is_not_a_stall():
+    t = LatencyTracker()
+    t.turn_begin(now=0.0)
+    t.record_tool_call("quote_action", 5.0)
+    t.mark("speaking", now=4.5)
+    # Committed at 16 s because the answer itself was long: not a stall.
+    assert not should_announce(t.turn_end(now=16.0))
+    t.turn_begin(now=0.0)
+    t.record_tool_call("research", 9000.0)
+    t.mark("speaking", now=SPEAK_THRESHOLD_S + 2)
+    assert should_announce(t.turn_end(now=SPEAK_THRESHOLD_S + 8))

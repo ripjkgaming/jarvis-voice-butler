@@ -73,3 +73,73 @@ def test_kill_switch(monkeypatch):
         which=_which,
     )
     assert reply == "" and "disabled" in warn
+
+
+def _line(obj):
+    import json
+
+    return json.dumps(obj) + "\n"
+
+
+def test_stream_event_parses_progress():
+    from claude_cli import stream_event
+
+    search = _line({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "WebSearch", "input": {"query": "sober roblox linux"}}]}})
+    fetch = _line({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "WebFetch", "input": {"url": "https://github.com/x"}}]}})
+    text = _line({"type": "assistant", "message": {"content": [{"type": "text", "text": "## Summary"}]}})
+    done = _line({"type": "result", "subtype": "success", "is_error": False, "result": "report"})
+    assert stream_event(search) == [{"kind": "search", "detail": "sober roblox linux"}]
+    assert stream_event(fetch) == [{"kind": "fetch", "detail": "https://github.com/x"}]
+    assert stream_event(text) == [{"kind": "writing"}]
+    assert stream_event(done) == [{"kind": "result", "text": "report", "error": False}]
+    assert stream_event("not json") == []
+    assert stream_event(_line({"type": "system"})) == []
+
+
+class _StreamProc:
+    def __init__(self, lines, rc=0):
+        import io
+
+        self.stdin = io.StringIO()
+        self.stdout = iter(lines)
+        self.stderr = io.StringIO("")
+        self.returncode = rc
+
+    def wait(self):
+        return self.returncode
+
+    def kill(self):
+        pass
+
+
+def test_claude_stream_reports_events_and_result(monkeypatch):
+    import claude_cli
+
+    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    lines = [
+        _line({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "WebSearch", "input": {"query": "q"}}]}}),
+        _line({"type": "result", "subtype": "success", "is_error": False, "result": "## Summary\nok"}),
+    ]
+    seen = []
+    argv_seen = {}
+
+    def popen(argv, **kw):
+        argv_seen["argv"] = argv
+        return _StreamProc(lines)
+
+    reply, warning = claude_cli.claude_stream(
+        "p", model="m", system="s", tools="WebSearch", on_event=seen.append,
+        popen=popen, which=lambda n: "/usr/bin/claude",
+    )
+    assert (reply, warning) == ("## Summary\nok", None)
+    assert [e["kind"] for e in seen] == ["search", "result"]
+    assert "stream-json" in argv_seen["argv"] and "--verbose" in argv_seen["argv"]
+    bad = [_line({"type": "result", "subtype": "error_max_turns", "is_error": True, "result": ""})]
+    reply, warning = claude_cli.claude_stream(
+        "p", model="m", system="s", popen=lambda a, **k: _StreamProc(bad, rc=1),
+        which=lambda n: "/usr/bin/claude",
+    )
+    assert reply == "" and warning

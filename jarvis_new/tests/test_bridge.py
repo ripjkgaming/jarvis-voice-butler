@@ -620,9 +620,9 @@ def test_projects_voice_route_beats_app_launcher(monkeypatch):
     monkeypatch.setattr(projects, "BUS", projects.UiBus())
     hit = bridge._match_voice_tool("Jarvis, open research projects.")
     assert hit is not None and hit[0] == "projects_ui"
-    assert hit[1]["commands"] == [{"action": "show"}]
+    assert hit[1]["commands"][0] == {"action": "show"}
     hit = bridge._match_voice_tool("open research projects and open project two")
-    assert [c["action"] for c in hit[1]["commands"]] == ["show", "select"]
+    assert [c["action"] for c in hit[1]["commands"]] == ["show", "filter", "select"]
     # Websites and searches keep their own routes.
     assert bridge._match_voice_tool("open youtube")[0] == "open_app"
     assert bridge._match_voice_tool("search for batteries") is None or (
@@ -965,6 +965,25 @@ def test_phone_telemetry_roundtrip_and_staleness() -> None:
     bridge._PHONE_TELEMETRY.clear()
 
 
+def test_phone_peer_picks_mobile_or_pinned_ip(monkeypatch) -> None:
+    import bridge
+
+    status = {
+        "Peer": {
+            "a": {"OS": "linux", "HostName": "box", "TailscaleIPs": ["100.1.1.1"]},
+            "b": {"OS": "android", "HostName": "pixel", "Online": True,
+                  "TailscaleIPs": ["100.2.2.2"]},
+        }
+    }
+    monkeypatch.delenv("JARVIS_PHONE_TAILNET_IP", raising=False)
+    assert bridge._phone_peer(status)["HostName"] == "pixel"
+    monkeypatch.setenv("JARVIS_PHONE_TAILNET_IP", "100.1.1.1")
+    assert bridge._phone_peer(status)["HostName"] == "box"
+    monkeypatch.setenv("JARVIS_PHONE_TAILNET_IP", "100.9.9.9")
+    assert bridge._phone_peer(status) is None
+    assert bridge._phone_peer({}) is None
+
+
 def test_laptop_power_and_cpu_temp_from_sysfs(tmp_path) -> None:
     import bridge
 
@@ -988,3 +1007,33 @@ def test_laptop_power_and_cpu_temp_from_sysfs(tmp_path) -> None:
         (z / "type").write_text(kind)
         (z / "temp").write_text(temp)
     assert bridge._cpu_temp_c(th) == 71.5
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("Can you take 2,401 and subtract 1,605?", 796),
+        ("Can you tell me what 7 to the power of 4 is?", 2401),
+        ("What is 7 ^ 4?", 2401),
+        ("what is 12 times 12", 144),
+        ("what is 15% of 80", 12),
+        ("what's 144 divided by 12", 12),
+        ("subtract 5 from 20", 15),
+        ("what is the square root of 144", 12),
+        ("Jarvis, what's 3 plus 4 times 2", 11),
+    ],
+)
+def test_spoken_math_is_instant(text, value):
+    hit = bridge._match_voice_tool(text)
+    assert hit is not None and hit[0] == "do_math"
+    assert bridge._safe_math(hit[1]["expr"]) == value
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["what is the capital of australia", "what time is it", "2 to the 99999",
+     "who wrote romeo and juliet", "open project two"],
+)
+def test_spoken_math_leaves_other_turns_alone(text):
+    hit = bridge._match_voice_tool(text)
+    assert hit is None or hit[0] != "do_math"

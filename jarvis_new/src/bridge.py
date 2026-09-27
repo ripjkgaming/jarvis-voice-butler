@@ -276,6 +276,55 @@ def _clean_voice_text(text: str) -> str:
     return cleaned
 
 
+# Spoken arithmetic -> expression, answered locally with no model round
+# trip ("take 2,401 and subtract 1,605", "7 to the power of 4").
+_MATH_LEAD = re.compile(
+    r"^(?:(?:hey |ok |okay )?(?:jarvis|jafis|javis)[,\s]*)?"
+    r"(?:(?:can|could|would) you(?: please)?\s+)?(?:please\s+)?"
+    r"(?:(?:tell me|work out|calculate|compute|figure out|solve)\s+)?"
+    r"(?:what(?:'s| is| are)?\s+|how much is\s+)?(?:the\s+)?"
+)
+_MATH_WORDS: tuple[tuple[str, str], ...] = (
+    (r"\bsquare root of (\d+(?:\.\d+)?)", r"(\1)**0.5"),
+    (r"(\d+(?:\.\d+)?)\s*(?:%|percent|per cent) of (\d+(?:\.\d+)?)", r"(\1*\2/100)"),
+    (r"\btake (\d+(?:\.\d+)?) and (?:subtract|minus|take away) (\d+(?:\.\d+)?)", r"\1 - \2"),
+    (r"\btake (\d+(?:\.\d+)?) and (?:add|plus) (\d+(?:\.\d+)?)", r"\1 + \2"),
+    (r"\btake (\d+(?:\.\d+)?) and (?:multiply(?: it)? by|times) (\d+(?:\.\d+)?)", r"\1 * \2"),
+    (r"\btake (\d+(?:\.\d+)?) and divide(?: it)? by (\d+(?:\.\d+)?)", r"\1 / \2"),
+    (r"\bsubtract (\d+(?:\.\d+)?) from (\d+(?:\.\d+)?)", r"\2 - \1"),
+    (r"\badd (\d+(?:\.\d+)?) (?:and|to) (\d+(?:\.\d+)?)", r"\1 + \2"),
+    (r"\bmultiply (\d+(?:\.\d+)?) (?:and|by) (\d+(?:\.\d+)?)", r"\1 * \2"),
+    (r"\bdivide (\d+(?:\.\d+)?) by (\d+(?:\.\d+)?)", r"\1 / \2"),
+    (r"\s*(?:to the power of|raised to(?: the power of)?|to the)\s*", " ** "),
+    (r"\s*squared\b", " ** 2"),
+    (r"\s*cubed\b", " ** 3"),
+    (r"\s*(?:multiplied by|times|x)\s*", " * "),
+    (r"\s*(?:divided by|over)\s*", " / "),
+    (r"\s*(?:plus|add)\s*", " + "),
+    (r"\s*(?:minus|take away|subtract)\s*", " - "),
+)
+_MATH_EXPR = re.compile(r"^[\d.\s()+\-*/]+$")
+
+
+def _spoken_math(text: str) -> str | None:
+    """Safe arithmetic expression for a spoken sum, or None. Pure."""
+    t = (text or "").lower().strip()
+    t = re.sub(r"(?<=\d),(?=\d{3}\b)", "", t)  # 2,401 -> 2401
+    t = t.replace("^", " ** ").replace("×", " * ").replace("÷", " / ")
+    t = re.sub(r"[?!.]+$", "", t).strip()
+    t = _MATH_LEAD.sub("", t, count=1)
+    t = re.sub(r"\s+(?:is|equals?|please|for me)$", "", t).strip()
+    for rx, rep in _MATH_WORDS:
+        t = re.sub(rx, rep, t)
+    t = " ".join(t.split())
+    if not _MATH_EXPR.match(t) or not re.search(r"[\d)]\s*(?:\*\*|[+\-*/])\s*\(?\d", t):
+        return None
+    # Keep exponents voice-sized: 9 ** 99999 would stall the bridge.
+    if any(float(e) > 64 for e in re.findall(r"\*\*\s*\(?(\d+(?:\.\d+)?)", t)):
+        return None
+    return t
+
+
 def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     """Map spoken/chatted text to (tool, args, reply). None = pure chat.
 
@@ -285,6 +334,9 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     lowered = _clean_voice_text(text)
     if not lowered:
         return None
+    expr = _spoken_math(text)
+    if expr is not None:
+        return ("do_math", {"expr": expr}, None)
     # Voice-only Project Archive ("open research projects, navigate to the
     # battery project and open the first document and start scrolling").
     # Before the generic open_app route, which would launch "research
@@ -575,6 +627,64 @@ def _phone_stats(now: float | None = None) -> dict | None:
     }
 
 
+# Tailnet presence: the phone app only pushes telemetry while it's open,
+# so "no telemetry" != "phone offline". `tailscale status --json` knows
+# whether the phone is actually reachable. Cached; the HUD polls often.
+_TAILNET_CACHE: dict = {}
+_TAILNET_TTL_S = 15.0
+
+
+def _phone_peer(status: dict) -> dict | None:
+    """Pick the phone out of `tailscale status --json`. Pure.
+
+    JARVIS_PHONE_TAILNET_IP pins it; otherwise the first Android/iOS peer.
+    """
+    peers = list((status.get("Peer") or {}).values())
+    pinned = os.environ.get("JARVIS_PHONE_TAILNET_IP", "").strip()
+    if pinned:
+        return next((p for p in peers if pinned in (p.get("TailscaleIPs") or [])), None)
+    return next((p for p in peers if str(p.get("OS", "")).lower() in ("android", "ios")), None)
+
+
+def _phone_tailnet() -> dict | None:
+    """{"online", "name"} for the phone on the tailnet, None if unknown."""
+    now = time.monotonic()
+    if _TAILNET_CACHE and now - _TAILNET_CACHE["at"] < _TAILNET_TTL_S:
+        return _TAILNET_CACHE["value"]
+    value: dict | None = None
+    try:
+        out = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        peer = _phone_peer(json.loads(out.stdout)) if out.returncode == 0 else None
+        if peer is not None:
+            value = {"online": peer.get("Online") is True, "name": peer.get("HostName", "")}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        value = None
+    _TAILNET_CACHE.update(at=now, value=value)
+    return value
+
+
+def _running_research() -> list[dict]:
+    """Live research jobs for the HUD progress strip. Never raises."""
+    try:
+        import projects as _projects
+
+        return [
+            {
+                "id": m["id"],
+                "title": m.get("title", "")[:80],
+                "progress": int(m.get("progress") or 0),
+                "stage": m.get("stage") or "Starting",
+            }
+            for m in _projects.list_projects()
+            if m.get("kind") == "research" and m.get("status") == "running"
+        ][:3]
+    except Exception:
+        return []
+
+
 def _read_sys(path: Path) -> str | None:
     try:
         return path.read_text().strip()
@@ -628,6 +738,8 @@ def _sys_stats() -> dict:
     # Real HUD telemetry: phone battery ("suit power"), laptop power
     # ("arc reactor"), CPU temp, and whether a voice call is live.
     stats["phone"] = _phone_stats()
+    stats["phone_tailnet"] = _phone_tailnet()
+    stats["research"] = _running_research()
     stats["laptop_power"] = _laptop_power()
     stats["cpu_temp_c"] = _cpu_temp_c()
     stats["call_live"] = read_hud_room() is not None
@@ -765,6 +877,10 @@ def _launch_anything(name: str) -> dict:
         decision = resolve_launch(name, known_sites=known)
     except Exception as exc:
         return _tool_result(False, error=f"launcher failed: {str(exc)[:120]}")
+    from system.launcher import blocked_say, is_blocked
+
+    if blocked := is_blocked(name, decision.target, *decision.argv):
+        return _tool_result(False, error=blocked_say(blocked))
     if decision.kind == "app" and decision.argv:
         argv = list(decision.argv)
     else:
@@ -1039,6 +1155,10 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return _tool_result(True)
     if tool == "open_app":
         name = str(args.get("app", "")).strip().lower().rstrip(".,!? ")
+        from system.launcher import blocked_say, is_blocked
+
+        if blocked := is_blocked(name):
+            return _tool_result(False, error=blocked_say(blocked))
         try:
             from system.launcher import priority_app
 

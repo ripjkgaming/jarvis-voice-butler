@@ -166,10 +166,11 @@ def test_owners_example_chain():
         "and open the first document and start scrolling through them slowly",
         PLIST,
     )
-    assert [c["action"] for c in cmds] == ["show", "select", "open_document", "scroll"]
-    assert cmds[1]["project_id"] == PLIST[0]["id"]
-    assert cmds[2]["index"] == 1
-    assert cmds[3] == {"action": "scroll", "mode": "start", "speed": "slow"}
+    assert [c["action"] for c in cmds] == ["show", "filter", "select", "open_document", "scroll"]
+    assert cmds[1] == {"action": "filter", "filter": "research"}
+    assert cmds[2]["project_id"] == PLIST[0]["id"]
+    assert cmds[3]["index"] == 1
+    assert cmds[4] == {"action": "scroll", "mode": "start", "speed": "slow"}
 
 
 @pytest.mark.parametrize(
@@ -249,3 +250,78 @@ def test_bus_since_and_execute(monkeypatch, tmp_path):
     assert "heard" not in cmds[1]
     assert cmds[1]["project_id"] == PLIST[1]["id"]
     assert projects.BUS.selected_id == PLIST[1]["id"]
+
+
+def test_polite_and_misheard_project_commands():
+    plist = [{"id": "a", "title": "Roblox Sober", "kind": "research"}]
+    two = [{"action": "select", "index": 2}]
+    assert parse_voice("Can you do project two?", plist) == two
+    assert parse_voice("jarvis open project 2 please", plist) == two
+    assert parse_voice("can you open the second project", plist) == two
+    assert parse_voice("JAFIS, can you open research projects?", plist) == [
+        {"action": "show"},
+        {"action": "filter", "filter": "research"},
+    ]
+    assert parse_voice("Can you", plist) is None
+    assert parse_voice("what is the capital of australia", plist) is None
+
+
+def test_research_progress_curve():
+    from projects import research_progress, research_stage
+
+    assert research_progress(0, False) == 3
+    seq = [research_progress(n, False) for n in range(0, 30)]
+    assert seq == sorted(seq) and max(seq) <= 80
+    assert research_progress(3, True) == 88
+    assert research_progress(50, True) <= 97
+    assert research_progress(2, False, done=True) == 100
+    assert research_stage({"kind": "fetch", "detail": "https://www.github.com/a"}) == "Reading: github.com"
+    assert research_stage({"kind": "search", "detail": "sober"}) == "Searching: sober"
+
+
+def test_research_progress_writes_meta_and_notifies(monkeypatch):
+    calls = []
+
+    class _Out:
+        stdout = "4242\n"
+
+    monkeypatch.setattr(projects.subprocess, "run", lambda argv, **kw: calls.append(argv) or _Out())
+    meta = projects._new_meta("research", "sober", "sober", "m")
+    prog = projects.ResearchProgress(meta, min_gap_s=0.0)
+    prog.on_event({"kind": "search", "detail": "sober linux"})
+    prog.on_event({"kind": "fetch", "detail": "https://sober.vinegarhq.org/x"})
+    got = projects._read_meta(meta["id"])
+    assert got["steps"] == 2 and got["progress"] > 3 and got["stage"].startswith("Reading")
+    assert got["notify_id"] == "4242"
+    assert "-r" in calls[-1] and any(a.startswith("int:value:") for a in calls[-1])
+
+
+def test_voice_delete_needs_confirmation(monkeypatch):
+    monkeypatch.setattr(projects, "shell_verb", lambda verb, run=None: True)
+    meta = projects._new_meta("research", "roblox sober", "x", "m")
+    other = projects._new_meta("research", "batteries", "y", "m")
+    plist = projects.list_projects()
+    # "confirm" alone means nothing until a delete is waiting.
+    assert parse_voice("confirm delete", plist) is None
+    cmds = parse_voice("delete the roblox sober project", plist)
+    assert cmds == [{"action": "delete", "project_id": meta["id"], "title": "roblox sober"}]
+    assert "confirm delete" in projects.reply_for(cmds)
+    assert projects.execute_voice(cmds)["ok"]
+    assert projects._read_meta(meta["id"]) is not None  # not yet
+    confirm = parse_voice("confirm delete", plist)
+    assert projects.execute_voice(confirm)["ok"]
+    assert projects._read_meta(meta["id"]) is None
+    assert projects._read_meta(other["id"]) is not None
+    actions = [c["action"] for c in projects.BUS.since(0)["commands"]]
+    assert "delete_pending" in actions and actions[-1] == "deleted"
+    # Expired confirmation does nothing.
+    projects.execute_voice(parse_voice("delete the batteries project", projects.list_projects()))
+    projects.BUS.pending_delete["at"] -= projects.DELETE_CONFIRM_S + 1
+    assert parse_voice("confirm delete", plist) is None
+    assert projects._read_meta(other["id"]) is not None
+
+
+def test_text_bar():
+    assert projects.text_bar(0) == "▱" * 16
+    assert projects.text_bar(100) == "▰" * 16
+    assert projects.text_bar(50).count("▰") == 8
