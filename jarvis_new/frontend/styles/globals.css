@@ -3669,7 +3669,44 @@ html:has(.school-strip) body {
   overflow: hidden;
   background: #070b10;
 }
-.hud-orb-dock {
-  width: 100%;
-  height: 100%;
+.hud-orb-dot {
+  --orb: #5fe3ff;
+  display: block;
+  width: 62%;
+  height: 62%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 36% 32%,
+    #ffffff 0%,
+    var(--orb) 38%,
+    color-mix(in srgb, var(--orb) 45%, #000) 78%
+  );
+  box-shadow:
+    0 0 6px var(--orb),
+    0 0 14px color-mix(in srgb, var(--orb) 55%, transparent);
+  animation: hud-orb-breathe 3.2s ease-in-out infinite;
+}
+.hud-orb-dot[data-state='speaking'],
+.hud-orb-dot[data-state='listening'] {
+  animation-duration: 0.9s;
+}
+@keyframes hud-orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* The HUD pauses animations while idle; the taskbar orb keeps breathing. */
+.hud[data-state='idle'] .hud-orb-dot {
+  animation-play-state: running !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-orb-dot {
+    animation: none;
+  }
 }

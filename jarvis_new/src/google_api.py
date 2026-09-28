@@ -11,6 +11,7 @@ failure, never a traceback. Pass `opener=` in tests to fake the network.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -28,6 +29,9 @@ SCOPES = [
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
+# Media uploads live on a separate host path; POSTing multipart to
+# DRIVE_BASE/files is a 400 (create_google_doc and invoices never worked).
+UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
 DOCS_BASE = "https://docs.googleapis.com/v1/documents"
 SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 
@@ -102,6 +106,34 @@ def remember_account_email(account: str = "personal", opener=None) -> str:
             path.write_text(json.dumps(saved, indent=1))
         except OSError:
             pass
+    return email
+
+
+#: Said when a file is made "for school". Google refuses both a direct and a
+#: pending ownership transfer from a personal Gmail to another organization
+#: ("Ownership can only be transferred to another user in the same
+#: organization"), verified live 2026-09-28 — so the school account edits.
+SCHOOL_SHARE_NOTE = (
+    "Your school account can edit it; Google won't let a personal account "
+    "hand ownership to a school one, so use Make a copy there if it must own it."
+)
+
+
+def share_with_school(file_id: str, opener=None) -> str:
+    """Share a file Sir's main account made with his school account as an
+    editor (no notification email). Returns the school email. Raises
+    GoogleError when the school email is unknown or Google refuses."""
+    email = account_email("school")
+    if not email:
+        raise GoogleError("I don't know your school Google address yet, Sir.")
+    token = access_token(opener=opener)
+    _request_json(
+        "POST",
+        f"{DRIVE_BASE}/files/{file_id}/permissions?sendNotificationEmail=false",
+        token,
+        {"type": "user", "role": "writer", "emailAddress": email},
+        opener=opener,
+    )
     return email
 
 
@@ -321,7 +353,7 @@ def drive_upload(
         + f"\r\n--{boundary}--\r\n".encode()
     )
     req = urllib.request.Request(
-        f"{DRIVE_BASE}/files?uploadType=multipart&fields=id,name,mimeType",
+        f"{UPLOAD_BASE}/files?uploadType=multipart&fields=id,name,mimeType,webViewLink",
         data=body,
         method="POST",
         headers={
@@ -334,7 +366,10 @@ def drive_upload(
         with call(req, timeout=60) as resp:
             meta = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
-        raise GoogleError(f"Google refused the upload ({exc.code}).") from exc
+        detail = ""
+        with contextlib.suppress(Exception):
+            detail = json.loads(exc.read().decode())["error"]["message"][:160]
+        raise GoogleError(f"Google refused the upload ({exc.code}) {detail}".strip()) from exc
     except Exception as exc:
         raise GoogleError(f"Google did not respond ({exc}).") from exc
     if not isinstance(meta, dict) or not meta.get("id"):

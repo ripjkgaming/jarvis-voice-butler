@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import { CommandLog } from '@/components/hud/command-log';
 import { EdgePulse } from '@/components/hud/edge-pulse';
 import { ExecFeed } from '@/components/hud/exec-feed';
@@ -18,7 +18,7 @@ import { VoiceDock } from '@/components/hud/voice-dock';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
 import { useHudEvents } from '@/hooks/hud/use-hud-events';
-import { useJarvisState, useMicMuted } from '@/hooks/hud/use-jarvis-state';
+import { MUTED_COLOR, useJarvisState, useMicMuted } from '@/hooks/hud/use-jarvis-state';
 import { type BridgeSys } from '@/lib/bridge';
 import { hideOverlay } from '@/lib/tauri';
 
@@ -165,9 +165,34 @@ function useTinyWindow(): boolean {
     const check = () => setTiny(window.innerWidth < 120 && window.innerHeight < 120);
     check();
     window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
+    // WebKitGTK fires no resize when the shell shrinks the window while it
+    // is hidden (orb.rs resizes, then shows): poll as a backstop.
+    const timer = setInterval(check, 1000);
+    return () => {
+      window.removeEventListener('resize', check);
+      clearInterval(timer);
+    };
   }, []);
   return tiny;
+}
+
+/** The Brave taskbar orb: a small glowing dot in Jarvis's state colour.
+ *  (The particle orb is drawn for the full HUD; at 40 px only a corner of
+ *  its ring showed.) Greys out when muted, pulses faster while he talks. */
+function TaskbarOrb() {
+  const { color: stateColor, jarvis } = useJarvisState();
+  const { muted } = useMicMuted();
+  const color = muted === true ? MUTED_COLOR : stateColor;
+  return (
+    <div className="hud hud--orb" data-state={jarvis}>
+      <span
+        className="hud-orb-dot"
+        data-state={jarvis}
+        style={{ '--orb': color } as CSSProperties}
+        aria-label={`Jarvis ${jarvis}`}
+      />
+    </div>
+  );
 }
 
 export function HudShell({ children }: Props) {
@@ -207,13 +232,7 @@ export function HudShell({ children }: Props) {
   }
 
   if (tiny) {
-    return (
-      <div className="hud hud--orb" data-state={jarvis}>
-        <div className="hud-orb-dock">
-          <ParticleOrb />
-        </div>
-      </div>
-    );
+    return <TaskbarOrb />;
   }
 
   if (isSolo) {

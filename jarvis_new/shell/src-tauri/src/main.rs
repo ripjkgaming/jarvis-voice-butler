@@ -260,7 +260,7 @@ fn print_dom_state(app: &tauri::AppHandle) {
         None => eprintln!("domstate: missing"),
         Some(win) => {
             let (tx, rx) = std::sync::mpsc::channel();
-            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null}); } catch (e) { return 'ERR:' + e; } })()";
+            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null, vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, orb: !!document.querySelector('.hud-orb-dot')}); } catch (e) { return 'ERR:' + e; } })()";
             match win.eval_with_callback(js, move |v| {
                 let _ = tx.send(v);
             }) {

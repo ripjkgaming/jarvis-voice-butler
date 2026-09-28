@@ -47,6 +47,23 @@ def parse_rows_text(rows_text: str) -> list[list[str]]:
     return rows[:100]
 
 
+async def _share_for_school(meta: dict, done: str) -> dict[str, str]:
+    """Share a freshly made file with Sir's school account; say how it went."""
+    import google_api
+    import google_apps
+
+    try:
+        email = await asyncio.to_thread(google_api.share_with_school, str(meta.get("id", "")))
+    except google_api.GoogleError as exc:
+        return {"say": f"{done}, Sir, but sharing it with your school account failed: {exc}"}
+    log_action("drive", f"shared {meta.get('id', '')} with school")
+    url = google_apps.with_authuser(meta.get("webViewLink", ""), email) if meta.get("webViewLink") else ""
+    return {
+        "say": f"{done} and shared it with your school account, Sir. {google_api.SCHOOL_SHARE_NOTE}",
+        "url": url,
+    }
+
+
 class WorkspaceTools:
     """Google + Notion + docgen tools. Register via .tools on the SystemAgent."""
 
@@ -118,13 +135,18 @@ class WorkspaceTools:
 
     @function_tool()
     async def create_google_doc(
-        self, context: RunContext, title: str, content: str
+        self, context: RunContext, title: str, content: str, account: str = "personal"
     ) -> dict[str, str]:
         """Create a new Google Doc (safe: brand-new files need no confirm).
+
+        "...for school" / "on my school account": account="school" — the
+        doc is made on Sir's main Drive and shared with his school account
+        as an editor (his school blocks third-party apps).
 
         Args:
             title: Document title.
             content: Body text; blank lines become paragraphs.
+            account: "personal" (default) or "school".
         """
         _guard()
         import google_api
@@ -139,11 +161,13 @@ class WorkspaceTools:
         )
         page_html = f"<html><body><h1>{html.escape(title)}</h1>{paras}</body></html>"
         try:
-            await asyncio.to_thread(google_api.docs_create, title, page_html)
+            meta = await asyncio.to_thread(google_api.docs_create, title, page_html)
         except google_api.GoogleError as exc:
             raise ToolError(str(exc)) from exc
         log_action("drive", f"create doc {title[:60]}")
-        return {"say": f"Created {title[:100]} in Drive, Sir."}
+        if google_api.normalize_account(account) != "school":
+            return {"say": f"Created {title[:100]} in Drive, Sir.", "url": meta.get("webViewLink", "")}
+        return await _share_for_school(meta, f"Created {title[:100]}")
 
     @function_tool()
     async def read_sheet(
@@ -314,7 +338,7 @@ class WorkspaceTools:
 
     @function_tool()
     async def generate_document(
-        self, context: RunContext, kind: str = "invoice", request: str = ""
+        self, context: RunContext, kind: str = "invoice", request: str = "", account: str = "personal"
     ) -> dict[str, str]:
         """Generate a brand document from Sir's words (new files need no confirm).
 
@@ -325,6 +349,7 @@ class WorkspaceTools:
         Args:
             kind: Document kind ("invoice" for now).
             request: Sir's words, verbatim: client, items, quantities, prices.
+            account: "personal" (default) or "school" (shared to his school account).
         """
         _guard()
         import docgen
@@ -338,4 +363,9 @@ class WorkspaceTools:
         except docgen.DocgenError as exc:
             raise ToolError(str(exc)) from exc
         log_action("docgen", f"{kind} {result['title'][:80]}")
+        import google_api
+
+        if result.get("drive_id") and google_api.normalize_account(account) == "school":
+            shared = await _share_for_school({"id": result["drive_id"]}, result["title"])
+            return {"say": f"{result['say']} {shared['say']}", "pdf": result["pdf"]}
         return {"say": result["say"], "pdf": result["pdf"]}

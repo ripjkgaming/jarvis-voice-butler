@@ -62,3 +62,20 @@ def test_resolve_home_nth_name_and_school_fallback(tmp_path, monkeypatch):
     school = google_apps.resolve("sheets", "", "school account")
     assert school["url"] == "https://docs.google.com/spreadsheets/?authuser=1"
     assert "school" in school["say"]
+
+
+def test_school_account_opens_with_its_email(tmp_path, monkeypatch):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    (tmp_path / "google_accounts.json").write_text(
+        json.dumps({"personal": "me@x.com", "school": "hs1@school.sg"})
+    )
+
+    def no_school(**k):
+        raise google_apps.google_api.GoogleError("third-party apps blocked")
+
+    monkeypatch.setattr(google_apps.google_api, "access_token", no_school)
+    home = google_apps.resolve("slides", "", "secondary school account")
+    assert home["url"] == "https://docs.google.com/presentation/?authuser=hs1%40school.sg"
+    named = google_apps.resolve("docs", "Chemistry essay", "school")
+    assert named["url"].startswith("https://drive.google.com/drive/search?q=Chemistry+essay")
+    assert named["url"].endswith("authuser=hs1%40school.sg")

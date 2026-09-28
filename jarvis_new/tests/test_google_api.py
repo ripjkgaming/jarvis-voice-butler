@@ -288,3 +288,44 @@ def test_request_rejects_real_network_by_default(monkeypatch) -> None:
 
     monkeypatch.setattr(urllib.request, "urlopen", _boom)
     assert google_api.DRIVE_BASE.startswith("https://")
+
+
+def test_uploads_use_the_upload_endpoint(tmp_path, monkeypatch):
+    """Multipart POSTs to /drive/v3/files are a 400; uploads live under /upload/."""
+    import io
+    import json as _json
+
+    import google_api
+
+    monkeypatch.setattr(google_api, "access_token", lambda **k: "tok")
+    seen = {}
+
+    def opener(req, timeout=None):
+        seen["url"] = req.full_url
+        return io.BytesIO(_json.dumps({"id": "abc", "name": "x"}).encode())
+
+    google_api.drive_upload("x.html", b"<p>x</p>", "text/html", convert_to="doc", opener=opener)
+    assert seen["url"].startswith("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+
+
+def test_share_with_school_shares_as_editor_without_email(tmp_path, monkeypatch):
+    import json as _json
+
+    import google_api
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(google_api, "access_token", lambda **k: "tok")
+    calls = []
+    monkeypatch.setattr(
+        google_api, "_request_json", lambda m, u, t, p=None, opener=None: calls.append((m, u, p)) or {}
+    )
+    try:
+        google_api.share_with_school("FILE")
+        raise AssertionError("expected GoogleError without a school email")
+    except google_api.GoogleError:
+        pass
+    (tmp_path / "google_accounts.json").write_text(_json.dumps({"school": "s@school.sg"}))
+    assert google_api.share_with_school("FILE") == "s@school.sg"
+    method, url, body = calls[-1]
+    assert method == "POST" and "/files/FILE/permissions" in url and "sendNotificationEmail=false" in url
+    assert body == {"type": "user", "role": "writer", "emailAddress": "s@school.sg"}
