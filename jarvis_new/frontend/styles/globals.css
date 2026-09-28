@@ -3234,40 +3234,100 @@
 /* ── SUIT POWER lifecycle (boot / charging / full / low / lost) ──────────
    All motion is transform/opacity on standalone HTML layers: composited,
    no SVG repaint per frame. The ring fill itself only transitions once. */
-.hud-core__ring { position: relative; }
-.hud-suit__fg { transition: stroke-dasharray 1.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.hud-core__ring {
+  position: relative;
+}
+.hud-suit__fg {
+  transition: stroke-dasharray 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 .hud-suit__flow,
 .hud-suit__bolt,
-.hud-suit__flash { position: absolute; pointer-events: none; opacity: 0; }
-.hud-suit__flow { inset: 0; width: 100%; height: 100%; will-change: transform; }
-.hud-suit__flow circle { fill: none; stroke: #e9fbff; stroke-width: 3; stroke-linecap: round; }
+.hud-suit__flash {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+}
+.hud-suit__flow {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+.hud-suit__flow circle {
+  fill: none;
+  stroke: #e9fbff;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
 .hud-suit__bolt {
-  width: 13px; height: 13px; top: 6px; left: 50%; margin-left: -6.5px;
+  width: 13px;
+  height: 13px;
+  top: 6px;
+  left: 50%;
+  margin-left: -6.5px;
   fill: var(--im-amber, #ffb347);
 }
 .hud-suit__flash {
-  inset: 8%; border-radius: 50%;
+  inset: 8%;
+  border-radius: 50%;
   background: radial-gradient(circle, rgb(95 227 255 / 55%), transparent 70%);
 }
-.hud-suit[data-mode='booting'] .hud-suit__flash { animation: hud-suit-flash 1.2s ease-out 1 both; }
-.hud-suit[data-mode='booting'] .hud-core__gauge-sub { color: #e9fbff; }
+.hud-suit[data-mode='booting'] .hud-suit__flash {
+  animation: hud-suit-flash 1.2s ease-out 1 both;
+}
+.hud-suit[data-mode='booting'] .hud-core__gauge-sub {
+  color: #e9fbff;
+}
 .hud-suit[data-mode='charging'] .hud-suit__flow {
-  opacity: 0.9; animation: hud-suit-spin 3.2s linear infinite;
+  opacity: 0.9;
+  animation: hud-suit-spin 3.2s linear infinite;
 }
 .hud-suit[data-mode='charging'] .hud-suit__bolt,
-.hud-suit[data-mode='full'] .hud-suit__bolt { opacity: 1; }
-.hud-suit[data-mode='charging'] .hud-suit__bolt { animation: hud-suit-blink 1.6s ease-in-out infinite; }
-.hud-suit[data-mode='full'] .hud-suit__bolt { fill: var(--im-cyan, #5fe3ff); }
-.hud-suit[data-mode='low'] .hud-core__ring { animation: hud-suit-blink 2.4s ease-in-out infinite; }
-.hud-suit[data-mode='lost'] .hud-core__ring { animation: hud-suit-down 0.9s ease-in 1 both; }
-@keyframes hud-suit-spin { to { transform: rotate(360deg); } }
-@keyframes hud-suit-blink { 50% { opacity: 0.35; } }
-@keyframes hud-suit-flash {
-  0% { opacity: 0; transform: scale(0.6); }
-  25% { opacity: 1; transform: scale(1.05); }
-  100% { opacity: 0; transform: scale(1.25); }
+.hud-suit[data-mode='full'] .hud-suit__bolt {
+  opacity: 1;
 }
-@keyframes hud-suit-down { to { opacity: 0.35; transform: scale(0.94); } }
+.hud-suit[data-mode='charging'] .hud-suit__bolt {
+  animation: hud-suit-blink 1.6s ease-in-out infinite;
+}
+.hud-suit[data-mode='full'] .hud-suit__bolt {
+  fill: var(--im-cyan, #5fe3ff);
+}
+.hud-suit[data-mode='low'] .hud-core__ring {
+  animation: hud-suit-blink 2.4s ease-in-out infinite;
+}
+.hud-suit[data-mode='lost'] .hud-core__ring {
+  animation: hud-suit-down 0.9s ease-in 1 both;
+}
+@keyframes hud-suit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes hud-suit-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes hud-suit-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+@keyframes hud-suit-down {
+  to {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+}
 
 /* ── PERF PASS (24/7 webview on a 15GB laptop) ────────────────────────────
    WebKit repaints a whole <svg> (and its glow filters) for ANY animation
@@ -3276,16 +3336,28 @@
    full-viewport filtered repaint every frame. Freeze its internals; the
    HTML-level haze/particles/ambient layers keep the room alive for free. */
 .jarvis-background svg,
-.jarvis-background svg * { animation: none !important; }
+.jarvis-background svg * {
+  animation: none !important;
+}
 /* Pause everything while the window is hidden/minimised (see html class). */
 html.hud-hidden *,
 html.hud-hidden *::before,
-html.hud-hidden *::after { animation-play-state: paused !important; }
+html.hud-hidden *::after {
+  animation-play-state: paused !important;
+}
 /* Bolt/flow must beat the generic `.hud-core__ring svg` sizing rule. */
 .hud-suit .hud-core__ring svg.hud-suit__bolt {
-  inset: 3px auto auto 50%; width: 12px; height: 12px; margin-left: -6px;
+  inset: 3px auto auto 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
 }
-.hud-suit .hud-core__ring svg.hud-suit__flow { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hud-suit .hud-core__ring svg.hud-suit__flow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
 
 /* ============ Live research strip (under the ticker) ============ */
 .hud-research {
@@ -3356,133 +3428,1541 @@ html.hud-hidden *::after { animation-play-state: paused !important; }
   }
 }
 
-/* ============ School mode: click-through taskbar strip ============ */
-html:has(.school-strip),
-html:has(.school-strip) body {
-  background: #030a0f;
+/* ============ School mode: Jarvis IS the taskbar ============
+   Laid exactly over the bottom panel by KWin (shell/src-tauri/src/school.rs):
+   full width, panel height, click-through. Every measure scales off the
+   height (--h). Three zones: Jarvis (core, name, state, session timer) ·
+   the stream (live words, else an ambient trace; running jobs) · the machine
+   (net, volume, cpu, memory, battery, phone, clock). Motion: the bar opens
+   from its centre line, zones rise in staggered, a scan glides along the top
+   edge, and a light sweep crosses on every state change. */
+/* Registered so the state colour fades across the whole bar. */
+@property --sbar-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #5fe3ff;
+}
+/* The shell window is transparent in school mode: only the bar (and an
+   open menu) paint; the space a menu grows into shows the desktop. */
+html:has(.sbar),
+html:has(.sbar) body {
+  background: transparent !important;
   overflow: hidden;
 }
-.school-strip {
-  --strip-accent: #22d3ee;
+/* Nothing else paints in school mode: the HUD's background art and the
+   hover theme toggle (bottom centre, right over the bar) stay hidden. */
+html:has(.sbar-root) .jarvis-background,
+html:has(.sbar-root) body > div > .group.fixed,
+html:has(.sbar-root) body > .group.fixed {
+  display: none !important;
+}
+.sbar-root {
+  z-index: 60;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.smenu-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sbar {
+  --sbar-accent: var(--im-cyan, #5fe3ff);
+  --h: var(--sbar-h, 100vh);
+  --line: rgb(109 207 232 / 13%);
+  --line-strong: rgb(109 207 232 / 26%);
+  --text: var(--hud-text, #e8f7fc);
+  --subtle: var(--hud-subtle, #89a9b5);
+  --amber: var(--im-amber, #ffb347);
+  position: relative;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--h) * 0.5);
+  flex: none;
+  width: 100vw;
+  height: var(--h);
+  padding: 0 calc(var(--h) * 0.3);
+  overflow: hidden;
+  background:
+    radial-gradient(
+      40% 220% at 0% 50%,
+      color-mix(in srgb, var(--sbar-accent) 22%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 160% at 50% 120%,
+      color-mix(in srgb, var(--sbar-accent) 14%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--sbar-accent) 7%, transparent),
+      color-mix(in srgb, var(--sbar-accent) 3%, transparent)
+    ),
+    radial-gradient(60% 260% at 50% 140%, rgb(10 60 90 / 30%), transparent 70%),
+    repeating-linear-gradient(90deg, rgb(95 227 255 / 3%) 0 1px, transparent 1px 24px),
+    linear-gradient(180deg, #071824, #030b12 70%);
+  color: var(--text);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  user-select: none;
+  cursor: default;
+  transition: --sbar-accent 0.6s ease;
+  animation: sbar-open 0.75s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+/* Top edge: hairline in the state colour, brighter at the centre. */
+.sbar::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 55%, transparent) 20%,
+    var(--sbar-accent) 50%,
+    color-mix(in srgb, var(--sbar-accent) 55%, transparent) 80%,
+    transparent
+  );
+  opacity: 0.7;
+  transition: background 0.5s ease;
+}
+.sbar[data-leaving='true'] {
+  animation: sbar-close 0.36s cubic-bezier(0.6, 0, 0.8, 0.4) forwards;
+}
+@keyframes sbar-close {
+  0% {
+    clip-path: inset(0 0 0 0);
+  }
+  55% {
+    clip-path: inset(48% 0 48% 0);
+  }
+  100% {
+    clip-path: inset(48% 50% 48% 50%);
+  }
+}
+@keyframes sbar-open {
+  0% {
+    clip-path: inset(48% 50% 48% 50%);
+  }
+  45% {
+    clip-path: inset(48% 0 48% 0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.sbar > section {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  animation: sbar-rise 0.5s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-left {
+  gap: calc(var(--h) * 0.3);
+  animation-delay: 0.45s !important;
+}
+.sbar-mid {
+  gap: calc(var(--h) * 0.3);
+  animation-delay: 0.55s !important;
+}
+.sbar-right {
+  gap: 0;
+  animation-delay: 0.65s !important;
+}
+@keyframes sbar-rise {
+  from {
+    transform: translateY(40%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A glint that glides along the top edge, forever, slowly. */
+.sbar-scan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 14%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--sbar-accent), transparent);
+  filter: blur(0.5px);
+  opacity: 0.9;
+  animation: sbar-scan 7s ease-in-out infinite;
+}
+@keyframes sbar-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(720%);
+  }
+}
+/* One-shot light sweep on every state change (re-keyed per state). */
+.sbar-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 20%, transparent),
+    transparent
+  );
+  transform: translateX(-110%);
+  animation: sbar-sweep 1.1s ease-out 0.05s forwards;
+}
+@keyframes sbar-sweep {
+  to {
+    transform: translateX(620%);
+  }
+}
+
+/* ---- Core ---- */
+.sbar-core {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 0.78);
+  height: calc(var(--h) * 0.78);
+}
+.sbar-core > * {
+  grid-area: 1 / 1;
+}
+.sbar-core__halo {
+  width: 130%;
+  height: 130%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--sbar-accent) 42%, transparent),
+    transparent 64%
+  );
+  animation: sbar-breathe 3.2s ease-in-out infinite;
+}
+.sbar-core__ring {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: sbar-spin 10s linear infinite;
+}
+.sbar-core__ring circle {
+  fill: none;
+  stroke: var(--sbar-accent);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-dasharray: 18 5 3 5 8 5;
+  opacity: 0.9;
+  transition: stroke 0.5s ease;
+}
+.sbar-core__ring--inner {
+  animation-direction: reverse;
+  animation-duration: 6s;
+}
+.sbar-core__ring--inner circle {
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
+.sbar-core__dot {
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 36% 32%,
+    #fff 0%,
+    var(--sbar-accent) 45%,
+    color-mix(in srgb, var(--sbar-accent) 45%, #000) 92%
+  );
+  box-shadow: 0 0 8px var(--sbar-accent);
+  animation: sbar-breathe 3.2s ease-in-out infinite;
+}
+.sbar[data-state='thinking'] .sbar-core__ring {
+  animation-duration: 1.2s;
+}
+.sbar[data-state='thinking'] .sbar-core__ring:not(.sbar-core__ring--inner) circle {
+  stroke-dasharray: 24 42;
+}
+.sbar[data-state='listening'] .sbar-core__halo,
+.sbar[data-state='speaking'] .sbar-core__halo,
+.sbar[data-state='listening'] .sbar-core__dot,
+.sbar[data-state='speaking'] .sbar-core__dot {
+  animation-duration: 0.9s;
+}
+.sbar[data-state='muted'] .sbar-core * {
+  animation: none;
+  opacity: 0.5;
+}
+@keyframes sbar-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.78;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes sbar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Clickable zones (start core, tray tiles, clock) ---- */
+:where(.sbar) button {
+  font: inherit;
+  color: inherit;
+}
+.sbar-start,
+.sbar-tray,
+.sbar-clock {
+  position: relative;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sbar-start {
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 1.05);
+  margin-left: calc(var(--h) * -0.12);
+}
+.sbar-tray {
+  display: flex;
+  align-items: center;
+  transition: background 0.2s ease;
+}
+.sbar-start::after,
+.sbar-tray::after,
+.sbar-clock::after {
+  content: '';
+  position: absolute;
+  inset: auto 18% 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 6px var(--sbar-accent);
+  transform: scaleX(0);
+  transition: transform 0.25s ease;
+}
+.sbar-start:hover::after,
+.sbar-tray:hover::after,
+.sbar-clock:hover::after {
+  transform: scaleX(0.4);
+}
+.sbar-start[data-open='true']::after,
+.sbar-tray[data-open='true']::after,
+.sbar-clock[data-open='true']::after {
+  transform: scaleX(1);
+}
+.sbar-tray:hover,
+.sbar-tray[data-open='true'],
+.sbar-clock:hover,
+.sbar-clock[data-open='true'] {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 9%, transparent)
+  );
+}
+.sbar-start:hover .sbar-core__ring,
+.sbar-start[data-open='true'] .sbar-core__ring {
+  animation-duration: 2s;
+}
+
+/* ---- Identity ---- */
+.sbar-id {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 3px;
-  width: 100vw;
-  height: 100vh;
-  padding: 7px 14px 8px;
-  border: 1px solid rgba(84, 246, 255, 0.22);
-  border-left: 3px solid var(--strip-accent);
-  background: linear-gradient(90deg, rgba(4, 22, 32, 0.96), rgba(3, 12, 18, 0.96));
-  color: #cfe7f0;
-  font-family: var(--font-commit-mono), ui-monospace, monospace;
-  opacity: 0.62;
-  transition:
-    opacity 0.35s ease,
-    border-color 0.35s ease;
-  user-select: none;
-  pointer-events: none; /* the window is click-through; belt and braces */
+  line-height: 1;
 }
-.school-strip--active {
+.sbar-id {
+  min-width: 10.5ch;
+}
+.sbar-id__name {
+  color: var(--text);
+  font-size: clamp(10px, calc(var(--h) * 0.28), 14px);
+  font-weight: 700;
+  letter-spacing: 0.34em;
+}
+.sbar-id__state {
+  color: var(--sbar-accent);
+  font-size: clamp(8px, calc(var(--h) * 0.2), 10px);
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--sbar-accent) 60%, transparent);
+  animation: sbar-rise 0.35s ease-out both;
+}
+/* Bottom edge glow in the state colour: the wash reads at a glance. */
+.sbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 12% 0;
+  height: 1px;
+  background: radial-gradient(closest-side, var(--sbar-accent), transparent);
+  opacity: 0.55;
+}
+.sbar[data-state='listening']::after,
+.sbar[data-state='thinking']::after,
+.sbar[data-state='speaking']::after {
   opacity: 1;
-  border-color: rgba(84, 246, 255, 0.4);
+  animation: sbar-edge 1.8s ease-in-out infinite;
 }
-.school-strip__row {
+@keyframes sbar-edge {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---- Apps ---- */
+.sbar-apps {
+  gap: calc(var(--h) * 0.1);
+  padding: 0 calc(var(--h) * 0.2);
+  border-left: 1px solid var(--line);
+  animation-delay: 0.5s !important;
+}
+.sbar-app {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 0.92);
+  height: calc(var(--h) * 0.86);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.15s ease;
+  animation: sbar-rise 0.4s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation-delay: calc(0.55s + var(--i, 0) * 0.04s);
+}
+.sbar-app img,
+.sbar-app__glyph {
+  width: calc(var(--h) * 0.56);
+  height: calc(var(--h) * 0.56);
+  transition:
+    transform 0.2s ease,
+    filter 0.2s ease,
+    opacity 0.2s ease;
+}
+.sbar-app img {
+  object-fit: contain;
+}
+.sbar-app__glyph {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: calc(var(--h) * 0.28);
+  font-weight: 700;
+}
+.sbar-app:hover {
+  border-color: var(--line-strong);
+  background: rgb(95 227 255 / 6%);
+}
+.sbar-app:hover img,
+.sbar-app:hover .sbar-app__glyph {
+  transform: translateY(-1px) scale(1.06);
+}
+.sbar-app:active {
+  transform: scale(0.94);
+}
+.sbar-app[data-active='true'] {
+  border-color: color-mix(in srgb, var(--sbar-accent) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    transparent 30%,
+    color-mix(in srgb, var(--sbar-accent) 16%, transparent)
+  );
+}
+.sbar-app[data-active='true'] img {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--sbar-accent) 60%, transparent));
+}
+.sbar-app[data-minimized='true'] img,
+.sbar-app[data-minimized='true'] .sbar-app__glyph {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+.sbar-app[data-launching='true'] img,
+.sbar-app[data-launching='true'] .sbar-app__glyph {
+  animation: sbar-launch 0.7s ease-in-out infinite;
+}
+@keyframes sbar-launch {
+  50% {
+    transform: translateY(-3px) scale(1.08);
+    filter: drop-shadow(0 0 6px var(--sbar-accent));
+  }
+}
+.sbar-app__pips {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  display: flex;
+  gap: 2px;
+  transform: translateX(-50%);
+}
+.sbar-app__pips i {
+  width: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--subtle);
+  opacity: 0.7;
+  transition:
+    width 0.25s ease,
+    background 0.25s ease;
+}
+.sbar-app__pips i[data-on='true'] {
+  width: 12px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 4px var(--sbar-accent);
+  opacity: 1;
+}
+
+/* ---- Stream ---- */
+.sbar-mid {
+  flex: 1 1 auto !important;
+  justify-content: center;
+  padding: 0 calc(var(--h) * 0.4);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.sbar-stream {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 92%, transparent);
+}
+.sbar-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  width: 100%;
+  min-width: 0;
+  padding-left: 0.6em;
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(12px, calc(var(--h) * 0.32), 15px);
+  white-space: nowrap;
+  animation: sbar-line-in 0.45s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-line b {
+  flex: none;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sbar-line .is-jarvis {
+  color: var(--im-cyan, #5fe3ff);
+}
+.sbar-line .is-sir {
+  color: var(--subtle);
+}
+.sbar-line__slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.sbar-line__text {
+  display: inline-block;
+  color: var(--text);
+}
+.sbar-line__text.is-marquee {
+  animation: sbar-marquee var(--marquee-s, 8s) ease-in-out 1.2s infinite;
+}
+@keyframes sbar-line-in {
+  from {
+    transform: translateY(60%);
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes sbar-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--marquee));
+  }
+}
+/* Ambient signal when nothing is said: drawn live on a canvas (LiveTrace),
+ * so it never repeats. `color` feeds the canvas its state colour. */
+.sbar-trace {
+  width: 100%;
+  height: calc(var(--h) * 0.7);
+  color: var(--sbar-accent);
+  opacity: 0.85;
+  transition: opacity 0.6s ease;
+  animation: sbar-line-in 0.6s ease-out both;
+}
+.sbar-trace canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.sbar[data-state='muted'] .sbar-trace {
+  opacity: 0.35;
+}
+/* Voice bars: grow in beside the stream while Jarvis listens or speaks. */
+.sbar-bars {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 0;
+  height: 44%;
+  opacity: 0;
+  transition:
+    width 0.35s ease,
+    opacity 0.35s ease;
+}
+.sbar[data-state='listening'] .sbar-bars,
+.sbar[data-state='speaking'] .sbar-bars {
+  width: 22px;
+  opacity: 1;
+}
+.sbar-bars i {
+  flex: 1;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 4px var(--sbar-accent);
+  transform: scaleY(0.25);
+  animation: sbar-eq 0.9s ease-in-out infinite;
+}
+.sbar-bars i:nth-child(2) {
+  animation-delay: -0.45s;
+  animation-duration: 0.7s;
+}
+.sbar-bars i:nth-child(3) {
+  animation-delay: -0.2s;
+  animation-duration: 1.05s;
+}
+.sbar-bars i:nth-child(4) {
+  animation-delay: -0.6s;
+  animation-duration: 0.8s;
+}
+.sbar-bars i:nth-child(5) {
+  animation-delay: -0.35s;
+  animation-duration: 0.95s;
+}
+@keyframes sbar-eq {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+/* Running jobs (research, downloads, builds). */
+.sbar-job {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 8px 3px 5px;
+  border: 1px solid rgb(255 179 71 / 24%);
+  background: rgb(255 179 71 / 5%);
+  color: var(--amber);
+  font-size: clamp(8px, calc(var(--h) * 0.2), 10px);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  animation: sbar-rise 0.45s ease-out both;
+}
+.sbar-job__title {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--amber) 75%, var(--text));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbar-ring {
+  flex: none;
+  width: calc(var(--h) * 0.42);
+  height: calc(var(--h) * 0.42);
+  transform: rotate(-90deg);
+}
+.sbar-ring.is-spin {
+  animation: sbar-spin-ring 1.4s linear infinite;
+}
+@keyframes sbar-spin-ring {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+.sbar-ring circle {
+  fill: none;
+  stroke-width: 2.2;
+}
+.sbar-ring__track {
+  stroke: rgb(255 179 71 / 18%);
+}
+.sbar-ring__fill {
+  stroke: var(--amber);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 2px var(--amber));
+  transition: stroke-dashoffset 0.9s ease-out;
+}
+
+/* ---- Machine tiles ---- */
+.sbar-tile {
+  --tile: var(--im-cyan, #5fe3ff);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 62%;
+  padding: 0 calc(var(--h) * 0.3);
+  border-left: 1px solid var(--line);
+}
+.sbar-tile[data-tone='warn'] {
+  --tile: var(--amber);
+}
+.sbar-tile[data-tone='hot'] {
+  --tile: #ff5d5d;
+}
+.sbar-tile[data-tone='hot'] .sbar-tile__body b {
+  animation: sbar-blink 1.2s steps(2) infinite;
+}
+.sbar-tile[data-tone='dim'] {
+  --tile: var(--subtle);
+}
+.sbar-tile__icon svg {
+  display: block;
+  width: calc(var(--h) * 0.36);
+  height: calc(var(--h) * 0.36);
+  overflow: visible;
+}
+.sbar-tile__icon path,
+.sbar-tile__icon rect,
+.sbar-tile__icon circle {
+  fill: none;
+  stroke: rgb(137 169 181 / 35%);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sbar-tile__icon .on {
+  stroke: var(--tile);
+}
+.sbar-tile__icon .fill,
+.sbar-tile__icon .dot {
+  fill: var(--tile);
+  stroke: none;
+}
+.sbar-tile__icon .batt {
+  filter: drop-shadow(0 0 2px var(--tile));
+}
+.sbar-tile__icon .bolt {
+  fill: #02080d;
+  stroke: none;
+}
+.sbar-tile__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+}
+.sbar-tile__body i {
+  color: var(--subtle);
+  font-size: clamp(7px, calc(var(--h) * 0.16), 8.5px);
+  font-style: normal;
+  letter-spacing: 0.22em;
+}
+.sbar-tile__body b {
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(9px, calc(var(--h) * 0.24), 12px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbar-tile[data-tone] .sbar-tile__body b {
+  color: var(--tile);
+}
+.sbar-tile__gauge {
+  position: relative;
+  display: block;
+  height: 2px;
+  background: rgb(137 169 181 / 16%);
+}
+.sbar-tile__gauge span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--tile);
+  box-shadow: 0 0 4px var(--tile);
+  transition: width 0.8s ease-out;
+}
+@keyframes sbar-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---- Clock ---- */
+.sbar-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 calc(var(--h) * 0.1) 0 calc(var(--h) * 0.4);
+  border-left: 1px solid var(--line-strong);
+  line-height: 1;
+}
+.sbar-clock b {
+  color: var(--text);
+  font-size: clamp(13px, calc(var(--h) * 0.38), 19px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 10px rgb(95 227 255 / 35%);
+}
+.sbar-clock__colon {
+  color: var(--sbar-accent);
+  animation: sbar-blink 2s steps(2) infinite;
+}
+.sbar-clock i {
+  color: var(--subtle);
+  font-size: clamp(7px, calc(var(--h) * 0.17), 9px);
+  font-style: normal;
+  letter-spacing: 0.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sbar,
+  .sbar *,
+  .sbar::before {
+    animation: none !important;
+    transition: none !important;
+  }
+  .sbar-scan,
+  .sbar-sweep {
+    display: none;
+  }
+  .sbar::after {
+    animation: none;
+  }
+}
+
+/* ============ School taskbar menus: open upward out of the bar ============ */
+.smenu-layer {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.smenu {
+  --line: rgb(109 207 232 / 14%);
+  --text: var(--hud-text, #e8f7fc);
+  --subtle: var(--hud-subtle, #89a9b5);
+  position: absolute;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sbar-accent) 34%, transparent);
+  background:
+    radial-gradient(
+      120% 60% at 50% 100%,
+      color-mix(in srgb, var(--sbar-accent) 12%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(180deg, rgb(8 24 36 / 97%), rgb(3 11 17 / 98%));
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 40%),
+    0 18px 50px rgb(0 0 0 / 55%),
+    0 0 26px color-mix(in srgb, var(--sbar-accent) 18%, transparent);
+  color: var(--text);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  transform-origin: bottom center;
+  animation: smenu-in 0.28s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.smenu::before,
+.smenu::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--sbar-accent);
+  pointer-events: none;
+}
+.smenu::before {
+  top: 4px;
+  left: 4px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.smenu::after {
+  top: 4px;
+  right: 4px;
+  border-left: 0;
+  border-bottom: 0;
+}
+.smenu-layer[data-closing='true'] .smenu {
+  animation: smenu-out 0.17s ease-in forwards;
+}
+@keyframes smenu-in {
+  from {
+    transform: translateY(18px) scaleY(0.94);
+    opacity: 0;
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes smenu-out {
+  to {
+    transform: translateY(14px) scaleY(0.96);
+    opacity: 0;
+  }
+}
+:where(.smenu) button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.smenu__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.smenu__head b {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--sbar-accent);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+}
+.smenu__head i {
+  color: var(--subtle);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.24em;
+}
+
+/* Launcher */
+.smenu-layer[data-menu='launcher'] .smenu {
+  left: 8px;
+  width: min(640px, calc(100vw - 16px));
+  height: calc(100% - 16px);
+}
+.smenu__pinned {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.smenu__pin {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(95 227 255 / 3%);
+  transition:
+    border-color 0.2s ease,
+    transform 0.15s ease;
+}
+.smenu__pin:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+  transform: translateY(-2px);
+}
+.smenu__pin img,
+.smenu__pin .sbar-app__glyph {
+  width: 26px;
+  height: 26px;
+}
+.smenu__body {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.smenu__cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--line);
+}
+.smenu__cats button {
+  position: relative;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--subtle);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-align: left;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.smenu__cats button:hover {
+  background: rgb(95 227 255 / 6%);
+  color: var(--text);
+}
+.smenu__cats button[data-on='true'] {
+  background: color-mix(in srgb, var(--sbar-accent) 14%, transparent);
+  color: var(--text);
+}
+.smenu__cats button[data-on='true']::before {
+  content: '';
+  position: absolute;
+  inset: 6px auto 6px 0;
+  width: 2px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 6px var(--sbar-accent);
+}
+.smenu__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(95 227 255 / 25%) transparent;
+}
+.smenu__app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  animation: smenu-app 0.3s ease-out both;
+  animation-delay: calc(var(--i, 0) * 12ms + 60ms);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.smenu__app:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--sbar-accent) 8%, transparent);
+}
+.smenu__app img,
+.smenu__app .sbar-app__glyph {
+  width: 34px;
+  height: 34px;
+  transition: transform 0.15s ease;
+}
+.smenu__app:hover img {
+  transform: scale(1.1);
+}
+.smenu__app span {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+@keyframes smenu-app {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+.smenu__empty {
+  grid-column: 1 / -1;
+  color: var(--subtle);
+  font-size: 12px;
+  text-align: center;
+}
+.smenu__power {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: rgb(0 0 0 / 18%);
+}
+.smenu__pbtn {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--subtle);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.smenu__pbtn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.smenu__pbtn:hover {
+  background: rgb(95 227 255 / 7%);
+  color: var(--text);
+}
+.smenu__pbtn[data-danger='true']:hover {
+  color: #ffb4a8;
+}
+.smenu__pbtn[data-armed='true'] {
+  border-color: rgb(255 93 93 / 60%);
+  background: rgb(255 93 93 / 14%);
+  color: #ff8a80;
+  animation: sbar-blink 0.9s steps(2) infinite;
+}
+
+/* Quick settings */
+.smenu-layer[data-menu='quick'] .smenu {
+  right: 150px;
+  width: 360px;
+}
+.smenu__toggles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 12px 14px;
+}
+.smenu__toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(95 227 255 / 3%);
+  text-align: left;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+.smenu__toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--subtle);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.smenu__toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.smenu__toggle b {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.smenu__toggle i {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 9.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 88px;
+}
+.smenu__toggle[data-on='true'] {
+  border-color: color-mix(in srgb, var(--sbar-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--sbar-accent) 16%, transparent);
+}
+.smenu__toggle[data-on='true'] svg {
+  stroke: var(--sbar-accent);
+  filter: drop-shadow(0 0 4px var(--sbar-accent));
+}
+.smenu__toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.smenu__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--line);
+}
+.smenu__slider-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 0;
+}
+.smenu__slider-head b {
   font-size: 10px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.24em;
+  color: var(--subtle);
 }
-.school-strip__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--strip-accent);
-  box-shadow: 0 0 8px var(--strip-accent);
-  flex: none;
-}
-.school-strip--active .school-strip__dot {
-  animation: school-strip-pulse 1.4s ease-in-out infinite;
-}
-@keyframes school-strip-pulse {
-  50% {
-    transform: scale(0.7);
-    opacity: 0.6;
-  }
-}
-.school-strip__state {
-  color: var(--strip-accent);
-  font-weight: 700;
-}
-.school-strip__tag {
-  padding: 1px 6px;
-  border: 1px solid rgba(84, 246, 255, 0.3);
-  color: #6f93a1;
-  font-size: 9px;
-}
-.school-strip__job {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  color: #ffb547;
-}
-.school-strip__track {
-  position: relative;
-  width: 90px;
-  height: 3px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 181, 71, 0.35);
-}
-.school-strip__fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: #ffb547;
-  transition: width 0.9s ease-out;
-}
-.school-strip__pct {
+.smenu__slider-head i {
+  font-size: 11px;
+  font-style: normal;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
 }
-.school-strip__caption {
+.smenu__slider-head button {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+.smenu__slider-head button:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+}
+.smenu__slider input {
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+.smenu__slider input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--sbar-accent) var(--v), rgb(137 169 181 / 18%) var(--v));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+}
+.smenu__slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 2px solid var(--sbar-accent);
+  border-radius: 50%;
+  background: #02080d;
+  box-shadow: 0 0 8px var(--sbar-accent);
+  appearance: none;
+}
+.smenu__slider {
+  position: relative;
+}
+/* 100% mark on a boost-capable slider (volume goes to 150%). */
+.smenu__slider[data-boostable='true']::after {
+  content: '';
+  position: absolute;
+  bottom: 14px;
+  left: calc(16px + (100% - 32px) * var(--mark-f, 1));
+  width: 1px;
+  height: 12px;
+  background: rgb(232 247 252 / 45%);
+  pointer-events: none;
+}
+.smenu__slider[data-boost='true'] i {
+  color: var(--im-amber, #ffb347);
+}
+.smenu__slider[data-boost='true'] input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    var(--sbar-accent) var(--mark),
+    var(--im-amber, #ffb347) var(--mark) var(--v),
+    rgb(137 169 181 / 18%) var(--v)
+  );
+}
+.smenu__slider[data-muted='true'] input {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+/* Calendar */
+.smenu-layer[data-menu='calendar'] .smenu {
+  right: 8px;
+  width: 320px;
+}
+.smenu__nav {
   display: flex;
-  gap: 8px;
-  min-width: 0;
-  overflow: hidden;
-  font-family: 'Inter', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
+  gap: 2px;
+}
+.smenu__nav button {
+  width: 24px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
   font-size: 13px;
-  line-height: 1.35;
-  white-space: nowrap;
+  line-height: 1;
 }
-.school-strip__caption span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.smenu__nav button:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
 }
-.school-strip__caption b {
-  flex: none;
+.smenu__big {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px 6px;
+}
+.smenu__big b {
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
   font-weight: 600;
 }
-.school-strip__caption .is-jarvis {
-  color: #54f6ff;
+.smenu__big i {
+  color: var(--subtle);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.08em;
 }
-.school-strip__caption .is-sir {
-  color: #a8b8c0;
+.smenu__cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  padding: 10px 14px 16px;
+  text-align: center;
 }
-.school-strip__hint {
-  color: #6f93a1;
+.smenu__cal i {
+  padding-bottom: 4px;
+  color: var(--subtle);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.14em;
+}
+.smenu__cal span {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border-radius: 3px;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.smenu__cal span[data-weekend='true'] {
+  color: var(--subtle);
+}
+.smenu__cal span[data-today='true'] {
+  border: 1px solid var(--sbar-accent);
+  background: color-mix(in srgb, var(--sbar-accent) 18%, transparent);
+  color: var(--text);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smenu,
+  .smenu__app {
+    animation: none !important;
+  }
+}
+
+/* ============ HUD <-> school taskbar transitions ============
+   Entering: school-transition.tsx (the HUD folds into the screen sides,
+   tracers run the rim and pool into the bar). Leaving: the bar closes to
+   its line (.sbar[data-leaving]) and the HUD unfolds upward from the
+   bottom. */
+html.hud-unfolding .hud {
+  transform-origin: 50% 100%;
+}
+html.hud-unfolding .hud {
+  animation: hud-unfold 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+html.hud-unfolding body::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #5fe3ff 20%,
+    #d8f8ff 50%,
+    #5fe3ff 80%,
+    transparent
+  );
+  box-shadow:
+    0 0 12px #5fe3ff,
+    0 0 30px rgb(95 227 255 / 60%);
+  pointer-events: none;
+  z-index: 9999;
+}
+html.hud-unfolding body::after {
+  animation: hud-unfold-line 0.8s ease-out forwards;
+}
+@keyframes hud-unfold {
+  0% {
+    transform: scaleY(0.004);
+    opacity: 0;
+    filter: brightness(2.2);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes hud-unfold-line {
+  0% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  45%,
+  100% {
+    transform: scaleX(0.3);
+    opacity: 0;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .school-strip,
-  .school-strip__fill {
-    transition: none;
+  html.hud-unfolding .hud,
+  html.hud-unfolding body::after {
+    animation-duration: 0.01s !important;
   }
-  .school-strip--active .school-strip__dot {
-    animation: none;
+}
+
+/* Entry transition layer: the page goes see-through (the shell window is
+   transparent and click-through while it plays); only the frozen HUD
+   halves, the light canvas, and finally the bar paint. */
+html.school-tx,
+html.school-tx body {
+  background: transparent !important;
+  overflow: hidden;
+}
+html.school-tx .jarvis-background:not(.stx-half .jarvis-background),
+html.school-tx body > div > .group.fixed,
+html.school-tx body > .group.fixed {
+  display: none !important;
+}
+.stx {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+.stx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+/* The frozen HUD halves squeeze into their own sides. */
+.stx-half {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  will-change: transform, filter;
+}
+.stx-half--left {
+  clip-path: inset(0 50% 0 0);
+  transform-origin: 0 50%;
+}
+.stx-half--right {
+  clip-path: inset(0 0 0 50%);
+  transform-origin: 100% 50%;
+}
+/* Copies restart every CSS animation: jump each to its end and hold it,
+   so one-shot effects (the boot flash, entrances) show as finished and
+   loops freeze mid-motion. */
+.stx-half *,
+.stx-half *::before,
+.stx-half *::after {
+  animation-delay: -60s !important;
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+/* The boot flash is long gone on the live HUD; a copy would replay it. */
+.stx-half .im-boot {
+  display: none !important;
+}
+/* The bar surfaces out of the pool (no clip-open of its own), and never
+   replays that opening once it has arrived this way. */
+.stx-bar {
+  display: contents;
+}
+.stx-bar[data-pooling='true'] .sbar-root {
+  animation: stx-surface 0.38s ease-out both;
+}
+.stx-bar[data-arrived='true'] .sbar:not([data-leaving='true']) {
+  animation: none;
+}
+@keyframes stx-surface {
+  from {
+    opacity: 0;
+    filter: brightness(1.6);
   }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+/* Return transition (school-return.tsx). The bar sinks away first... */
+.stx-bar[data-returning='sink'] .sbar-root {
+  animation: stx-sink 0.38s cubic-bezier(0.6, 0, 0.8, 0.4) forwards;
+}
+@keyframes stx-sink {
+  to {
+    opacity: 0;
+    transform: translateY(40%);
+    filter: brightness(1.5);
+  }
+}
+/* ...and once the HUD window lands in the drafted frame, it scans in from
+   the top behind the page's scan line (--stx-scan, 0-100%). */
+html.stx-scan,
+html.stx-scan body {
+  background: transparent !important;
+}
+html.stx-scan .hud,
+html.stx-scan .jarvis-background {
+  clip-path: inset(0 0 calc(100% - var(--stx-scan, 0%)) 0);
 }
 
 /* ---- EXECUTION: live system activity rows (downloads, updates, projects) ----

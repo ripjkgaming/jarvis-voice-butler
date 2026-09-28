@@ -362,6 +362,26 @@ def test_room_reports_live_wake_room(monkeypatch, tmp_path):
     try:
         code, body = _get(server, "/room")
         assert code == 200 and body["room"] == "jarvis-123"
+        assert body["waking"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_room_reports_waking_before_room_exists(monkeypatch, tmp_path):
+    """The wake stamp turns the HUD purple before the call room is up."""
+    import os
+    import time
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    (tmp_path / "hud_waking").write_text("1")
+    server, _ = bridge._run_in_thread()
+    try:
+        code, body = _get(server, "/room")
+        assert code == 200 and body["room"] is None and body["waking"] is True
+        old = time.time() - bridge.HUD_WAKING_MAX_AGE_S - 5
+        os.utime(tmp_path / "hud_waking", (old, old))
+        assert _get(server, "/room")[1]["waking"] is False
     finally:
         server.shutdown()
         server.server_close()
@@ -974,8 +994,12 @@ def test_phone_peer_picks_mobile_or_pinned_ip(monkeypatch) -> None:
     status = {
         "Peer": {
             "a": {"OS": "linux", "HostName": "box", "TailscaleIPs": ["100.1.1.1"]},
-            "b": {"OS": "android", "HostName": "pixel", "Online": True,
-                  "TailscaleIPs": ["100.2.2.2"]},
+            "b": {
+                "OS": "android",
+                "HostName": "pixel",
+                "Online": True,
+                "TailscaleIPs": ["100.2.2.2"],
+            },
         }
     }
     monkeypatch.delenv("JARVIS_PHONE_TAILNET_IP", raising=False)
@@ -1034,8 +1058,13 @@ def test_spoken_math_is_instant(text, value):
 
 @pytest.mark.parametrize(
     "text",
-    ["what is the capital of australia", "what time is it", "2 to the 99999",
-     "who wrote romeo and juliet", "open project two"],
+    [
+        "what is the capital of australia",
+        "what time is it",
+        "2 to the 99999",
+        "who wrote romeo and juliet",
+        "open project two",
+    ],
 )
 def test_spoken_math_leaves_other_turns_alone(text):
     hit = bridge._match_voice_tool(text)
@@ -1072,3 +1101,517 @@ def test_orb_holds_while_jarvis_window_is_active() -> None:
     assert orb_step(st, None, 1.0, False) is None
     assert orb_step(st, None, 5.0, False) is None
     assert st["orb"] is True
+
+
+# --- /sys school-mode taskbar fields: mode_since / net / volume ---
+
+
+def _cp(rc=0, stdout="", stderr=""):
+    import types
+
+    return types.SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
+
+
+def _fake_clock(start=100.0):
+    now = [start]
+    return now, lambda: now[0]
+
+
+def test_mode_since_reads_since_key(monkeypatch, tmp_path):
+    import json as _json
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    (tmp_path / "mode.json").write_text(
+        _json.dumps({"mode": "school", "since": 1700000000.5})
+    )
+    assert bridge._mode_since() == 1700000000.5
+
+
+def test_mode_since_missing_corrupt_or_badsince(monkeypatch, tmp_path):
+    import json as _json
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert bridge._mode_since() is None  # missing file
+    (tmp_path / "mode.json").write_text("not json{")
+    assert bridge._mode_since() is None  # corrupt
+    (tmp_path / "mode.json").write_text(_json.dumps({"mode": "school"}))
+    assert bridge._mode_since() is None  # no since key
+    (tmp_path / "mode.json").write_text(_json.dumps({"since": "soon"}))
+    assert bridge._mode_since() is None  # non-numeric
+
+
+def test_net_wifi_with_signal():
+    bridge._NET_CACHE.clear()
+    _, clock = _fake_clock()
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(list(argv))
+        assert kw.get("timeout") == 2
+        if "dev" in argv:
+            return _cp(0, "no:Other:70\nyes:HomeNet:80\n")
+        return _cp(0, "wifi:connected:HomeNet\nethernet:disconnected:--\n")
+
+    assert bridge._net_status(run=fake_run, clock=clock) == {
+        "kind": "wifi",
+        "name": "HomeNet",
+        "signal": 80,
+    }
+    assert len(calls) == 2
+
+
+def test_net_escaped_colon_ssid():
+    bridge._NET_CACHE.clear()
+    _, clock = _fake_clock()
+
+    def fake_run(argv, **kw):
+        if "dev" in argv:
+            return _cp(0, "yes:My\\:Home\\:Net:62\n")
+        return _cp(0, "wifi:connected:MyHome\n")
+
+    assert bridge._net_status(run=fake_run, clock=clock) == {
+        "kind": "wifi",
+        "name": "My:Home:Net",
+        "signal": 62,
+    }
+
+
+def test_net_ethernet_and_disconnected():
+    bridge._NET_CACHE.clear()
+    _, clock = _fake_clock()
+
+    def fake_eth(argv, **kw):
+        return _cp(0, "ethernet:connected:Wired connection 1\nwifi:disconnected:--\n")
+
+    assert bridge._net_status(run=fake_eth, clock=clock) == {
+        "kind": "ethernet",
+        "name": "Wired connection 1",
+        "signal": None,
+    }
+    bridge._NET_CACHE.clear()
+
+    def fake_none(argv, **kw):
+        return _cp(0, "wifi:disconnected:--\nethernet:disconnected:--\n")
+
+    assert bridge._net_status(run=fake_none, clock=clock) == {
+        "kind": "none",
+        "name": "",
+        "signal": None,
+    }
+
+
+def test_net_missing_or_failing_is_none():
+    bridge._NET_CACHE.clear()
+    _, clock = _fake_clock()
+
+    def fake_missing(argv, **kw):
+        raise FileNotFoundError("no nmcli")
+
+    assert bridge._net_status(run=fake_missing, clock=clock) is None
+    bridge._NET_CACHE.clear()
+
+    def fake_rc(argv, **kw):
+        return _cp(1, "", "err")
+
+    assert bridge._net_status(run=fake_rc, clock=clock) is None
+
+
+def test_net_cache_avoids_rerun_within_5s():
+    bridge._NET_CACHE.clear()
+    now, clock = _fake_clock()
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(1)
+        return _cp(0, "ethernet:disconnected:--\nwifi:disconnected:--\n")
+
+    first = bridge._net_status(run=fake_run, clock=clock)
+    second = bridge._net_status(run=fake_run, clock=clock)
+    assert first == second and len(calls) == 1
+    now[0] += 6.0  # past the 5s TTL
+    bridge._net_status(run=fake_run, clock=clock)
+    assert len(calls) == 2
+
+
+def test_volume_wpctl_normal_and_muted():
+    bridge._VOL_CACHE.clear()
+    _, clock = _fake_clock()
+    assert bridge._volume_status(
+        run=lambda argv, **kw: _cp(0, "Volume: 0.45\n"), clock=clock
+    ) == {"pct": 45, "muted": False}
+    bridge._VOL_CACHE.clear()
+    assert bridge._volume_status(
+        run=lambda argv, **kw: _cp(0, "Volume: 0.45 [MUTED]\n"), clock=clock
+    ) == {"pct": 45, "muted": True}
+
+
+def test_volume_pactl_fallback_and_all_fail():
+    bridge._VOL_CACHE.clear()
+    _, clock = _fake_clock()
+
+    def fake_pactl(argv, **kw):
+        if "get-sink-volume" in argv:
+            return _cp(0, "Volume: front-left: 50000 /  76% / -4.16 dB")
+        if "get-sink-mute" in argv:
+            return _cp(0, "Mute: yes")
+        raise AssertionError(f"wpctl should fail first: {argv}")
+
+    def fake_run(argv, **kw):
+        if argv[0] == "wpctl":
+            return _cp(1, "", "nope")
+        return fake_pactl(argv, **kw)
+
+    assert bridge._volume_status(run=fake_run, clock=clock) == {
+        "pct": 76,
+        "muted": True,
+    }
+    bridge._VOL_CACHE.clear()
+    assert (
+        bridge._volume_status(run=lambda argv, **kw: _cp(1, "", "down"), clock=clock)
+        is None
+    )
+
+
+def test_volume_cache_avoids_rerun_within_5s():
+    bridge._VOL_CACHE.clear()
+    now, clock = _fake_clock()
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(1)
+        return _cp(0, "Volume: 0.50\n")
+
+    assert bridge._volume_status(run=fake_run, clock=clock) == {
+        "pct": 50,
+        "muted": False,
+    }
+    assert bridge._volume_status(run=fake_run, clock=clock) == {
+        "pct": 50,
+        "muted": False,
+    }
+    assert len(calls) == 1
+    now[0] += 6.0
+    bridge._volume_status(run=fake_run, clock=clock)
+    assert len(calls) == 2
+
+
+def test_sys_stats_carries_new_taskbar_fields(monkeypatch):
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+    monkeypatch.setattr(bridge, "_mode_since", lambda: 123.0)
+    stats = bridge._sys_stats()
+    assert stats["mode_since"] == 123.0
+    assert stats["net"] == {"kind": "none", "name": "", "signal": None}
+    assert stats["volume"] == {"pct": 10, "muted": False}
+
+
+# --- /appicon + windows list for the school-mode taskbar ---
+
+
+def _fake_xdg(tmp_path):
+    apps = tmp_path / "applications"
+    icons = tmp_path / "icons"
+    pixmaps = tmp_path / "pixmaps"
+    scalable = icons / "breeze-dark" / "scalable" / "apps"
+    small = icons / "breeze-dark" / "48x48" / "apps"
+    scalable.mkdir(parents=True)
+    small.mkdir(parents=True)
+    pixmaps.mkdir(parents=True)
+    apps.mkdir(parents=True)
+    (apps / "foo.desktop").write_text("[Desktop Entry]\nName=Foo\nIcon=fooicon\n")
+    (apps / "other.desktop").write_text(
+        "[Desktop Entry]\nName=Other\nIcon=myicon\nStartupWMClass=MyApp\n"
+    )
+    (scalable / "fooicon.svg").write_bytes(b"<svg/>")
+    (small / "myicon.png").write_bytes(bytes.fromhex("89504e470d0a1a0a") + b"1234")
+    kdeglobals = tmp_path / "kdeglobals"
+    kdeglobals.write_text("[Icons]\nTheme=breeze-dark\n")
+    return apps, icons, pixmaps, kdeglobals
+
+
+def test_app_icon_from_themed_svg(tmp_path):
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    url = bridge.app_icon_data_url(
+        "foo",
+        app_dirs=[apps],
+        icon_dirs=[icons],
+        pixmap_dirs=[pixmaps],
+        kdeglobals=kdeglobals,
+    )
+    assert url is not None and url.startswith("data:image/svg+xml;base64,")
+
+
+def test_app_icon_startupwmclass_match(tmp_path):
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    url = bridge.app_icon_data_url(
+        "myapp",
+        app_dirs=[apps],
+        icon_dirs=[icons],
+        pixmap_dirs=[pixmaps],
+        kdeglobals=kdeglobals,
+    )
+    assert url is not None and url.startswith("data:image/png;base64,")
+
+
+def test_app_icon_case_insensitive_desktop(tmp_path):
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    url = bridge.app_icon_data_url(
+        "FOO",
+        app_dirs=[apps],
+        icon_dirs=[icons],
+        pixmap_dirs=[pixmaps],
+        kdeglobals=kdeglobals,
+    )
+    assert url is not None and url.startswith("data:image/svg+xml;base64,")
+
+
+def test_app_icon_absolute_path(tmp_path):
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    raw = tmp_path / "raw.png"
+    raw.write_bytes(bytes.fromhex("89504e470d0a1a0a") + b"zz")
+    (apps / "abs.desktop").write_text(f"[Desktop Entry]\nName=Abs\nIcon={raw}\n")
+    url = bridge.app_icon_data_url(
+        "abs",
+        app_dirs=[apps],
+        icon_dirs=[icons],
+        pixmap_dirs=[pixmaps],
+        kdeglobals=kdeglobals,
+    )
+    assert url is not None and url.startswith("data:image/png;base64,")
+
+
+def test_app_icon_miss_and_size_cap(tmp_path):
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    assert (
+        bridge.app_icon_data_url(
+            "nope",
+            app_dirs=[apps],
+            icon_dirs=[icons],
+            pixmap_dirs=[pixmaps],
+            kdeglobals=kdeglobals,
+        )
+        is None
+    )
+    big = icons / "breeze-dark" / "scalable" / "apps" / "bigicon.svg"
+    big.write_bytes(b"x" * (bridge._APPICON_MAX_BYTES + 1))
+    (apps / "big.desktop").write_text("[Desktop Entry]\nName=Big\nIcon=bigicon\n")
+    assert (
+        bridge.app_icon_data_url(
+            "big",
+            app_dirs=[apps],
+            icon_dirs=[icons],
+            pixmap_dirs=[pixmaps],
+            kdeglobals=kdeglobals,
+        )
+        is None
+    )
+
+
+def test_app_icon_shrinks_big_raster_pixmap(tmp_path):
+    """A 1024px pixmap over the cap (ChatGPT's) is shrunk, not dropped."""
+    import base64
+    import io
+
+    Image = pytest.importorskip("PIL.Image")
+    apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
+    buf = io.BytesIO()
+    Image.frombytes("RGBA", (1024, 1024), os.urandom(1024 * 1024 * 4)).save(buf, format="PNG")
+    assert len(buf.getvalue()) > bridge._APPICON_MAX_BYTES
+    (pixmaps / "hugeicon.png").write_bytes(buf.getvalue())
+    (apps / "huge.desktop").write_text("[Desktop Entry]\nName=Huge\nIcon=hugeicon\n")
+    url = bridge.app_icon_data_url(
+        "huge",
+        app_dirs=[apps],
+        icon_dirs=[icons],
+        pixmap_dirs=[pixmaps],
+        kdeglobals=kdeglobals,
+    )
+    assert url is not None and url.startswith("data:image/png;base64,")
+    with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as im:
+        assert max(im.size) == bridge._APPICON_SHRINK_PX
+
+
+def test_app_icon_caches_misses(monkeypatch):
+    bridge._APPICON_CACHE.clear()
+    calls = []
+    monkeypatch.setattr(bridge, "find_desktop_file", lambda app, app_dirs=None: None)
+    monkeypatch.setattr(
+        bridge, "find_icon_path", lambda *a, **k: calls.append(1) or None
+    )
+    try:
+        assert bridge.app_icon_data_url("missing-app-xyz") is None
+        assert bridge.app_icon_data_url("missing-app-xyz") is None
+        assert len(calls) == 1
+    finally:
+        bridge._APPICON_CACHE.clear()
+
+
+def test_appicon_route(monkeypatch):
+    monkeypatch.setattr(
+        bridge,
+        "app_icon_data_url",
+        lambda app: "data:image/png;base64,AAA" if app == "foo" else None,
+    )
+    server, _ = bridge._run_in_thread()
+    try:
+        code, body = _get(server, "/appicon?app=foo")
+        assert code == 200 and body == {"ok": True, "data": "data:image/png;base64,AAA"}
+        code, body = _get(server, "/appicon?app=nope")
+        assert code == 200 and body == {"ok": False}
+        code, body = _get(server, "/appicon")
+        assert code == 400 and body["ok"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_appicon_route_uses_same_bearer_gate(monkeypatch):
+    monkeypatch.setattr(bridge, "app_icon_data_url", lambda app: "data:x")
+    server, _ = bridge._run_in_thread(token="s3cret")
+    try:
+        code, _ = _get(server, "/appicon?app=foo")
+        assert code == 401
+        code, body = _get(server, "/appicon?app=foo", token="s3cret")
+        assert code == 200 and body["ok"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_sys_stats_carries_windows(monkeypatch):
+    import active_window
+
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+    monkeypatch.setattr(active_window, "ensure_listener", lambda: True)
+    fake_windows = [
+        {
+            "id": "a",
+            "title": "t",
+            "app": "brave",
+            "desktop": "brave.desktop",
+            "active": True,
+            "minimized": False,
+            "pid": 1,
+        }
+    ]
+    monkeypatch.setattr(active_window, "windows", lambda: fake_windows)
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+    stats = bridge._sys_stats()
+    assert stats["windows"] == fake_windows
+
+
+def test_sys_stats_windows_fail_soft(monkeypatch):
+    import active_window
+
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+
+    def _boom():
+        raise RuntimeError("dbus down")
+
+    monkeypatch.setattr(active_window, "ensure_listener", _boom)
+    monkeypatch.setattr(active_window, "windows", _boom)
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+    assert bridge._sys_stats()["windows"] == []
+
+
+def test_sys_stats_carries_launchers(monkeypatch):
+    import taskbar
+
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+    fake = [{"desktop": "brave-browser.desktop", "name": "Brave"}]
+    monkeypatch.setattr(taskbar, "launchers", lambda: fake)
+    assert bridge._sys_stats()["launchers"] == fake
+
+
+def test_sys_stats_launchers_fail_soft(monkeypatch):
+    import taskbar
+
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+
+    def _boom():
+        raise RuntimeError("appletsrc unreadable")
+
+    monkeypatch.setattr(taskbar, "launchers", _boom)
+    assert bridge._sys_stats()["launchers"] == []
+
+
+def test_set_school_mode_toggles_meta_shortcut(monkeypatch, tmp_path):
+    import school as _school
+
+    # Never touch the live ~/.jarvis/mode.json from tests.
+    real_set = _school.set_mode
+    monkeypatch.setattr(
+        _school, "set_mode", lambda mode, **kw: real_set(mode, home=tmp_path))
+    calls = []
+    monkeypatch.setattr(
+        _school, "meta_enter_school", lambda **kw: calls.append("enter") or True)
+    monkeypatch.setattr(
+        _school, "meta_exit_school", lambda **kw: calls.append("exit") or True)
+    import projects as _projects
+
+    monkeypatch.setattr(_projects, "shell_verb", lambda *a, **k: True)
+    import system
+
+    monkeypatch.setattr(system, "log_action", lambda *a, **k: None)
+    assert bridge.set_school_mode("school") == {"mode": "school"}
+    assert bridge.set_school_mode("normal") == {"mode": "normal"}
+    assert calls == ["enter", "exit"]
+
+
+def test_sys_stats_never_starts_real_listener(monkeypatch):
+    """_sys_stats must not RequestName org.jarvis.Focus under pytest."""
+    import active_window
+
+    bridge._NET_CACHE.clear()
+    bridge._VOL_CACHE.clear()
+
+    def _boom():
+        raise AssertionError("real D-Bus listener must not start in tests")
+
+    monkeypatch.setattr(active_window, "ensure_listener", _boom)
+    monkeypatch.setattr(active_window, "windows", lambda: [])
+    monkeypatch.setattr(bridge, "_phone_tailnet", lambda: None)
+    monkeypatch.setattr(
+        bridge, "_net_status", lambda **kw: {"kind": "none", "name": "", "signal": None}
+    )
+    monkeypatch.setattr(
+        bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
+    )
+    assert bridge._sys_stats()["windows"] == []

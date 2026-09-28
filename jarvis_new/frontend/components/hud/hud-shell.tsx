@@ -9,7 +9,9 @@ import { NodeGraph } from '@/components/hud/node-graph';
 import { ParticleOrb } from '@/components/hud/particle-orb';
 import { RadarSweep } from '@/components/hud/radar-sweep';
 import { ResearchStrip } from '@/components/hud/research-strip';
+import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
 import { SchoolStrip } from '@/components/hud/school-strip';
+import { SchoolTransition, useSchoolTransition } from '@/components/hud/school-transition';
 import { StarkDials } from '@/components/hud/stark-dials';
 import { StateBanner } from '@/components/hud/state-banner';
 import { SysCore } from '@/components/hud/sys-core';
@@ -18,7 +20,12 @@ import { VoiceDock } from '@/components/hud/voice-dock';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
 import { useHudEvents } from '@/hooks/hud/use-hud-events';
-import { MUTED_COLOR, useJarvisState, useMicMuted } from '@/hooks/hud/use-jarvis-state';
+import {
+  JARVIS_COLORS,
+  MUTED_COLOR,
+  useJarvisState,
+  useMicMuted,
+} from '@/hooks/hud/use-jarvis-state';
 import { type BridgeSys } from '@/lib/bridge';
 import { hideOverlay } from '@/lib/tauri';
 
@@ -156,6 +163,57 @@ function useHiddenPause(): void {
   }, []);
 }
 
+/** The HUD's minimum height (tauri.conf.json); anything shorter is the
+ *  docked school taskbar, even with a menu grown out of it. */
+const HUD_MIN_H = 540;
+/** How long a shell transition signal outranks the bridge's mode poll
+ *  (covers the whole entry transition, ~4-5 s). */
+const SIGNAL_TRUST_MS = 12000;
+
+/** Which face to show around a school-mode transition. The shell sends a
+ *  'jarvis-school' DOM event (school.rs) *before* it moves the window:
+ *  "collapse"/"arrive" = the entry transition (school-transition.tsx)
+ *  plays, then the bar docks; "expand" = close the bar into its line, then
+ *  the HUD comes back and unfolds upward. Between signals the bridge's
+ *  mode is the source of truth. */
+function useSchoolView(mode: string | undefined): { bar: boolean; leaving: boolean } {
+  const [signal, setSignal] = useState<{ phase: string; at: number } | null>(null);
+  const [tall, setTall] = useState(true);
+  useEffect(() => {
+    const onSignal = (e: Event) =>
+      setSignal({ phase: String((e as CustomEvent).detail), at: Date.now() });
+    const check = () => setTall(window.innerHeight >= HUD_MIN_H);
+    check();
+    window.addEventListener('jarvis-school', onSignal);
+    window.addEventListener('resize', check);
+    const timer = setInterval(check, 150); // WebKitGTK resize events lag
+    return () => {
+      window.removeEventListener('jarvis-school', onSignal);
+      window.removeEventListener('resize', check);
+      clearInterval(timer);
+    };
+  }, []);
+
+  const fresh = signal && Date.now() - signal.at < SIGNAL_TRUST_MS ? signal.phase : null;
+  const school = fresh ? fresh === 'collapse' || fresh === 'arrive' : mode === 'school';
+  const leaving = fresh === 'expand' && !tall;
+
+  // Unfold the HUD once, the moment it is tall again after an expand.
+  const [unfolding, setUnfolding] = useState(false);
+  useEffect(() => {
+    if (fresh !== 'expand' || !tall) return;
+    setUnfolding(true);
+    const t = setTimeout(() => setUnfolding(false), 850);
+    return () => clearTimeout(t);
+  }, [fresh, tall]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('hud-unfolding', unfolding);
+  }, [unfolding]);
+
+  return { bar: (school && !tall) || leaving, leaving };
+}
+
 /** True while the shell has shrunk the window to the Brave taskbar orb
  *  (shell/src-tauri/src/orb.rs). Size-based, so it flips the instant the
  *  window resizes instead of waiting for the next bridge poll. */
@@ -203,6 +261,9 @@ export function HudShell({ children }: Props) {
   const { muted, toggle: toggleMute } = useMicMuted();
   const sys = useBridgeSysSnapshot();
   const tiny = useTinyWindow();
+  const school = useSchoolView(sys?.mode);
+  const { tx, barH, showBar, done } = useSchoolTransition();
+  const { ret, retStage, setRetStage, barPx: retBarPx, done: retDone } = useSchoolReturn();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -227,34 +288,24 @@ export function HudShell({ children }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleMode, toggleMute]);
 
-  if (sys?.mode === 'school') {
-    return <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} />;
-  }
-
-  if (tiny) {
-    return <TaskbarOrb />;
-  }
-
-  if (isSolo) {
-    return (
-      <div className="hud hud--solo" data-state={jarvis}>
-        <div className="hud-ambient" aria-hidden="true" />
-        <div className="im-boot" aria-hidden="true" />
-        <EdgePulse events={events} solo />
-        <div className="hud-solo__orb">
-          <ParticleOrb />
-        </div>
-        <StateBanner compact />
-        <ResearchStrip sys={sys} compact />
-        <VoiceDock active={jarvis !== 'idle'} />
-        <LiveCaption />
-        <CommandLog fullscreen />
-        {children}
+  const returning = ret !== null;
+  const pooling = tx !== null && barH !== null;
+  const hudView = isSolo ? (
+    <div className="hud hud--solo" data-state={jarvis}>
+      <div className="hud-ambient" aria-hidden="true" />
+      <div className="im-boot" aria-hidden="true" />
+      <EdgePulse events={events} solo />
+      <div className="hud-solo__orb">
+        <ParticleOrb />
       </div>
-    );
-  }
-
-  return (
+      <StateBanner compact />
+      <ResearchStrip sys={sys} compact />
+      <VoiceDock active={jarvis !== 'idle'} />
+      <LiveCaption />
+      <CommandLog fullscreen />
+      {children}
+    </div>
+  ) : (
     <div className="hud hud--dual" data-state={jarvis}>
       <div className="hud-ambient" aria-hidden="true" />
       <div className="im-boot" aria-hidden="true" />
@@ -311,5 +362,52 @@ export function HudShell({ children }: Props) {
       </footer>
       {children}
     </div>
+  );
+
+  if (!tx && !returning && !school.bar && tiny) {
+    return <TaskbarOrb />;
+  }
+
+  // One stable shape for every face: [transition overlay, bar | HUD]. The
+  // bar keeps its place from the moment it surfaces out of the entry pool
+  // until it sinks away on the return, and the HUD from its scan-in on, so
+  // neither remounts (and replays its opening) mid-transition.
+  const barOn = returning ? retStage === 'bar' || retStage === 'sink' : school.bar || pooling;
+  const hudOn = returning ? retStage === 'scan' : !tx && !school.bar;
+  const barPxNow = returning ? retBarPx : pooling ? barH : null;
+  return (
+    <>
+      {tx ? (
+        <SchoolTransition
+          key={tx.id}
+          tx={tx}
+          color={JARVIS_COLORS[jarvis]}
+          onBar={showBar}
+          onDone={done}
+        />
+      ) : ret ? (
+        <SchoolReturn
+          key={ret.id}
+          ret={ret}
+          color={JARVIS_COLORS[jarvis]}
+          barPx={retBarPx}
+          onStage={setRetStage}
+          onDone={retDone}
+        />
+      ) : null}
+      {barOn ? (
+        <div
+          className="stx-bar"
+          data-arrived={barH !== null || returning}
+          data-pooling={pooling}
+          data-returning={returning ? retStage : undefined}
+          style={barPxNow !== null ? ({ '--sbar-h': `${barPxNow}px` } as CSSProperties) : undefined}
+        >
+          <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} leaving={school.leaving} />
+        </div>
+      ) : hudOn ? (
+        hudView
+      ) : null}
+    </>
   );
 }

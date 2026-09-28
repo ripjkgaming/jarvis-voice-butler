@@ -220,6 +220,29 @@ def publish_hud_room(room: str) -> bool:
         return False
 
 
+#: File under $JARVIS_HOME stamped the instant the wake word fires, so the
+#: HUD turns purple before the room exists (connect + agent join is ~1-3 s).
+HUD_WAKING_FILE = "hud_waking"
+
+
+def mark_hud_waking() -> None:
+    """Stamp "wake heard, call starting" for the HUD. Fail-soft."""
+    try:
+        path = hud_room_path().with_name(HUD_WAKING_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(time.time()))
+    except OSError as exc:
+        logger.debug("hud waking mark failed: %s", exc)
+
+
+def clear_hud_waking() -> None:
+    """Drop the waking stamp (call up, over, or wake rejected). Fail-soft."""
+    try:
+        hud_room_path().with_name(HUD_WAKING_FILE).unlink(missing_ok=True)
+    except OSError as exc:
+        logger.debug("hud waking clear failed: %s", exc)
+
+
 def clear_hud_room() -> None:
     """Remove the HUD room file (call over). Fail-soft, never raises."""
     try:
@@ -691,6 +714,9 @@ class WakeClient:
                     if hot["run"] >= (_school.WAKE_FRAMES if strict else 1):
                         hot["run"] = 0
                         logger.warning("wake word detected (%.2f)%s", score, " [school]" if strict else "")
+                        # First thing, before any network: the HUD goes
+                        # purple off this stamp, not the room (seconds later).
+                        mark_hud_waking()
                         summon_overlay()
                         if strict:
                             # openWakeWord also fires on a bare "Jarvis" in
@@ -715,6 +741,7 @@ class WakeClient:
                                     self._pending_text = question
                                 await self._summon_session(mic_queue=queue)
                             else:
+                                clear_hud_waking()
                                 logger.warning("school wake ignored (not addressed): %r", text[:80])
                             ring.clear()
                         else:
@@ -779,6 +806,7 @@ class WakeClient:
         # way: "hey Jarvis" always summons the UI.
         if await active_call_exists(self._creds):
             logger.warning("already in a call; staying out")
+            clear_hud_waking()
             summon_overlay()
             return False
 
@@ -876,6 +904,7 @@ class WakeClient:
             return rewake.is_set() and not disconnected.is_set()
         finally:
             clear_hud_room()
+            clear_hud_waking()
             self._set_in_call(False)
             self._rewake = None
             self._listen_queue_live = True

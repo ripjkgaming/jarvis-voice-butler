@@ -1,13 +1,6 @@
-//! Brave orb: while Sir works in Brave, the overlay shrinks to a small
-//! click-through orb sitting in the taskbar instead of covering the page.
-//!
-//! Same mechanics as the school strip (school.rs): an exact-title KWin rule
-//! makes it unfocusable and keeps it above (panels included), and a one-shot
-//! KWin script docks it in the middle of the bottom panel, sized to the
-//! panel's height. The bridge watches the active window and drives
-//! `jarvis-shell orbon|orboff`. School mode always wins.
-
-use std::sync::atomic::{AtomicBool, Ordering};
+//! Legacy Brave-orb support. The implementation is retained for compatibility
+//! with old shell commands, but it is intentionally disabled: application
+//! switches must never change the main HUD's form or position.
 
 use tauri::{AppHandle, Manager};
 
@@ -17,12 +10,11 @@ pub const ORB_SIZE: f64 = 40.0;
 pub const ORB_TITLE: &str = "Jarvis \u{b7} Orb";
 const RULE_ID: &str = "jarvis-brave-orb";
 
-static ORB: AtomicBool = AtomicBool::new(false);
-/// Was the HUD visible when the orb took over? Restored on exit.
-static WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
-
 pub fn is_orb() -> bool {
-    ORB.load(Ordering::SeqCst)
+    // The main HUD must never become an orb. Layout changes are reserved for
+    // Study/School Mode; keep this false so stale `orbon`/`orboff` commands
+    // cannot make the overlay flash, resize, or move.
+    false
 }
 
 /// KWin rule: never take focus, stay above, stay out of switchers. Pure.
@@ -73,15 +65,8 @@ pub fn kwin_script() -> String {
 
 /// Shrink the overlay to the orb and show it without focus.
 pub fn enter(app: &AppHandle) {
-    if crate::school::is_school() || ORB.swap(true, Ordering::SeqCst) {
-        return; // school strip wins; already an orb
-    }
-    let visible = app
-        .get_webview_window(crate::commands::OVERLAY_LABEL)
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
-    WAS_VISIBLE.store(visible, Ordering::SeqCst);
-    apply(app);
+    let _ = app;
+    // Deliberately disabled: switching applications must not alter the HUD.
 }
 
 /// Window properties + dock. Also used by show_overlay while in orb mode.
@@ -111,19 +96,9 @@ pub fn apply(app: &AppHandle) {
 /// Back to whatever Sir had before Brave: the HUD (visible or hidden at
 /// its saved geometry), or the school strip if school mode came on.
 pub fn exit(app: &AppHandle) {
-    if !ORB.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    if crate::school::is_school() {
-        crate::school::apply(app);
-        return;
-    }
-    crate::school::exit(app);
-    if !WAS_VISIBLE.load(Ordering::SeqCst) {
-        if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
-            let _ = win.hide();
-        }
-    }
+    let _ = app;
+    // Deliberately disabled: only Study/School Mode may change the HUD
+    // geometry or presentation.
 }
 
 #[cfg(test)]

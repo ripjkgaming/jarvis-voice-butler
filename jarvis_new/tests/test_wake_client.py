@@ -3,8 +3,10 @@ import json
 import pytest
 
 from wake_client import (
+    HUD_WAKING_FILE,
     OWW_FRAME,
     clear_hud_room,
+    clear_hud_waking,
     downsample_48k_to_16k,
     drain_queue,
     extract_talk_text,
@@ -12,6 +14,7 @@ from wake_client import (
     handle_mic_command,
     handle_talk_request,
     load_livekit_env,
+    mark_hud_waking,
     mint_summon_token,
     publish_hud_room,
     read_hud_room,
@@ -214,6 +217,15 @@ def test_hud_room_publish_read_clear(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     assert read_hud_room() == "jarvis-123"
     clear_hud_room()
     assert read_hud_room() is None
+
+
+def test_hud_waking_mark_and_clear(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mark_hud_waking()
+    assert (tmp_path / HUD_WAKING_FILE).is_file()
+    clear_hud_waking()
+    assert not (tmp_path / HUD_WAKING_FILE).exists()
+    clear_hud_waking()  # idempotent
 
 
 def test_hud_room_stale_reads_as_none(

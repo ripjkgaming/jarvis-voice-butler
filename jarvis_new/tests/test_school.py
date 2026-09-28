@@ -150,3 +150,124 @@ def test_address_gate_and_question(text, addressed, question):
     assert school.addressed(text) is addressed
     if question is not None:
         assert school.question_after_address(text) == question
+
+
+# --- Meta (Super) key shortcut (school start menu) ---
+
+
+def _meta_fake(current=""):
+    """Fake subprocess.run-shaped runner with a fake kwinrc Meta value."""
+    import types
+
+    calls = []
+    state = {"meta": current}
+
+    def run(argv, **kw):
+        calls.append(list(argv))
+        if argv[0] == "kreadconfig6":
+            assert argv == ["kreadconfig6", "--file", "kwinrc",
+                            "--group", "ModifierOnlyShortcuts",
+                            "--key", "Meta"]
+            return types.SimpleNamespace(returncode=0, stdout=state["meta"] + "\n",
+                                         stderr="")
+        if argv[0] == "kwriteconfig6":
+            assert argv[1:6] == ["--file", "kwinrc", "--group",
+                                "ModifierOnlyShortcuts", "--key"]
+            if "--delete" in argv:
+                state["meta"] = ""
+            else:
+                state["meta"] = argv[-1]
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        if argv[0] == "dbus-send":
+            assert argv == ["dbus-send", "--session", "--type=method_call",
+                            "--dest=org.kde.KWin", "/KWin",
+                            "org.kde.KWin.reconfigure"]
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected argv {argv}")
+
+    return run, calls, state
+
+
+def test_meta_enter_saves_absent_backup_and_sets_jarvis(tmp_path):
+    import json
+
+    run, calls, state = _meta_fake("")
+    assert school.meta_enter_school(run=run) is True
+    backup = json.loads((tmp_path / "meta_shortcut_backup.json").read_text())
+    assert backup == {"had_value": False, "value": ""}
+    assert state["meta"] == school.META_JARVIS_VALUE
+    assert any(c[0] == "kwriteconfig6" and c[-1] == school.META_JARVIS_VALUE
+               for c in calls)
+    assert any(c[0] == "dbus-send" for c in calls)
+
+
+def test_meta_double_enter_keeps_original_backup(tmp_path):
+    import json
+
+    (tmp_path / "meta_shortcut_backup.json").write_text(
+        json.dumps({"had_value": True, "value": "orig-value"}))
+    run, calls, state = _meta_fake("whatever")
+    assert school.meta_enter_school(run=run) is True
+    backup = json.loads((tmp_path / "meta_shortcut_backup.json").read_text())
+    assert backup == {"had_value": True, "value": "orig-value"}
+    assert state["meta"] == school.META_JARVIS_VALUE
+
+
+def test_meta_exit_restores_present_value(tmp_path):
+    import json
+
+    (tmp_path / "meta_shortcut_backup.json").write_text(
+        json.dumps({"had_value": True, "value": "orig-value"}))
+    run, calls, state = _meta_fake(school.META_JARVIS_VALUE)
+    assert school.meta_exit_school(run=run) is True
+    assert state["meta"] == "orig-value"
+    assert not (tmp_path / "meta_shortcut_backup.json").exists()
+    assert any(c[0] == "dbus-send" for c in calls)
+
+
+def test_meta_exit_restores_absent_value(tmp_path):
+    import json
+
+    (tmp_path / "meta_shortcut_backup.json").write_text(
+        json.dumps({"had_value": False, "value": ""}))
+    run, calls, state = _meta_fake(school.META_JARVIS_VALUE)
+    assert school.meta_exit_school(run=run) is True
+    assert state["meta"] == ""
+    assert any(c[0] == "kwriteconfig6" and "--delete" in c for c in calls)
+    assert not (tmp_path / "meta_shortcut_backup.json").exists()
+
+
+def test_meta_exit_without_backup_leaves_foreign_value():
+    run, calls, state = _meta_fake("foreign-value")
+    assert school.meta_exit_school(run=run) is True
+    assert state["meta"] == "foreign-value"
+    assert [c[0] for c in calls] == ["kreadconfig6"]  # read only, no change
+
+
+def test_meta_exit_without_backup_clears_own_value():
+    run, calls, state = _meta_fake(school.META_JARVIS_VALUE)
+    assert school.meta_exit_school(run=run) is True
+    assert state["meta"] == ""
+    assert any(c[0] == "kwriteconfig6" and "--delete" in c for c in calls)
+
+
+def test_meta_sync_on_startup(tmp_path):
+    import json
+
+    # School mode ensures the Jarvis value (backup records the original).
+    run, _, state = _meta_fake("orig-value")
+    school.set_mode("school")
+    school.meta_sync_on_startup(run=run)
+    assert state["meta"] == school.META_JARVIS_VALUE
+    backup = json.loads((tmp_path / "meta_shortcut_backup.json").read_text())
+    assert backup == {"had_value": True, "value": "orig-value"}
+    # Crash recovery: normal mode + leftover backup restores it.
+    school.set_mode("normal")
+    run2, _, state2 = _meta_fake(school.META_JARVIS_VALUE)
+    school.meta_sync_on_startup(run=run2)
+    assert state2["meta"] == "orig-value"
+    assert not (tmp_path / "meta_shortcut_backup.json").exists()
+    # Normal mode with no backup touches nothing.
+    run3, calls3, _ = _meta_fake("")
+    school.meta_sync_on_startup(run=run3)
+    assert [c[0] for c in calls3] == []

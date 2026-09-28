@@ -28,7 +28,13 @@ Endpoints (all JSON):
     GET  /room      live wake room for HUD receive-only join
                    {"ok": true, "room": name|null} (null = no call)
     GET  /captions  tail of ~/.jarvis/captions.log (?limit=1..50, default 20)
-                   [{ts, role, text}] for HUDs without a LiveKit client
+                    [{ts, role, text}] for HUDs without a LiveKit client
+    POST /window    {"id": window UUID, "action": activate|minimize}
+    POST /launch    {"desktop": "x.desktop"} -> launch a pinned/menu app
+    GET  /apps      all visible apps for the launcher menu
+    GET  /quick     wifi/bluetooth/volume/brightness/dnd snapshot
+    POST /quick     toggle wifi/bluetooth/dnd, set volume/mute/brightness
+    POST /power     {"action": lock|sleep|logout|restart|shutdown}
 Deliberately NOT here: hangup, sendText, hotword events. Those live
 inside the LiveKit room (token via the shell's mint_token command) and
 have no out-of-process API yet. Every endpoint is fail-soft: a missing
@@ -289,9 +295,15 @@ _MATH_LEAD = re.compile(
 _MATH_WORDS: tuple[tuple[str, str], ...] = (
     (r"\bsquare root of (\d+(?:\.\d+)?)", r"(\1)**0.5"),
     (r"(\d+(?:\.\d+)?)\s*(?:%|percent|per cent) of (\d+(?:\.\d+)?)", r"(\1*\2/100)"),
-    (r"\btake (\d+(?:\.\d+)?) and (?:subtract|minus|take away) (\d+(?:\.\d+)?)", r"\1 - \2"),
+    (
+        r"\btake (\d+(?:\.\d+)?) and (?:subtract|minus|take away) (\d+(?:\.\d+)?)",
+        r"\1 - \2",
+    ),
     (r"\btake (\d+(?:\.\d+)?) and (?:add|plus) (\d+(?:\.\d+)?)", r"\1 + \2"),
-    (r"\btake (\d+(?:\.\d+)?) and (?:multiply(?: it)? by|times) (\d+(?:\.\d+)?)", r"\1 * \2"),
+    (
+        r"\btake (\d+(?:\.\d+)?) and (?:multiply(?: it)? by|times) (\d+(?:\.\d+)?)",
+        r"\1 * \2",
+    ),
     (r"\btake (\d+(?:\.\d+)?) and divide(?: it)? by (\d+(?:\.\d+)?)", r"\1 / \2"),
     (r"\bsubtract (\d+(?:\.\d+)?) from (\d+(?:\.\d+)?)", r"\2 - \1"),
     (r"\badd (\d+(?:\.\d+)?) (?:and|to) (\d+(?:\.\d+)?)", r"\1 + \2"),
@@ -526,6 +538,23 @@ def read_hud_room(max_age_s: float = 15 * 60) -> str | None:
         return None
 
 
+#: A wake stamp older than this is a summon that never connected.
+HUD_WAKING_MAX_AGE_S = 15.0
+
+
+def read_hud_waking(max_age_s: float = HUD_WAKING_MAX_AGE_S) -> bool:
+    """True right after the wake word fired, before the call room exists.
+
+    Mirrors wake_client.mark_hud_waking (file ~/.jarvis/hud_waking). Never
+    raises.
+    """
+    try:
+        path = _hud_room_path().with_name("hud_waking")
+        return time.time() - path.stat().st_mtime <= max_age_s
+    except OSError:
+        return False
+
+
 def read_captions(limit: int = 20) -> list[dict]:
     """Tail of ~/.jarvis/captions.log as [{ts, role, text}]. Never raises.
 
@@ -585,7 +614,12 @@ def start_activity_watch() -> None:
     """Background producers for the activity feed (downloads, package
     updates, projects). The bridge is the always-on supervised sidecar, so
     it hosts them. JARVIS_ACTIVITY_WATCH=0 disables. Never raises."""
-    if _env("JARVIS_ACTIVITY_WATCH", "1").strip().lower() in ("0", "false", "off", "no"):
+    if _env("JARVIS_ACTIVITY_WATCH", "1").strip().lower() in (
+        "0",
+        "false",
+        "off",
+        "no",
+    ):
         return
     try:
         import activity_watch
@@ -614,7 +648,9 @@ def is_jarvis_window(info: dict | None) -> bool:
     return bool(info) and "jarvis" in str(info.get("app") or "").lower()
 
 
-def orb_step(state: dict, brave: bool | None, now: float, school_mode: bool) -> str | None:
+def orb_step(
+    state: dict, brave: bool | None, now: float, school_mode: bool
+) -> str | None:
     """Debounced orb switch. Returns "orbon"/"orboff" when the shell must
     change, else None. brave=None (Jarvis's own window is active) holds the
     current state: showing the orb activated it, which read as "left Brave"
@@ -689,19 +725,13 @@ def start_sidecar_threads() -> None:
 
 
 def start_brave_orb_watch() -> None:
-    """While Brave is the active window the HUD becomes a taskbar orb
-    (shell orb.rs). JARVIS_BRAVE_ORB=0 disables. Never raises."""
-    if _env("JARVIS_BRAVE_ORB", "1").strip().lower() in ("0", "false", "off", "no"):
-        return
-    try:
-        import threading
+    """Keep the user's HUD layout unchanged when switching to Brave.
 
-        stop = threading.Event()
-        threading.Thread(
-            target=_brave_orb_loop, args=(stop,), name="brave-orb", daemon=True
-        ).start()
-    except Exception as exc:
-        print(f"brave orb watch unavailable: {exc}", flush=True)
+    The orb remains available as an explicit shell command, but changing the
+    active application must not resize, move, hide, or replace the HUD. Only
+    Projects UI and School Mode are allowed to request a layout change.
+    """
+    return
 
 
 def _wake_socket_path() -> Path:
@@ -806,7 +836,9 @@ def _phone_peer(status: dict) -> dict | None:
     pinned = os.environ.get("JARVIS_PHONE_TAILNET_IP", "").strip()
     if pinned:
         return next((p for p in peers if pinned in (p.get("TailscaleIPs") or [])), None)
-    return next((p for p in peers if str(p.get("OS", "")).lower() in ("android", "ios")), None)
+    return next(
+        (p for p in peers if str(p.get("OS", "")).lower() in ("android", "ios")), None
+    )
 
 
 def _phone_tailnet() -> dict | None:
@@ -818,11 +850,17 @@ def _phone_tailnet() -> dict | None:
     try:
         out = subprocess.run(
             ["tailscale", "status", "--json"],
-            capture_output=True, text=True, timeout=3, check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
         peer = _phone_peer(json.loads(out.stdout)) if out.returncode == 0 else None
         if peer is not None:
-            value = {"online": peer.get("Online") is True, "name": peer.get("HostName", "")}
+            value = {
+                "online": peer.get("Online") is True,
+                "name": peer.get("HostName", ""),
+            }
     except (OSError, subprocess.SubprocessError, ValueError):
         value = None
     _TAILNET_CACHE.update(at=now, value=value)
@@ -835,7 +873,16 @@ def set_school_mode(mode: str) -> dict:
     with contextlib.suppress(Exception):
         import projects as _projects
 
-        _projects.shell_verb("schoolon" if rec["mode"] == _school.SCHOOL else "schooloff")
+        _projects.shell_verb(
+            "schoolon" if rec["mode"] == _school.SCHOOL else "schooloff"
+        )
+    # Meta-alone opens the Jarvis start menu in school mode, Kickoff
+    # outside it (school.meta_* are fail-soft; never break the switch).
+    with contextlib.suppress(Exception):
+        if rec["mode"] == _school.SCHOOL:
+            _school.meta_enter_school()
+        else:
+            _school.meta_exit_school()
     with contextlib.suppress(Exception):
         from system import log_action
 
@@ -910,6 +957,548 @@ def _cpu_temp_c(root: Path = Path("/sys/class/thermal")) -> float | None:
     return round(max(temps.values()), 1) if temps else None
 
 
+def _mode_since(path: Path | None = None) -> float | None:
+    """Epoch seconds the current school/normal mode started. None if unknown.
+
+    Reads ~/.jarvis/mode.json key "since" (see school.mode_path()).
+    Fail-soft: missing/corrupt/non-numeric -> None. Never raises.
+    """
+    try:
+        p = path if path is not None else _school.mode_path()
+        data = json.loads(p.read_text())
+        since = float(data.get("since"))
+        return since
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def _split_escaped(value: str) -> list[str]:
+    """Split nmcli -t output on unescaped colons. Pure.
+
+    nmcli escapes literal colons as "\\:" (and backslashes as "\\\\"),
+    so a naive split breaks SSIDs like "My:Home:Net".
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    chars = value or ""
+    i = 0
+    while i < len(chars):
+        c = chars[i]
+        if c == "\\" and i + 1 < len(chars):
+            current.append(chars[i + 1])
+            i += 2
+            continue
+        if c == ":":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(c)
+        i += 1
+    parts.append("".join(current))
+    return parts
+
+
+def _parse_nmcli_devices(out: str) -> list[tuple[str, str, str]]:
+    """Parse `nmcli -t -f TYPE,STATE,CONNECTION device`. Pure.
+
+    Returns [(type, state, connection)] lowercased type/state, unescaped
+    connection ("" when nmcli reports "--").
+    """
+    rows: list[tuple[str, str, str]] = []
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = _split_escaped(line)
+        if len(parts) < 2:
+            continue
+        dtype = parts[0].strip().lower()
+        state = parts[1].strip().lower()
+        conn = ":".join(parts[2:]).strip() if len(parts) > 2 else ""
+        if conn == "--":
+            conn = ""
+        rows.append((dtype, state, conn))
+    return rows
+
+
+def _parse_nmcli_wifi(out: str) -> tuple[str, int | None] | None:
+    """Parse `nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi`. Pure.
+
+    Returns (ssid, signal) for the ACTIVE=yes line, or None when no
+    active network is listed. Signal outside 0-100 degrades to None.
+    """
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = _split_escaped(line)
+        if len(parts) < 2:
+            continue
+        if parts[0].strip().lower() != "yes":
+            continue
+        ssid = ":".join(parts[1:-1]).strip() if len(parts) > 2 else ""
+        signal: int | None = None
+        try:
+            signal = int(parts[-1].strip())
+        except (ValueError, TypeError):
+            signal = None
+        if signal is not None and not 0 <= signal <= 100:
+            signal = None
+        return (ssid, signal)
+    return None
+
+
+_NET_CACHE: dict = {}
+_NET_TTL_S = 5.0
+_VOL_CACHE: dict = {}
+_VOL_TTL_S = 5.0
+
+
+def _net_status(run=None, clock=None) -> dict | None:
+    """Link kind/name/signal for the taskbar. None when nmcli is unusable.
+
+    wifi -> SSID + signal from `dev wifi`; ethernet -> connection name;
+    nothing connected -> {"kind": "none", ...}. Results cached 5s
+    (monotonic clock). `run` defaults to subprocess.run so tests can
+    inject a fake; `clock` defaults to time.monotonic. Never raises.
+    """
+    now_fn = clock or time.monotonic
+    try:
+        now = now_fn()
+    except Exception:
+        now = time.monotonic()
+    try:
+        if _NET_CACHE and now - _NET_CACHE["at"] < _NET_TTL_S:
+            return _NET_CACHE["value"]
+    except (KeyError, TypeError):
+        pass
+    runner = run or subprocess.run
+    value: dict | None = None
+    try:
+        proc = runner(
+            ["nmcli", "-t", "-f", "TYPE,STATE,CONNECTION", "device"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if proc.returncode != 0:
+            raise ValueError("nmcli device failed")
+        rows = _parse_nmcli_devices(proc.stdout or "")
+        wifi = [r for r in rows if r[0] == "wifi" and r[1] == "connected"]
+        eth = [r for r in rows if r[0] == "ethernet" and r[1] == "connected"]
+        if wifi:
+            fallback = wifi[0][2]
+            name, signal = fallback, None
+            try:
+                wproc = runner(
+                    ["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if wproc.returncode == 0:
+                    hit = _parse_nmcli_wifi(wproc.stdout or "")
+                    if hit is not None:
+                        name, signal = hit[0] or fallback, hit[1]
+            except Exception:
+                pass
+            value = {"kind": "wifi", "name": name, "signal": signal}
+        elif eth:
+            value = {"kind": "ethernet", "name": eth[0][2], "signal": None}
+        else:
+            value = {"kind": "none", "name": "", "signal": None}
+    except (OSError, ValueError, subprocess.SubprocessError, AttributeError):
+        value = None
+    except Exception:
+        value = None
+    _NET_CACHE.update(at=now, value=value)
+    return value
+
+
+def _parse_wpctl_volume(out: str) -> dict | None:
+    """Parse `wpctl get-volume` ("Volume: 0.45" / "... [MUTED]"). Pure."""
+    match = re.search(r"Volume:\s*([0-9]*\.?[0-9]+)", out or "")
+    if not match:
+        return None
+    try:
+        pct = round(float(match.group(1)) * 100)
+    except ValueError:
+        return None
+    return {"pct": max(0, min(150, pct)), "muted": "muted" in (out or "").lower()}
+
+
+def _volume_status(run=None, clock=None) -> dict | None:
+    """Sink volume pct (0-150) + muted. None when no backend works.
+
+    Tries `wpctl get-volume`, falls back to pactl volume + mute.
+    Results cached 5s. Injectable run/clock like _net_status. Never raises.
+    """
+    now_fn = clock or time.monotonic
+    try:
+        now = now_fn()
+    except Exception:
+        now = time.monotonic()
+    try:
+        if _VOL_CACHE and now - _VOL_CACHE["at"] < _VOL_TTL_S:
+            return _VOL_CACHE["value"]
+    except (KeyError, TypeError):
+        pass
+    runner = run or subprocess.run
+    value: dict | None = None
+    try:
+        proc = runner(
+            ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if proc.returncode == 0:
+            value = _parse_wpctl_volume(proc.stdout or "")
+    except (OSError, subprocess.SubprocessError, AttributeError):
+        value = None
+    except Exception:
+        value = None
+    if value is None:
+        try:
+            vproc = runner(
+                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if vproc.returncode == 0:
+                pct = _parse_volume_pct(vproc.stdout or "")
+                if pct is not None:
+                    muted = False
+                    try:
+                        mproc = runner(
+                            ["pactl", "get-sink-mute", "@DEFAULT_SINK@"],
+                            capture_output=True,
+                            text=True,
+                            timeout=2,
+                        )
+                        if mproc.returncode == 0:
+                            muted = "yes" in (mproc.stdout or "").lower()
+                    except Exception:
+                        muted = False
+                    value = {"pct": pct, "muted": muted}
+        except (OSError, subprocess.SubprocessError, AttributeError):
+            value = None
+        except Exception:
+            value = None
+    _VOL_CACHE.update(at=now, value=value)
+    return value
+
+
+#: Cap for an app icon file served over /appicon (bigger files are skipped).
+_APPICON_MAX_BYTES = 200 * 1024
+#: Raster pixmaps (e.g. a 1024px chatgpt.png) may be this big on disk; they
+#: are shrunk to _APPICON_SHRINK_PX before the data URL is built.
+_APPICON_RASTER_EXTS = (".png", ".jpg", ".jpeg")
+_APPICON_RASTER_MAX_BYTES = 8 * 1024 * 1024
+_APPICON_SHRINK_PX = 128
+#: Per-app icon data-URL cache (misses cached as None).
+_APPICON_CACHE: dict[str, str | None] = {}
+#: Theme fallback chain when kdeglobals names nothing usable.
+_APPICON_THEMES = ("breeze-dark", "breeze", "Papirus-Dark", "hicolor")
+
+
+def _app_search_dirs(roots=None) -> list[Path]:
+    """Dirs holding .desktop files. `roots` injects a fake tree (tests)."""
+    if roots is not None:
+        return [Path(r) for r in roots]
+    home = Path.home()
+    return [
+        home / ".local/share/applications",
+        Path("/usr/share/applications"),
+        Path("/var/lib/flatpak/exports/share/applications"),
+        home / ".local/share/flatpak/exports/share/applications",
+    ]
+
+
+def _icon_search_dirs(roots=None) -> list[Path]:
+    """Icon theme roots. `roots` injects a fake tree (tests)."""
+    if roots is not None:
+        return [Path(r) for r in roots]
+    home = Path.home()
+    return [
+        home / ".local/share/icons",
+        Path("/usr/share/icons"),
+        Path("/var/lib/flatpak/exports/share/icons"),
+        home / ".local/share/flatpak/exports/share/icons",
+    ]
+
+
+def _pixmap_dirs(roots=None) -> list[Path]:
+    """Fallback loose-icon dirs. `roots` injects a fake tree (tests)."""
+    if roots is not None:
+        return [Path(r) for r in roots]
+    return [Path("/usr/share/pixmaps")]
+
+
+def _current_icon_theme(kdeglobals=None) -> str:
+    """Theme from ~/.config/kdeglobals [Icons] Theme= (fallback breeze-dark).
+
+    `kdeglobals` injects a fake file (tests). Never raises.
+    """
+    try:
+        path = Path(kdeglobals) if kdeglobals is not None else Path.home() / ".config/kdeglobals"
+        text = path.read_text()
+    except (OSError, ValueError):
+        return "breeze-dark"
+    try:
+        section, theme = "", ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section = stripped[1:-1].strip().lower()
+            elif section == "icons" and stripped.lower().startswith("theme"):
+                _, _, value = stripped.partition("=")
+                theme = value.strip().strip("\"'")
+                if theme:
+                    break
+        return theme or "breeze-dark"
+    except Exception:
+        return "breeze-dark"
+
+
+def _icon_theme_chain(theme=None, kdeglobals=None) -> list[str]:
+    """Current theme first, then the fallbacks, de-duplicated. Pure."""
+    try:
+        first = theme or _current_icon_theme(kdeglobals=kdeglobals)
+    except Exception:
+        first = "breeze-dark"
+    chain = [first, *_APPICON_THEMES]
+    seen: list[str] = []
+    for name in chain:
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _desktop_value(path: Path, key: str) -> str:
+    """First `key=` value in a .desktop file ("" when absent). Never raises."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                name, sep, value = stripped.partition("=")
+                if sep and name.strip() == key:
+                    return value.strip()
+    except (OSError, ValueError):
+        pass
+    except Exception:
+        pass
+    return ""
+
+
+def find_desktop_file(app: str, app_dirs=None) -> Path | None:
+    """Locate <app>.desktop: exact, case-insensitive, StartupWMClass match.
+
+    `app` may be a desktop id (with/without .desktop) or a resourceClass.
+    `app_dirs` injects fake roots (tests). Never raises.
+    """
+    try:
+        want = (app or "").strip()
+        if not want:
+            return None
+        dirs = _app_search_dirs(app_dirs)
+        base = want[:-8] if want.lower().endswith(".desktop") else want
+        for directory in dirs:
+            try:
+                candidate = directory / (want if want.lower().endswith(".desktop") else f"{want}.desktop")
+                if candidate.is_file():
+                    return candidate
+            except (OSError, ValueError):
+                continue
+        lowered = f"{base}.desktop".lower()
+        for directory in dirs:
+            try:
+                names = sorted(p.name for p in directory.glob("*.desktop") if p.is_file())
+            except (OSError, ValueError):
+                continue
+            for name in names:
+                if name.lower() == lowered:
+                    return directory / name
+        match = base.lower()
+        for directory in dirs:
+            try:
+                names = sorted(p.name for p in directory.glob("*.desktop") if p.is_file())
+            except (OSError, ValueError):
+                continue
+            for name in names:
+                if _desktop_value(directory / name, "StartupWMClass").lower() == match:
+                    return directory / name
+    except Exception:
+        pass
+    return None
+
+
+def _mime_for_icon(path: Path) -> str:
+    """MIME for an icon file by suffix. Pure (name only)."""
+    suffix = path.suffix.lower()
+    if suffix in (".svg", ".svgz"):
+        return "image/svg+xml"
+    if suffix == ".png":
+        return "image/png"
+    if suffix in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if suffix == ".xpm":
+        return "image/x-xpm"
+    if suffix == ".gif":
+        return "image/gif"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".ico":
+        return "image/x-icon"
+    return "application/octet-stream"
+
+
+def _icon_candidate_ok(path: Path) -> bool:
+    """A usable icon file: exists and within the size cap (big PNG/JPEG
+    pixmaps pass up to a higher cap; they get shrunk). Never raises."""
+    try:
+        if not path.is_file():
+            return False
+        size = path.stat().st_size
+        if path.suffix.lower() in _APPICON_RASTER_EXTS:
+            return size <= _APPICON_RASTER_MAX_BYTES
+        return size <= _APPICON_MAX_BYTES
+    except (OSError, ValueError):
+        return False
+    except Exception:
+        return False
+
+
+def find_icon_path(icon: str, theme=None, icon_dirs=None, pixmap_dirs=None, kdeglobals=None) -> Path | None:
+    """Resolve an Icon= value to a file: absolute path, theme, pixmaps.
+
+    Theme order per dir: scalable/apps/*.svg, then 48/64/32 layouts in
+    both 48x48/apps and apps/48 shapes, then an apps/** fallback preferring
+    48px. Files over the size cap are skipped. Never raises.
+    """
+    try:
+        name = (icon or "").strip()
+        if not name:
+            return None
+        direct = Path(name)
+        if direct.is_absolute():
+            return direct if _icon_candidate_ok(direct) else None
+        exts = (".svg", ".png", ".svgz", ".xpm")
+        themes = _icon_theme_chain(theme, kdeglobals=kdeglobals)
+        roots = _icon_search_dirs(icon_dirs)
+        for theme_name in themes:
+            for root in roots:
+                base = root / theme_name
+                hit = base / "scalable" / "apps" / f"{name}.svg"
+                if _icon_candidate_ok(hit):
+                    return hit
+                for size in ("48x48", "64x64", "32x32"):
+                    for ext in exts:
+                        hit = base / size / "apps" / f"{name}{ext}"
+                        if _icon_candidate_ok(hit):
+                            return hit
+                for size in ("48", "64", "32", "scalable"):
+                    for ext in exts:
+                        hit = base / "apps" / size / f"{name}{ext}"
+                        if _icon_candidate_ok(hit):
+                            return hit
+                try:
+                    apps_dir = base / "apps"
+                    if apps_dir.is_dir():
+                        loose = sorted(
+                            (p for p in apps_dir.rglob(f"{name}.*") if p.is_file()),
+                            key=lambda p: str(p),
+                        )
+                        preferred = sorted(
+                            loose,
+                            key=lambda p: (
+                                0 if "48" in p.parts else 1 if "64" in p.parts else 2 if "32" in p.parts else 3
+                            ),
+                        )
+                        for hit in preferred:
+                            if _icon_candidate_ok(hit):
+                                return hit
+                except (OSError, ValueError):
+                    pass
+                except Exception:
+                    pass
+        for root in _pixmap_dirs(pixmap_dirs):
+            for ext in ("", *exts, ".jpg", ".jpeg"):
+                hit = root / f"{name}{ext}"
+                if _icon_candidate_ok(hit):
+                    return hit
+    except Exception:
+        pass
+    return None
+
+
+def _shrink_raster_icon(raw: bytes) -> bytes:
+    """PNG bytes of `raw` scaled to fit _APPICON_SHRINK_PX. b"" when Pillow
+    is missing or the image won't decode. Never raises."""
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(raw)) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((_APPICON_SHRINK_PX, _APPICON_SHRINK_PX), Image.LANCZOS)
+            out = io.BytesIO()
+            im.save(out, format="PNG", optimize=True)
+            return out.getvalue()
+    except Exception:
+        return b""
+
+
+def app_icon_data_url(app: str, app_dirs=None, icon_dirs=None, pixmap_dirs=None, kdeglobals=None, theme=None) -> str | None:
+    """<app> -> base64 data URL for its icon, or None on any miss.
+
+    Results (including misses) are cached per app for the default roots;
+    injectable roots bypass the cache (tests). Never raises.
+    """
+    try:
+        key = (app or "").strip().lower()
+        if not key:
+            return None
+        custom = (
+            app_dirs is not None
+            or icon_dirs is not None
+            or pixmap_dirs is not None
+            or kdeglobals is not None
+            or theme is not None
+        )
+        if not custom and key in _APPICON_CACHE:
+            return _APPICON_CACHE[key]
+        result: str | None = None
+        desktop = find_desktop_file(key, app_dirs=app_dirs)
+        icon = _desktop_value(desktop, "Icon") if desktop is not None else ""
+        if not icon:
+            icon = key
+        path = find_icon_path(
+            icon, theme=theme, icon_dirs=icon_dirs, pixmap_dirs=pixmap_dirs, kdeglobals=kdeglobals
+        )
+        if path is not None:
+            try:
+                raw = path.read_bytes()
+                mime = _mime_for_icon(path)
+                if len(raw) > _APPICON_MAX_BYTES and path.suffix.lower() in _APPICON_RASTER_EXTS:
+                    raw, mime = _shrink_raster_icon(raw), "image/png"
+                if raw and len(raw) <= _APPICON_MAX_BYTES:
+                    result = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+            except (OSError, ValueError):
+                result = None
+            except Exception:
+                result = None
+        if not custom:
+            _APPICON_CACHE[key] = result
+        return result
+    except Exception:
+        return None
+
+
 def _sys_stats() -> dict:
     stats: dict = {}
     # Real HUD telemetry: phone battery ("suit power"), laptop power
@@ -918,9 +1507,30 @@ def _sys_stats() -> dict:
     stats["phone_tailnet"] = _phone_tailnet()
     stats["research"] = _running_research()
     stats["mode"] = _school.current()
+    stats["mode_since"] = _mode_since()
+    stats["net"] = _net_status()
+    stats["volume"] = _volume_status()
     stats["laptop_power"] = _laptop_power()
     stats["cpu_temp_c"] = _cpu_temp_c()
     stats["call_live"] = read_hud_room() is not None
+    try:
+        import taskbar
+
+        stats["launchers"] = taskbar.launchers()
+    except Exception:
+        stats["launchers"] = []
+    try:
+        import active_window
+
+        # Tests must never steal the live bridge's D-Bus name or unload
+        # its KWin watcher (see tests/conftest.py): skip the listener
+        # under pytest (PYTEST_CURRENT_TEST is set for every test).
+        if os.environ.get("PYTEST_CURRENT_TEST") is None:
+            with contextlib.suppress(Exception):
+                active_window.ensure_listener()
+        stats["windows"] = active_window.windows()
+    except Exception:
+        stats["windows"] = []
     try:
         with open("/proc/loadavg") as fh:
             stats["load_1_5_15"] = fh.read().split()[:3]
@@ -2285,6 +2895,51 @@ class _Handler(BaseHTTPRequestHandler):
             result = store_camera_frame(body["image_b64"])
             self._send(200 if result.get("ok") else 400, result)
             return
+        if route == "/window":
+            import taskbar
+
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = taskbar.handle_window(body)
+            self._send(code, result)
+            return
+        if route == "/launch":
+            import taskbar
+
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = taskbar.handle_launch(body)
+            self._send(code, result)
+            return
+        if route == "/quick":
+            import taskbar
+
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = taskbar.handle_quick(body)
+            if code == 200 and result.get("ok") and body.get("action") in (
+                "volume",
+                "mute",
+            ):
+                _VOL_CACHE.clear()  # volume changed: drop the /sys read cache
+            self._send(code, result)
+            return
+        if route == "/power":
+            import taskbar
+
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            code, result = taskbar.handle_power(body)
+            self._send(code, result)
+            return
         self._send(404, {"ok": False, "error": "unknown route"})
 
     def do_GET(self) -> None:
@@ -2314,6 +2969,41 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif route == "/sys":
             self._send(200, {"ok": True, **_sys_stats()})
+        elif route == "/appicon":
+            app = (qs.get("app") or [""])[0]
+            if not isinstance(app, str) or not app.strip() or len(app) > 200:
+                self._send(400, {"ok": False, "error": "app required"})
+                return
+            try:
+                data = app_icon_data_url(app.strip())
+            except Exception:
+                data = None
+            if data:
+                self._send(200, {"ok": True, "data": data})
+            else:
+                self._send(200, {"ok": False})
+        elif route == "/apps":
+            import taskbar
+
+            try:
+                apps = taskbar.list_apps()
+            except Exception:
+                apps = []
+            self._send(200, {"ok": True, "apps": apps})
+        elif route == "/quick":
+            import taskbar
+
+            try:
+                state = taskbar.quick_state(volume=_volume_status())
+            except Exception:
+                state = {
+                    "wifi": None,
+                    "bluetooth": None,
+                    "volume": None,
+                    "brightness": None,
+                    "dnd": None,
+                }
+            self._send(200, {"ok": True, **state})
         elif route == "/mode":
             self._send(200, {"ok": True, "mode": _school.current()})
         elif route == "/mic":
@@ -2322,8 +3012,18 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": False, "error": "wake listener unavailable"})
             else:
                 self._send(200, reply)
+        elif route == "/school/geom":
+            # School entry transition: the shell's KWin measure pushed this
+            # over D-Bus (active_window.SchoolGeom); the page polls for it.
+            try:
+                import active_window
+
+                geom = active_window.school_geom()
+            except Exception:
+                geom = None
+            self._send(200, {"ok": True, "geom": geom})
         elif route == "/room":
-            self._send(200, {"ok": True, "room": read_hud_room()})
+            self._send(200, {"ok": True, "room": read_hud_room(), "waking": read_hud_waking()})
         elif route == "/captions":
             try:
                 limit = max(1, min(50, int(qs.get("limit", ["20"])[0])))
@@ -2402,8 +3102,14 @@ def serve_forever(
     port: int = DEFAULT_PORT, token: str = "", host: str = "127.0.0.1"
 ) -> None:
     server = create_server(port, token, host)
+    # Crash recovery + reboot: the Meta shortcut must match the stored
+    # mode (school -> Jarvis menu; stale backup in normal -> restore).
+    with contextlib.suppress(Exception):
+        _school.meta_sync_on_startup()
     start_activity_watch()
-    start_brave_orb_watch()
+    # Do not start a Brave-focus layout watcher here. The HUD belongs where
+    # the user left it; Projects UI and School Mode are the only intentional
+    # layout transitions.
     start_sidecar_threads()
     try:
         server.serve_forever()

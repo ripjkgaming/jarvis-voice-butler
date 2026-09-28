@@ -20,7 +20,7 @@
         "minWidth": 960,
         "minHeight": 540,
         "decorations": true,
-        "transparent": false,
+        "transparent": true,
         "alwaysOnTop": true,
         "visible": false,
         "skipTaskbar": false

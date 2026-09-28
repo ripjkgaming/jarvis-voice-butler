@@ -33,3 +33,27 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never spend Sir's Pro usage from tests: headless Claude is off unless
     a test opts in (and stubs the runner)."""
     monkeypatch.setenv("JARVIS_CLAUDE", "0")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dbus(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never touch the live session D-Bus from tests.
+
+    A real active_window.ensure_listener() RequestNames org.jarvis.Focus
+    and loads/unloads the real KWin script "jarvis-focus-watcher" — while
+    pytest runs, the live bridge loses its window feed (the taskbar shows
+    0 open apps). So every test gets fakes; a test that needs the real
+    logic monkeypatches it back itself (its own patch wins, applied
+    after this fixture).
+    """
+    import active_window
+
+    # Listener thread + bus name: tests get "no listener" by default.
+    monkeypatch.setattr(active_window, "ensure_listener", lambda: False)
+    monkeypatch.setattr(active_window, "_listener_loop",
+                         lambda stop: None)
+    # KWin scripting traffic (load/start/unload/isScriptLoaded) goes
+    # through _qdbus: answer "not loaded" so ensure/unload stay no-ops
+    # unless a test stubs _qdbus itself.
+    monkeypatch.setattr(active_window, "_qdbus",
+                         lambda argv, timeout=8.0: "")

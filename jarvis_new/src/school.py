@@ -17,9 +17,11 @@ What school mode changes (each consumer applies its part):
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -74,6 +76,167 @@ def set_mode(mode: str, home: Path | None = None, now: float | None = None) -> d
     tmp.write_text(json.dumps(rec))
     tmp.replace(path)
     return rec
+
+
+# --- Meta (Super) key in school mode ---------------------------------------
+#
+# In school mode Jarvis replaces the Plasma panel with its own taskbar, so
+# pressing Meta alone must open the Jarvis start menu instead of Plasma's
+# Kickoff. KDE's Meta-alone action lives in ~/.config/kwinrc group
+# [ModifierOnlyShortcuts] key Meta (absent = the Kickoff default
+# "org.kde.plasmashell,/PlasmaShell,org.kde.PlasmaShell,
+# activateLauncherMenu"). Format: service,path,interface,method. After
+# writing it KWin must reconfigure:
+#   dbus-send --session --type=method_call --dest=org.kde.KWin /KWin
+#   org.kde.KWin.reconfigure
+# (Verified live: kreadconfig6 reads the key, qdbus answers KWin, and the
+# bridge owns org.jarvis.Focus at /org/jarvis/Focus.)
+#
+# Every helper is fail-soft (never raises), takes an injectable
+# subprocess.run-shaped `run` and `home` (backup location), so tests never
+# touch the live kwinrc.
+
+#: D-Bus target KWin calls on Meta-alone while in school mode: the
+#: bridge's own listener (active_window.handle_dbus_message "StartMenu").
+META_JARVIS_VALUE = "org.jarvis.Focus,/org/jarvis/Focus,org.jarvis.Focus,StartMenu"
+
+#: What an absent kwinrc Meta key means (KDE default when the key is missing).
+META_DEFAULT_KICKOFF = (
+    "org.kde.plasmashell,/PlasmaShell,org.kde.PlasmaShell,activateLauncherMenu"
+)
+
+
+def meta_backup_path(home: Path | None = None) -> Path:
+    """Where the pre-school Meta value is stashed. Pure (env)."""
+    base = home or Path(os.environ.get("JARVIS_HOME", Path.home() / ".jarvis"))
+    return base / "meta_shortcut_backup.json"
+
+
+def _meta_run(argv: list[str], run=None):
+    runner = run or subprocess.run
+    return runner(argv, capture_output=True, text=True, timeout=5.0)
+
+
+def read_meta_shortcut(run=None) -> str:
+    """Current kwinrc [ModifierOnlyShortcuts] Meta value ("" = absent).
+
+    Never raises ("": absent or unreadable — both restore as absent).
+    """
+    try:
+        proc = _meta_run(
+            ["kreadconfig6", "--file", "kwinrc",
+             "--group", "ModifierOnlyShortcuts", "--key", "Meta"],
+            run,
+        )
+        if proc.returncode != 0:
+            return ""
+        return (proc.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def _meta_reconfigure(run=None) -> None:
+    with contextlib.suppress(Exception):
+        _meta_run(
+            ["dbus-send", "--session", "--type=method_call",
+             "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
+            run,
+        )
+
+
+def meta_enter_school(run=None, home: Path | None = None) -> bool:
+    """Point Meta-alone at the Jarvis start menu. Never raises.
+
+    Saves the current kwinrc Meta value (even when absent) to the backup
+    file — only when no backup exists yet, so a double-enter keeps the
+    original — then writes META_JARVIS_VALUE and reconfigures KWin.
+    """
+    try:
+        backup = meta_backup_path(home)
+        if not backup.exists():
+            current_value = read_meta_shortcut(run=run)
+            try:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                tmp = backup.with_suffix(".tmp")
+                tmp.write_text(
+                    json.dumps({"had_value": bool(current_value),
+                                "value": current_value})
+                )
+                tmp.replace(backup)
+            except (OSError, ValueError):
+                pass
+        proc = _meta_run(
+            ["kwriteconfig6", "--file", "kwinrc",
+             "--group", "ModifierOnlyShortcuts", "--key", "Meta",
+             META_JARVIS_VALUE],
+            run,
+        )
+        ok = proc.returncode == 0
+    except Exception:
+        ok = False
+    _meta_reconfigure(run=run)
+    return ok
+
+
+def meta_exit_school(run=None, home: Path | None = None) -> bool:
+    """Restore the pre-school Meta-alone action. Never raises.
+
+    Restores the backup exactly (deletes the key when it was absent),
+    removes the backup file, and reconfigures KWin. With no backup file
+    only our own value is cleared (back to the absent default).
+    """
+    try:
+        backup = meta_backup_path(home)
+        had_value, value = False, ""
+        if backup.exists():
+            try:
+                data = json.loads(backup.read_text())
+                had_value = bool(data.get("had_value"))
+                value = str(data.get("value") or "")
+            except (OSError, ValueError, AttributeError):
+                had_value, value = False, ""
+            with contextlib.suppress(OSError):
+                backup.unlink()
+        elif read_meta_shortcut(run=run) != META_JARVIS_VALUE:
+            return True
+        if had_value:
+            proc = _meta_run(
+                ["kwriteconfig6", "--file", "kwinrc",
+                 "--group", "ModifierOnlyShortcuts", "--key", "Meta", value],
+                run,
+            )
+            ok = proc.returncode == 0
+        else:
+            try:
+                proc = _meta_run(
+                    ["kwriteconfig6", "--file", "kwinrc",
+                     "--group", "ModifierOnlyShortcuts", "--key", "Meta",
+                     "--delete"],
+                    run,
+                )
+                ok = proc.returncode == 0
+            except Exception:
+                ok = False
+    except Exception:
+        ok = False
+    _meta_reconfigure(run=run)
+    return ok
+
+
+def meta_sync_on_startup(run=None, home: Path | None = None) -> None:
+    """Reconcile the Meta shortcut with the stored mode. Never raises.
+
+    School mode ensures the Jarvis value (keeps an existing backup, so a
+    restart mid-school never loses the original); normal mode with a
+    leftover backup file (crash between enter and exit) restores it.
+    """
+    try:
+        if current(home) == SCHOOL:
+            meta_enter_school(run=run, home=home)
+        elif meta_backup_path(home).exists():
+            meta_exit_school(run=run, home=home)
+    except Exception:
+        pass
 
 
 _ENTER = re.compile(

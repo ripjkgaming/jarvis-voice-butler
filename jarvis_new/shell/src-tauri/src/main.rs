@@ -53,6 +53,7 @@ fn main() {
                 "state" => print_overlay_state(app),
                 "schoolon" => school::enter(app),
                 "schooloff" => school::exit(app),
+                "schoolmenu" => school::open_menu(app, args.get(2).map(String::as_str).unwrap_or("launcher")),
                 "orbon" => orb::enter(app),
                 "orboff" => orb::exit(app),
                 "domstate" => print_dom_state(app),
@@ -80,7 +81,9 @@ fn main() {
             commands::set_overlay_click_through,
             commands::set_mic_muted,
             commands::mic_status,
-            commands::talk
+            commands::talk,
+            school::school_menu,
+            school::school_stage
         ])
         // No `capabilities/` dir in Phase 1: the placeholder UI makes zero
         // frontend→backend calls, and all plugin use below is Rust-side
@@ -112,7 +115,7 @@ fn main() {
             restore_overlay_geometry(app.handle());
             // School mode survives restarts: come back as the strip.
             if school::school_on_disk(&env_cfg::jarvis_home()) {
-                school::enter(app.handle());
+                school::enter_quiet(app.handle());
             }
 
             // Cold-start verb: the single-instance callback only fires for
@@ -260,7 +263,7 @@ fn print_dom_state(app: &tauri::AppHandle) {
         None => eprintln!("domstate: missing"),
         Some(win) => {
             let (tx, rx) = std::sync::mpsc::channel();
-            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null, vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, orb: !!document.querySelector('.hud-orb-dot')}); } catch (e) { return 'ERR:' + e; } })()";
+            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null, vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, orb: !!document.querySelector('.hud-orb-dot'), hidden: document.hidden, sbar: (() => { const b = document.querySelector('.sbar'); if (!b) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.top), Math.round(q.height), getComputedStyle(e).transform]; }; return {bar: r(b), zones: [...b.querySelectorAll(':scope > section')].map(r), body: r(document.body), parents: (() => { const out = []; let e = b.parentElement; while (e && out.length < 4) { out.push(e.tagName + '.' + e.className.toString().slice(0, 30) + ':' + r(e).slice(0, 2).join('/')); e = e.parentElement; } return out; })()}; })()}); } catch (e) { return 'ERR:' + e; } })()";
             match win.eval_with_callback(js, move |v| {
                 let _ = tx.send(v);
             }) {
