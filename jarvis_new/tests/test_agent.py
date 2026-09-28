@@ -387,3 +387,23 @@ def test_desktop_fast_command_executes_or_abstains(
     assert agent_mod.desktop_fast_command("ramble on") is None
     monkeypatch.setenv("JARVIS_DESKTOP_FASTPATH", "off")
     assert agent_mod.desktop_fast_command("lock the computer") is None
+
+
+def test_real_turn_ignores_noise_words() -> None:
+    from agent import _is_real_turn
+
+    assert not _is_real_turn("ja", True)
+    assert not _is_real_turn("Oi.", True)
+    assert not _is_real_turn("play music", False)  # interim, not final
+    assert _is_real_turn("play music", True)
+
+
+def test_engaged_idle_budget_env(monkeypatch) -> None:
+    from agent import _engaged_idle_seconds
+
+    monkeypatch.delenv("JARVIS_ENGAGED_IDLE", raising=False)
+    assert _engaged_idle_seconds() == 180.0
+    monkeypatch.setenv("JARVIS_ENGAGED_IDLE", "5")
+    assert _engaged_idle_seconds() == 30.0  # floor
+    monkeypatch.setenv("JARVIS_ENGAGED_IDLE", "junk")
+    assert _engaged_idle_seconds() == 180.0

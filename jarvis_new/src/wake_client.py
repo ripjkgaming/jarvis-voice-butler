@@ -50,6 +50,11 @@ TALK_TEXT_MAX = 500
 AGENT_JOIN_TIMEOUT = 25.0
 SCHOOL_CONFIRM_S = 2.5  # audio after a school-mode wake checked for "hey Jarvis"
 IDENTITY = "jarvis-master"
+# In-call "hey Jarvis" restarts the call only when it has gone stale: the
+# agent silent this long. Mid-conversation, the name just goes to the agent.
+REWAKE_STALE_S = 20.0
+REWAKE_THRESHOLD = 0.8
+REWAKE_FRAMES = 2  # consecutive frames at or above REWAKE_THRESHOLD
 
 
 def wake_threshold() -> float:
@@ -99,6 +104,28 @@ def score_frames(model, pending16):
         except Exception as exc:
             logger.debug("wake predict failed: %s", exc)
     return scores, pending16
+
+
+def should_rewake(hot_run: int, agent_quiet_s: float) -> bool:
+    """In-call hotword: restart the call? Pure.
+
+    Needs a sustained detection (REWAKE_FRAMES) and an agent that has
+    been silent REWAKE_STALE_S. A call held open by background noise
+    otherwise leaves "hey Jarvis" unanswered indefinitely.
+    """
+    return hot_run >= REWAKE_FRAMES and agent_quiet_s >= REWAKE_STALE_S
+
+
+def drain_queue(queue: asyncio.Queue) -> int:
+    """Drop everything queued; returns how many items. Stale mic audio
+    replayed after a call re-fired the hotword."""
+    n = 0
+    while True:
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return n
+        n += 1
 
 
 def room_has_active_call(identities: list[str]) -> bool:
@@ -398,6 +425,14 @@ class WakeClient:
         # Guarded by _mic_lock like the mute state; consumed once by
         # _summon_session, never kept across calls.
         self._pending_text = ""
+        # In-call hotword (see should_rewake): the openWakeWord model is
+        # shared with the listen loop, which is parked while a call runs.
+        self._model = None
+        self._rewake: asyncio.Event | None = None
+        self._last_agent_voice = 0.0
+        # False while a plain call runs: the listen loop's queue is unread
+        # then, and buffering a whole call's audio grew it without bound.
+        self._listen_queue_live = True
 
     @property
     def muted(self) -> bool:
@@ -548,6 +583,7 @@ class WakeClient:
         # Python, and ONNX scores identically. Models download once on
         # first run (cached under site-packages/openwakeword/resources).
         model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
+        self._model = model
         logger.warning(
             "listening for 'hey Jarvis' (offline, nothing leaves the laptop)"
         )
@@ -563,6 +599,8 @@ class WakeClient:
         def _audio_callback(indata, frames, time_info, status) -> None:
             if status:
                 logger.warning("mic status: %s", status)
+            if not self._listen_queue_live:
+                return
             with contextlib.suppress(Exception):
                 loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
 
@@ -633,7 +671,10 @@ class WakeClient:
                     self._play_ack()
                     summon_overlay()
                     if not self._in_call:
-                        await self._summon_session()
+                        await self._summon_with_rewake()
+                        drain_queue(queue)
+                        with contextlib.suppress(Exception):
+                            model.reset()
                     continue
                 if segmenter is not None and not self._in_call and not _school.is_school():
                     for seg in segmenter.feed(block[::3][:512]):
@@ -678,7 +719,8 @@ class WakeClient:
                             ring.clear()
                         else:
                             self._play_ack()
-                            await self._summon_session()
+                            await self._summon_with_rewake()
+                        drain_queue(queue)
                         pending16 = np.zeros(0, dtype=np.int16)
                         # openWakeWord keeps its own recent-audio buffer: a
                         # stale "hey Jarvis" in it re-fired after the call.
@@ -717,9 +759,19 @@ class WakeClient:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+    async def _summon_with_rewake(self, **kwargs) -> None:
+        """Summon; while the call ends by an in-call "hey Jarvis" (stale
+        call), ack and summon a fresh one."""
+        while await self._summon_session(**kwargs):
+            logger.warning("hey Jarvis in a stale call: starting a fresh one")
+            kwargs = {}
+            self._play_ack()
+            summon_overlay()
+
     async def _summon_session(
         self, reason: str = "wake", mic_queue=None, preroll: list | None = None
-    ) -> None:
+    ) -> bool:
+        """Run one call. True when it ended by an in-call rewake."""
         from livekit import rtc
 
         # Never layer a second Jarvis over an ongoing call (an earlier
@@ -728,7 +780,7 @@ class WakeClient:
         if await active_call_exists(self._creds):
             logger.warning("already in a call; staying out")
             summon_overlay()
-            return
+            return False
 
         # Consume one typed seed (text→voice trigger): delivered as the
         # opening user turn once the agent joins, then forgotten. Taken
@@ -766,7 +818,17 @@ class WakeClient:
                 agent_ready.set()
                 agent_audio.put_nowait(track)
 
-        await room.connect(self._creds["LIVEKIT_URL"], jwt)
+        rewake = asyncio.Event()
+        self._rewake = rewake
+        self._last_agent_voice = time.monotonic()
+        if mic_queue is None:
+            self._listen_queue_live = False
+        try:
+            await room.connect(self._creds["LIVEKIT_URL"], jwt)
+        except Exception:
+            self._listen_queue_live = True
+            self._rewake = None
+            raise
         logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
         publish_hud_room(room_name)
         self._set_in_call(True)
@@ -793,7 +855,7 @@ class WakeClient:
             except TimeoutError:
                 logger.warning("no agent joined; leaving %s", room_name)
                 await self._cancel_task(mic_task)
-                return
+                return False
             play_task = asyncio.create_task(self._play_agent(track))
             if seed_text:
                 # Text→voice: the typed opener becomes the first user
@@ -804,12 +866,19 @@ class WakeClient:
                     logger.warning("seeded call with typed text")
                 except Exception as exc:
                     logger.warning("seed text send failed: %s", exc)
-            await disconnected.wait()
+            ended = asyncio.create_task(disconnected.wait())
+            rewoken = asyncio.create_task(rewake.wait())
+            await asyncio.wait({ended, rewoken}, return_when=asyncio.FIRST_COMPLETED)
+            ended.cancel()
+            rewoken.cancel()
             await self._cancel_task(play_task)
             await self._cancel_task(mic_task)
+            return rewake.is_set() and not disconnected.is_set()
         finally:
             clear_hud_room()
             self._set_in_call(False)
+            self._rewake = None
+            self._listen_queue_live = True
             await room.disconnect()
             logger.warning("session over, back to listening")
 
@@ -819,11 +888,18 @@ class WakeClient:
         While muted the queue is drained but nothing is captured: the room
         stays joined so unmute resumes mid-call with no rejoin.
         """
+        import numpy as np
         import sounddevice as sd
         from livekit import rtc
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
+        model = self._model
+        if model is not None:
+            with contextlib.suppress(Exception):
+                model.reset()
+        pending16 = np.zeros(0, dtype=np.int16)
+        hot_run = 0
 
         def _callback(indata, frames, time_info, status) -> None:
             with contextlib.suppress(Exception):
@@ -846,6 +922,19 @@ class WakeClient:
                 # fire-and-forget silently drops every mic frame (the agent
                 # heard silence on every call).
                 await source.capture_frame(frame)
+                if model is None or self._rewake is None:
+                    continue
+                # 960 samples at 48k decimate exactly to 320 at 16k.
+                block = np.frombuffer(raw, dtype=np.int16)
+                pending16 = np.concatenate([pending16, block[::3]])
+                scores, pending16 = score_frames(model, pending16)
+                for score in scores:
+                    hot_run = hot_run + 1 if score >= REWAKE_THRESHOLD else 0
+                    quiet = time.monotonic() - self._last_agent_voice
+                    if should_rewake(hot_run, quiet):
+                        logger.warning("in-call wake (%.2f), agent quiet %.0fs", score, quiet)
+                        self._rewake.set()
+                        return
 
     async def _record_question(self, queue) -> list:
         """After a school wake: blocks until Sir stops talking (0.8 s under
@@ -924,6 +1013,8 @@ class WakeClient:
                     )
                     output.start()
                 samples = self._bytes_to_int16(pcm)
+                if samples.size and int(abs(samples).max()) > 500:
+                    self._last_agent_voice = time.monotonic()
                 if _school_quiet():
                     samples = (samples.astype("float32") * _school_gain()).astype("int16")
                 output.write(samples)

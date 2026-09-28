@@ -6,6 +6,7 @@ from wake_client import (
     OWW_FRAME,
     clear_hud_room,
     downsample_48k_to_16k,
+    drain_queue,
     extract_talk_text,
     frame_16k_chunks,
     handle_mic_command,
@@ -17,6 +18,7 @@ from wake_client import (
     room_has_active_call,
     score_frames,
     shell_talk_candidates,
+    should_rewake,
     summon_overlay,
     summon_room_name,
     wake_score,
@@ -433,3 +435,20 @@ def test_score_frames_feeds_every_frame_including_silence() -> None:
     assert len(scores) == len(model.frames) == 7
     assert np.array_equal(np.concatenate(model.frames), audio[: OWW_FRAME * 7])
     assert np.array_equal(rest, np.arange(100, dtype=np.int16))
+
+
+def test_should_rewake_needs_sustained_hit_and_stale_call() -> None:
+    assert should_rewake(2, 25.0)
+    assert not should_rewake(1, 25.0)  # one frame is chatter, not a summons
+    assert not should_rewake(2, 5.0)  # agent just spoke: name goes to the call
+
+
+def test_drain_queue_empties_backlog() -> None:
+    import asyncio
+
+    q: asyncio.Queue = asyncio.Queue()
+    for i in range(5):
+        q.put_nowait(i)
+    assert drain_queue(q) == 5
+    assert q.empty()
+    assert drain_queue(q) == 0

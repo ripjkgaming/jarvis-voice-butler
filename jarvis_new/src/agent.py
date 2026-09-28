@@ -285,6 +285,26 @@ def _idle_exceeded(
     return (now - last_active) >= idle_seconds
 
 
+def _engaged_idle_seconds() -> float:
+    """Idle budget for engaged calls (JARVIS_ENGAGED_IDLE, default 180 s)."""
+    try:
+        return max(30.0, float(os.environ.get("JARVIS_ENGAGED_IDLE", "").strip() or 180.0))
+    except ValueError:
+        return 180.0
+
+
+def _is_real_turn(text: str, is_final: bool) -> bool:
+    """A final transcript of 2+ words. Pure.
+
+    Background noise transcribes as stray single words ("ja", "Oi",
+    "Bayer"); counting those as activity kept a noise-held call open for
+    half an hour, deaf to "hey Jarvis" the whole time.
+    """
+    if not is_final:
+        return False
+    return sum(1 for w in str(text or "").split() if any(c.isalpha() for c in w)) >= 2
+
+
 def _wake_summoned(room: object) -> bool:
     """Was this room opened by the offline wake-word client?
 
@@ -1309,6 +1329,22 @@ async def my_agent(ctx: JobContext):
     session.on("conversation_item_added", _mark_active)
     session.on("function_tools_executed", _mark_active)
 
+    # Real-turn clock for the idle watchdog: only 2+ word final
+    # transcripts and tool runs count, never noise or Jarvis's own replies.
+    _turn_clock = {"last": time.monotonic()}
+
+    def _mark_turn(event) -> None:
+        if _is_real_turn(
+            getattr(event, "transcript", ""), bool(getattr(event, "is_final", False))
+        ):
+            _turn_clock["last"] = time.monotonic()
+
+    def _mark_tools(*_args, **_kwargs) -> None:
+        _turn_clock["last"] = time.monotonic()
+
+    session.on("user_input_transcribed", _mark_turn)
+    session.on("function_tools_executed", _mark_tools)
+
     # HUD captions: the Tauri overlay has no WebRTC (system WebKitGTK
     # exposes no RTCPeerConnection), so it can never join a room — it
     # reads ~/.jarvis/captions.log via bridge /captions instead.
@@ -1814,9 +1850,37 @@ async def my_agent(ctx: JobContext):
     _background_tasks.add(_presence_task)
     _presence_task.add_done_callback(_background_tasks.discard)
 
+    async def _idle_watchdog() -> None:
+        """Hang up once no real turn has happened for the budget: 60 s in
+        standby, JARVIS_ENGAGED_IDLE when engaged. Polled, not driven by
+        the "away" event: steady background noise keeps VAD from ever
+        declaring the user away, and an open call leaves the wake client
+        deaf to "hey Jarvis"."""
+        while not _presence["stopped"]:
+            await asyncio.sleep(10.0)
+            budget = _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
+            if not _idle_exceeded(_turn_clock["last"], time.monotonic(), budget):
+                continue
+            if str(getattr(session, "agent_state", "")) in ("thinking", "speaking"):
+                continue  # never cut a reply (or a long read-out) short
+            with contextlib.suppress(Exception):
+                from system import log_action as _log_idle
+
+                _log_idle("presence", f"idle hangup after {budget:.0f}s without a real turn")
+            with contextlib.suppress(Exception):
+                await session.say("Very good, Sir. Ring when you require me.")
+            with contextlib.suppress(Exception):
+                await session.aclose()
+            break
+
+    _watchdog_task = asyncio.create_task(_idle_watchdog())
+    _background_tasks.add(_watchdog_task)
+    _watchdog_task.add_done_callback(_background_tasks.discard)
+
     async def _stop_presence() -> None:
         _presence["stopped"] = True
         _presence_task.cancel()
+        _watchdog_task.cancel()
         with contextlib.suppress(Exception):
             await _presence_task
 
