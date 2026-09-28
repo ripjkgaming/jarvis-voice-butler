@@ -577,6 +577,9 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from system.school_tools import loud_guard
+
+        loud_guard("set_volume", {"action": action, "level": level})
         action = action.lower()
 
         async def pct() -> str:
@@ -718,6 +721,9 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from system.school_tools import loud_guard
+
+        loud_guard("play_media", {"query": query})
         query = (query or "").strip()[:200]
         if query:
             url = (
@@ -1241,6 +1247,9 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from system.school_tools import loud_guard
+
+        loud_guard("open_app", {"app": app, "url": url})
         app = app.strip().lower()[:60]
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")

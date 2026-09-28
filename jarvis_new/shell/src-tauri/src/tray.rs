@@ -109,6 +109,11 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /// it yet) is centered on the current screen instead: (0,0) hides under
 /// panels on some KWin layouts and Wayland gives clients no say anyway.
 pub fn show_overlay(app: &AppHandle) {
+    if crate::school::is_school() {
+        // The strip: shown without focus, click-through, docked.
+        crate::school::apply(app);
+        return;
+    }
     if let Some(win) = app.get_webview_window("overlay") {
         if let Ok(size) = win.outer_size() {
             if size.width < 1000 || size.height < 600 {

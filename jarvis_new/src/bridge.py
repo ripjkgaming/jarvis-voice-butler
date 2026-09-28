@@ -71,6 +71,8 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qs, urlparse
 
+import school as _school
+
 VERSION = "0.2.0"
 DEFAULT_PORT = 4317
 _WAKE_RPC_TIMEOUT = 2.0
@@ -337,6 +339,13 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     expr = _spoken_math(text)
     if expr is not None:
         return ("do_math", {"expr": expr}, None)
+    mode = _school.parse_command(lowered)
+    if mode is not None:
+        return (
+            "school_mode",
+            {"mode": mode},
+            "School mode, Sir." if mode == _school.SCHOOL else "Back to normal, Sir.",
+        )
     # Voice-only Project Archive ("open research projects, navigate to the
     # battery project and open the first document and start scrolling").
     # Before the generic open_app route, which would launch "research
@@ -666,6 +675,20 @@ def _phone_tailnet() -> dict | None:
     return value
 
 
+def set_school_mode(mode: str) -> dict:
+    """Switch school mode and tell the shell to re-layout. Never raises."""
+    rec = _school.set_mode(mode)
+    with contextlib.suppress(Exception):
+        import projects as _projects
+
+        _projects.shell_verb("schoolon" if rec["mode"] == _school.SCHOOL else "schooloff")
+    with contextlib.suppress(Exception):
+        from system import log_action
+
+        log_action("mode", rec["mode"])
+    return {"mode": rec["mode"]}
+
+
 def _running_research() -> list[dict]:
     """Live research jobs for the HUD progress strip. Never raises."""
     try:
@@ -740,6 +763,7 @@ def _sys_stats() -> dict:
     stats["phone"] = _phone_stats()
     stats["phone_tailnet"] = _phone_tailnet()
     stats["research"] = _running_research()
+    stats["mode"] = _school.current()
     stats["laptop_power"] = _laptop_power()
     stats["cpu_temp_c"] = _cpu_temp_c()
     stats["call_live"] = read_hud_room() is not None
@@ -1259,6 +1283,8 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         if region:
             result["output"] = want
         return result
+    if tool == "school_mode":
+        return _tool_result(True, **set_school_mode(str(args.get("mode", ""))))
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
@@ -1913,6 +1939,14 @@ class _Handler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == "/mode":
+            body = _read_json_body(self, 256)
+            want = (body or {}).get("mode") if isinstance(body, dict) else None
+            if want not in (_school.SCHOOL, _school.NORMAL):
+                self._send(400, {"ok": False, "error": "mode must be school or normal"})
+                return
+            self._send(200, {"ok": True, **set_school_mode(want)})
+            return
         if route == "/phone/telemetry":
             body = _read_json_body(self, 1024)
             stored = record_phone_telemetry(body) if isinstance(body, dict) else None
@@ -2128,6 +2162,8 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif route == "/sys":
             self._send(200, {"ok": True, **_sys_stats()})
+        elif route == "/mode":
+            self._send(200, {"ok": True, "mode": _school.current()})
         elif route == "/mic":
             reply = _wake_rpc({"status": True})
             if reply is None:

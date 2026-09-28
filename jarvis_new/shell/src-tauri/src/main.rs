@@ -12,6 +12,7 @@ mod health;
 mod hotkey;
 mod manager;
 mod overlay;
+mod school;
 mod tray;
 mod updater;
 
@@ -49,6 +50,8 @@ fn main() {
                 "projectshide" => tray::hide_projects(app),
                 "projectsstate" => print_window_state(app, "projects"),
                 "state" => print_overlay_state(app),
+                "schoolon" => school::enter(app),
+                "schooloff" => school::exit(app),
                 "domstate" => print_dom_state(app),
                 "talk" => {
                     tray::show_overlay(app);
@@ -104,6 +107,10 @@ fn main() {
             // Overlay geometry: restore last position/size (fail-soft to
             // the tauri.conf.json defaults when nothing was ever saved).
             restore_overlay_geometry(app.handle());
+            // School mode survives restarts: come back as the strip.
+            if school::school_on_disk(&env_cfg::jarvis_home()) {
+                school::enter(app.handle());
+            }
 
             // Cold-start verb: the single-instance callback only fires for
             // a SECOND launch, so a first launch like `jarvis talk` (used
@@ -340,7 +347,10 @@ fn on_overlay_window_event(app: &tauri::AppHandle, event: tauri::WindowEvent) {
             }
         }
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-            persist_overlay_geometry(app);
+            // The strip's size/position must never overwrite the saved HUD.
+            if !school::is_school() {
+                persist_overlay_geometry(app);
+            }
         }
         _ => {}
     }

@@ -103,6 +103,9 @@ class QuoteTools:
         q = Q.match_quote(quote)
         if q is None:
             raise ToolError("That isn't one of the quotes. Answer Sir normally.")
+        from system.school_tools import loud_guard
+
+        loud_guard("quote_action", {"action": q.action})
         now = time.monotonic()
         last = self._last_fired.get(q.id)
         if last is not None and now - last < Q.COOLDOWN_S:

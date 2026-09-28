@@ -3330,3 +3330,132 @@ html.hud-hidden *::after { animation-play-state: paused !important; }
     transition: none;
   }
 }
+
+/* ============ School mode: click-through taskbar strip ============ */
+html:has(.school-strip),
+html:has(.school-strip) body {
+  background: #030a0f;
+  overflow: hidden;
+}
+.school-strip {
+  --strip-accent: #22d3ee;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 100vw;
+  height: 100vh;
+  padding: 7px 14px 8px;
+  border: 1px solid rgba(84, 246, 255, 0.22);
+  border-left: 3px solid var(--strip-accent);
+  background: linear-gradient(90deg, rgba(4, 22, 32, 0.96), rgba(3, 12, 18, 0.96));
+  color: #cfe7f0;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  opacity: 0.62;
+  transition:
+    opacity 0.35s ease,
+    border-color 0.35s ease;
+  user-select: none;
+  pointer-events: none; /* the window is click-through; belt and braces */
+}
+.school-strip--active {
+  opacity: 1;
+  border-color: rgba(84, 246, 255, 0.4);
+}
+.school-strip__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+.school-strip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--strip-accent);
+  box-shadow: 0 0 8px var(--strip-accent);
+  flex: none;
+}
+.school-strip--active .school-strip__dot {
+  animation: school-strip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes school-strip-pulse {
+  50% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+}
+.school-strip__state {
+  color: var(--strip-accent);
+  font-weight: 700;
+}
+.school-strip__tag {
+  padding: 1px 6px;
+  border: 1px solid rgba(84, 246, 255, 0.3);
+  color: #6f93a1;
+  font-size: 9px;
+}
+.school-strip__job {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: #ffb547;
+}
+.school-strip__track {
+  position: relative;
+  width: 90px;
+  height: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 181, 71, 0.35);
+}
+.school-strip__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #ffb547;
+  transition: width 0.9s ease-out;
+}
+.school-strip__pct {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+.school-strip__caption {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: 'Inter', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.school-strip__caption span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.school-strip__caption b {
+  flex: none;
+  font-weight: 600;
+}
+.school-strip__caption .is-jarvis {
+  color: #54f6ff;
+}
+.school-strip__caption .is-sir {
+  color: #a8b8c0;
+}
+.school-strip__hint {
+  color: #6f93a1;
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .school-strip,
+  .school-strip__fill {
+    transition: none;
+  }
+  .school-strip--active .school-strip__dot {
+    animation: none;
+  }
+}

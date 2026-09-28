@@ -251,6 +251,13 @@ STANDBY_RULES = textwrap.dedent(
 
 from quotes import prompt_lines as _quote_lines  # noqa: E402
 
+SCHOOL_RULES = (
+    "School mode: \"enter school mode\" / \"exit school mode\" = set_school_mode. "
+    "While it is on, answer in one or two short sentences, never start conversation, "
+    "and if a tool says an action would be loud, ask Sir \"Are you sure? It will play "
+    "out loud.\"; only after a clear yes call confirm_loud_action and retry once."
+)
+
 QUOTE_RULES = (
     "Quotes: when Sir's WHOLE utterance is one of these movie lines or memes, "
     "call quote_action with Sir's exact words and speak what it returns. "
@@ -261,5 +268,13 @@ QUOTE_RULES = (
 )
 
 AGENT_INSTRUCTIONS = (
-    AGENT_INSTRUCTIONS + "\n" + URGENCY_TIERS + "\n" + STANDBY_RULES + "\n" + QUOTE_RULES
+    AGENT_INSTRUCTIONS
+    + "\n"
+    + URGENCY_TIERS
+    + "\n"
+    + STANDBY_RULES
+    + "\n"
+    + QUOTE_RULES
+    + "\n"
+    + SCHOOL_RULES
 )

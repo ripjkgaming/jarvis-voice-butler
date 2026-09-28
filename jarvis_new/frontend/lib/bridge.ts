@@ -48,6 +48,8 @@ export type BridgeSys = {
   phone_tailnet?: { online: boolean; name: string } | null;
   /** Running research jobs with live progress (0-100) and current step. */
   research?: { id: string; title: string; progress: number; stage: string }[];
+  /** "school" = the click-through taskbar strip replaces the HUD. */
+  mode?: 'school' | 'normal';
   laptop_power?: {
     battery: number | null;
     status: string;

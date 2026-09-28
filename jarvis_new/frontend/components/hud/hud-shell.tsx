@@ -9,6 +9,7 @@ import { NodeGraph } from '@/components/hud/node-graph';
 import { ParticleOrb } from '@/components/hud/particle-orb';
 import { RadarSweep } from '@/components/hud/radar-sweep';
 import { ResearchStrip } from '@/components/hud/research-strip';
+import { SchoolStrip } from '@/components/hud/school-strip';
 import { StarkDials } from '@/components/hud/stark-dials';
 import { StateBanner } from '@/components/hud/state-banner';
 import { SysCore } from '@/components/hud/sys-core';
@@ -160,7 +161,7 @@ export function HudShell({ children }: Props) {
   const { isSolo, toggle: toggleMode } = useDisplayMode();
   const { events, live } = useHudEvents();
   const { jarvis } = useJarvisState();
-  const { toggle: toggleMute } = useMicMuted();
+  const { muted, toggle: toggleMute } = useMicMuted();
   const sys = useBridgeSysSnapshot();
 
   useEffect(() => {
@@ -185,6 +186,10 @@ export function HudShell({ children }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleMode, toggleMute]);
+
+  if (sys?.mode === 'school') {
+    return <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} />;
+  }
 
   if (isSolo) {
     return (

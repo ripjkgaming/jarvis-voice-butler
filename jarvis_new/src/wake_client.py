@@ -48,6 +48,7 @@ WAKE_MODEL = "hey_jarvis"
 # Spoken openers are short; anything longer belongs in /chat text mode.
 TALK_TEXT_MAX = 500
 AGENT_JOIN_TIMEOUT = 25.0
+SCHOOL_CONFIRM_S = 2.5  # audio after a school-mode wake checked for "hey Jarvis"
 IDENTITY = "jarvis-master"
 
 
@@ -574,10 +575,23 @@ class WakeClient:
         ):
             pending16 = np.zeros(0, dtype=np.int16)
             import keyword_spot as _spot
+            import school as _school
 
             spot_on = _spot.enabled()
             segmenter = _spot.Segmenter() if spot_on else None
             spot_state = {"busy": False, "last": 0.0}
+            hot = {"run": 0}
+            # ~1.5 s of audio before the wake frame: in school mode it is
+            # replayed so the transcript starts "Hey Jarvis, ..." (the
+            # agent only answers turns that address it).
+            import collections
+
+            ring: collections.deque = collections.deque(
+                maxlen=int(1.5 * MIC_RATE / BLOCKSIZE)
+            )
+            if _school.is_school():
+                # Warm the Whisper worker so the first school wake is quick.
+                loop.run_in_executor(None, self._spotter.transcribe, np.zeros(16000, np.int16))
 
             async def _check_daddy(seg) -> None:
                 try:
@@ -586,6 +600,8 @@ class WakeClient:
                     spot_state["busy"] = False
                 if not _spot.has_daddy(text) or self._in_call or self.muted:
                     return
+                if _school.is_school():
+                    return  # school mode: only a strict "hey Jarvis" summons
                 now = time.monotonic()
                 if now - spot_state["last"] < _spot.COOLDOWN_S:
                     return
@@ -601,6 +617,7 @@ class WakeClient:
                 block = np.frombuffer(raw, dtype=np.int16)
                 if block.size < BLOCKSIZE:
                     continue
+                ring.append(raw)
                 pending16 = np.concatenate([pending16, block[::3][:512]])
                 if self.muted:
                     self._talk_event.clear()  # never summon while muted
@@ -618,7 +635,7 @@ class WakeClient:
                     if not self._in_call:
                         await self._summon_session()
                     continue
-                if segmenter is not None and not self._in_call:
+                if segmenter is not None and not self._in_call and not _school.is_school():
                     for seg in segmenter.feed(block[::3][:512]):
                         if not spot_state["busy"]:
                             spot_state["busy"] = True
@@ -626,13 +643,47 @@ class WakeClient:
                             self._spot_tasks.add(task)
                             task.add_done_callback(self._spot_tasks.discard)
                 scores, pending16 = score_frames(model, pending16)
+                strict = _school.is_school()
+                need = max(self._threshold, _school.WAKE_THRESHOLD) if strict else self._threshold
                 for score in scores:
-                    if score >= self._threshold:
-                        logger.warning("wake word detected (%.2f)", score)
-                        self._play_ack()
+                    hot["run"] = hot["run"] + 1 if score >= need else 0
+                    if hot["run"] >= (_school.WAKE_FRAMES if strict else 1):
+                        hot["run"] = 0
+                        logger.warning("wake word detected (%.2f)%s", score, " [school]" if strict else "")
                         summon_overlay()
-                        await self._summon_session()
+                        if strict:
+                            # openWakeWord also fires on a bare "Jarvis" in
+                            # chatter. Listen ~2.5 s more, transcribe locally,
+                            # and only summon if Sir addressed Jarvis. The
+                            # captured audio is replayed into the call, so
+                            # nothing said after the wake word is lost.
+                            heard = list(ring) + await self._record_question(queue)
+                            pcm16 = np.concatenate(
+                                [np.frombuffer(b, dtype=np.int16)[::3] for b in heard]
+                            )
+                            text = await loop.run_in_executor(
+                                None, self._spotter.transcribe, pcm16
+                            )
+                            if _school.addressed(text):
+                                question = _school.question_after_address(text)
+                                logger.warning("school wake confirmed: %r", text[:80])
+                                # The question rides in as the opening text
+                                # turn (replaying audio split at the comma
+                                # pause and Gemini answered "aves").
+                                with self._mic_lock:
+                                    self._pending_text = question
+                                await self._summon_session(mic_queue=queue)
+                            else:
+                                logger.warning("school wake ignored (not addressed): %r", text[:80])
+                            ring.clear()
+                        else:
+                            self._play_ack()
+                            await self._summon_session()
                         pending16 = np.zeros(0, dtype=np.int16)
+                        # openWakeWord keeps its own recent-audio buffer: a
+                        # stale "hey Jarvis" in it re-fired after the call.
+                        with contextlib.suppress(Exception):
+                            model.reset()
                         break
 
     def _play_ack(self) -> None:
@@ -666,7 +717,9 @@ class WakeClient:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
-    async def _summon_session(self, reason: str = "wake") -> None:
+    async def _summon_session(
+        self, reason: str = "wake", mic_queue=None, preroll: list | None = None
+    ) -> None:
         from livekit import rtc
 
         # Never layer a second Jarvis over an ongoing call (an earlier
@@ -701,6 +754,7 @@ class WakeClient:
         room = rtc.Room()
         disconnected = asyncio.Event()
         agent_audio: asyncio.Queue = asyncio.Queue()
+        agent_ready = asyncio.Event()
 
         @room.on("disconnected")
         def _on_disconnected() -> None:
@@ -709,6 +763,7 @@ class WakeClient:
         @room.on("track_subscribed")
         def _on_track(track, _publication, _participant) -> None:
             if track.kind == rtc.TrackKind.KIND_AUDIO:
+                agent_ready.set()
                 agent_audio.put_nowait(track)
 
         await room.connect(self._creds["LIVEKIT_URL"], jwt)
@@ -726,7 +781,11 @@ class WakeClient:
                 mic_track,
                 rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
             )
-            mic_task = asyncio.create_task(self._pump_mic(source))
+            mic_task = asyncio.create_task(
+                self._pump_queue(source, mic_queue, agent_ready, preroll or [])
+                if mic_queue is not None
+                else self._pump_mic(source)
+            )
 
             # Wait for the agent, then relay its voice to the speakers.
             try:
@@ -788,6 +847,60 @@ class WakeClient:
                 # heard silence on every call).
                 await source.capture_frame(frame)
 
+    async def _record_question(self, queue) -> list:
+        """After a school wake: blocks until Sir stops talking (0.8 s under
+        the noise gate, after at least 0.6 s) or 8 s. Returns raw blocks."""
+        import numpy as np
+
+        out: list = []
+        quiet = 0.0
+        floor = None
+        block_s = BLOCKSIZE / MIC_RATE
+        while len(out) * block_s < 8.0:
+            raw = await queue.get()
+            out.append(raw)
+            x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+            rms = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
+            # Noise floor: drops to quieter blocks at once, creeps up slowly.
+            floor = rms if floor is None or rms < floor else floor * 1.01
+            loud = rms > max(150.0, 2.5 * floor)
+            quiet = 0.0 if loud else quiet + block_s
+            if len(out) * block_s >= 0.6 and quiet >= 0.8:
+                break
+        return out
+
+    async def _pump_queue(self, source, queue, agent_ready, preroll: list) -> None:
+        """School-mode mic: forward the listen loop's own queue (backlog
+        since the wake word first, then live) instead of a second stream.
+
+        Waits for the agent first: frames published before it subscribes
+        are dropped by LiveKit (live test: only "France" of "what is the
+        capital of France" arrived). The queue keeps filling meanwhile.
+        """
+        from livekit import rtc
+
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(agent_ready.wait(), AGENT_JOIN_TIMEOUT)
+        await asyncio.sleep(0.3)  # let the agent's input stream attach
+        # Drop what piled up while the call connected (the question already
+        # went in as text): replaying it made live follow-ups seconds late.
+        while not queue.empty():
+            queue.get_nowait()
+        # Real-time pace: Gemini runs in manual-activity mode and only keeps
+        # audio between the agent's VAD start/end, so a burst replay put
+        # most of the question outside that window ("What is the cap").
+        t0 = time.monotonic()
+        for n, raw in enumerate(preroll, 1):
+            await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+            ahead = t0 + n * BLOCKSIZE / MIC_RATE - time.monotonic()
+            if ahead > 0:
+                await asyncio.sleep(ahead)
+        while True:
+            raw = await queue.get()
+            if self.muted:
+                continue
+            await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+
     async def _play_agent(self, track) -> None:
         """Play the agent's voice on the laptop speakers."""
         import sounddevice as sd
@@ -810,13 +923,31 @@ class WakeClient:
                         samplerate=frame.sample_rate, channels=1, dtype="int16"
                     )
                     output.start()
-                output.write(self._bytes_to_int16(pcm))
+                samples = self._bytes_to_int16(pcm)
+                if _school_quiet():
+                    samples = (samples.astype("float32") * _school_gain()).astype("int16")
+                output.write(samples)
         finally:
             if output is not None:
                 with contextlib.suppress(Exception):
                     output.close()
             with contextlib.suppress(Exception):
                 await stream.aclose()
+
+
+def _school_quiet() -> bool:
+    try:
+        import school
+
+        return school.is_school()
+    except Exception:
+        return False
+
+
+def _school_gain() -> float:
+    import school
+
+    return school.SCHOOL_VOLUME
 
 
 def main() -> None:

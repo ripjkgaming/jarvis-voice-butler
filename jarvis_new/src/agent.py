@@ -57,6 +57,7 @@ from system.osint import OsintTools
 from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
 from system.quotes_tools import QuoteTools
+from system.school_tools import SchoolTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 
@@ -322,6 +323,46 @@ def _wake_reason(room: object) -> str:
 DADDY_GREETING = "Welcome back, Sir."
 
 
+SCHOOL_FIRST_WINDOW_S = 12.0
+
+
+async def _school_follow_up(session, *, clock=time.monotonic, tick: float = 0.25) -> None:
+    """School mode: end the call FOLLOW_UP_S after Jarvis's last reply.
+
+    The window reopens whenever Sir starts speaking or Jarvis thinks or
+    speaks; a pending tool call holds it open. The first window is a bit
+    longer (the question may still be arriving through the pre-roll).
+    """
+    import latency
+    import school
+
+    state = {"deadline": clock() + SCHOOL_FIRST_WINDOW_S}
+
+    def _agent(ev) -> None:
+        new = str(getattr(ev, "new_state", ""))
+        if new in ("thinking", "speaking"):
+            state["deadline"] = None
+        elif new == "listening" and state["deadline"] is None:
+            state["deadline"] = clock() + school.FOLLOW_UP_S
+
+    def _user(ev) -> None:
+        new = str(getattr(ev, "new_state", ""))
+        if new == "speaking":
+            state["deadline"] = None
+        elif new == "listening" and state["deadline"] is None:
+            state["deadline"] = clock() + school.FOLLOW_UP_S
+
+    session.on("agent_state_changed", _agent)
+    session.on("user_state_changed", _user)
+    while True:
+        await asyncio.sleep(tick)
+        d = state["deadline"]
+        if d is not None and clock() >= d and latency.TRACKER.pending == 0:
+            with contextlib.suppress(Exception):
+                await session.aclose()
+            return
+
+
 def _briefing_instructions(raw: str) -> str:
     """Turn the briefing bundle into one spoken reply. Pure."""
     return (
@@ -397,7 +438,7 @@ def _desktop_fastpath_enabled() -> bool:
 _FASTPATH_MAX_WORDS = 12
 # Answers Gemini Live already gives on its own (it hears the audio before
 # our transcript arrives): a fast-path reply would only say it twice.
-_MODEL_OWNED_FASTPATH = frozenset({"do_math", "projects_ui"})
+_MODEL_OWNED_FASTPATH = frozenset({"do_math", "projects_ui", "school_mode"})
 
 
 def _fastpath_short(text: str) -> str | None:
@@ -521,11 +562,19 @@ def vad_kwargs() -> dict:
         except (ValueError, AttributeError):
             return default
 
-    return {
+    kw = {
         "min_speech_duration": _num("JARVIS_VAD_MIN_SPEECH", 0.05),
         "min_silence_duration": _num("JARVIS_VAD_MIN_SILENCE", 0.55),
         "activation_threshold": _num("JARVIS_VAD_THRESHOLD", 0.5),
     }
+    import school
+
+    if school.is_school():
+        # Classroom: ignore coughs, chairs and short noise (never looser
+        # than an explicit env override).
+        for key, value in school.VAD.items():
+            kw[key] = max(kw[key], value)
+    return kw
 
 
 def _session_for_pipeline(
@@ -1030,6 +1079,7 @@ class Assistant(Agent):
         self.quote_tools = QuoteTools(
             system=self.system_tools, inbox=self.inbox_tools, browser=self.browser_tools
         )
+        self.school_tools = SchoolTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1064,6 +1114,8 @@ class Assistant(Agent):
                 *self.project_tools.tools,
                 # Movie / meme lines -> fixed safe actions (src/quotes.py).
                 *self.quote_tools.tools,
+                # School mode switch + loud-action confirmation.
+                *self.school_tools.tools,
                 *[
                     tool
                     for group in (
@@ -1505,6 +1557,10 @@ async def my_agent(ctx: JobContext):
     connected_at = time.monotonic()
 
     async def _record_talk_time() -> None:
+        # The latency probe (scripts/voice_latency.py) is test traffic: it
+        # must not spend the household allowance (it used ~20 min in a night).
+        if str(getattr(ctx.room, "name", "")).startswith("latency-probe-"):
+            return
         record_session(time.monotonic() - connected_at)
 
     ctx.add_shutdown_callback(_record_talk_time)
@@ -1672,9 +1728,14 @@ async def my_agent(ctx: JobContext):
     # confirmed face, remark once on a confirmed-empty desk, and stay
     # silent when the camera is unreadable. Greet with one retry: the
     # realtime speech scheduler is occasionally not up on first say.
-    _join = await _presence_snapshot()
+    import school as _school
+
+    _school_call = _school.is_school()
+    _join = {"status": "unknown"} if _school_call else await _presence_snapshot()
     _wake = _wake_summoned(ctx.room)
-    _decision = _join_decision(_wake, str(_join.get("status", "unknown")))
+    _decision = (
+        "school" if _school_call else _join_decision(_wake, str(_join.get("status", "unknown")))
+    )
     with contextlib.suppress(Exception):
         from system import log_action as _log_join
 
@@ -1700,6 +1761,13 @@ async def my_agent(ctx: JobContext):
     elif _decision == "remark":
         _presence["absence_remarked"] = True
         await _say(_absent_lines[0])
+    elif _decision == "school":
+        # School mode: no greeting (the strip shows LISTENING), already
+        # engaged, and the call only lives around Sir's request.
+        _presence["engaged"] = True
+        _fu_task = asyncio.create_task(_school_follow_up(session))
+        _background_tasks.add(_fu_task)
+        _fu_task.add_done_callback(_background_tasks.discard)
     # "silent": standby; the idle hangup closes us if nobody comes.
 
     async def _presence_loop() -> None:
@@ -1709,6 +1777,8 @@ async def my_agent(ctx: JobContext):
             await asyncio.sleep(random.uniform(5 * 60, 30 * 60))
             if _presence["stopped"]:
                 break
+            if _school.is_school():
+                continue  # no check-ins or remarks in class
             snap = await _presence_snapshot()
             status = str(snap.get("status", "unknown"))
             if status == "present":
