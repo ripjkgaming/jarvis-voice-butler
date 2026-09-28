@@ -26,7 +26,7 @@ from livekit.agents.beta.tools import EndCallTool
 from livekit.agents import llm
 from livekit.agents.llm import FallbackAdapter, RealtimeModelFallbackAdapter
 from livekit.agents.types import NOT_GIVEN
-from livekit.agents.voice import UserStateChangedEvent
+from livekit.agents.voice import UserStateChangedEvent, io
 from livekit.plugins import google
 
 try:
@@ -303,6 +303,50 @@ def _is_real_turn(text: str, is_final: bool) -> bool:
     if not is_final:
         return False
     return sum(1 for w in str(text or "").split() if any(c.isalpha() for c in w)) >= 2
+
+
+class _HudLiveCaption(io.TextOutput):
+    """Tail of the room transcription chain: receives Jarvis's words as the
+    TranscriptSynchronizer releases them, i.e. in step with the audio, and
+    mirrors the growing line to the HUD (which has no WebRTC to read the
+    room's own transcription stream)."""
+
+    def __init__(self) -> None:
+        super().__init__(label="HudLiveCaption", next_in_chain=None)
+        self._seq = 0
+        self._text = ""
+        self._open = False
+
+    async def capture_text(self, text: str) -> None:
+        if not self._open:
+            self._seq += 1
+            self._text = ""
+            self._open = True
+        self._text += text
+        _write_live_caption(f"{os.getpid()}-{self._seq}", self._text, False)
+
+    def flush(self) -> None:
+        if self._open:
+            self._open = False
+            _write_live_caption(f"{os.getpid()}-{self._seq}", self._text, True)
+
+
+def _write_live_caption(uid: str, text: str, done: bool) -> None:
+    try:
+        from hud_events import live_caption
+
+        live_caption(uid, _strip_markup(text), done)
+    except Exception:
+        pass
+
+
+def _strip_markup(text: str) -> str:
+    try:
+        from livekit.agents.tts._provider_format import strip_all_markup
+
+        return strip_all_markup(text)
+    except Exception:
+        return text
 
 
 def _wake_summoned(room: object) -> bool:
@@ -1612,6 +1656,9 @@ async def my_agent(ctx: JobContext):
             # local livekit-server — input audio silently never arrives
             # (zero user transcripts on every call). Raw room audio it is.
             audio_input=room_io.AudioInputOptions(),
+            # Word-synced captions: the synchronizer paces text to audio
+            # playout, then this tail mirrors it to the HUD word by word.
+            text_output=room_io.TextOutputOptions(next_in_chain=_HudLiveCaption()),
             delete_room_on_close=True,
         ),
     )

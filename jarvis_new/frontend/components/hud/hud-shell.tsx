@@ -159,7 +159,7 @@ function useHiddenPause(): void {
 export function HudShell({ children }: Props) {
   useHiddenPause();
   const { isSolo, toggle: toggleMode } = useDisplayMode();
-  const { events, live } = useHudEvents();
+  const { events } = useHudEvents();
   const { jarvis } = useJarvisState();
   const { muted, toggle: toggleMute } = useMicMuted();
   const sys = useBridgeSysSnapshot();
@@ -256,7 +256,7 @@ export function HudShell({ children }: Props) {
         </section>
         <section className="hud__right" aria-label="Workflow and automation">
           <NodeGraph events={events} />
-          <ExecFeed live={live} />
+          <ExecFeed />
           <SysCore />
         </section>
       </div>

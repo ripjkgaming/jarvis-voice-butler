@@ -43,6 +43,42 @@ def test_argv_uses_subscription_login_and_isolation(tmp_path, monkeypatch):
     assert seen["kw"]["cwd"] == str(tmp_path / "claude-cwd")
 
 
+def test_allowed_defaults_to_tools_but_can_scope():
+    argv = claude_cli.build_argv(
+        "/usr/bin/claude", model="m", system="s", tools="WebSearch,Bash"
+    )
+    assert argv[argv.index("--tools") + 1] == "WebSearch,Bash"
+    assert argv[argv.index("--allowedTools") + 1] == "WebSearch,Bash"
+    scoped = "WebSearch,Bash(/usr/bin/python pdf_fetch.py:*)"
+    argv = claude_cli.build_argv(
+        "/usr/bin/claude", model="m", system="s",
+        tools="WebSearch,Bash", allowed=scoped,
+    )
+    assert argv[argv.index("--tools") + 1] == "WebSearch,Bash"
+    assert argv[argv.index("--allowedTools") + 1] == scoped
+
+
+def test_reply_passes_allowed_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    seen = {}
+
+    def runner(argv, **kw):
+        seen["argv"] = argv
+        return _Proc(0, "hi\n")
+
+    reply, warn = claude_cli.claude_reply(
+        "hello", model="m", system="s", tools="Bash",
+        allowed="Bash(/usr/bin/python pdf_fetch.py:*)",
+        runner=runner, which=_which,
+    )
+    assert (reply, warn) == ("hi", None)
+    assert seen["argv"][seen["argv"].index("--tools") + 1] == "Bash"
+    assert seen["argv"][seen["argv"].index("--allowedTools") + 1] == (
+        "Bash(/usr/bin/python pdf_fetch.py:*)"
+    )
+
+
 def test_failures_are_warnings_not_exceptions(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_CLAUDE", "1")
@@ -93,6 +129,13 @@ def test_stream_event_parses_progress():
     assert stream_event(search) == [{"kind": "search", "detail": "sober roblox linux"}]
     assert stream_event(fetch) == [{"kind": "fetch", "detail": "https://github.com/x"}]
     assert stream_event(text) == [{"kind": "writing"}]
+    pdf = _line({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash",
+         "input": {"command": "/venv/bin/python /src/pdf_fetch.py https://arxiv.org/pdf/1706.03762 --max-chars 300"}}]}})
+    assert stream_event(pdf) == [{"kind": "pdf", "detail": "https://arxiv.org/pdf/1706.03762"}]
+    other_bash = _line({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls /tmp"}}]}})
+    assert stream_event(other_bash) == []
     assert stream_event(done) == [{"kind": "result", "text": "report", "error": False}]
     assert stream_event("not json") == []
     assert stream_event(_line({"type": "system"})) == []

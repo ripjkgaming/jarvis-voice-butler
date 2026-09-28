@@ -575,41 +575,44 @@ def test_gemini_reply_fails_fast_on_auth_error(monkeypatch):
 
 def test_gemini_reply_reports_last_error_when_all_saturated(monkeypatch):
     calls = _fake_genai(monkeypatch, [_UsageError(429)])
+    # Fallback down too: hermetic (no live OpenRouter call), keeps the
+    # Gemini-side warning.
+    monkeypatch.setattr("openrouter_chat.chat_reply", lambda *a, **k: ("", "down"))
     reply, warning = bridge._gemini_reply("hello")
     assert reply == "" and "LLM unavailable" in (warning or "")
     assert len(calls) == 1 + len(bridge.GEMINI_TEXT_FALLBACKS)
 
 
-def test_claude_takes_over_when_gemini_is_saturated(monkeypatch):
+def test_fallback_chat_takes_over_when_gemini_is_saturated(monkeypatch):
     _fake_genai(monkeypatch, [_UsageError(429)])
     seen = {}
 
-    def fake_claude(prompt, **kw):
+    def fake_chat(prompt, **kw):
         seen.update(kw, prompt=prompt)
-        return "Claude here, Sir.", None
+        return "Ling here, Sir.", None
 
-    monkeypatch.setattr("claude_cli.claude_reply", fake_claude)
+    monkeypatch.setattr("openrouter_chat.chat_reply", fake_chat)
     reply, warning = bridge._gemini_reply("hello", guest=True)
-    assert (reply, warning) == ("Claude here, Sir.", None)
-    assert seen["model"] == "claude-haiku-4-5" and seen["tools"] == ""
+    assert (reply, warning) == ("Ling here, Sir.", None)
+    assert seen["timeout"] == 45.0
     assert "guest mode" in seen["system"]  # persona survives the fallback
 
 
-def test_claude_not_used_for_non_usage_errors(monkeypatch):
+def test_fallback_chat_not_used_for_non_usage_errors(monkeypatch):
     _fake_genai(monkeypatch, [_AuthError()])
     monkeypatch.setattr(
-        "claude_cli.claude_reply",
+        "openrouter_chat.chat_reply",
         lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("no Claude on auth errors")
+            AssertionError("no fallback chat on auth errors")
         ),
     )
     reply, warning = bridge._gemini_reply("hello")
     assert reply == "" and "LLM unavailable" in warning
 
 
-def test_claude_failure_keeps_gemini_warning(monkeypatch):
+def test_fallback_chat_failure_keeps_gemini_warning(monkeypatch):
     _fake_genai(monkeypatch, [_UsageError(429)])
-    monkeypatch.setattr("claude_cli.claude_reply", lambda *a, **k: ("", "down"))
+    monkeypatch.setattr("openrouter_chat.chat_reply", lambda *a, **k: ("", "down"))
     reply, warning = bridge._gemini_reply("hello")
     assert reply == "" and "LLM unavailable" in warning
 

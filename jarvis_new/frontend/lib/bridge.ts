@@ -101,6 +101,42 @@ export async function bridgeCaptions(limit = 10): Promise<BridgeCaptions['captio
   return Array.isArray(j?.captions) ? j.captions : [];
 }
 
+export type BridgeLiveCaption = { id: string; text: string; ts: number; done: boolean };
+
+/** Jarvis's in-progress line, grown word by word in step with his audio
+ *  (the agent mirrors its synced transcription). Null when none/stale. */
+export async function bridgeLiveCaption(): Promise<BridgeLiveCaption | null> {
+  const j = await getJson<{ ok?: boolean; live?: BridgeLiveCaption | null }>('/caption/live');
+  const live = j?.live;
+  return live && typeof live.text === 'string' ? live : null;
+}
+
+export type ActivityKind = 'download' | 'update' | 'coding' | 'research' | 'build' | 'task';
+
+/** One system activity (downloads, package updates, coding/research
+ *  projects, Jarvis tools) from src/activity.py. `progress` null means
+ *  indeterminate; times are epoch seconds. */
+export type BridgeActivity = {
+  id: string;
+  kind: ActivityKind | string;
+  title: string;
+  detail?: string;
+  progress: number | null;
+  status: 'running' | 'done' | 'failed' | 'cancelled' | string;
+  started: number;
+  updated: number;
+  finished?: number | null;
+  source?: string;
+  meta?: { bytes_done?: number; bytes_total?: number; speed_bps?: number; eta_s?: number };
+};
+
+/** Running activities first, then the recently finished. Null when the
+ *  bridge is unreachable (keep the last good list), [] when quiet. */
+export async function bridgeActivity(): Promise<BridgeActivity[] | null> {
+  const j = await getJson<{ ok?: boolean; items?: BridgeActivity[] }>('/activity');
+  return j && Array.isArray(j.items) ? j.items : null;
+}
+
 export type BridgeChatReply = {
   ok?: boolean;
   reply?: string;

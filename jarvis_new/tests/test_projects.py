@@ -55,15 +55,60 @@ def test_research_project_writes_documents_and_parses(monkeypatch):
     assert meta["sources"] == ["https://example.com/a", "https://example.org/b"]
     argv = seen["argv"]
     assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
-    assert argv[argv.index("--tools") + 1] == "WebSearch,WebFetch"
-    # Headless runs can't ask: web tools must be pre-approved too.
-    assert argv[argv.index("--allowedTools") + 1] == "WebSearch,WebFetch"
+    assert argv[argv.index("--tools") + 1] == "WebSearch,WebFetch,Bash"
+    # Headless runs can't ask: Bash is pre-approved only for the pdf reader.
+    assert argv[argv.index("--allowedTools") + 1] == (
+        f"WebSearch,WebFetch,Bash({projects.pdf_command()}:*)"
+    )
     full = projects.get_project(meta["id"])
     assert [d["name"] for d in full["documents"]] == [
         "report.md",
         "sources.md",
         "brief.md",
     ]
+
+
+def test_research_pdf_tooling():
+    import sys
+    from pathlib import Path
+
+    # The exact command the model is told to run is the one pre-approved.
+    cmd = projects.pdf_command()
+    assert cmd == f"{sys.executable} {Path(projects.__file__).resolve().parent / 'pdf_fetch.py'}"
+    assert cmd.endswith("src/pdf_fetch.py")
+    assert projects.pdf_command() in projects.RESEARCH_SYSTEM
+    assert "Never use Bash for anything else" in projects.RESEARCH_SYSTEM
+    assert ".pdf" in projects.RESEARCH_SYSTEM
+
+
+def test_research_stream_path_scopes_bash(monkeypatch):
+    monkeypatch.setattr("claude_cli.shutil.which", lambda n: f"/usr/bin/{n}")
+    seen = {}
+
+    def fake_stream(prompt, **kw):
+        seen.update(kw)
+        return REPORT, None
+
+    monkeypatch.setattr("claude_cli.claude_stream", fake_stream)
+    meta = projects.start_research("solid state batteries", background=False)
+    assert meta["status"] == "done"
+    assert seen["tools"] == "WebSearch,WebFetch,Bash"
+    assert seen["allowed"] == f"WebSearch,WebFetch,Bash({projects.pdf_command()}:*)"
+
+
+def test_research_pdf_progress(monkeypatch):
+    from projects import research_stage
+
+    assert research_stage(
+        {"kind": "pdf", "detail": "https://www.arxiv.org/pdf/1706.03762"}
+    ) == "Reading PDF: arxiv.org"
+    monkeypatch.setattr(projects.subprocess, "run", lambda argv, **kw: None)
+    meta = projects._new_meta("research", "sober", "sober", "m")
+    prog = projects.ResearchProgress(meta, notify=False, min_gap_s=0.0)
+    prog.on_event({"kind": "pdf", "detail": "https://arxiv.org/pdf/1706.03762"})
+    assert prog.steps == 1 and prog.stage == "Reading PDF: arxiv.org"
+    got = projects._read_meta(meta["id"])
+    assert got["steps"] == 1 and got["stage"] == "Reading PDF: arxiv.org"
 
 
 def test_research_failure_is_recorded(monkeypatch):

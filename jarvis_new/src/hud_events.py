@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,34 @@ def mirror_to_log(tool: str, kind: str, detail: str = "") -> None:
         log_action(f"hud:{kind}", f"{tool} {detail[:200]}".strip())
     except Exception:
         pass
+    mirror_to_activity(tool, kind, detail)
+
+
+def jarvis_activity_id(tool: str) -> str:
+    """Activity id for a Jarvis tool ("open_app" -> "jarvis-open-app"). Pure."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(tool or "").lower()).strip("-")
+    return f"jarvis-{slug or 'tool'}"[:64]
+
+
+def mirror_to_activity(tool: str, kind: str, detail: str = "") -> None:
+    """Jarvis tool runs join the HUD EXECUTION feed (src/activity.py): the
+    webview has no WebRTC, so the data-channel copy never reached it."""
+    try:
+        import activity
+
+        item_id = jarvis_activity_id(tool)
+        if kind == "tool_start":
+            activity.start(
+                "task",
+                FRIENDLY_LABELS.get(tool, f"{tool}…"),
+                detail="Jarvis",
+                source="jarvis",
+                item_id=item_id,
+            )
+        elif kind == "tool_finish":
+            activity.finish(item_id, ok=detail != "error")
+    except Exception:
+        pass
 
 
 #: Live subtitles: a partial transcript earns a caption line when it grew
@@ -132,6 +161,34 @@ def caption(role: str, text: str) -> bool:
         lines = path.read_text().splitlines()
         if len(lines) > CAPTIONS_KEEP + 50:
             path.write_text("\n".join(lines[-CAPTIONS_KEEP:]) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+#: Jarvis's in-progress line, rewritten word by word as the audio plays
+#: (fed by the agent's synced transcription output). One JSON object:
+#: {"id", "text", "ts", "done"}.
+LIVE_CAPTION_FILE = "caption_live.json"
+
+
+def live_caption(uid: str, text: str, done: bool = False) -> bool:
+    """Atomically replace the live Jarvis line. Fail-soft, never raises."""
+    try:
+        path = captions_path().with_name(LIVE_CAPTION_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "id": str(uid),
+                    "text": " ".join(str(text or "").split())[:2000],
+                    "ts": time.time(),
+                    "done": bool(done),
+                }
+            )
+        )
+        tmp.replace(path)
         return True
     except OSError:
         return False

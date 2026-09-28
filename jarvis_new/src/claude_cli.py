@@ -1,8 +1,8 @@
 """Claude through Sir's Pro subscription: headless Claude Code (`claude -p`).
 
-No API key: the logged-in CLI bills the claude.ai subscription. Two uses:
-the text-chat fallback when Gemini's free text quota is spent (cheapest
-model, Haiku) and background research projects (cheapest Sonnet).
+No API key: the logged-in CLI bills the claude.ai subscription. Used for
+background research projects (Sonnet 5). The text-chat fallback moved to
+Ling 3.0 Flash on OpenRouter (src/openrouter_chat.py).
 
 Isolation: a neutral cwd (no repo CLAUDE.md auto-discovery) plus
 `--setting-sources local` keeps Sir's personal ~/.claude/CLAUDE.md out of
@@ -15,13 +15,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 from pathlib import Path
 
-CHAT_MODEL = os.environ.get("JARVIS_CLAUDE_CHAT_MODEL", "claude-haiku-4-5")
 RESEARCH_MODEL = os.environ.get("JARVIS_CLAUDE_RESEARCH_MODEL", "claude-sonnet-5")
+
+_URL = re.compile(r"https?://[^\s)>\]]+")
 
 
 def enabled() -> bool:
@@ -43,7 +45,13 @@ def claude_cwd() -> Path:
 
 
 def build_argv(
-    claude: str, *, model: str, system: str, tools: str = "", stream: bool = False
+    claude: str,
+    *,
+    model: str,
+    system: str,
+    tools: str = "",
+    allowed: str = "",
+    stream: bool = False,
 ) -> list[str]:
     """argv for one headless turn. Pure. Prompt goes on stdin.
 
@@ -51,8 +59,11 @@ def build_argv(
     headless runs can't ask, and `--setting-sources local` drops Sir's saved
     permission rules, so unapproved web tools were silently denied (the
     first live report said "unverified, re-run once web access is up").
+    `allowed` defaults to `tools`; pass a narrower pattern to enable a tool
+    broadly but pre-approve only a scoped prefix, e.g. Bash is research's
+    PDF reader and nothing else.
     """
-    approve = ["--allowedTools", tools] if tools else []
+    approve = ["--allowedTools", allowed or tools] if tools else []
     return [
         claude,
         *approve,
@@ -77,6 +88,7 @@ def claude_reply(
     model: str,
     system: str,
     tools: str = "",
+    allowed: str = "",
     timeout: float = 60.0,
     runner=None,
     which=shutil.which,
@@ -87,7 +99,7 @@ def claude_reply(
     claude = which("claude")
     if not claude:
         return "", "claude CLI not installed"
-    argv = build_argv(claude, model=model, system=system, tools=tools)
+    argv = build_argv(claude, model=model, system=system, tools=tools, allowed=allowed)
     run = runner or subprocess.run
     try:
         proc = run(
@@ -115,8 +127,9 @@ def stream_event(line: str) -> list[dict]:
     """One stream-json line -> progress events. Pure.
 
     {"kind": "search", "detail": query} / {"kind": "fetch", "detail": url}
-    per web tool call, {"kind": "writing"} when prose starts, and
-    {"kind": "result", "text", "error"} at the end.
+    per web tool call, {"kind": "pdf", "detail": url} per pdf_fetch.py Bash
+    call, {"kind": "writing"} when prose starts, and {"kind": "result",
+    "text", "error"} at the end.
     """
     try:
         d = json.loads(line)
@@ -144,6 +157,13 @@ def stream_event(line: str) -> list[dict]:
                 out.append({"kind": "search", "detail": str(args.get("query", ""))[:120]})
             elif block.get("name") == "WebFetch":
                 out.append({"kind": "fetch", "detail": str(args.get("url", ""))[:200]})
+            elif block.get("name") == "Bash":
+                # The research engine may only run pdf_fetch.py: surface its
+                # reads as progress, ignore any other Bash noise.
+                command = str(args.get("command") or "")
+                if "pdf_fetch.py" in command:
+                    found = _URL.findall(command)
+                    out.append({"kind": "pdf", "detail": found[0][:200] if found else ""})
         elif block.get("type") == "text" and str(block.get("text", "")).strip():
             out.append({"kind": "writing"})
     return out
@@ -155,6 +175,7 @@ def claude_stream(
     model: str,
     system: str,
     tools: str = "",
+    allowed: str = "",
     timeout: float = 600.0,
     on_event=None,
     popen=None,
@@ -170,7 +191,9 @@ def claude_stream(
     claude = which("claude")
     if not claude:
         return "", "claude CLI not installed"
-    argv = build_argv(claude, model=model, system=system, tools=tools, stream=True)
+    argv = build_argv(
+        claude, model=model, system=system, tools=tools, allowed=allowed, stream=True
+    )
     try:
         proc = (popen or subprocess.Popen)(
             argv,

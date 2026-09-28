@@ -550,6 +550,51 @@ def read_captions(limit: int = 20) -> list[dict]:
     return out
 
 
+def read_live_caption(max_age_s: float = 120.0) -> dict | None:
+    """Jarvis's word-synced live line ({id, text, ts, done}) or None when
+    missing/stale/corrupt. Mirrors hud_events.live_caption. Never raises."""
+    try:
+        home = _env("JARVIS_HOME").strip()
+        base = Path(home) if home else Path.home() / ".jarvis"
+        data = json.loads((base / "caption_live.json").read_text())
+        ts = float(data.get("ts", 0))
+        if time.time() - ts > max_age_s:
+            return None
+        return {
+            "id": str(data.get("id", "")),
+            "text": str(data.get("text", "")),
+            "ts": ts,
+            "done": bool(data.get("done")),
+        }
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def read_activity() -> list[dict]:
+    """HUD EXECUTION feed: running + recently finished activities
+    (src/activity.py). Never raises."""
+    try:
+        import activity
+
+        return activity.list_items()
+    except Exception:
+        return []
+
+
+def start_activity_watch() -> None:
+    """Background producers for the activity feed (downloads, package
+    updates, projects). The bridge is the always-on supervised sidecar, so
+    it hosts them. JARVIS_ACTIVITY_WATCH=0 disables. Never raises."""
+    if _env("JARVIS_ACTIVITY_WATCH", "1").strip().lower() in ("0", "false", "off", "no"):
+        return
+    try:
+        import activity_watch
+
+        activity_watch.start_thread()
+    except Exception as exc:
+        print(f"activity watch unavailable: {exc}", flush=True)
+
+
 def _wake_socket_path() -> Path:
     """Unix socket of the wake_client mic-control listener. Pure (env)."""
     home = _env("JARVIS_HOME").strip()
@@ -1041,10 +1086,10 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
     try:
         from google import genai
     except ImportError:
-        return _claude_fallback(transcript, persona, "voice stack missing (google-genai)")
+        return _fallback_chat(transcript, persona, "voice stack missing (google-genai)")
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-        return _claude_fallback(transcript, persona, "GOOGLE_API_KEY not configured")
+        return _fallback_chat(transcript, persona, "GOOGLE_API_KEY not configured")
     if guest:
         brief = (
             "You are Jarvis in guest mode: cold, curt, faintly contemptuous. "
@@ -1078,24 +1123,22 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
             last_err = exc
             if not _is_usage_error(exc):
                 return "", f"LLM unavailable: {last_err}"[:200]
-    # Every Gemini text model is out of quota: Claude (Sir's Pro plan,
-    # cheapest model) keeps chat alive.
-    return _claude_fallback(transcript, persona, f"LLM unavailable: {last_err}"[:200])
+    # Every Gemini text model is out of quota: Ling 3.0 Flash via OpenRouter
+    # (free tier) keeps chat alive.
+    return _fallback_chat(transcript, persona, f"LLM unavailable: {last_err}"[:200])
 
 
-def _claude_fallback(
+def _fallback_chat(
     transcript: str, persona: str, warning: str
 ) -> tuple[str, str | None]:
-    """Claude Haiku via headless Claude Code; the original warning if it
+    """Ling 3.0 Flash via OpenRouter; the original warning if it
     fails too. Never raises."""
     try:
-        import claude_cli
+        import openrouter_chat
 
-        reply, _ = claude_cli.claude_reply(
+        reply, _ = openrouter_chat.chat_reply(
             transcript,
-            model=claude_cli.CHAT_MODEL,
             system=persona,
-            tools="",
             timeout=45.0,
         )
     except Exception:
@@ -2178,6 +2221,10 @@ class _Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 20
             self._send(200, {"ok": True, "captions": read_captions(limit)})
+        elif route == "/caption/live":
+            self._send(200, {"ok": True, "live": read_live_caption()})
+        elif route == "/activity":
+            self._send(200, {"ok": True, "items": read_activity()})
         elif route == "/camera/latest":
             latest = _phone_cam_dir() / "latest.jpg"
             try:
@@ -2246,6 +2293,7 @@ def serve_forever(
     port: int = DEFAULT_PORT, token: str = "", host: str = "127.0.0.1"
 ) -> None:
     server = create_server(port, token, host)
+    start_activity_watch()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
