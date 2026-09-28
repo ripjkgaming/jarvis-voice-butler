@@ -1,0 +1,12 @@
+{
+  "company": "Acme Studio",
+  "address": "1 Example Street\nSpringfield",
+  "logo": "",
+  "brand_color": "#1a56db",
+  "accent_color": "#e8eefc",
+  "currency": "USD",
+  "tax_rate": 0,
+  "payment_terms": "Payment due within 14 days. Thank you for your business!",
+  "invoice_number_format": "INV-{YYYY}-{NNNN}",
+  "due_days": 14
+}

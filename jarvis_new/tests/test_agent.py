@@ -407,3 +407,19 @@ def test_engaged_idle_budget_env(monkeypatch) -> None:
     assert _engaged_idle_seconds() == 30.0  # floor
     monkeypatch.setenv("JARVIS_ENGAGED_IDLE", "junk")
     assert _engaged_idle_seconds() == 180.0
+
+
+def test_loop_guard_spots_repeating_reply() -> None:
+    from agent import is_repeating
+
+    loop = (
+        "As you wish. I shall have everything ready shortly. Assuming we both "
+        "survive the ordeal, I will now handle opening Google Docs for you. "
+        "As you wish. Assuming we both survive the ordeal, I will now handle "
+        "opening Google Docs for you. As you wish. Assuming we both survive the "
+        "ordeal, I will now handle opening Google Docs for you."
+    )
+    assert is_repeating(loop)
+    assert not is_repeating(loop.rsplit("As you wish.", 1)[0])  # only twice
+    assert not is_repeating("Yes, Sir. Yes, Sir. Yes, Sir. Very good.")  # short lines
+    assert not is_repeating("The capital of Spain is Madrid, Sir.")

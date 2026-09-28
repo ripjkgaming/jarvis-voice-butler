@@ -67,8 +67,38 @@ def _cascade() -> object | None:
         return None
 
 
+def _hub_frame():
+    """Fresh frame from the shared camera hub, or None. Fail-soft."""
+    try:
+        import camera_hub
+
+        return camera_hub.snapshot("presence", timeout=4.0)
+    except Exception:
+        return None
+
+
+def _write_frame(frame, dest: Path = SNAP_PATH) -> Path | None:
+    """Write a BGR frame to dest. Returns the path, or None on failure."""
+    try:
+        import cv2
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        return dest if cv2.imwrite(str(dest), frame) else None
+    except Exception:
+        return None
+
+
 def snapshot(dest: Path = SNAP_PATH, camera: int = 0) -> Path | None:
-    """Grab one settled frame. Returns the path, or None on failure."""
+    """Grab one settled frame. Returns the path, or None on failure.
+
+    Prefers the shared camera hub (one v4l2 reader); falls back to a
+    direct capture only when the hub produced nothing.
+    """
+    frame = _hub_frame()
+    if frame is not None:
+        written = _write_frame(frame, dest)
+        if written is not None:
+            return written
     try:
         import cv2
 

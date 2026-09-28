@@ -60,7 +60,6 @@ def test_system_tools_register_expected_ids() -> None:
         "set_brightness",
         "battery_status",
         "disk_space",
-        "find_files",
         "list_dir",
         "read_file",
         "write_file",
@@ -811,3 +810,11 @@ async def test_open_app_env_exec_uses_launcher_argv(monkeypatch) -> None:
     tools._tasks = set()
     await SystemTools.open_app(tools, None, app="thing")  # type: ignore[arg-type]
     assert launched["argv"] == ["/usr/bin/env", "A=1", "/opt/t"]
+
+
+def test_find_files_has_exactly_one_home() -> None:
+    """find_files moved to FilesTools; two same-named tools broke the agent."""
+    from system.files_tools import FilesTools
+
+    assert "find_files" not in [t.id for t in SystemTools().tools]
+    assert "find_files" in [t.id for t in FilesTools().tools]

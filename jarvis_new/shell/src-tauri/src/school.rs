@@ -99,15 +99,25 @@ pub fn rule_entries() -> Vec<(&'static str, &'static str)> {
 
 /// Rules list with ours appended once. Pure.
 pub fn rules_with_ours(existing: &str) -> String {
+    rules_with(existing, RULE_ID)
+}
+
+/// Rules list with `id` appended once. Pure.
+pub fn rules_with(existing: &str, id: &str) -> String {
     let mut ids: Vec<&str> = existing.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-    if !ids.contains(&RULE_ID) {
-        ids.push(RULE_ID);
+    if !ids.contains(&id) {
+        ids.push(id);
     }
     ids.join(",")
 }
 
-/// Install the rule (idempotent) and ask KWin to reload rules. Fail-soft.
 fn ensure_rule() {
+    install_rule(RULE_ID, &rule_entries());
+}
+
+/// Install a KWin window rule (idempotent) and reload rules. Fail-soft.
+/// Shared with the Brave orb (orb.rs).
+pub(crate) fn install_rule(rule_id: &str, entries: &[(&str, &str)]) {
     let read = std::process::Command::new("kreadconfig6")
         .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
         .output();
@@ -120,10 +130,10 @@ fn ensure_rule() {
             .args(["--file", "kwinrulesrc", "--group", group, "--key", key, value])
             .output();
     };
-    for (key, value) in rule_entries() {
-        write(RULE_ID, key, value);
+    for (key, value) in entries {
+        write(rule_id, key, value);
     }
-    let rules = rules_with_ours(&existing);
+    let rules = rules_with(&existing, rule_id);
     write("General", "count", &rules.split(',').count().to_string());
     write("General", "rules", &rules);
     let _ = std::process::Command::new("dbus-send")
@@ -131,13 +141,17 @@ fn ensure_rule() {
         .output();
 }
 
-/// Load + run + unload a KWin script over D-Bus. Fail-soft (X11 / no KWin).
 fn run_kwin(script: &str) {
-    let path = std::env::temp_dir().join("jarvis-school-dock.js");
+    run_kwin_named(script, "jarvis_school_dock");
+}
+
+/// Load + run + unload a KWin script over D-Bus. Fail-soft (X11 / no KWin).
+/// Shared with the Brave orb (orb.rs).
+pub(crate) fn run_kwin_named(script: &str, name: &str) {
+    let path = std::env::temp_dir().join(format!("{name}.js"));
     if std::fs::write(&path, script).is_err() {
         return;
     }
-    let name = "jarvis_school_dock";
     let dbus = |args: &[&str]| {
         std::process::Command::new("dbus-send")
             .args(["--session", "--print-reply", "--dest=org.kde.KWin"])

@@ -385,7 +385,8 @@ class SystemTools:
             self.set_brightness,
             self.battery_status,
             self.disk_space,
-            self.find_files,
+            # find_files lives in system.files_tools now (brain index, /mnt/data,
+            # content search); two same-named tools broke the agent.
             self.list_dir,
             self.read_file,
             self.write_file,

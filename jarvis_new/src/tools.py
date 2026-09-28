@@ -266,6 +266,15 @@ KNOWN_SITES: dict[str, str] = {
     "maps": "https://maps.google.com",
     "googledrive": "https://drive.google.com",
     "drive": "https://drive.google.com",
+    # Homepages, never a guessed file: "open google docs" used to land on a
+    # spreadsheet the model half-remembered.
+    "docs": "https://docs.google.com/document/",
+    "googledocs": "https://docs.google.com/document/",
+    "sheets": "https://docs.google.com/spreadsheets/",
+    "googlesheets": "https://docs.google.com/spreadsheets/",
+    "slides": "https://docs.google.com/presentation/",
+    "googleslides": "https://docs.google.com/presentation/",
+    "googledrive": "https://drive.google.com/drive/my-drive",
 }
 
 
@@ -319,6 +328,7 @@ class BrowserTools:
         return [
             self.open_url,
             self.search_the_web,
+            self.open_google_app,
             self.dismiss_popups,
             self.read_page,
             self.inspect_page,
@@ -412,6 +422,38 @@ class BrowserTools:
             return await self.browser.open_url(resolve_url(url), tab=tab)
         except BrowserError as exc:
             raise ToolError(str(exc)) from exc
+
+    @function_tool()
+    async def open_google_app(
+        self,
+        context: RunContext,
+        app: str,
+        which: str = "",
+        account: str = "personal",
+    ) -> dict[str, str]:
+        """Open Google Docs, Sheets, Slides or Drive. ALWAYS use this (never
+        open_url with a guessed docs.google.com link) for these apps.
+
+        "open Google Docs" -> which="" (the homepage, the default).
+        "open the second document" / "my latest sheet" -> which="2nd" /
+        "latest" (his Nth most recently opened file of that type).
+        "open Physics notes in Docs" -> which="Physics notes" (by name).
+        "... on my school account" / "secondary school account" ->
+        account="school"; otherwise "personal".
+
+        Args:
+            app: "docs", "sheets", "slides" or "drive".
+            which: "" for the homepage, an ordinal like "2nd"/"latest", or a file name.
+            account: "personal" (default) or "school".
+        """
+        import google_apps
+
+        target = await asyncio.to_thread(google_apps.resolve, app, which, account)
+        try:
+            opened = await self.browser.open_url(target["url"])
+        except BrowserError as exc:
+            raise ToolError(str(exc)) from exc
+        return {"say": target["say"], "title": target["title"], "wall": opened.get("wall")}
 
     @function_tool()
     async def dismiss_popups(self, context: RunContext) -> dict[str, str | None]:

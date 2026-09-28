@@ -52,12 +52,17 @@ from system.core import SystemTools
 from system.daily import DailyTools
 from system.desktop import DesktopTools
 from system.devices import DeviceTools
+from system.alternatives_tools import AlternativesTools
+from system.files_tools import FilesTools
+from system.focus_tools import FocusTools
 from system.inbox import InboxTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
 from system.quotes_tools import QuoteTools
 from system.school_tools import SchoolTools
+from system.vision_tools import VisionTools
+from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 
@@ -305,6 +310,26 @@ def _is_real_turn(text: str, is_final: bool) -> bool:
     return sum(1 for w in str(text or "").split() if any(c.isalpha() for c in w)) >= 2
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+LOOP_REPEATS = 3  # same sentence this many times in one reply = a loop
+
+
+def is_repeating(text: str) -> bool:
+    """Gemini realtime can degenerate into repeating one sentence for
+    minutes ("Assuming we both survive the ordeal, I will now handle
+    opening Google Docs for you." x20). True once any sentence of 4+ words
+    occurs LOOP_REPEATS times in one reply. Pure."""
+    counts: dict[str, int] = {}
+    for raw in _SENTENCE_SPLIT.split(text or ""):
+        key = " ".join(re.sub(r"[^\w\s]", "", raw.lower()).split())
+        if len(key.split()) < 4:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] >= LOOP_REPEATS:
+            return True
+    return False
+
+
 class _HudLiveCaption(io.TextOutput):
     """Tail of the room transcription chain: receives Jarvis's words as the
     TranscriptSynchronizer releases them, i.e. in step with the audio, and
@@ -316,14 +341,22 @@ class _HudLiveCaption(io.TextOutput):
         self._seq = 0
         self._text = ""
         self._open = False
+        # Set once the session exists: interrupts a looping reply.
+        self.on_loop = None
+        self._loop_fired = False
 
     async def capture_text(self, text: str) -> None:
         if not self._open:
             self._seq += 1
             self._text = ""
             self._open = True
+            self._loop_fired = False
         self._text += text
         _write_live_caption(f"{os.getpid()}-{self._seq}", self._text, False)
+        if self.on_loop and not self._loop_fired and is_repeating(self._text):
+            self._loop_fired = True
+            with contextlib.suppress(Exception):
+                self.on_loop(self._text)
 
     def flush(self) -> None:
         if self._open:
@@ -1144,6 +1177,11 @@ class Assistant(Agent):
             system=self.system_tools, inbox=self.inbox_tools, browser=self.browser_tools
         )
         self.school_tools = SchoolTools()
+        self.files_tools = FilesTools()
+        self.alternatives_tools = AlternativesTools()
+        self.focus_tools = FocusTools()
+        self.vision_tools = VisionTools()
+        self.workspace_tools = WorkspaceTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1180,6 +1218,16 @@ class Assistant(Agent):
                 *self.quote_tools.tools,
                 # School mode switch + loud-action confirmation.
                 *self.school_tools.tools,
+                # Find / open / describe / tidy Sir's files (second brain).
+                *self.files_tools.tools,
+                # "Find me a cheaper alternative to X" -> research project.
+                *self.alternatives_tools.tools,
+                # Focus mode: lock on to a window/tab, drift alerts, review.
+                *self.focus_tools.tools,
+                # Eyes: appearance feedback, posture/phone watch, gestures.
+                *self.vision_tools.tools,
+                # Google Docs/Sheets/Drive, Notion, invoice generation.
+                *self.workspace_tools.tools,
                 *[
                     tool
                     for group in (
@@ -1645,6 +1693,20 @@ async def my_agent(ctx: JobContext):
 
     ctx.add_shutdown_callback(_record_talk_time)
 
+    # Word-synced HUD captions; also the loop guard: a reply stuck repeating
+    # itself is cut off and Sir gets a short line instead of minutes of it.
+    _live_caption = _HudLiveCaption()
+
+    def _on_reply_loop(text: str) -> None:
+        with contextlib.suppress(Exception):
+            from system import log_action as _log_loop
+
+            _log_loop("loop-guard", f"interrupted repeating reply: {text[-160:]}")
+        with contextlib.suppress(Exception):
+            session.interrupt()
+
+    _live_caption.on_loop = _on_reply_loop
+
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
         agent=assistant,
@@ -1658,7 +1720,7 @@ async def my_agent(ctx: JobContext):
             audio_input=room_io.AudioInputOptions(),
             # Word-synced captions: the synchronizer paces text to audio
             # playout, then this tail mirrors it to the HUD word by word.
-            text_output=room_io.TextOutputOptions(next_in_chain=_HudLiveCaption()),
+            text_output=room_io.TextOutputOptions(next_in_chain=_live_caption),
             delete_room_on_close=True,
         ),
     )

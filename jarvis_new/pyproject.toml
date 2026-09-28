@@ -22,6 +22,10 @@ dependencies = [
     "sounddevice>=0.5.5",
     "websockets>=12.0",
     "opencv-python-headless<5",
+    # Eyes / Hollow Hands: local pose, object and gesture models.
+    "mediapipe>=1.0.1",
+    # Focus mode: KWin active-window over D-Bus (pure Python).
+    "jeepney>=0.9.0",
 ]
 
 [dependency-groups]

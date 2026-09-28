@@ -59,7 +59,7 @@ def test_success_posts_openrouter_shape(monkeypatch):
         {"role": "system", "content": "You are Jarvis."},
         {"role": "user", "content": "hello"},
     ]
-    assert seen["timeout"] == 45.0
+    assert seen["timeout"] == openrouter_chat.PER_MODEL_TIMEOUT_S
 
 
 def test_default_model_is_free_ling():
@@ -170,3 +170,75 @@ def test_key_lookup_order_env_then_keys_file_then_auth(tmp_path):
     )
     auth.write_text("{}")
     assert openrouter_chat.api_key(keys_path=keys, auth_path=auth, environ={}) == ""
+
+
+def _chain_opener(outcomes, calls):
+    """Fake urlopen: pops one outcome per request (an HTTP code or a reply)."""
+    import io
+    import urllib.error
+
+    def _open(req, timeout=None):
+        calls.append(json.loads(req.data.decode())["model"])
+        out = outcomes.pop(0)
+        if isinstance(out, int):
+            raise urllib.error.HTTPError(req.full_url, out, "err", {}, io.BytesIO(b""))
+        body = json.dumps({"choices": [{"message": {"content": out}}]}).encode()
+        return io.BytesIO(body)
+
+    return _open
+
+
+def test_rate_limited_model_falls_through_to_next_free_model(monkeypatch):
+    monkeypatch.setattr(openrouter_chat, "api_key", lambda **k: "test-key")
+    monkeypatch.delenv("JARVIS_CHAT_FALLBACKS", raising=False)
+    calls: list = []
+    reply, warning = openrouter_chat.chat_reply(
+        "hi", system="s", opener=_chain_opener([429, 503, "Very good, Sir."], calls)
+    )
+    assert (reply, warning) == ("Very good, Sir.", None)
+    chain = openrouter_chat.model_chain()
+    assert calls == chain[:3]
+
+
+def test_bad_key_stops_the_chain(monkeypatch):
+    monkeypatch.setattr(openrouter_chat, "api_key", lambda **k: "test-key")
+    calls: list = []
+    reply, warning = openrouter_chat.chat_reply(
+        "hi", system="s", opener=_chain_opener([401, "never"], calls)
+    )
+    assert reply == "" and "401" in warning and len(calls) == 1
+
+
+def test_chain_order_keeps_popular_qwen_late():
+    chain = openrouter_chat.model_chain(environ={})
+    assert chain[0] == openrouter_chat.MODEL
+    assert chain[-1] == "openrouter/free"
+    assert chain.index("qwen/qwen3.8-27b:free") == len(chain) - 2
+    assert len(chain) == len(set(chain))
+    custom = openrouter_chat.model_chain("a", environ={"JARVIS_CHAT_FALLBACKS": "b, a ,c"})
+    assert custom == ["a", "b", "c"]
+
+
+def test_chain_respects_overall_deadline(monkeypatch):
+    monkeypatch.setattr(openrouter_chat, "api_key", lambda **k: "test-key")
+    now = [0.0]
+    calls: list = []
+
+    def slow_opener(req, timeout=None):
+        calls.append(1)
+        now[0] += 30.0
+        raise TimeoutError("timed out")
+
+    reply, warning = openrouter_chat.chat_reply(
+        "hi", system="s", timeout=45.0, opener=slow_opener, clock=lambda: now[0]
+    )
+    assert reply == "" and "timed out" in warning and len(calls) == 2
+
+
+def test_model_specific_403_moves_on(monkeypatch):
+    monkeypatch.setattr(openrouter_chat, "api_key", lambda **k: "test-key")
+    calls: list = []
+    reply, warning = openrouter_chat.chat_reply(
+        "hi", system="s", opener=_chain_opener([403, "Indeed, Sir."], calls)
+    )
+    assert (reply, warning) == ("Indeed, Sir.", None) and len(calls) == 2

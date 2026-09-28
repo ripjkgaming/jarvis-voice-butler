@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { CommandLog } from '@/components/hud/command-log';
 import { EdgePulse } from '@/components/hud/edge-pulse';
 import { ExecFeed } from '@/components/hud/exec-feed';
@@ -156,6 +156,20 @@ function useHiddenPause(): void {
   }, []);
 }
 
+/** True while the shell has shrunk the window to the Brave taskbar orb
+ *  (shell/src-tauri/src/orb.rs). Size-based, so it flips the instant the
+ *  window resizes instead of waiting for the next bridge poll. */
+function useTinyWindow(): boolean {
+  const [tiny, setTiny] = useState(false);
+  useEffect(() => {
+    const check = () => setTiny(window.innerWidth < 120 && window.innerHeight < 120);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return tiny;
+}
+
 export function HudShell({ children }: Props) {
   useHiddenPause();
   const { isSolo, toggle: toggleMode } = useDisplayMode();
@@ -163,6 +177,7 @@ export function HudShell({ children }: Props) {
   const { jarvis } = useJarvisState();
   const { muted, toggle: toggleMute } = useMicMuted();
   const sys = useBridgeSysSnapshot();
+  const tiny = useTinyWindow();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -189,6 +204,16 @@ export function HudShell({ children }: Props) {
 
   if (sys?.mode === 'school') {
     return <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} />;
+  }
+
+  if (tiny) {
+    return (
+      <div className="hud hud--orb" data-state={jarvis}>
+        <div className="hud-orb-dock">
+          <ParticleOrb />
+        </div>
+      </div>
+    );
   }
 
   if (isSolo) {

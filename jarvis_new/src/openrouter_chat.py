@@ -10,11 +10,25 @@ import contextlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 MODEL = os.environ.get("JARVIS_CHAT_MODEL", "inclusionai/ling-3.0-flash-sante:free")
+#: Free general-chat models tried in order after MODEL (OpenRouter free tier,
+#: each probed live 2026-09-28). Free models rate-limit and come and go, so a chain
+#: keeps chat alive; "openrouter/free" last lets OpenRouter pick any free
+#: model. Override with JARVIS_CHAT_FALLBACKS="id1,id2,...".
+FREE_FALLBACKS = (
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
+    # Popular enough to be rate-limited nearly always: last resort only.
+    "qwen/qwen3.8-27b:free",
+    "openrouter/free",
+)
+#: Per-model timeout inside the chain, so one slow model can't eat the budget.
+PER_MODEL_TIMEOUT_S = 20.0
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 
@@ -93,6 +107,27 @@ def api_key(
     return ""
 
 
+def model_chain(primary: str = MODEL, environ=None) -> list[str]:
+    """primary, then the free fallbacks, de-duplicated. Pure (env only)."""
+    env = os.environ if environ is None else environ
+    raw = (env.get("JARVIS_CHAT_FALLBACKS") or "").strip()
+    rest = [m.strip() for m in raw.split(",") if m.strip()] if raw else list(FREE_FALLBACKS)
+    chain: list[str] = []
+    for m in [primary, *rest]:
+        if m and m not in chain:
+            chain.append(m)
+    return chain
+
+
+def _fatal(warning: str) -> bool:
+    """A failure every model would share (bad key): stop the chain. Pure.
+
+    Only 401: a 403 can be one model's provider/data-policy block (Inkling
+    403s on this account while others answer), so the chain moves on.
+    """
+    return "HTTP 401" in warning
+
+
 def chat_reply(
     prompt: str,
     *,
@@ -100,8 +135,10 @@ def chat_reply(
     model: str = MODEL,
     timeout: float = 45.0,
     opener=None,
+    clock=time.monotonic,
 ) -> tuple[str, str | None]:
-    """One OpenRouter chat turn. Returns (reply, warning). Never raises."""
+    """OpenRouter chat turn down the free model chain. Returns (reply,
+    warning); the warning names the last failure. Never raises."""
     if (
         os.environ.get("JARVIS_CHAT_FALLBACK", "1") or ""
     ).strip().lower() in _KILL_VALUES:
@@ -109,6 +146,26 @@ def chat_reply(
     key = api_key()
     if not key:
         return "", "chat unavailable: no OpenRouter key"
+    deadline = clock() + timeout
+    warning: str | None = "chat unavailable"
+    for candidate in model_chain(model):
+        left = deadline - clock()
+        if left < 2.0:
+            break
+        reply, warning = _one_model(
+            prompt, system, candidate, key, min(left, PER_MODEL_TIMEOUT_S), opener
+        )
+        if reply:
+            return reply, None
+        if warning and _fatal(warning):
+            break
+    return "", warning
+
+
+def _one_model(
+    prompt: str, system: str, model: str, key: str, timeout: float, opener
+) -> tuple[str, str | None]:
+    """One request to one model. Returns (reply, warning). Never raises."""
     payload = json.dumps(
         {
             "model": model,

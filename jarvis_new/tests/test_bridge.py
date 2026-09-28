@@ -1040,3 +1040,35 @@ def test_spoken_math_is_instant(text, value):
 def test_spoken_math_leaves_other_turns_alone(text):
     hit = bridge._match_voice_tool(text)
     assert hit is None or hit[0] != "do_math"
+
+
+def test_brave_orb_debounce() -> None:
+    from bridge import is_brave_window, orb_step
+
+    assert is_brave_window({"app": "brave-browser", "title": "x"})
+    assert not is_brave_window({"app": "org.kde.konsole", "title": "brave new world"})
+    assert not is_brave_window(None)
+    st: dict = {"orb": False}
+    assert orb_step(st, True, 0.0, False) is None  # just focused
+    assert orb_step(st, True, 0.7, False) == "orbon"
+    assert orb_step(st, True, 1.0, False) is None  # already an orb
+    assert orb_step(st, False, 2.0, False) is None  # alt-tab flick
+    assert orb_step(st, True, 2.5, False) is None  # back before exit hold
+    assert orb_step(st, False, 3.0, False) is None
+    assert orb_step(st, False, 4.6, False) == "orboff"
+    st = {"orb": False}
+    assert orb_step(st, True, 0.0, True) is None  # school mode wins
+    assert orb_step(st, True, 5.0, True) is None
+
+
+def test_orb_holds_while_jarvis_window_is_active() -> None:
+    from bridge import is_jarvis_window, orb_step
+
+    assert is_jarvis_window({"app": "jarvis-shell"})
+    st: dict = {"orb": False}
+    orb_step(st, True, 0.0, False)
+    assert orb_step(st, True, 0.7, False) == "orbon"
+    # The orb window itself grabs activation: must not flap off.
+    assert orb_step(st, None, 1.0, False) is None
+    assert orb_step(st, None, 5.0, False) is None
+    assert st["orb"] is True

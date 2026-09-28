@@ -595,6 +595,115 @@ def start_activity_watch() -> None:
         print(f"activity watch unavailable: {exc}", flush=True)
 
 
+BRAVE_ENTER_S = 0.6  # Brave focused this long -> orb (ignores alt-tab flicks)
+BRAVE_EXIT_S = 1.5  # away from Brave this long -> back to the HUD
+ORB_STARTUP_DELAY_S = 10.0  # let the shell finish booting first
+ORB_REASSERT_S = 60.0  # re-send "orbon" this often while in Brave
+
+
+def is_brave_window(info: dict | None) -> bool:
+    """Active-window record is Brave? Pure."""
+    if not info:
+        return False
+    app = str(info.get("app") or "").lower()
+    return "brave" in app
+
+
+def is_jarvis_window(info: dict | None) -> bool:
+    """One of Jarvis's own windows (HUD / orb / strip)? Pure."""
+    return bool(info) and "jarvis" in str(info.get("app") or "").lower()
+
+
+def orb_step(state: dict, brave: bool | None, now: float, school_mode: bool) -> str | None:
+    """Debounced orb switch. Returns "orbon"/"orboff" when the shell must
+    change, else None. brave=None (Jarvis's own window is active) holds the
+    current state: showing the orb activated it, which read as "left Brave"
+    and flapped the orb on/off every 2 s. Pure (mutates only `state`)."""
+    if brave is None:
+        brave = bool(state.get("orb"))
+    want = brave and not school_mode
+    if want != state.get("pending"):
+        state["pending"], state["since"] = want, now
+    hold = BRAVE_ENTER_S if want else BRAVE_EXIT_S
+    if want != state.get("orb", False) and now - state.get("since", now) >= hold:
+        state["orb"] = want
+        return "orbon" if want else "orboff"
+    return None
+
+
+def _brave_orb_loop(stop) -> None:
+    import active_window
+    import projects as _projects
+    import school as _school
+
+    # The shell spawns the bridge while it is still booting: a verb sent
+    # then never reached it (orb stayed off). Wait, then keep re-asserting
+    # the current state now and then — orbon/orboff are idempotent.
+    if stop.wait(ORB_STARTUP_DELAY_S):
+        return
+    state: dict = {"orb": False}
+    last_sent = 0.0
+    while not stop.wait(0.4):
+        try:
+            now = time.monotonic()
+            info = active_window.active()
+            brave = None if is_jarvis_window(info) else is_brave_window(info)
+            verb = orb_step(state, brave, now, _school.is_school())
+            if verb is None and state.get("orb") and now - last_sent >= ORB_REASSERT_S:
+                verb = "orbon"
+            if verb:
+                last_sent = now
+                _projects.shell_verb(verb)
+                with contextlib.suppress(Exception):
+                    from system import log_action
+
+                    log_action("orb", verb)
+        except Exception:
+            time.sleep(2.0)
+
+
+#: Background services the bridge hosts: (module, env kill switch).
+SIDECAR_THREADS = (
+    ("second_brain", "JARVIS_BRAIN"),
+    ("telegram_bot", "JARVIS_TELEGRAM"),
+    # Lease-based shared webcam: idle (camera closed, LED off) until
+    # presence/eyes/gestures ask for frames.
+    ("camera_hub", "JARVIS_CAMERA_HUB"),
+    # Focus sessions survive agent restarts: the drift loop lives here.
+    ("focus", "JARVIS_FOCUS"),
+)
+
+
+def start_sidecar_threads() -> None:
+    """Start each hosted service's start_thread(). A service whose kill
+    switch is 0/off, or that fails to import, is skipped. Never raises."""
+    import importlib
+
+    for module, switch in SIDECAR_THREADS:
+        if _env(switch, "1").strip().lower() in ("0", "false", "off", "no"):
+            continue
+        try:
+            importlib.import_module(module).start_thread()
+        except Exception as exc:
+            print(f"{module} unavailable: {exc}", flush=True)
+
+
+def start_brave_orb_watch() -> None:
+    """While Brave is the active window the HUD becomes a taskbar orb
+    (shell orb.rs). JARVIS_BRAVE_ORB=0 disables. Never raises."""
+    if _env("JARVIS_BRAVE_ORB", "1").strip().lower() in ("0", "false", "off", "no"):
+        return
+    try:
+        import threading
+
+        stop = threading.Event()
+        threading.Thread(
+            target=_brave_orb_loop, args=(stop,), name="brave-orb", daemon=True
+        ).start()
+    except Exception as exc:
+        print(f"brave orb watch unavailable: {exc}", flush=True)
+
+
 def _wake_socket_path() -> Path:
     """Unix socket of the wake_client mic-control listener. Pure (env)."""
     home = _env("JARVIS_HOME").strip()
@@ -2294,6 +2403,8 @@ def serve_forever(
 ) -> None:
     server = create_server(port, token, host)
     start_activity_watch()
+    start_brave_orb_watch()
+    start_sidecar_threads()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -114,6 +114,11 @@ pub fn show_overlay(app: &AppHandle) {
         crate::school::apply(app);
         return;
     }
+    if crate::orb::is_orb() {
+        // Brave orb: a summon keeps the docked orb (it animates in place).
+        crate::orb::apply(app);
+        return;
+    }
     if let Some(win) = app.get_webview_window("overlay") {
         if let Ok(size) = win.outer_size() {
             if size.width < 1000 || size.height < 600 {

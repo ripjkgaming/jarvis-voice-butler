@@ -12,6 +12,7 @@ mod health;
 mod hotkey;
 mod manager;
 mod overlay;
+mod orb;
 mod school;
 mod tray;
 mod updater;
@@ -52,6 +53,8 @@ fn main() {
                 "state" => print_overlay_state(app),
                 "schoolon" => school::enter(app),
                 "schooloff" => school::exit(app),
+                "orbon" => orb::enter(app),
+                "orboff" => orb::exit(app),
                 "domstate" => print_dom_state(app),
                 "talk" => {
                     tray::show_overlay(app);
@@ -347,8 +350,8 @@ fn on_overlay_window_event(app: &tauri::AppHandle, event: tauri::WindowEvent) {
             }
         }
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-            // The strip's size/position must never overwrite the saved HUD.
-            if !school::is_school() {
+            // The strip's / orb's size must never overwrite the saved HUD.
+            if !school::is_school() && !orb::is_orb() {
                 persist_overlay_geometry(app);
             }
         }

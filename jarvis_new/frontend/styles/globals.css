@@ -3656,3 +3656,20 @@ html:has(.school-strip) body {
     opacity: 0.45;
   }
 }
+
+/* ---- Brave taskbar orb (shell orb.rs): the whole window is the orb ---- */
+.hud.hud--orb {
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  min-width: 0;
+  height: 100vh;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #070b10;
+}
+.hud-orb-dock {
+  width: 100%;
+  height: 100%;
+}
