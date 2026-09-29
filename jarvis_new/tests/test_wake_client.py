@@ -464,3 +464,63 @@ def test_drain_queue_empties_backlog() -> None:
     assert drain_queue(q) == 5
     assert q.empty()
     assert drain_queue(q) == 0
+
+
+def _blocks(levels):
+    import numpy as np
+
+    from wake_client import BLOCKSIZE
+
+    rng = np.random.default_rng(0)
+    return [
+        (rng.normal(0, lvl, BLOCKSIZE)).clip(-32767, 32767).astype(np.int16).tobytes()
+        for lvl in levels
+    ]
+
+
+async def _record(levels, peak, floor=None):
+    import asyncio
+
+    from wake_client import WakeClient
+
+    q: asyncio.Queue = asyncio.Queue()
+    for b in _blocks(levels):
+        q.put_nowait(b)
+    return await WakeClient._record_question(WakeClient(), q, peak, floor)
+
+
+async def test_record_question_stops_under_a_playing_video() -> None:
+    from wake_client import BLOCKSIZE, MIC_RATE
+
+    block_s = BLOCKSIZE / MIC_RATE
+    # Sir speaks for ~1 s at 3000 RMS, then a video fluctuates 300-900 RMS
+    # for 10 s. Old gate (2.5 x floor) never saw quiet and ran to the cap.
+    speech = [3000] * int(1.0 / block_s)
+    video = [300 if i % 2 else 900 for i in range(int(10 / block_s))]
+    got = await _record(speech + video, peak=3000.0, floor=300.0)
+    assert len(got) * block_s < 2.5
+
+
+async def test_record_question_caps_in_constant_speech() -> None:
+    from wake_client import BLOCKSIZE, MIC_RATE, RECORD_MAX_S
+
+    block_s = BLOCKSIZE / MIC_RATE
+    got = await _record([3000] * int(12 / block_s), peak=3000.0, floor=100.0)
+    assert abs(len(got) * block_s - RECORD_MAX_S) < 0.1
+
+
+def test_hud_stage_writes_the_setup_log(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import json
+
+    from wake_client import hud_stage
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mark_hud_waking()
+    hud_stage("connect")
+    hud_stage("online")
+    log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
+    assert [s for s, _ in log] == ["wake", "connect", "online"]
+    assert log[0][1] <= log[1][1] <= log[2][1]
+    mark_hud_waking()  # a new wake starts a fresh log
+    log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
+    assert [s for s, _ in log] == ["wake"]

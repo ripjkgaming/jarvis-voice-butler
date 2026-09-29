@@ -57,3 +57,8 @@ def act(action: str, query: str, run=subprocess.run) -> tuple[str, int] | None:
     uuid, title = wins[0]
     _dbus("Run", f"string:{code}_{uuid}", "string:", run=run)
     return title, len(wins)
+
+
+def act_on(action: str, uuid: str, run=subprocess.run) -> None:
+    """Apply action to one window found by find()."""
+    _dbus("Run", f"string:{ACTIONS[action]}_{uuid}", "string:", run=run)

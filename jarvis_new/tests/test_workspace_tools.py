@@ -242,3 +242,218 @@ async def test_generate_document_maps_docgen_error(monkeypatch) -> None:
     monkeypatch.setattr(docgen, "draft_fields_from_request", _boom)
     with pytest.raises(ToolError, match="What should"):
         await WorkspaceTools.generate_document(WorkspaceTools(), None, request="")  # type: ignore[arg-type]
+
+
+# --- calendar import helpers ---
+
+from system.workspace_tools import _event_key, describe_events
+
+
+def test_describe_events_formats_preview() -> None:
+    events = [
+        {"title": "Mock: Maths", "date": "2026-06-01", "start": "09:00"},
+        {"title": "Sports Day", "date": "2026-06-02", "start": ""},
+    ]
+    say = describe_events(events)
+    assert "Mock: Maths" in say and "09:00" in say
+    assert "Sports Day" in say
+    # All-day entry has no "at" suffix.
+    assert "Sports Day, " in say
+
+
+def test_describe_events_truncates_with_more() -> None:
+    events = [{"title": f"E{i}", "date": "2026-06-01", "start": ""} for i in range(10)]
+    say = describe_events(events, limit=8)
+    assert "and 2 more" in say
+    assert "E9" not in say
+
+
+def test_event_key_normalizes() -> None:
+    assert _event_key("Mock: Maths!", "2026-06-01") == _event_key(
+        "mock maths", "2026-06-01"
+    )
+    assert _event_key("Maths", "2026-06-01") != _event_key("Maths", "2026-06-02")
+    assert _event_key("Maths", "2026-06-01") != _event_key("Physics", "2026-06-01")
+
+
+@pytest.mark.asyncio
+async def test_confirm_calendar_import_nothing_pending(monkeypatch) -> None:
+    _local(monkeypatch)
+    tools = WorkspaceTools()
+    assert tools._pending_events == []
+    with pytest.raises(ToolError, match="nothing waiting"):
+        await tools.confirm_calendar_import(None)  # type: ignore[arg-type]
+
+
+# --- background backend behaviour ---
+
+import asyncio as _bg_asyncio
+import time as _bg_time
+from pathlib import Path as _BgPath
+from types import SimpleNamespace as _SimpleNamespace
+
+import backend_model as _backend_model
+
+
+class _FakeSession:
+    """Minimal voice session: records generate_reply instructions and say lines."""
+
+    def __init__(self, fail_reply: bool = False) -> None:
+        self.instructions: str | None = None
+        self.said: list[str] = []
+        self._fail = fail_reply
+
+    async def generate_reply(self, instructions: str | None = None, **kwargs):  # type: ignore[no-untyped-def]
+        if self._fail:
+            raise RuntimeError("realtime balked")
+        self.instructions = instructions
+        return "ok"
+
+    async def say(self, text: str, **kwargs):  # type: ignore[no-untyped-def]
+        self.said.append(text)
+        return "ok"
+
+
+def _fake_ctx(session: _FakeSession):  # type: ignore[no-untyped-def]
+    return _SimpleNamespace(session=session)
+
+
+@pytest.mark.asyncio
+async def test_ask_backend_returns_at_once_and_delivers_answer(monkeypatch) -> None:
+    _local(monkeypatch)
+
+    def _think(task: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _bg_time.sleep(0.2)
+        return ("ANSWER", None)
+
+    monkeypatch.setattr(_backend_model, "backend_think", _think)
+    tools = WorkspaceTools()
+    session = _FakeSession()
+    ctx = _fake_ctx(session)
+
+    got = await tools.ask_backend(ctx, task="plan the away day carefully")  # type: ignore[arg-type]
+    assert "On it" in got["say"]
+    # Background job is still running: reply not delivered yet.
+    assert session.instructions is None
+    assert len(tools._tasks) >= 1
+
+    await _bg_asyncio.gather(*list(tools._tasks))
+    assert session.instructions is not None and "ANSWER" in session.instructions
+
+
+@pytest.mark.asyncio
+async def test_ask_backend_generate_reply_failure_falls_back_to_say(monkeypatch) -> None:
+    _local(monkeypatch)
+
+    def _think(task: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return ("ANSWER", None)
+
+    monkeypatch.setattr(_backend_model, "backend_think", _think)
+    tools = WorkspaceTools()
+    session = _FakeSession(fail_reply=True)
+    ctx = _fake_ctx(session)
+
+    got = await tools.ask_backend(ctx, task="do a careful plan")  # type: ignore[arg-type]
+    assert "On it" in got["say"]
+    await _bg_asyncio.gather(*list(tools._tasks))
+    assert session.said, "expected fallback say when generate_reply raises"
+    assert "backend has finished" in session.said[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_ask_backend_warning_mentions_failure(monkeypatch) -> None:
+    _local(monkeypatch)
+
+    def _think(task: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return ("", "disk exploded")
+
+    monkeypatch.setattr(_backend_model, "backend_think", _think)
+    tools = WorkspaceTools()
+    session = _FakeSession()
+    ctx = _fake_ctx(session)
+
+    await tools.ask_backend(ctx, task="plan something big")  # type: ignore[arg-type]
+    await _bg_asyncio.gather(*list(tools._tasks))
+    assert session.instructions is not None
+    assert "failed" in session.instructions.lower()
+    assert "disk exploded" in session.instructions
+
+
+@pytest.mark.asyncio
+async def test_import_schedule_background_flow_and_busy(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _local(monkeypatch)
+    schedule = tmp_path / "mock-timetable.pdf"
+    schedule.write_text("mock")
+    events = [
+        {"title": "Maths mock", "date": "2026-06-01", "start": "09:00"},
+        {"title": "Physics mock", "date": "2026-06-02", "start": "13:00"},
+    ]
+
+    def _find(hint: str = "", *args, **kwargs):  # type: ignore[no-untyped-def]
+        return schedule
+
+    def _extract(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _bg_time.sleep(0.2)
+        return (events, None)
+
+    monkeypatch.setattr(_backend_model, "find_schedule_file", _find)
+    monkeypatch.setattr(_backend_model, "extract_events", _extract)
+
+    tools = WorkspaceTools()
+    session = _FakeSession()
+    ctx = _fake_ctx(session)
+
+    got = await tools.import_schedule_to_calendar(ctx, file_hint="mock")  # type: ignore[arg-type]
+    assert "Reading" in got["say"]
+    # Still extracting in the background.
+    assert tools._importing is True
+    assert session.instructions is None
+
+    await _bg_asyncio.gather(*list(tools._tasks))
+    assert tools._pending_events == events
+    assert tools._importing is False
+    assert session.instructions is not None
+    assert "2" in session.instructions
+    assert "confirm_calendar_import" in session.instructions
+
+    # A second call while a read is in flight is refused politely.
+    tools._importing = True
+    busy = await tools.import_schedule_to_calendar(ctx, file_hint="mock")  # type: ignore[arg-type]
+    assert "still reading" in busy["say"].lower()
+
+
+@pytest.mark.asyncio
+async def test_import_schedule_warning_mentions_failure(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _local(monkeypatch)
+    schedule = tmp_path / "mock-timetable.pdf"
+    schedule.write_text("mock")
+    monkeypatch.setattr(
+        _backend_model, "find_schedule_file", lambda hint="", *a, **k: schedule
+    )
+    monkeypatch.setattr(
+        _backend_model,
+        "extract_events",
+        lambda path, *a, **k: ([], "file is gibberish"),
+    )
+    tools = WorkspaceTools()
+    session = _FakeSession()
+    ctx = _fake_ctx(session)
+
+    await tools.import_schedule_to_calendar(ctx, file_hint="mock")  # type: ignore[arg-type]
+    await _bg_asyncio.gather(*list(tools._tasks))
+    assert tools._importing is False
+    assert session.instructions is not None
+    assert "failed" in session.instructions.lower()
+
+
+@pytest.mark.asyncio
+async def test_import_schedule_no_file_raises(monkeypatch) -> None:
+    _local(monkeypatch)
+    monkeypatch.setattr(
+        _backend_model, "find_schedule_file", lambda hint="", *a, **k: None
+    )
+    tools = WorkspaceTools()
+    with pytest.raises(ToolError, match="can't find"):
+        await tools.import_schedule_to_calendar(  # type: ignore[arg-type]
+            _fake_ctx(_FakeSession()), file_hint="missing"
+        )

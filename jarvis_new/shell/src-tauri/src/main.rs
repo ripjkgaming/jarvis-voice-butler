@@ -116,6 +116,8 @@ fn main() {
             // School mode survives restarts: come back as the strip.
             if school::school_on_disk(&env_cfg::jarvis_home()) {
                 school::enter_quiet(app.handle());
+            } else {
+                school::fill_work_area_at_boot();
             }
 
             // Cold-start verb: the single-instance callback only fires for

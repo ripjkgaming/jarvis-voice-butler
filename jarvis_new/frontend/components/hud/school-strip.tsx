@@ -8,7 +8,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import { BootLine } from '@/components/hud/boot-log';
 import { AppIcon, MENU_EXTRA, type MenuKind, MenuLayer } from '@/components/hud/school-menus';
+import { useBootLog } from '@/hooks/hud/use-boot-log';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import {
   type BridgeActivity,
@@ -18,6 +20,7 @@ import {
   bridgeCaptions,
   bridgeLaunch,
   bridgeLiveCaption,
+  bridgeRoom,
   bridgeWindowAction,
 } from '@/lib/bridge';
 import { invoke, isTauri } from '@/lib/tauri';
@@ -36,8 +39,9 @@ const MARQUEE_PX_S = 42;
 
 type Line = { who: 'Sir' | 'Jarvis'; text: string; key: string };
 
-/** What the stream shows: Jarvis's word-synced live line while he talks,
- *  else the latest fresh caption, else nothing (the ambient trace). */
+/** What the stream shows during a call: Jarvis's word-synced live line
+ *  while he talks, else the latest fresh caption. Outside a call, nothing
+ *  (the ambient trace). */
 function useStreamLine(): Line | null {
   const [line, setLine] = useState<Line | null>(null);
   useEffect(() => {
@@ -45,6 +49,16 @@ function useStreamLine(): Line | null {
     let tick = 0;
     let lastCaption: Line | null = null;
     const poll = async () => {
+      // Only while a call is up: once Sir dismisses Jarvis the slot goes
+      // straight back to the idle trace, never the last thing said.
+      const room = await bridgeRoom();
+      if (cancelled) return;
+      if (!room) {
+        lastCaption = null;
+        tick = 0;
+        setLine(null);
+        return;
+      }
       // Live line every 500 ms; finished captions every third tick.
       const live = await bridgeLiveCaption();
       if (tick++ % 3 === 0) {
@@ -553,6 +567,7 @@ export function SchoolStrip({
   leaving?: boolean;
 }) {
   const line = useStreamLine();
+  const boot = useBootLog();
   const running = useRunning();
   const now = useNow();
   const { menu, shown, closing, toggle, close } = useMenu();
@@ -653,7 +668,13 @@ export function SchoolStrip({
             <i />
           </span>
           <span className="sbar-stream">
-            {line ? <StreamLine key={line.key} line={line} /> : <LiveTrace state={state} />}
+            {line ? (
+              <StreamLine key={line.key} line={line} />
+            ) : boot ? (
+              <BootLine view={boot} />
+            ) : (
+              <LiveTrace state={state} />
+            )}
           </span>
           {jobs.map((j) => (
             <span key={j.id} className="sbar-job" title={j.title}>

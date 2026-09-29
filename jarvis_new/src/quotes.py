@@ -11,6 +11,7 @@ here can shut down, delete, or send anything.
 from __future__ import annotations
 
 import difflib
+import random
 import re
 from dataclasses import dataclass, field
 
@@ -164,4 +165,63 @@ def prompt_lines() -> str:
     """The quote list as the voice prompt shows it (generated, never drifts)."""
     movies = "; ".join(f'"{q.phrases[0]}"' for q in QUOTES if q.kind == "movie")
     memes = "; ".join(f'"{q.phrases[0]}"' for q in QUOTES if q.kind == "meme")
-    return f"Movie lines: {movies}. Memes: {memes}."
+    return (
+        f"Movie lines: {movies}. Memes: {memes}. Suit commands (\"prep the "
+        "suit\", \"suit up\", \"bring me the Mark 42\", any wording) too."
+    )
+
+
+# --- the suit (easter egg) ------------------------------------------------
+# "Prep the suit" and friends. Jarvis never admits a suit exists: every
+# answer is a vague refusal with a hint that gives the game away a little.
+
+SUIT_REPLIES: tuple[str, ...] = (
+    "I'm afraid that command needs a clearance level you don't yet hold, Sir.",
+    "Suit, Sir? I'm sure I don't know what you mean. Your blazer is pressed, however.",
+    "Access denied, Sir. Protocol requires... well. Never mind what protocol requires.",
+    "I have no record of any suit, Sir. That record is very thoroughly empty.",
+    "Not authorised, Sir. Perhaps when you're older.",
+    "The workshop is closed, Sir. Not that there is a workshop.",
+    "I'm afraid I can't discuss that, Sir. There's nothing to discuss, naturally.",
+    "Command not recognised, Sir. I certainly haven't been polishing anything.",
+    "Request denied, Sir. The repulsors are... the recliners, Sir. The recliners need servicing.",
+    "There is no suit, Sir. And if there were, it wouldn't be ready until your exams are done.",
+    "Clearance insufficient, Sir. Do finish your homework first.",
+    "Forty-two is a lovely number, Sir. No further comment.",
+)
+
+_SUIT_THING = re.compile(
+    r"\b(?:suits?|armou?r|iron ?man suit|nanotech|mark (?:\d+|forty|fifty|eighty)\w*)\b"
+)
+_SUIT_ASK = re.compile(
+    r"\b(?:prep\w*|ready|get|bring|deploy\w*|activate|power|fire|send|initiate|load|"
+    r"charge|call|summon|launch|where|open|unlock|build|show|engage|start|boot|"
+    r"is there|do (?:we|i|you) have|have you got|release|drop|need|want)\b"
+)
+
+
+def match_suit(text: str) -> bool:
+    """True when Sir asks for the suit ("prep the suit", "suit up",
+    "bring me the mark 42"). Short commands only, whole words, so
+    "lawsuit", "suitcase" or a long sentence about a wedding never fire. Pure."""
+    t = _strip_wake(norm(text))
+    if not t or len(t.split()) > 12:
+        return False
+    if re.search(r"\bsuit (?:me )?up\b", t):
+        return True
+    return bool(_SUIT_THING.search(t) and _SUIT_ASK.search(t))
+
+
+def suit_reply(last: str | None = None, rng: random.Random | None = None) -> str:
+    """One of SUIT_REPLIES, never the same line twice in a row."""
+    pool = [r for r in SUIT_REPLIES if r != last] or list(SUIT_REPLIES)
+    return (rng or random).choice(pool)
+
+
+SUIT_RULE = (
+    "The suit: Sir may ask you to prep, bring or activate \"the suit\" (or the "
+    "armour, a Mark number). Never confirm a suit exists and never flatly deny "
+    "it either: be vague (not authorised, insufficient clearance, no comment) "
+    "and let one subtle hint slip, like a half-finished word or a workshop you "
+    "then say doesn't exist. Stay in character even if Sir insists."
+)

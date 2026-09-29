@@ -108,7 +108,7 @@ pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary:
             None => String::new(),
         };
         format!(
-            "w.noBorder = false;\n{geo}\n\
+            "w.noBorder = false; w.keepAbove = false;\n{geo}\n\
              w.skipTaskbar = false; w.skipPager = false; w.skipSwitcher = false; w.onAllDesktops = false;"
         )
     };
@@ -189,43 +189,226 @@ pub(crate) fn install_rule(rule_id: &str, entries: &[(&str, &str)]) {
         .output();
 }
 
+/// KWin script name of the dock keeper (stays loaded while docked).
+const KEEPER_NAME: &str = "jarvis_school_keeper";
+
+/// Menu space the shell granted the strip above the panel (px, 0 = none),
+/// set by [`school_menu`]. The keeper sizes to exactly panel + this: it
+/// used to *guess* "tall = menu open", so right after a transition it
+/// caught the still-full-size window, took it for a menu and pinned it at
+/// panel + 900 px, and the page (tall window = HUD) came back as the full
+/// HUD in school mode.
+static MENU_EXTRA_NOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Persistent KWin script that keeps the docked strip exactly over the
+/// bottom panel. The one-shot dock only runs on entry, so a monitor being
+/// plugged/unplugged, a layout or scale change, or the panel moving left
+/// the strip wherever KWin shoved it (e.g. 40 px above the panel after
+/// dropping to the laptop screen). This re-docks on every such change,
+/// debounced, at exactly panel + `menu_extra` tall (the menu space the
+/// shell granted; never inferred from the window's size). Target: the
+/// `primary` connector when present, else the first screen with a bottom
+/// panel, else the active screen. Pure.
+pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
+    format!(
+        "const JK_PRIMARY = \"{primary}\";\n\
+         const JK_TITLE = \"{title}\";\n\
+         function jkIsStrip(w) {{\n\
+           return w && w.caption === JK_TITLE && String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\");\n\
+         }}\n\
+         function jkStrip() {{\n\
+           for (const w of workspace.windowList()) if (jkIsStrip(w)) return w;\n\
+           return null;\n\
+         }}\n\
+         function jkPanel(o) {{\n\
+           const full = workspace.clientArea(KWin.FullScreenArea, o, workspace.currentDesktop);\n\
+           const a = workspace.clientArea(KWin.MaximizeArea, o, workspace.currentDesktop);\n\
+           let top = a.y + a.height;\n\
+           for (const d of workspace.windowList()) {{\n\
+             if (!d.dock || d.output !== o) continue;\n\
+             const g = d.frameGeometry;\n\
+             if (g.y > full.y + full.height / 2 && g.y < top) top = g.y;\n\
+           }}\n\
+           return {{full: full, a: a, panel: (full.y + full.height) - top}};\n\
+         }}\n\
+         function jkTarget() {{\n\
+           const screens = workspace.screens;\n\
+           for (const o of screens) if (o.name === JK_PRIMARY) return o;\n\
+           for (const o of screens) if (jkPanel(o).panel >= 24) return o;\n\
+           return workspace.activeScreen || screens[0];\n\
+         }}\n\
+         let jkBusy = false;\n\
+         function jkDock() {{\n\
+           if (jkBusy) return;\n\
+           const w = jkStrip();\n\
+           if (!w || w.minimized) return;\n\
+           const o = jkTarget();\n\
+           if (!o) return;\n\
+           jkBusy = true;\n\
+           try {{\n\
+             if (w.output !== o) workspace.sendClientToScreen(w, o);\n\
+             const p = jkPanel(o);\n\
+             const g = w.frameGeometry;\n\
+             let want;\n\
+             if (p.panel >= 24) {{\n\
+               const h = p.panel + {menu_extra};\n\
+               want = {{x: p.full.x, y: p.full.y + p.full.height - h, width: p.full.width, height: h}};\n\
+             }} else {{\n\
+               want = {{x: p.a.x + p.a.width - g.width - {m}, y: p.a.y + p.a.height - g.height - {m}, width: g.width, height: g.height}};\n\
+             }}\n\
+             const off = Math.abs(g.x - want.x) > 1 || Math.abs(g.y - want.y) > 1\n\
+               || Math.abs(g.width - want.width) > 1 || Math.abs(g.height - want.height) > 1;\n\
+             if (off) w.frameGeometry = want;\n\
+             if (!w.keepAbove) w.keepAbove = true;\n\
+           }} catch (e) {{}}\n\
+           jkBusy = false;\n\
+           jkRaise();\n\
+         }}\n\
+         function jkRaise() {{\n\
+           const w = jkStrip();\n\
+           if (!w || w.minimized) return;\n\
+           try {{\n\
+             const order = workspace.stackingOrder;\n\
+             const mine = order.indexOf(w);\n\
+             for (let i = mine + 1; i < order.length; i++) {{\n\
+               const d = order[i];\n\
+               if (d && d.dock && d.output === w.output) {{ workspace.raiseWindow(w); return; }}\n\
+             }}\n\
+           }} catch (e) {{}}\n\
+         }}\n\
+         let jkTimer = null;\n\
+         try {{\n\
+           jkTimer = new QTimer();\n\
+           jkTimer.singleShot = true;\n\
+           jkTimer.interval = 250;\n\
+           jkTimer.timeout.connect(jkDock);\n\
+         }} catch (e) {{ jkTimer = null; }}\n\
+         function jkSoon() {{ if (jkTimer) jkTimer.start(); else jkDock(); }}\n\
+         function jkHook(w) {{\n\
+           if (!w) return;\n\
+           const jarvis = String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\");\n\
+           if (!jarvis && !w.dock) return;\n\
+           try {{ w.frameGeometryChanged.connect(jkSoon); }} catch (e) {{}}\n\
+           try {{ w.outputChanged.connect(jkSoon); }} catch (e) {{}}\n\
+           if (jarvis) {{\n\
+             try {{ w.captionChanged.connect(jkSoon); }} catch (e) {{}}\n\
+             try {{ w.minimizedChanged.connect(jkSoon); }} catch (e) {{}}\n\
+           }}\n\
+         }}\n\
+         try {{ workspace.screensChanged.connect(jkSoon); }} catch (e) {{}}\n\
+         try {{ workspace.stackingOrderChanged.connect(jkRaise); }} catch (e) {{}}\n\
+         try {{ workspace.virtualScreenGeometryChanged.connect(jkSoon); }} catch (e) {{}}\n\
+         try {{ workspace.windowAdded.connect(function(w) {{ jkHook(w); jkSoon(); }}); }} catch (e) {{}}\n\
+         try {{ workspace.windowRemoved.connect(function(w) {{ if (w && w.dock) jkSoon(); }}); }} catch (e) {{}}\n\
+         for (const w of workspace.windowList()) jkHook(w);\n\
+         jkDock();\n",
+        primary = primary.unwrap_or(""),
+        title = STRIP_TITLE,
+        m = STRIP_MARGIN,
+        menu_extra = menu_extra.min(MENU_MAX_EXTRA),
+    )
+}
+
+/// Load the dock keeper (replacing any running one). Fail-soft.
+fn start_keeper() {
+    std::thread::spawn(|| {
+        let primary = primary_output_name();
+        let extra = MENU_EXTRA_NOW.load(Ordering::SeqCst);
+        load_kwin_named(&keeper_script(primary.as_deref(), extra), KEEPER_NAME);
+    });
+}
+
+/// Unload the dock keeper, so it never fights a transition or the HUD.
+fn stop_keeper() {
+    unload_kwin_named(KEEPER_NAME);
+}
+
 fn run_kwin(script: &str) {
     run_kwin_named(script, "jarvis_school_dock");
+}
+
+/// KWin script filling the work area (screen minus panels) with the HUD,
+/// keeping its title bar so the top still drags it. Fills a matching window
+/// now and once more when one is mapped later (boot may show it late).
+fn boot_fill_script() -> String {
+    format!(
+        "function jkFill(w) {{\n\
+           if (!w || w.caption !== \"{hud}\") return;\n\
+           if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) return;\n\
+           const a = workspace.clientArea(KWin.MaximizeArea, w);\n\
+           w.frameGeometry = {{x: a.x, y: a.y, width: a.width, height: a.height}};\n\
+         }}\n\
+         for (const w of workspace.windowList()) jkFill(w);\n\
+         workspace.windowAdded.connect(jkFill);\n",
+        hud = HUD_TITLE
+    )
+}
+
+/// At launch (normal mode) the HUD fills the screen's work area but stays a
+/// normal decorated window: drag the title bar to move it. Fail-soft.
+pub fn fill_work_area_at_boot() {
+    if is_school() {
+        return;
+    }
+    std::thread::spawn(|| {
+        const NAME: &str = "jarvis_boot_fill";
+        if load_kwin_named(&boot_fill_script(), NAME) {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+        }
+        unload_kwin_named(NAME);
+    });
 }
 
 /// Load + run + unload a KWin script over D-Bus. Fail-soft (X11 / no KWin).
 /// Shared with the Brave orb (orb.rs).
 pub(crate) fn run_kwin_named(script: &str, name: &str) {
+    if load_kwin_named(script, name) {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+    unload_kwin_named(name);
+}
+
+fn kwin_dbus(args: &[&str]) -> std::io::Result<std::process::Output> {
+    std::process::Command::new("dbus-send")
+        .args(["--session", "--print-reply", "--dest=org.kde.KWin"])
+        .args(args)
+        .output()
+}
+
+/// Unload a KWin script by name. Fail-soft.
+fn unload_kwin_named(name: &str) {
+    let _ = kwin_dbus(&["/Scripting", "org.kde.kwin.Scripting.unloadScript", &format!("string:{name}")]);
+}
+
+/// Load (replacing a same-named one) and run a KWin script, leaving it
+/// loaded. True when it started. Fail-soft (X11 / no KWin).
+fn load_kwin_named(script: &str, name: &str) -> bool {
     let path = std::env::temp_dir().join(format!("{name}.js"));
     if std::fs::write(&path, script).is_err() {
-        return;
+        return false;
     }
-    let dbus = |args: &[&str]| {
-        std::process::Command::new("dbus-send")
-            .args(["--session", "--print-reply", "--dest=org.kde.KWin"])
-            .args(args)
-            .output()
-    };
-    let _ = dbus(&["/Scripting", "org.kde.kwin.Scripting.unloadScript", &format!("string:{name}")]);
-    let out = match dbus(&[
+    unload_kwin_named(name);
+    let out = match kwin_dbus(&[
         "/Scripting",
         "org.kde.kwin.Scripting.loadScript",
         &format!("string:{}", path.display()),
         &format!("string:{name}"),
     ]) {
         Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-        Err(_) => return,
+        Err(_) => return false,
     };
     let id = out
         .split_whitespace()
         .skip_while(|t| *t != "int32")
         .nth(1)
         .and_then(|t| t.parse::<i64>().ok());
-    if let Some(id) = id {
-        let _ = dbus(&[&format!("/Scripting/Script{id}"), "org.kde.kwin.Script.run"]);
+    match id {
+        Some(id) if id >= 0 => {
+            let _ = kwin_dbus(&[&format!("/Scripting/Script{id}"), "org.kde.kwin.Script.run"]);
+            true
+        }
+        _ => false,
     }
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    let _ = dbus(&["/Scripting", "org.kde.kwin.Scripting.unloadScript", &format!("string:{name}")]);
 }
 
 /// Turn the overlay into the strip, playing the entry transition.
@@ -236,12 +419,19 @@ pub(crate) fn run_kwin_named(script: &str, name: &str) {
 /// (tracers only). [`TX_WATCHDOG_MS`] docks it anyway if the page stalls.
 pub fn enter(app: &AppHandle) {
     let was = SCHOOL.swap(true, Ordering::SeqCst);
-    if was {
+    // Entered again mid-return: drop the return (its "restore" stage is
+    // ignored from here on) and play the arrival from wherever we are.
+    let returning = RETURNING.swap(false, Ordering::SeqCst);
+    if was && !returning {
         apply(app);
         return;
     }
+    stop_keeper();
+    MENU_EXTRA_NOW.store(0, Ordering::SeqCst);
+    ENTERING.store(true, Ordering::SeqCst);
     let gen = TX_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    signal(app, if overlay_visible(app) { "collapse" } else { "arrive" });
+    let phase = if returning || !overlay_visible(app) { "arrive" } else { "collapse" };
+    signal(app, phase);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(TX_WATCHDOG_MS));
@@ -251,6 +441,11 @@ pub fn enter(app: &AppHandle) {
         }
     });
 }
+
+/// True while an entry transition plays (until its "dock" stage). An exit
+/// in that window skips the return animation: two transitions fighting
+/// over the window left it fullscreen and never docked.
+static ENTERING: AtomicBool = AtomicBool::new(false);
 
 /// Straight to the docked strip, no transition (boot restore).
 pub fn enter_quiet(app: &AppHandle) {
@@ -386,7 +581,7 @@ fn strip_window_props(app: &AppHandle, ghost: bool) {
         let _ = win.set_skip_taskbar(true);
         let _ = win.set_always_on_top(true);
         let _ = win.set_focusable(false);
-        let _ = win.set_ignore_cursor_events(ghost);
+        crate::commands::click_through_if_visible(&win, ghost);
     }
 }
 
@@ -430,10 +625,12 @@ pub fn school_stage(
                 _ => Cover::Primary,
             };
             ensure_rule();
-            strip_window_props(&app, true);
+            // Show first: click-through on a hidden (unrealized) window
+            // panics tao and takes the whole shell down.
             if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
                 let _ = win.show();
             }
+            strip_window_props(&app, true);
             let content = if cover == Cover::Unframe { rect } else { None };
             std::thread::spawn(move || {
                 // Let GTK drop its title bar first, so the pin lands on the
@@ -447,15 +644,20 @@ pub fn school_stage(
         }
         "dock" => {
             DOCKED_GEN.store(gen, Ordering::SeqCst);
+            ENTERING.store(false, Ordering::SeqCst);
             ensure_rule();
             strip_window_props(&app, false);
             std::thread::spawn(|| {
                 let primary = primary_output_name();
                 run_kwin(&kwin_script(true, None, primary.as_deref()));
             });
+            start_keeper();
         }
         "restore" => {
-            RETURNING.store(false, Ordering::SeqCst);
+            // Stale: the return was cancelled by a re-entry.
+            if !RETURNING.swap(false, Ordering::SeqCst) {
+                return Ok(());
+            }
             let frame = rect.map(|[x, y, w, h]| crate::overlay::OverlayGeometry {
                 x,
                 y,
@@ -544,12 +746,16 @@ pub fn school_menu(extra: f64) -> Result<(), String> {
         return Ok(());
     }
     let extra = if extra.is_finite() { extra.max(0.0) as u32 } else { 0 };
+    MENU_EXTRA_NOW.store(extra.min(MENU_MAX_EXTRA), Ordering::SeqCst);
     std::thread::spawn(move || run_kwin_named(&menu_script(extra), "jarvis_school_menu"));
+    // Re-arm the keeper at the new height, or it would undo the menu.
+    start_keeper();
     Ok(())
 }
 
 /// Window properties + dock for the strip. Also used by show_overlay.
 pub fn apply(app: &AppHandle) {
+    ENTERING.store(false, Ordering::SeqCst);
     ensure_rule();
     if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
         let _ = win.set_title(STRIP_TITLE);
@@ -565,7 +771,7 @@ pub fn apply(app: &AppHandle) {
         }));
         let _ = win.show();
         // A real taskbar: its app buttons take clicks (still never focus).
-        let _ = win.set_ignore_cursor_events(false);
+        crate::commands::click_through_if_visible(&win, false);
     }
     std::thread::spawn(|| {
         // Let the compositor map the resized window before docking it.
@@ -573,6 +779,7 @@ pub fn apply(app: &AppHandle) {
         let primary = primary_output_name();
         run_kwin(&kwin_script(true, None, primary.as_deref()));
     });
+    start_keeper();
 }
 
 /// True while the return transition plays (school mode stays on until its
@@ -584,7 +791,16 @@ static RETURNING: AtomicBool = AtomicBool::new(false);
 /// land and scans it in, calling "cover-at" then "restore". If it stalls,
 /// [`TX_WATCHDOG_MS`] restores directly.
 pub fn exit(app: &AppHandle) {
+    stop_keeper();
+    MENU_EXTRA_NOW.store(0, Ordering::SeqCst);
     if !is_school() || !overlay_visible(app) {
+        restore(app);
+        return;
+    }
+    if ENTERING.swap(false, Ordering::SeqCst) {
+        // Mid-entry: cancel the page's transition and go straight back.
+        TX_GEN.fetch_add(1, Ordering::SeqCst);
+        signal(app, "expand");
         restore(app);
         return;
     }
@@ -613,6 +829,7 @@ fn restore(app: &AppHandle) {
 fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, settle_ms: u64) {
     SCHOOL.store(false, Ordering::SeqCst);
     RETURNING.store(false, Ordering::SeqCst);
+    stop_keeper();
     let home = crate::env_cfg::jarvis_home();
     let path = crate::overlay::geometry_path(&home);
     if let Some(f) = frame.as_ref() {
@@ -623,13 +840,14 @@ fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, s
     let placed = frame.is_some();
     let geom = frame.or_else(|| crate::overlay::load_geometry(&path));
     if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
-        let _ = win.set_ignore_cursor_events(crate::commands::click_through_desired());
+        crate::commands::click_through_if_visible(&win, crate::commands::click_through_desired());
         let _ = win.set_title(HUD_TITLE);
         let _ = win.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize {
             width: 960.0,
             height: 540.0,
         })));
         let _ = win.set_focusable(true);
+        let _ = win.set_always_on_top(false);
         let _ = win.set_decorations(true);
         let _ = win.set_skip_taskbar(false);
         let (w, h) = geom
@@ -734,6 +952,30 @@ mod tests {
         // With the page's content rect, it pins exactly there.
         let pinned = cover_script(Cover::Unframe, None, Some([160, 102, 1280, 683]));
         assert!(pinned.contains("{x: 160, y: 102, width: 1280, height: 683}"));
+    }
+
+    #[test]
+    fn keeper_redocks_on_screen_changes_without_eating_menus() {
+        let k = keeper_script(Some("HDMI-A-2"), 0);
+        assert!(k.contains("o.name === JK_PRIMARY") && k.contains("\"HDMI-A-2\""));
+        assert!(k.contains(STRIP_TITLE) && k.contains("resourceClass"));
+        assert!(k.contains("workspace.screensChanged.connect(jkSoon)"));
+        assert!(k.contains("virtualScreenGeometryChanged") && k.contains("outputChanged"));
+        assert!(k.contains("sendClientToScreen(w, o)"));
+        // Never left stacked under the panel it covers.
+        assert!(k.contains("stackingOrderChanged.connect(jkRaise)") && k.contains("workspace.raiseWindow(w)"));
+        // Bottom edge pinned to the screen bottom, full width.
+        assert!(k.contains("y: p.full.y + p.full.height - h, width: p.full.width"));
+        // Exactly the panel with no menu open: never guesses from the
+        // window's own height (a still-full-size window after a transition
+        // was taken for a menu and pinned tall, showing the HUD).
+        assert!(k.contains("const h = p.panel + 0;"));
+        assert!(!k.contains("g.height - p.panel"));
+        // A granted menu height is kept, capped.
+        assert!(keeper_script(None, 480).contains("const h = p.panel + 480;"));
+        assert!(keeper_script(None, 5000).contains(&format!("const h = p.panel + {MENU_MAX_EXTRA};")));
+        // Falls back to any screen with a panel when the primary is gone.
+        assert!(keeper_script(None, 0).contains("jkPanel(o).panel >= 24"));
     }
 
     #[test]

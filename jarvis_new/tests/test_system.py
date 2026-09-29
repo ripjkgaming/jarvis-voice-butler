@@ -417,7 +417,9 @@ async def test_play_media_opens_system_youtube(monkeypatch) -> None:
     from system.core import SystemTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr("shutil.which", lambda n: "/usr/bin/brave-browser")
+    monkeypatch.setattr(
+        "shutil.which", lambda n: None if n == "yt-dlp" else "/usr/bin/brave-browser"
+    )
     launched = {}
 
     class _Proc:
@@ -435,6 +437,37 @@ async def test_play_media_opens_system_youtube(monkeypatch) -> None:
     assert launched["argv"][0] == "/usr/bin/brave-browser"
     assert "youtube.com/results?search_query=lofi+hip+hop" in launched["argv"][-1]
     assert "--new-window" in launched["argv"]
+
+
+@pytest.mark.asyncio
+async def test_play_media_autoplays_top_hit(monkeypatch) -> None:
+    """With yt-dlp present, "play X" opens the top video's watch URL."""
+    import asyncio as _asyncio
+
+    from system.core import SystemTools
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr("shutil.which", lambda n: f"/usr/bin/{n}")
+    launched = {}
+
+    class _Search:
+        async def communicate(self):
+            return b"n61ULEU7CO0\n", b""
+
+    class _Proc:
+        pid = 7
+
+    async def _fake_exec(*argv, **kwargs):
+        if argv[0].endswith("yt-dlp"):
+            assert argv[-1] == "ytsearch1:lofi hip hop"
+            return _Search()
+        launched["argv"] = list(argv)
+        return _Proc()
+
+    monkeypatch.setattr(_asyncio, "create_subprocess_exec", _fake_exec)
+    out = await SystemTools.play_media(SystemTools(), None, query="lofi hip hop")  # type: ignore[arg-type]
+    assert launched["argv"][-1] == "https://www.youtube.com/watch?v=n61ULEU7CO0"
+    assert "lofi hip hop" in out["say"]
 
 
 @pytest.mark.asyncio

@@ -10,10 +10,13 @@ import { invoke, isTauri } from '@/lib/tauri';
  *           side, leaving two glowing edge lines (in the HUD's own window)
  *   fly     the window covers the screen; the lines fly out to its sides
  *   hop     (HUD on another monitor only) the lines leave that screen and
- *           slide in from the edge of the primary facing it
- *   trace   each line splits into fluid tracers that run the screen's rim,
- *           the upward ones crossing over the top, all draining to the
- *           bottom centre
+ *           pour into the primary through the edge facing it, packing
+ *           onto a short line at its bottom middle
+ *   flow    the lines dissolve into particles that sweep up through a
+ *           column at the screen's middle and, in one motion, on out onto
+ *           its sides as the column splits
+ *   lap     each side line drops to the bottom and runs one full lap of
+ *           the monitor, both draining to the bottom centre
  *   pool    they pool there and spread into a band exactly the panel's
  *           height; the real taskbar surfaces out of it
  *   dock    the shell shrinks the window onto the panel under the bar
@@ -29,9 +32,8 @@ const FLY_MS = 380;
 export const UPLINK_MS = 520;
 export const DOWNLINK_MS = 560;
 const IGNITE_MS = 420;
-/** Tracer time = base + per-pixel: long laps run a little faster. */
+/** Tracer time = base + per-pixel (LAP_MS_PER_PX). */
 const TRACE_BASE_MS = 420;
-const TRACE_MS_PER_PX = 0.23;
 const POOL_RISE_MS = 520;
 const POOL_SETTLE_MS = 380;
 const REVEAL_MS = 380;
@@ -482,6 +484,10 @@ export type Packet = {
   out: boolean;
   glyph: string | null;
   size: number;
+  /** Optional bend (quadratic control point): the packet curves through
+   *  the middle instead of flying straight. */
+  cx?: number;
+  cy?: number;
 };
 
 const GLYPHS = '0101100110ABCDEF#';
@@ -543,6 +549,14 @@ export function downlink(seg: Seg, dir: Dir, w: number, h: number, now: number):
 }
 
 const packetAt = (p: Packet, u: number): [number, number] => {
+  if (p.cx !== undefined && p.cy !== undefined) {
+    const e = easeInOut(u);
+    const k = 1 - e;
+    return [
+      k * k * p.ax + 2 * k * e * p.cx + e * e * p.bx,
+      k * k * p.ay + 2 * k * e * p.cy + e * e * p.by,
+    ];
+  }
   const e = p.out ? u ** 2.2 : easeOut(u);
   return [p.ax + (p.bx - p.ax) * e, p.ay + (p.by - p.ay) * e];
 };
@@ -590,33 +604,69 @@ export const stage = (name: string, nonce?: string, rect?: number[]) =>
       }).catch(() => undefined)
     : Promise.resolve(undefined);
 
-/** Tracers out of a line: one from each end, running away from the
- *  line's middle along the rim to the bottom centre. The line itself
- *  becomes their first tails. */
-function tracersFrom(rim: Rim, seg: Seg, now: number): Tracer[] {
-  const mid = rimAt(rim, (seg.x0 + seg.x1) / 2, (seg.y0 + seg.y1) / 2);
-  const tail0 = Math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0) / 2;
+/** Rise and spread, one motion: particles sweep through the screen's
+ *  middle and straight on out to its sides. */
+const FLOW_MS = 1150;
+/** Lap speed: a full circuit of the monitor, a touch quicker than a trace. */
+const LAP_MS_PER_PX = 0.15;
+/** Half-height of the middle column and the side lines, as a share of the
+ *  screen height. */
+const COLUMN_HALF = 0.2;
+/** Half-width of the line the hop packs onto at the bottom middle (px). */
+const LANDING_HALF_PX = 60;
+
+/** Particles leaving the current lines (or the bottom edge, if none),
+ *  curving through the column at the middle and flowing on out to the
+ *  side lines, half to each side. */
+function flow(segs: Seg[], w: number, h: number, now: number): Packet[] {
+  const out: Packet[] = [];
+  const span = () => h / 2 + (Math.random() - 0.5) * 2 * h * COLUMN_HALF;
+  for (let i = 0; i < PACKETS; i++) {
+    const s = segs.length ? segs[i % segs.length] : null;
+    const f = Math.random();
+    const ax = s ? s.x0 + (s.x1 - s.x0) * f : w * (0.2 + 0.6 * f);
+    const ay = s ? s.y0 + (s.y1 - s.y0) * f : h + 20;
+    const bx = i % 2 ? w - RIM_INSET : RIM_INSET;
+    const by = span();
+    // Control point so the curve passes exactly through (w/2, my) halfway.
+    const my = span();
+    out.push({
+      ax,
+      ay,
+      bx,
+      by,
+      cx: 2 * (w / 2) - (ax + bx) / 2,
+      cy: 2 * my - (ay + by) / 2,
+      t0: now + Math.random() * FLOW_MS * 0.25,
+      dur: FLOW_MS * (0.6 + Math.random() * 0.15),
+      out: false,
+      glyph: glyph(),
+      size: 0.6 + Math.random(),
+    });
+  }
+  return out;
+}
+
+/** Two mirrored tracers from the side lines: each drops to the bottom,
+ *  runs one full lap of the monitor, and drains into the bottom centre.
+ *  The side lines themselves are their first tails. */
+function lapTracers(rim: Rim, l: Seg, r: Seg, now: number): Tracer[] {
+  // The rim runs from the bottom centre left (+s): down the left side is
+  // -s, down the right side is +s; both wrap past the bottom centre.
+  const sl = rimAt(rim, l.x0, (l.y0 + l.y1) / 2);
+  const sr = rimAt(rim, r.x0, (r.y0 + r.y1) / 2);
+  const tail0 = Math.abs(l.y1 - l.y0) / 2;
   return [
-    [seg.x0, seg.y0],
-    [seg.x1, seg.y1],
-  ].map(([x, y]) => {
-    const s0 = rimAt(rim, x, y);
-    let delta = s0 - mid;
-    if (delta > rim.len / 2) delta -= rim.len;
-    if (delta < -rim.len / 2) delta += rim.len;
-    const dir: 1 | -1 = delta >= 0 ? 1 : -1;
-    const dist = dir > 0 ? rim.len - s0 : s0;
-    return {
-      s0,
-      dir,
-      dist,
-      tail0,
-      t0: now,
-      dur: TRACE_BASE_MS + dist * TRACE_MS_PER_PX,
-      seed: Math.random() * 10,
-      landed: false,
-    };
-  });
+    { s0: sl, dir: -1 as const, dist: sl + rim.len },
+    { s0: sr, dir: 1 as const, dist: rim.len - sr + rim.len },
+  ].map((t) => ({
+    ...t,
+    tail0,
+    t0: now,
+    dur: TRACE_BASE_MS + t.dist * LAP_MS_PER_PX,
+    seed: Math.random() * 10,
+    landed: false,
+  }));
 }
 
 export function SchoolTransition({
@@ -813,7 +863,7 @@ export function SchoolTransition({
       }
       if (!alive) return;
 
-      let sources: Seg[] = [left, right];
+      scene.segs = [left, right];
       if (geom && !geom.same && geom.dir && tx.kind === 'collapse') {
         // Beam across: the lines dissolve into packets streaming off
         // toward the primary...
@@ -829,40 +879,60 @@ export function SchoolTransition({
         await stage('primary');
         await sleep(420);
         await until(() => fills(geom?.primary), 1200);
-        // ...and pour in through its facing edge, packing into a line down
-        // the middle that splits out to the sides.
+        // ...and pour in through its facing edge, packing onto a short
+        // line at the bottom middle: the tracers run out from there.
         const pw = window.innerWidth;
         const ph = window.innerHeight;
-        const mid: Seg = { x0: pw / 2, y0: ph * 0.28, x1: pw / 2, y1: ph * 0.72, a: 0 };
+        const by = ph - RIM_INSET;
+        const mid: Seg = {
+          x0: pw / 2 - LANDING_HALF_PX,
+          y0: by,
+          x1: pw / 2 + LANDING_HALF_PX,
+          y1: by,
+          a: 0,
+        };
         scene.segs = [mid];
         scene.packets = downlink(mid, dir, pw, ph, performance.now());
         const inEnd = beamEnd(scene.packets);
         await tween(DOWNLINK_MS, (e) => (mid.a = e), easeIn);
         await until(() => performance.now() >= inEnd, 1500);
         scene.packets = [];
-        const l: Seg = { ...mid };
-        const r: Seg = { ...mid };
-        scene.segs = [l, r];
-        await tween(
-          FLY_MS,
-          (e) => {
-            l.x0 = l.x1 = lerp(pw / 2, 1.5, e);
-            r.x0 = r.x1 = lerp(pw / 2, pw - 1.5, e);
-          },
-          easeOut
-        );
-        sources = [l, r];
       }
       if (!alive) return;
 
-      // Trace: the lines become fluid tracers running the rim.
+      // Rise and spread in one motion: the lines dissolve into particles
+      // that sweep up through a column at the middle while it glows and
+      // splits, both flowing on out onto the screen's sides.
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const y0 = h / 2 - h * COLUMN_HALF;
+      const y1 = h / 2 + h * COLUMN_HALF;
+      const l: Seg = { x0: w / 2, y0, x1: w / 2, y1, a: 0 };
+      const r: Seg = { ...l };
+      const fromSegs = scene.segs;
+      scene.packets = flow(fromSegs, w, h, performance.now());
+      const flowEnd = beamEnd(scene.packets);
+      scene.segs = [...fromSegs, l, r];
+      await Promise.all([
+        tween(FLOW_MS * 0.3, (e) => fromSegs.forEach((seg) => (seg.a = 1 - e)), easeIn),
+        tween(FLOW_MS, (e) => {
+          const split = easeInOut(clamp01((e - 0.3) / 0.7));
+          // Overlapping halves read as one column until they part.
+          l.a = r.a = smooth(0.1, 0.4, e) * lerp(0.55, 1, clamp01(split * 8));
+          l.x0 = l.x1 = lerp(w / 2, RIM_INSET, split);
+          r.x0 = r.x1 = lerp(w / 2, w - RIM_INSET, split);
+        }),
+      ]);
+      scene.segs = [l, r];
+      await until(() => performance.now() >= flowEnd, 600);
+      scene.packets = [];
+      if (!alive) return;
+
+      // ...then runs one full lap of the monitor and drains to the bottom.
       const rim = buildRim(w, h);
       scene.rim = rim;
       const bar = geom && geom.panel >= 24 ? geom.panel : FALLBACK_BAR_PX;
-      const now = performance.now();
-      scene.tracers = sources.flatMap((s) => tracersFrom(rim, s, now));
+      scene.tracers = lapTracers(rim, l, r, performance.now());
       scene.pool = {
         ph: bar,
         total: scene.tracers.length,

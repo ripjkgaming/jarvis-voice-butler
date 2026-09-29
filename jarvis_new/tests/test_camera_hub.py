@@ -135,3 +135,26 @@ def test_hub_releases_camera_when_idle(home, monkeypatch: pytest.MonkeyPatch) ->
     assert camera_hub.request("eyes", 0.6)
     _run_briefly(camera_hub.CameraHub(open_capture=factory), seconds=1.6)
     assert caps[0].released  # lease lapsed mid-run -> camera let go
+
+
+def test_request_stores_fps(home) -> None:
+    assert camera_hub.request("eyes", 10, fps=15)
+    data = json.loads((camera_hub.leases_dir() / "eyes.json").read_text())
+    assert data["fps"] == 15
+
+
+def test_request_fps_capped_at_max(home) -> None:
+    assert camera_hub.request("eyes", 10, fps=999)
+    data = json.loads((camera_hub.leases_dir() / "eyes.json").read_text())
+    assert data["fps"] == camera_hub.MAX_FPS
+
+
+def test_wanted_fps_default_max_and_expiry(home) -> None:
+    assert camera_hub.wanted_fps() == camera_hub.FPS  # no leases
+    assert camera_hub.request("low", 60, fps=8)
+    assert camera_hub.request("high", 60, fps=15)
+    assert camera_hub.wanted_fps() == 15  # max of live leases
+    assert camera_hub.request("plain", 60)  # no fps ask: ignored
+    assert camera_hub.wanted_fps() == 15
+    future = time.time() + 3600.0
+    assert camera_hub.wanted_fps(now=future) == camera_hub.FPS  # expired ignored

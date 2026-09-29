@@ -245,6 +245,16 @@ _VOICE_TOOLS = (
         None,
     ),
     (
+        # "close YouTube" / "quit Steam": the site's Brave tab(s), else the
+        # app's window. Vague "close it/that" and Jarvis's own panels
+        # (helper, deep research) stay with the agent.
+        r"^(?:close|quit|kill)\s+(?!(?:it|that|this|everything|all|the\s+helper"
+        r"|(?:the\s+)?deep\s+research)\b)(?:the\s+|my\s+)?(.{2,60}?)[\s.,!?]*$",
+        "close_app",
+        lambda m: {"name": m.group(1).strip()},
+        None,
+    ),
+    (
         r"\bping\b|\bnotify\b|send( a)? notification",
         "notify",
         lambda m: {"title": "Jarvis phone", "body": "Ping from phone"},
@@ -351,6 +361,15 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     expr = _spoken_math(text)
     if expr is not None:
         return ("do_math", {"expr": expr}, None)
+    # Watch mode ("I'm leaving" / "watch the laptop"): camera guard +
+    # fullscreen card, stopped only by its keybind (src/watch_mode.py).
+    try:
+        import watch_mode as _watch
+
+        if _watch.parse_command(lowered):
+            return ("watch_mode", {}, "Watching the laptop, Sir.")
+    except Exception:
+        pass
     mode = _school.parse_command(lowered)
     if mode is not None:
         return (
@@ -553,6 +572,20 @@ def read_hud_waking(max_age_s: float = HUD_WAKING_MAX_AGE_S) -> bool:
         return time.time() - path.stat().st_mtime <= max_age_s
     except OSError:
         return False
+
+
+def read_hud_boot(max_age_s: float = HUD_WAKING_MAX_AGE_S) -> list | None:
+    """The call-setup log [[stage, ts], ...] from the waking file while it
+    is fresh, else None. Old plain-timestamp files read as None. Never
+    raises."""
+    try:
+        path = _hud_room_path().with_name("hud_waking")
+        if time.time() - path.stat().st_mtime > max_age_s:
+            return None
+        log = json.loads(path.read_text()).get("log")
+        return log if isinstance(log, list) else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def read_captions(limit: int = 20) -> list[dict]:
@@ -1794,13 +1827,15 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
     request) fails fast with the first error. Lazy import. Guest mode
     answers cold, curt and faintly contemptuous, one short sentence.
     """
+    from quotes import SUIT_RULE
+
     persona = (
         "You are Jarvis in guest mode: cold, curt, faintly contemptuous. One "
         "short spoken sentence, no formatting, no warmth. Answer simple "
         "questions only; refuse anything else with a frosty no."
         if guest
         else "You are Jarvis, a terse British butler voice assistant. Reply in "
-        "one or two short spoken sentences, no formatting."
+        "one or two short spoken sentences, no formatting. " + SUIT_RULE
     )
     try:
         from google import genai
@@ -1921,6 +1956,13 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return _tool_result(rc == 0, state=out or None, error=None if rc == 0 else err)
     if tool == "play_media":
         return _play_media(str(args.get("query", "")))
+    if tool == "close_app":
+        from system.closer import close_target
+
+        out = close_target(str(args.get("name", ""))[:80])
+        if not out.get("ok"):
+            return _tool_result(False, error=out.get("say"))
+        return _tool_result(True, say=out.get("say"), closed=out.get("closed"))
     if tool == "projects_ui":
         import projects as _projects
 
@@ -2047,6 +2089,11 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return result
     if tool == "school_mode":
         return _tool_result(True, **set_school_mode(str(args.get("mode", ""))))
+    if tool == "watch_mode":
+        import watch_mode as _watch
+
+        got = dict(_watch.launch())
+        return _tool_result(bool(got.pop("ok", False)), **got)
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
@@ -2203,6 +2250,8 @@ def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
             state = "muted" if result.get("muted") else "live"
             return f"Volume {vol} percent, {state}, Sir."
         return "Volume unknown, Sir."
+    if tool == "close_app":
+        return (result.get("say") or "Closed").rstrip(". ") + ", Sir."
     if tool == "play_media":
         q = args.get("query") or ""
         return f"Playing {q} on YouTube, Sir." if q else "Playing your playlist, Sir."
@@ -3023,7 +3072,15 @@ class _Handler(BaseHTTPRequestHandler):
                 geom = None
             self._send(200, {"ok": True, "geom": geom})
         elif route == "/room":
-            self._send(200, {"ok": True, "room": read_hud_room(), "waking": read_hud_waking()})
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "room": read_hud_room(),
+                    "waking": read_hud_waking(),
+                    "boot": read_hud_boot(),
+                },
+            )
         elif route == "/captions":
             try:
                 limit = max(1, min(50, int(qs.get("limit", ["20"])[0])))

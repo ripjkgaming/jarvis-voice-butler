@@ -14,6 +14,7 @@ from system.projects_tools import _bridge_call
 def loud_guard(tool: str, args: dict | None = None) -> None:
     """Raise the confirm-first ToolError for a loud action in school mode."""
     if school.is_school() and school.is_loud(tool, args) and not school.loud_allowed():
+        school.mark_asked()  # keeps the call open for Sir's answer
         raise ToolError(school.LOUD_REFUSAL)
 
 
@@ -26,7 +27,11 @@ class SchoolTools:
 
     @function_tool()
     async def set_school_mode(self, context: RunContext, on: bool) -> dict[str, str]:
-        """Enter or exit school mode ("enter school mode" / "exit school mode").
+        """Enter or exit school mode ("open/enter school mode" / "exit school mode").
+
+        "School mode" is always this Jarvis setting — never search the web
+        or open a site for it. Call it ONCE per request; never follow an
+        enter with an exit in the same turn.
 
         School mode shrinks the HUD to a quiet taskbar strip, answers
         quietly, needs a clear "hey Jarvis", and ends each call shortly
@@ -36,6 +41,12 @@ class SchoolTools:
             on: True to enter school mode, False to go back to normal.
         """
         mode = school.SCHOOL if on else school.NORMAL
+        refusal = school.flip_refusal(mode)
+        if refusal == "already":
+            # Usually the instant path already switched it: just confirm.
+            return {"say": "School mode, Sir." if on else "Back to normal, Sir."}
+        if refusal:
+            raise ToolError(refusal)
         got = await asyncio.to_thread(_bridge_call, "POST", "/mode", {"mode": mode})
         if not (got or {}).get("ok"):
             raise ToolError("The mode switch didn't respond.")

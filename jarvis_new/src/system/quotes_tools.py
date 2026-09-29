@@ -83,6 +83,7 @@ class QuoteTools:
         self.inbox = inbox
         self.browser = browser
         self._last_fired: dict[str, float] = {}
+        self._last_suit: str | None = None
         self._tasks: set[asyncio.Task] = set()
 
     @property
@@ -101,6 +102,9 @@ class QuoteTools:
             quote: Sir's exact words.
         """
         q = Q.match_quote(quote)
+        if q is None and Q.match_suit(quote):
+            self._last_suit = Q.suit_reply(self._last_suit)
+            return {"say": self._last_suit, "quote": "suit"}
         if q is None:
             raise ToolError("That isn't one of the quotes. Answer Sir normally.")
         from system.school_tools import loud_guard

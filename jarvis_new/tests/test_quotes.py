@@ -88,6 +88,16 @@ class _Session:
         self.closed = True
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    """Never read Sir's real ~/.jarvis: in school mode its loud-action
+    guard refused the play/party quotes and these tests failed."""
+    import school
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    school._cache.update(path=None, mtime=None, mode=school.NORMAL)
+
+
 def _ctx():
     return types.SimpleNamespace(session=_Session())
 
@@ -174,3 +184,67 @@ def test_spoken_lines():
     assert "1 coding job cooking" in coding_line(
         [{"kind": "code", "status": "running", "title": "hello py"}]
     )
+
+
+# --- the suit easter egg ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Jarvis, prep the suit",
+        "suit up",
+        "hey jarvis bring me the mark 42",
+        "get the armour ready",
+        "where is my suit",
+        "deploy the Mark 85",
+        "power up the suit",
+    ],
+)
+def test_suit_commands_match(text):
+    assert Q.match_suit(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I need to file a lawsuit",
+        "where is my suitcase",
+        "is this suitable",
+        "mark this as done",
+        "what suits me",
+        "prep for my physics exam",
+        "I want to wear my suit to the wedding on saturday because it is formal",
+    ],
+)
+def test_suit_lookalikes_never_match(text):
+    assert not Q.match_suit(text)
+
+
+def test_suit_is_not_a_quote_and_never_repeats():
+    import random
+
+    assert Q.match_quote("prep the suit") is None
+    rng, last = random.Random(0), None
+    for _ in range(50):
+        line = Q.suit_reply(last, rng)
+        assert line != last and line in Q.SUIT_REPLIES
+        last = line
+    for line in Q.SUIT_REPLIES:
+        assert "suit is ready" not in line.lower() and "suit exists" not in line.lower()
+
+
+async def test_suit_action_refuses_without_cooldown(monkeypatch):
+    tools, system, *_ = _tools(monkeypatch)
+    first = await QuoteTools.quote_action(tools, _ctx(), quote="Jarvis, prep the suit")
+    again = await QuoteTools.quote_action(tools, _ctx(), quote="Jarvis, prep the suit")
+    assert first["quote"] == again["quote"] == "suit"
+    assert first["say"] != again["say"] and "Once was enough" not in again["say"]
+    assert system.calls == []
+
+
+def test_suit_rule_reaches_the_prompt():
+    import prompts
+
+    assert Q.SUIT_RULE in prompts.AGENT_INSTRUCTIONS
+    assert "suit up" in Q.prompt_lines()

@@ -118,12 +118,25 @@ export async function bridgeSchoolGeom(nonce: string): Promise<SchoolGeom | null
   return j?.geom && j.geom.nonce === nonce ? j.geom : null;
 }
 
-/** Call presence for the HUD colour: a live room, or the wake word just
- *  fired and the room is still coming up (`waking`). null = bridge down. */
-export async function bridgeCallState(): Promise<{ live: boolean } | null> {
-  const j = await getJson<BridgeRoom & { waking?: boolean }>('/room');
+/** One real call-setup step from the wake client: [stage, epoch seconds]. */
+export type BootStep = [string, number];
+
+/** Call presence for the HUD colour: a live room with the agent in it,
+ *  plus the wake's setup log (`boot`) while it is fresh. null = bridge
+ *  down. */
+export async function bridgeCallState(): Promise<{
+  live: boolean;
+  boot: BootStep[] | null;
+} | null> {
+  const j = await getJson<BridgeRoom & { waking?: boolean; boot?: BootStep[] | null }>('/room');
   if (!j) return null;
-  return { live: (typeof j.room === 'string' && j.room.length > 0) || j.waking === true };
+  const boot = Array.isArray(j.boot) ? j.boot : null;
+  // Live only once the agent is actually there: while a wake is still
+  // setting up (boot log not yet "online") the HUD stays idle and shows
+  // the link log instead of glowing purple at an empty room.
+  const settingUp = boot !== null && boot.length > 0 && boot.at(-1)?.[0] !== 'online';
+  const room = typeof j.room === 'string' && j.room.length > 0;
+  return { live: room && !settingUp, boot };
 }
 
 export type BridgeCaptions = {

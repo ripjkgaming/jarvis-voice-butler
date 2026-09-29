@@ -381,6 +381,7 @@ class SystemTools:
             self.media_control,
             self.now_playing,
             self.play_media,
+            self.close_app,
             self.launch_gods_eye,
             self.set_brightness,
             self.battery_status,
@@ -727,10 +728,32 @@ class SystemTools:
         loud_guard("play_media", {"query": query})
         query = (query or "").strip()[:200]
         if query:
+            # Autoplay: resolve the top hit to a watch URL so playback
+            # starts on its own; fall back to the results page.
             url = (
                 "https://www.youtube.com/results?search_query="
                 + urllib.parse.quote_plus(query)
             )
+            ytdlp = shutil.which("yt-dlp")
+            if ytdlp:
+                search = None
+                try:
+                    search = await asyncio.create_subprocess_exec(
+                        ytdlp,
+                        "--get-id",
+                        "--flat-playlist",
+                        f"ytsearch1:{query}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    out, _ = await asyncio.wait_for(search.communicate(), 12)
+                    vid = out.decode().strip().splitlines()
+                    if vid and re.fullmatch(r"[\w-]{11}", vid[0]):
+                        url = f"https://www.youtube.com/watch?v={vid[0]}"
+                except (OSError, asyncio.TimeoutError):
+                    if search is not None:
+                        with contextlib.suppress(ProcessLookupError):
+                            search.kill()
             say = f"Playing {query} on YouTube."
         else:
             url = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
@@ -1344,6 +1367,28 @@ class SystemTools:
         _max_task.add_done_callback(self._tasks.discard)
         log_action("launch", target)
         return {"say": say, "pid": str(proc.pid or 0)}
+
+    @function_tool()
+    async def close_app(self, context: RunContext, name: str) -> dict[str, str]:
+        """Close a website or app Sir names ("close YouTube", "quit Steam").
+
+        A site closes as just its tab(s) in Sir's Brave, never the whole
+        window with his other tabs; anything else closes its app window.
+
+        Args:
+            name: The site or app, e.g. "youtube", "dolphin", "github.com".
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        from system.closer import close_target
+
+        out = await asyncio.to_thread(close_target, (name or "")[:80])
+        if not out.get("ok"):
+            raise ToolError(out.get("say") or "I could not close that.")
+        log_action("close", f"{out.get('closed')} {name[:60]}")
+        return {"say": out["say"]}
 
     @function_tool()
     async def window_action(

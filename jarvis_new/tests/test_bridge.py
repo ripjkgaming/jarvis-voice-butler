@@ -387,6 +387,24 @@ def test_room_reports_waking_before_room_exists(monkeypatch, tmp_path):
         server.server_close()
 
 
+def test_room_serves_the_boot_log(monkeypatch, tmp_path):
+    """The wake client's setup steps ride along on /room for the HUD."""
+    import json
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    log = [["wake", 1.0], ["connect", 1.5]]
+    (tmp_path / "hud_waking").write_text(json.dumps({"log": log}))
+    server, _ = bridge._run_in_thread()
+    try:
+        body = _get(server, "/room")[1]
+        assert body["waking"] is True and body["boot"] == log
+        (tmp_path / "hud_waking").write_text("1790000000.0")  # old format
+        assert _get(server, "/room")[1]["boot"] is None
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_room_rejects_stale_file(monkeypatch, tmp_path):
     import time
 
@@ -1422,7 +1440,9 @@ def test_app_icon_shrinks_big_raster_pixmap(tmp_path):
     Image = pytest.importorskip("PIL.Image")
     apps, icons, pixmaps, kdeglobals = _fake_xdg(tmp_path)
     buf = io.BytesIO()
-    Image.frombytes("RGBA", (1024, 1024), os.urandom(1024 * 1024 * 4)).save(buf, format="PNG")
+    Image.frombytes("RGBA", (1024, 1024), os.urandom(1024 * 1024 * 4)).save(
+        buf, format="PNG"
+    )
     assert len(buf.getvalue()) > bridge._APPICON_MAX_BYTES
     (pixmaps / "hugeicon.png").write_bytes(buf.getvalue())
     (apps / "huge.desktop").write_text("[Desktop Entry]\nName=Huge\nIcon=hugeicon\n")
@@ -1578,12 +1598,15 @@ def test_set_school_mode_toggles_meta_shortcut(monkeypatch, tmp_path):
     # Never touch the live ~/.jarvis/mode.json from tests.
     real_set = _school.set_mode
     monkeypatch.setattr(
-        _school, "set_mode", lambda mode, **kw: real_set(mode, home=tmp_path))
+        _school, "set_mode", lambda mode, **kw: real_set(mode, home=tmp_path)
+    )
     calls = []
     monkeypatch.setattr(
-        _school, "meta_enter_school", lambda **kw: calls.append("enter") or True)
+        _school, "meta_enter_school", lambda **kw: calls.append("enter") or True
+    )
     monkeypatch.setattr(
-        _school, "meta_exit_school", lambda **kw: calls.append("exit") or True)
+        _school, "meta_exit_school", lambda **kw: calls.append("exit") or True
+    )
     import projects as _projects
 
     monkeypatch.setattr(_projects, "shell_verb", lambda *a, **k: True)
@@ -1615,3 +1638,18 @@ def test_sys_stats_never_starts_real_listener(monkeypatch):
         bridge, "_volume_status", lambda **kw: {"pct": 10, "muted": False}
     )
     assert bridge._sys_stats()["windows"] == []
+
+
+def test_watch_mode_voice_routing() -> None:
+    assert bridge._match_voice_tool("Jarvis, I'm leaving") == (
+        "watch_mode",
+        {},
+        "Watching the laptop, Sir.",
+    )
+    assert bridge._match_voice_tool("jarvis watch the laptop") == (
+        "watch_mode",
+        {},
+        "Watching the laptop, Sir.",
+    )
+    hit = bridge._match_voice_tool("jarvis i'm leaving for school at eight remind me")
+    assert hit is None or hit[0] != "watch_mode"

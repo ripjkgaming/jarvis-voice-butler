@@ -85,6 +85,8 @@ def test_wake_reason_reads_the_wake_clients_tag():
     assert _wake_reason(room(user)) == ""
     assert _wake_reason(SimpleNamespace()) == ""
     assert DADDY_GREETING == "Welcome back, Sir."
+    bare = SimpleNamespace(identity="jarvis-master", attributes={"jarvis.wake": "school-bare"})
+    assert _wake_reason(room(bare)) == "school-bare"
 
 
 def test_summon_token_carries_the_reason():

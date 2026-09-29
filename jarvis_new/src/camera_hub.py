@@ -24,6 +24,9 @@ from pathlib import Path
 #: Grab rate while any lease is live.
 FPS = 6.0
 
+#: Ceiling for a lease's own fps request (watch mode records video).
+MAX_FPS = 20.0
+
 #: Camera released after this long with no live lease (LED off).
 IDLE_RELEASE_S = 5.0
 
@@ -85,8 +88,12 @@ def _lease_path(who: str) -> Path | None:
     return leases_dir() / f"{safe}.json" if safe else None
 
 
-def request(who: str, seconds: float) -> bool:
-    """Take (or refresh) a camera lease for `seconds`. Never raises."""
+def request(who: str, seconds: float, fps: float | None = None) -> bool:
+    """Take (or refresh) a camera lease for `seconds`. Never raises.
+
+    `fps` asks the hub to grab faster while this lease lives (the hub
+    runs at the highest rate any live lease wants, capped at MAX_FPS).
+    """
     path = _lease_path(who)
     if path is None:
         return False
@@ -97,7 +104,11 @@ def request(who: str, seconds: float) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"until": time.time() + seconds}))
+        rec: dict = {"until": time.time() + seconds}
+        if fps is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                rec["fps"] = max(0.5, min(MAX_FPS, float(fps)))
+        tmp.write_text(json.dumps(rec))
         os.replace(tmp, path)
         return True
     except OSError:
@@ -146,6 +157,26 @@ def active_leases(now: float | None = None) -> list[str]:
         if until > now:
             live.append(path.stem)
     return sorted(live)
+
+
+def wanted_fps(now: float | None = None, default: float = FPS) -> float:
+    """Highest fps any live lease asks for (at least `default`). Never raises."""
+    now = time.time() if now is None else now
+    best = default
+    try:
+        files = list(leases_dir().glob("*.json"))
+    except OSError:
+        return best
+    for path in files:
+        if not _WHO_OK.match(path.stem):
+            continue
+        try:
+            data = json.loads(path.read_text())
+            if float(data.get("until", 0.0)) > now and "fps" in data:
+                best = max(best, min(MAX_FPS, float(data["fps"])))
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return best
 
 
 def has_lease(now: float | None = None) -> bool:
@@ -267,7 +298,6 @@ class CameraHub:
         cap = None
         last_lease_seen = 0.0
         retry_s = OPEN_RETRY_S
-        gap = 1.0 / max(0.5, fps)
         try:
             while not stop.is_set():
                 try:
@@ -295,7 +325,12 @@ class CameraHub:
                         with contextlib.suppress(Exception):
                             cap.release()
                         cap = None
-                    stop.wait(gap)
+                    try:
+                        rate = wanted_fps(now, fps)
+                    except Exception:
+                        rate = fps
+                    # Pace from the loop start so read/encode time counts.
+                    stop.wait(max(0.0, 1.0 / max(0.5, rate) - (time.time() - now)))
                 else:
                     if cap is not None and now - last_lease_seen >= IDLE_RELEASE_S:
                         with contextlib.suppress(Exception):

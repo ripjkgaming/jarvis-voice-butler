@@ -1,6 +1,7 @@
 'use client';
 
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
+import { BootLog } from '@/components/hud/boot-log';
 import { CommandLog } from '@/components/hud/command-log';
 import { EdgePulse } from '@/components/hud/edge-pulse';
 import { ExecFeed } from '@/components/hud/exec-feed';
@@ -297,6 +298,7 @@ export function HudShell({ children }: Props) {
       <EdgePulse events={events} solo />
       <div className="hud-solo__orb">
         <ParticleOrb />
+        <BootLog />
       </div>
       <StateBanner compact />
       <ResearchStrip sys={sys} compact />
@@ -344,6 +346,7 @@ export function HudShell({ children }: Props) {
         <section className="hud__left" aria-label="Core interaction">
           <div className="hud__orb-wrap">
             <ParticleOrb />
+            <BootLog />
           </div>
           <VoiceDock active={jarvis !== 'idle'} />
           <LiveCaption />

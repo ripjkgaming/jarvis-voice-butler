@@ -10,6 +10,7 @@ safe and reversible, so it skips the gate.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
 import re
 
@@ -72,6 +73,13 @@ class WorkspaceTools:
         # confirm_workspace_action stores a fingerprint; gated writes only
         # fire on an exact match, then clear it.
         self._confirmed_write: str | None = None
+        # Events the backend model read out of a schedule file, waiting
+        # for Sir's go-ahead before they touch his calendar.
+        self._pending_events: list[dict] = []
+        # Backend-model jobs run as background tasks so the voice model
+        # keeps talking; hold references so they aren't garbage-collected.
+        self._tasks: set[asyncio.Task] = set()
+        self._importing = False
 
     @property
     def tools(self) -> list:
@@ -86,6 +94,10 @@ class WorkspaceTools:
             self.notion_add_note,
             self.confirm_workspace_action,
             self.generate_document,
+            self.import_schedule_to_calendar,
+            self.confirm_calendar_import,
+            self.calendar_upcoming,
+            self.ask_backend,
         ]
 
     @function_tool()
@@ -369,3 +381,222 @@ class WorkspaceTools:
             shared = await _share_for_school({"id": result["drive_id"]}, result["title"])
             return {"say": f"{result['say']} {shared['say']}", "pdf": result["pdf"]}
         return {"say": result["say"], "pdf": result["pdf"]}
+
+    def _in_background(self, context: RunContext, job, *, fallback: str) -> None:
+        """Run `job` (async -> instructions or None) off the voice turn.
+
+        When it finishes, the voice model is prompted with the returned
+        instructions so the result joins the conversation in Jarvis's own
+        words; if the realtime model balks, a fixed line is spoken instead.
+        """
+        session = getattr(context, "session", None)
+
+        async def run() -> None:
+            try:
+                instructions = await job()
+            except Exception as exc:  # never let a background job die silently
+                instructions = f"Tell Sir briefly that the background job failed: {str(exc)[:200]}"
+            if not instructions or session is None:
+                return
+            try:
+                await session.generate_reply(instructions=instructions)
+            except Exception:
+                with contextlib.suppress(Exception):
+                    await session.say(fallback)
+
+        task = asyncio.create_task(run())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @function_tool()
+    async def import_schedule_to_calendar(
+        self, context: RunContext, file_hint: str = "", only: str = ""
+    ) -> dict[str, str]:
+        """Read an exam/mock/school schedule file and prepare its dates for Sir's Google Calendar.
+
+        Runs in the BACKGROUND on the backend model (Sonnet 5.5): this returns
+        at once, so carry on the conversation normally. When the file has
+        been read you'll be prompted to read the preview to Sir; nothing is
+        added until Sir says yes and you call confirm_calendar_import.
+
+        Args:
+            file_hint: File name words or a path ("mock exam timetable"); empty = newest exam/mock/timetable file in Downloads.
+            only: Optional filter, e.g. "just my subjects: maths, physics".
+        """
+        _guard()
+        import backend_model
+
+        if self._importing:
+            return {"say": "I'm still reading the last schedule, Sir; I'll tell you when it's done."}
+        path = await asyncio.to_thread(backend_model.find_schedule_file, file_hint)
+        if path is None:
+            raise ToolError(
+                "I can't find that schedule, Sir. Save it to Downloads, or tell me the file name."
+            )
+        self._importing = True
+
+        async def job() -> str:
+            try:
+                events, warning = await asyncio.to_thread(
+                    backend_model.extract_events, path, focus=only
+                )
+            finally:
+                self._importing = False
+            if warning:
+                return f"Tell Sir briefly that reading {path.name} failed: {warning}."
+            self._pending_events = events
+            log_action("calendar", f"extracted {len(events)} from {path.name[:60]}")
+            return (
+                f"The schedule {path.name} has been read. Tell Sir, briefly and naturally, "
+                f"that you found {len(events)} entries: {describe_events(events)}. "
+                "Then ask whether to add them to his calendar. If he says yes, call "
+                "confirm_calendar_import."
+            )
+
+        self._in_background(
+            context, job, fallback="I've read your schedule, Sir. Shall I add it to your calendar?"
+        )
+        return {"say": f"Reading {path.name} now, Sir. Carry on; I'll tell you what I find."}
+
+    @function_tool()
+    async def confirm_calendar_import(self, context: RunContext) -> dict[str, str]:
+        """Add the previewed schedule entries to Sir's Google Calendar.
+
+        Call ONLY after Sir explicitly says yes to the import_schedule_to_calendar preview.
+        Entries already on the calendar (same title and day) are skipped.
+        """
+        _guard()
+        import google_api
+
+        events, self._pending_events = self._pending_events, []
+        if not events:
+            raise ToolError("There's nothing waiting to be added, Sir.")
+        dates = sorted(e["date"] for e in events)
+        tz_day = "T00:00:00Z"
+        try:
+            import datetime as dt
+
+            last = (dt.date.fromisoformat(dates[-1]) + dt.timedelta(days=2)).isoformat()
+            first = (dt.date.fromisoformat(dates[0]) - dt.timedelta(days=1)).isoformat()
+            existing = await asyncio.to_thread(
+                google_api.calendar_list, first + tz_day, last + tz_day
+            )
+        except google_api.GoogleError as exc:
+            self._pending_events = events
+            raise ToolError(str(exc)) from exc
+        have = set()
+        for item in existing:
+            start = item.get("start") or {}
+            day = str(start.get("date") or start.get("dateTime") or "")[:10]
+            have.add(_event_key(str(item.get("summary", "")), day))
+        added, skipped, failed = 0, 0, []
+        for e in events:
+            if _event_key(e["title"], e["date"]) in have:
+                skipped += 1
+                continue
+            try:
+                await asyncio.to_thread(google_api.calendar_create, e)
+                added += 1
+            except google_api.GoogleError as exc:
+                failed.append(e)
+                if added == 0 and len(failed) == 1 and "calendar" in str(exc).lower():
+                    self._pending_events = events
+                    raise ToolError(str(exc)) from exc
+        log_action("calendar", f"import added={added} skipped={skipped} failed={len(failed)}")
+        say = f"Added {added} to your calendar, Sir."
+        if skipped:
+            say += f" {skipped} were already there."
+        if failed:
+            say += f" {len(failed)} failed: {describe_events(failed, 3)}."
+        return {"say": say}
+
+    @function_tool()
+    async def calendar_upcoming(self, context: RunContext, days: int = 7) -> dict[str, str]:
+        """What's on Sir's Google Calendar over the next few days.
+
+        Args:
+            days: How many days ahead to look (1-60).
+        """
+        _guard()
+        import datetime as dt
+
+        import google_api
+
+        days = max(1, min(60, int(days or 7)))
+        now = dt.datetime.now(dt.timezone.utc)
+        try:
+            items = await asyncio.to_thread(
+                google_api.calendar_list,
+                now.isoformat().replace("+00:00", "Z"),
+                (now + dt.timedelta(days=days)).isoformat().replace("+00:00", "Z"),
+            )
+        except google_api.GoogleError as exc:
+            raise ToolError(str(exc)) from exc
+        if not items:
+            return {"say": f"Your calendar is clear for the next {days} days, Sir."}
+        rows = []
+        for item in items[:10]:
+            start = item.get("start") or {}
+            raw = str(start.get("dateTime") or start.get("date") or "")
+            try:
+                when = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                label = when.strftime("%a %d %b %H:%M") if "T" in raw else when.strftime("%a %d %b")
+            except ValueError:
+                label = raw
+            rows.append(f"{item.get('summary', '(untitled)')}, {label}")
+        return {"say": ("Coming up: " + "; ".join(rows))[:1200]}
+
+    @function_tool()
+    async def ask_backend(self, context: RunContext, task: str) -> dict[str, str]:
+        """Hand a slow, careful job to the backend model (Sonnet 5.5): planning, careful reasoning, long rewrites.
+
+        Runs in the BACKGROUND: this returns at once, so keep talking with Sir
+        normally. When the backend finishes you'll be prompted with its answer
+        to pass on. Not for web research (use research_project) or chit-chat.
+
+        Args:
+            task: The full task with every detail the backend needs.
+        """
+        _guard()
+        import backend_model
+
+        task = (task or "").strip()
+        if len(task) < 3:
+            raise ToolError("What should the backend work on, Sir?")
+
+        async def job() -> str:
+            reply, warning = await asyncio.to_thread(backend_model.backend_think, task)
+            if warning:
+                return f"Tell Sir briefly that the backend job failed: {warning}."
+            log_action("backend", task[:60])
+            return (
+                "The backend model has finished a job Sir asked for. Task: "
+                f"{task[:300]}\n\nIts answer:\n{reply[:6000]}\n\n"
+                "Give Sir the gist conversationally in a few sentences and offer detail."
+            )
+
+        self._in_background(context, job, fallback="The backend has finished, Sir. Shall I go through it?")
+        return {"say": "On it, Sir. That's with the backend; I'll come back to you when it's done."}
+
+
+def describe_events(events: list[dict], limit: int = 8) -> str:
+    """Speakable one-line-per-event preview. Pure."""
+    import datetime as dt
+
+    lines = []
+    for e in events[:limit]:
+        try:
+            day = dt.date.fromisoformat(e["date"]).strftime("%a %d %b")
+        except (KeyError, ValueError):
+            day = e.get("date", "?")
+        when = f" at {e['start']}" if e.get("start") else ""
+        lines.append(f"{e.get('title', '?')}, {day}{when}")
+    more = len(events) - limit
+    tail = f"; and {more} more" if more > 0 else ""
+    return "; ".join(lines) + tail
+
+
+def _event_key(title: str, date: str) -> str:
+    """Dedupe key: title words + day. Pure."""
+    words = re.sub(r"\W+", " ", (title or "").casefold()).strip()
+    return f"{words}|{date}"

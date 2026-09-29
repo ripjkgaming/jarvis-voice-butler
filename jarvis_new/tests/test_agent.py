@@ -423,3 +423,60 @@ def test_loop_guard_spots_repeating_reply() -> None:
     assert not is_repeating(loop.rsplit("As you wish.", 1)[0])  # only twice
     assert not is_repeating("Yes, Sir. Yes, Sir. Yes, Sir. Very good.")  # short lines
     assert not is_repeating("The capital of Spain is Madrid, Sir.")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Jarvis, dismiss.", True),
+        ("jarvis dismiss", True),
+        ("Hey Jarvis, dismissed!", True),
+        ("Jarvis you're dismissed", True),
+        ("Jarvis, you are dismissed", True),
+        ("Dismissed, Jarvis.", True),
+        ("Jarvis dismiss now", True),
+        ("Jervis dismiss", True),
+        ("OK Jarvis dismiss please", True),
+        ("Jarvis, dismiss that notification", False),
+        ("dismiss", False),
+        ("Jarvis what time is it", False),
+        ("dismiss the alarm", False),
+        ("", False),
+        ("Jarvis dismissive tone", False),
+    ],
+)
+def test_is_dismiss(text: str, expected: bool) -> None:
+    from agent import _is_dismiss
+
+    assert _is_dismiss(text) is expected
+
+
+def test_server_never_refuses_call_for_load() -> None:
+    """Single-user laptop: AgentServer must not shed load (load_threshold=inf)."""
+    import math
+
+    assert math.isinf(agent_mod.server._load_threshold)
+
+
+def test_end_call_tool_mentions_dismiss() -> None:
+    tool = agent_mod._end_call_tool()
+    candidates: list[str] = []
+    for attr in (
+        "_extra_description",
+        "_end_instructions",
+        "extra_description",
+        "end_instructions",
+    ):
+        value = getattr(tool, attr, None)
+        if isinstance(value, str):
+            candidates.append(value)
+    for fn_tool in getattr(tool, "tools", None) or []:
+        info = getattr(fn_tool, "info", None)
+        desc = getattr(info, "description", None)
+        if isinstance(desc, str):
+            candidates.append(desc)
+        desc = getattr(fn_tool, "description", None)
+        if isinstance(desc, str):
+            candidates.append(desc)
+    assert candidates, "no introspectable description on EndCallTool"
+    assert any("dismiss" in text.lower() for text in candidates)

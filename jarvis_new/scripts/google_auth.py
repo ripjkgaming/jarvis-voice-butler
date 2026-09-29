@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time Google Docs/Sheets/Drive connect: browser OAuth -> $JARVIS_HOME/google_token.json.
+"""One-time Google Docs/Sheets/Drive/Calendar connect: browser OAuth -> $JARVIS_HOME/google_token.json.
 
 Usage:
     .venv/bin/python scripts/google_auth.py [--port PORT]

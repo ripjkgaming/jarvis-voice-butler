@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import difflib
+import math
 import os
 import random
 import re
@@ -403,7 +404,8 @@ def _wake_summoned(room: object) -> bool:
 
 def _wake_reason(room: object) -> str:
     """What summoned this call, from the wake client's token attributes:
-    "daddy" (the "wake up, daddy's home" phrase), "wake", or "" (not a
+    "daddy" (the "wake up, daddy's home" phrase), "school-bare" / "school-ask"
+    (school wake without / with a question), "wake", or "" (not a
     wake summons). Pure (no I/O)."""
     try:
         parts = getattr(room, "remote_participants", None) or {}
@@ -421,40 +423,87 @@ DADDY_GREETING = "Welcome back, Sir."
 
 
 SCHOOL_FIRST_WINDOW_S = 12.0
+SCHOOL_BARE_REPLY = "Yes, Sir?"
+# Normal-mode wake calls: close this long after Jarvis's last reply, so
+# the HUD drops back to idle and the wake word listens again (the 180 s
+# engaged budget kept calls open while room chatter reset it).
+NORMAL_FOLLOW_UP_S = 15.0
+# Longest Sir's "speaking" may hold the window without Jarvis ever
+# answering: steady room noise flips VAD to speaking and held it forever.
+FOLLOW_UP_HOLD_CAP_S = 20.0
 
 
-async def _school_follow_up(session, *, clock=time.monotonic, tick: float = 0.25) -> None:
-    """School mode: end the call FOLLOW_UP_S after Jarvis's last reply.
+def _normal_follow_up_s() -> float:
+    """Normal-mode listening window (JARVIS_FOLLOW_UP, default 15 s)."""
+    try:
+        return max(5.0, float(os.environ.get("JARVIS_FOLLOW_UP", "").strip() or NORMAL_FOLLOW_UP_S))
+    except ValueError:
+        return NORMAL_FOLLOW_UP_S
 
-    The window reopens whenever Sir starts speaking or Jarvis thinks or
+
+async def _school_follow_up(
+    session,
+    *,
+    clock=time.monotonic,
+    tick: float = 0.25,
+    first: float = SCHOOL_FIRST_WINDOW_S,
+    window: float | None = None,
+) -> None:
+    """End the call a listening window after Jarvis's last reply.
+
+    School mode uses FOLLOW_UP_S (normal wake calls pass ``window``). The
+    window reopens whenever Sir starts speaking or Jarvis thinks or
     speaks; a pending tool call holds it open. The first window is a bit
     longer (the question may still be arriving through the pre-roll).
+    Sir "speaking" holds it at most FOLLOW_UP_HOLD_CAP_S unless Jarvis
+    answers: noise must never keep the call (and the wake word) hostage.
     """
     import latency
     import school
 
-    state = {"deadline": clock() + SCHOOL_FIRST_WINDOW_S}
+    state = {"deadline": clock() + first, "held": None, "agent_busy": False}
+
+    def _window() -> float:
+        # A confirmation question waits longer for Sir's answer.
+        if school.awaiting_answer():
+            return school.CONFIRM_WAIT_S
+        return window if window is not None else school.FOLLOW_UP_S
 
     def _agent(ev) -> None:
         new = str(getattr(ev, "new_state", ""))
         if new in ("thinking", "speaking"):
             state["deadline"] = None
-        elif new == "listening" and state["deadline"] is None:
-            state["deadline"] = clock() + school.FOLLOW_UP_S
+            state["held"] = None
+            state["agent_busy"] = True
+        elif new == "listening":
+            state["agent_busy"] = False
+            if state["deadline"] is None:
+                state["deadline"] = clock() + _window()
 
     def _user(ev) -> None:
         new = str(getattr(ev, "new_state", ""))
         if new == "speaking":
             state["deadline"] = None
+            if state["held"] is None:
+                state["held"] = clock()
         elif new == "listening" and state["deadline"] is None:
-            state["deadline"] = clock() + school.FOLLOW_UP_S
+            state["deadline"] = clock() + _window()
 
     session.on("agent_state_changed", _agent)
     session.on("user_state_changed", _user)
     while True:
         await asyncio.sleep(tick)
+        now = clock()
         d = state["deadline"]
-        if d is not None and clock() >= d and latency.TRACKER.pending == 0:
+        held = state["held"]
+        expired = d is not None and now >= d
+        stuck = (
+            d is None
+            and held is not None
+            and not state["agent_busy"]
+            and now - held >= FOLLOW_UP_HOLD_CAP_S
+        )
+        if (expired or stuck) and latency.TRACKER.pending == 0:
             with contextlib.suppress(Exception):
                 await session.aclose()
             return
@@ -508,6 +557,22 @@ def _name_called(text: str) -> bool:
         and difflib.get_close_matches(word, ["jarvis"], n=1, cutoff=0.8)
         for word in words
     )
+
+
+_DISMISS = re.compile(
+    r"^(?:(?:hey|ok|okay)\s+)?(?:jarvis|jarvus|javis|jervis|jeeves)[\s,.!:;-]*"
+    r"(?:you(?:'re| are)\s+)?dismiss(?:ed)?(?:\s+(?:now|please))?[\s.!]*$"
+    r"|^dismiss(?:ed)?[\s,.!]+(?:jarvis|jarvus|javis|jervis|jeeves)[\s.!]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_dismiss(text: str) -> bool:
+    """"Jarvis, dismiss" / "Jarvis, you're dismissed": drop the call now,
+    no farewell, back to wake-word standby. The whole utterance must be
+    the command, so "Jarvis, dismiss that notification" stays a request.
+    Pure."""
+    return bool(_DISMISS.match((text or "").strip()))
 
 
 def _is_summons(text: str) -> bool:
@@ -569,6 +634,24 @@ def desktop_fast_prefix(text: str) -> tuple | None:
         return None
 
 
+def _switch_school_now(mode: str) -> None:
+    """Realtime pipeline: an exact school-mode command switches at once.
+
+    Gemini Live still owns the spoken reply (it heard the audio), but the
+    switch itself no longer depends on the model picking the right tool
+    call; its own set_school_mode then finds the mode already set.
+    Fail-soft.
+    """
+    try:
+        import school as _school_mod
+        from bridge import set_school_mode
+
+        if _school_mod.current() != mode:
+            set_school_mode(mode)
+    except Exception:
+        pass
+
+
 def desktop_fast_command(text: str) -> dict | None:
     """Full instant resolve+execute for a voice turn (regex → resolver →
     Needle, same as phone /route). Import-safe and fail-open.
@@ -591,6 +674,8 @@ def desktop_fast_command(text: str) -> dict | None:
 
             hit = _match_voice_tool(clean)
             if hit is not None and hit[0] in _MODEL_OWNED_FASTPATH:
+                if hit[0] == "school_mode":
+                    _switch_school_now(str(hit[1].get("mode", "")))
                 return None
         code, payload = handle_route({"text": clean})
         if (
@@ -925,7 +1010,8 @@ def _end_call_tool() -> EndCallTool:
     return EndCallTool(
         extra_description=(
             "Only end the call after the user clearly says they are finished, "
-            "says goodbye, or directly asks to end the call."
+            "says goodbye, or directly asks to end the call. \"Jarvis, dismiss\" "
+            "(or \"you're dismissed\") means end it immediately with no farewell."
         ),
         end_instructions=(
             "Give Jarvis's brief, polite British-English farewell, then end the call."
@@ -1333,7 +1419,10 @@ def _idle_procs() -> int:
         return 2
 
 
-server = AgentServer(num_idle_processes=_idle_procs())
+# Single-user laptop: never refuse a call because the machine is busy.
+# The stock 0.7 cutoff tracks system-wide CPU, so builds/tests flipped the
+# worker "unavailable" and a wake joined a room no agent ever entered.
+server = AgentServer(num_idle_processes=_idle_procs(), load_threshold=math.inf)
 
 
 @server.rtc_session(agent_name=os.environ.get("AGENT_NAME", "my-agent"))
@@ -1446,10 +1535,44 @@ async def my_agent(ctx: JobContext):
 
         _partial = {"text": "", "at": 0.0}
 
+        _dismissed = {"done": False}
+
         def _on_user_transcript(event) -> None:
             try:
                 text = str(getattr(event, "transcript", "") or "").strip()
                 if not text:
+                    return
+                # "Jarvis, dismiss": stop talking, stop listening, hang up
+                # to wake-word standby at once. Checked before everything
+                # else (fast path, model, summons ack) and on final
+                # transcripts only, so a longer sentence still arriving
+                # never gets cut off.
+                if (
+                    getattr(event, "is_final", False)
+                    and not _dismissed["done"]
+                    and _is_dismiss(text)
+                ):
+                    _dismissed["done"] = True
+                    with __import__("contextlib").suppress(Exception):
+                        session.clear_user_turn()
+                    with __import__("contextlib").suppress(Exception):
+                        session.interrupt(force=True)
+                    with __import__("contextlib").suppress(Exception):
+                        _hud_caption("sir", text)
+                    with __import__("contextlib").suppress(Exception):
+                        from system import log_action as _log_dismiss
+
+                        _log_dismiss("dismiss", "call ended by voice")
+
+                    async def _dismiss() -> None:
+                        with __import__("contextlib").suppress(Exception):
+                            await session.aclose()
+
+                    try:
+                        _dloop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        _dloop = asyncio.get_event_loop()
+                    _dloop.call_soon(lambda lp=_dloop: lp.create_task(_dismiss()))
                     return
                 if not getattr(event, "is_final", False):
                     # Live subtitles: interim lines as the words land,
@@ -1903,6 +2026,15 @@ async def my_agent(ctx: JobContext):
     elif _decision == "greet":
         _presence["engaged"] = True
         await _greet()
+        if _wake:
+            # A wake call lives around Sir's request: once the listening
+            # window passes with no follow-up it closes, the HUD goes idle
+            # and the wake word listens again.
+            _fu_task = asyncio.create_task(
+                _school_follow_up(session, first=_normal_follow_up_s(), window=_normal_follow_up_s())
+            )
+            _background_tasks.add(_fu_task)
+            _fu_task.add_done_callback(_background_tasks.discard)
     elif _decision == "remark":
         _presence["absence_remarked"] = True
         await _say(_absent_lines[0])
@@ -1913,6 +2045,10 @@ async def my_agent(ctx: JobContext):
         _fu_task = asyncio.create_task(_school_follow_up(session))
         _background_tasks.add(_fu_task)
         _fu_task.add_done_callback(_background_tasks.discard)
+        if _wake_reason(ctx.room) == "school-bare":
+            # Bare "hey Jarvis": say so, or Sir and Jarvis both wait in
+            # silence until the first window closes the call.
+            await _say(SCHOOL_BARE_REPLY)
     # "silent": standby; the idle hangup closes us if nobody comes.
 
     async def _presence_loop() -> None:

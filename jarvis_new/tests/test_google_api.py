@@ -329,3 +329,132 @@ def test_share_with_school_shares_as_editor_without_email(tmp_path, monkeypatch)
     method, url, body = calls[-1]
     assert method == "POST" and "/files/FILE/permissions" in url and "sendNotificationEmail=false" in url
     assert body == {"type": "user", "role": "writer", "emailAddress": "s@school.sg"}
+
+
+# --- calendar helpers (added 2026-09-29) ---
+
+
+def test_event_body_all_day_uses_date_and_next_day() -> None:
+    from google_api import event_body
+
+    body = event_body({"title": "Sports Day", "date": "2026-06-01"})
+    assert body["summary"] == "Sports Day"
+    assert body["start"] == {"date": "2026-06-01"}
+    assert body["end"] == {"date": "2026-06-02"}
+
+
+def test_event_body_timed_defaults_to_one_hour(monkeypatch) -> None:
+    from google_api import event_body
+
+    monkeypatch.setenv("JARVIS_TZ", "Asia/Singapore")
+    body = event_body({"title": "Maths Mock", "date": "2026-06-01", "start": "09:00"})
+    assert body["start"] == {
+        "dateTime": "2026-06-01T09:00:00",
+        "timeZone": "Asia/Singapore",
+    }
+    assert body["end"] == {
+        "dateTime": "2026-06-01T10:00:00",
+        "timeZone": "Asia/Singapore",
+    }
+
+
+def test_event_body_explicit_end_and_mapping(monkeypatch) -> None:
+    from google_api import event_body
+
+    monkeypatch.setenv("JARVIS_TZ", "UTC")
+    body = event_body(
+        {
+            "title": "Physics",
+            "date": "2026-06-01",
+            "start": "09:00",
+            "end": "11:30",
+            "location": "Hall A",
+            "notes": "Paper 2",
+        }
+    )
+    assert body["end"]["dateTime"] == "2026-06-01T11:30:00"
+    assert body["location"] == "Hall A"
+    assert body["description"] == "Paper 2"
+
+
+def test_event_body_bad_date_raises() -> None:
+    from google_api import event_body
+
+    with pytest.raises(GoogleError):
+        event_body({"title": "No date", "date": "not-a-date"})
+    with pytest.raises(GoogleError):
+        event_body({"title": "", "date": "2026-06-01"})
+
+
+def test_event_body_timezone_passed() -> None:
+    from google_api import event_body
+
+    body = event_body(
+        {"title": "T", "date": "2026-06-01", "start": "09:00"},
+        timezone="Europe/London",
+    )
+    assert body["start"]["timeZone"] == "Europe/London"
+    assert body["end"]["timeZone"] == "Europe/London"
+
+
+def test_has_calendar_scope_shapes(tmp_path, monkeypatch) -> None:
+    import google_api
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "fake-id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "fake-secret")
+
+    (tmp_path / "google_token.json").write_text(json.dumps({"refresh_token": "rt"}))
+    assert google_api._has_calendar_scope() is True  # no scopes field: lenient
+
+    old_scopes = [
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/documents",
+    ]
+    (tmp_path / "google_token.json").write_text(
+        json.dumps({"refresh_token": "rt", "scopes": old_scopes})
+    )
+    assert google_api._has_calendar_scope() is False
+
+    (tmp_path / "google_token.json").write_text(
+        json.dumps(
+            {"refresh_token": "rt", "scopes": old_scopes + ["https://www.googleapis.com/auth/calendar.events"]}
+        )
+    )
+    assert google_api._has_calendar_scope() is True
+
+
+def test_calendar_create_posts_event_body(tmp_path, monkeypatch) -> None:
+    import google_api
+
+    _token_home(tmp_path, monkeypatch)
+    monkeypatch.setenv("JARVIS_TZ", "Asia/Singapore")
+    opener = FakeOpener({"access_token": "t"}, {"id": "evt1", "summary": "Maths Mock"})
+    got = google_api.calendar_create(
+        {"title": "Maths Mock", "date": "2026-06-01", "start": "09:00"},
+        opener=opener,
+    )
+    assert got["id"] == "evt1"
+    method, url, body = opener.calls[1]
+    assert method == "POST"
+    assert "calendar/v3/calendars/primary/events" in url
+    assert body["summary"] == "Maths Mock"
+    assert body["start"]["dateTime"] == "2026-06-01T09:00:00"
+    assert body["end"]["dateTime"] == "2026-06-01T10:00:00"
+
+
+def test_calendar_list_gets_range(tmp_path, monkeypatch) -> None:
+    import google_api
+
+    _token_home(tmp_path, monkeypatch)
+    opener = FakeOpener({"access_token": "t"}, {"items": [{"summary": "A"}]})
+    items = google_api.calendar_list(
+        "2026-06-01T00:00:00Z", "2026-06-08T00:00:00Z", opener=opener
+    )
+    assert items == [{"summary": "A"}]
+    method, url, body = opener.calls[1]
+    assert method == "GET"
+    assert "calendar/v3/calendars/primary/events" in url
+    assert body is None
+    query = urllib.parse.unquote(url)
+    assert "2026-06-01T00:00:00Z" in query and "2026-06-08T00:00:00Z" in query

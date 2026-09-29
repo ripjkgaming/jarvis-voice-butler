@@ -1,7 +1,7 @@
 """Claude through Sir's Pro subscription: headless Claude Code (`claude -p`).
 
 No API key: the logged-in CLI bills the claude.ai subscription. Used for
-background research projects (Sonnet 5). The text-chat fallback moved to
+background research projects and the backend model (both Sonnet 5.5; same price as Sonnet 5, newer). The text-chat fallback moved to
 Ling 3.0 Flash on OpenRouter (src/openrouter_chat.py).
 
 Isolation: a neutral cwd (no repo CLAUDE.md auto-discovery) plus
@@ -21,7 +21,11 @@ import subprocess
 import threading
 from pathlib import Path
 
-RESEARCH_MODEL = os.environ.get("JARVIS_CLAUDE_RESEARCH_MODEL", "claude-sonnet-5")
+RESEARCH_MODEL = os.environ.get("JARVIS_CLAUDE_RESEARCH_MODEL", "claude-sonnet-5-5")
+#: The "backend model": heavy reasoning and document work the voice
+#: (conversation) model hands off — reading schedules, planning, anything
+#: too slow or too deep for a live voice turn. See src/backend_model.py.
+BACKEND_MODEL = os.environ.get("JARVIS_CLAUDE_BACKEND_MODEL", "claude-sonnet-5-5")
 
 _URL = re.compile(r"https?://[^\s)>\]]+")
 

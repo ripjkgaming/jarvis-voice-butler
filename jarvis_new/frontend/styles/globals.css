@@ -5190,3 +5190,165 @@ html.stx-scan .jarvis-background {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Call-setup readout ("hey Jarvis" → agent online). Every row is a real
+   step from the wake client; purple while linking, cyan once up.
+   ------------------------------------------------------------------------- */
+.hud-boot {
+  --boot-accent: #a855f7;
+  position: absolute;
+  inset: auto 4% 4% 4%;
+  z-index: 2;
+  padding: 0.45rem 0.6rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--boot-accent) 35%, transparent);
+  border-radius: 0.4rem;
+  background: rgb(4 8 20 / 78%);
+  backdrop-filter: blur(6px);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  animation: hud-boot-in 0.28s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  pointer-events: none;
+}
+.hud-boot[data-online='true'] {
+  --boot-accent: #22d3ee;
+}
+.hud-boot__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--boot-accent);
+}
+.hud-boot__rows {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hud-boot__row {
+  display: grid;
+  grid-template-columns: 0.8rem minmax(0, 1fr) auto 3.2rem;
+  align-items: center;
+  gap: 0.45rem;
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.hud-boot__row[data-done='true'] {
+  color: #94a3b8;
+}
+.hud-boot__mark {
+  width: 6px;
+  height: 6px;
+  justify-self: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--boot-accent);
+  border-right-color: transparent;
+  animation: hud-boot-spin 0.7s linear infinite;
+}
+.hud-boot__row[data-done='true'] .hud-boot__mark {
+  border-color: var(--boot-accent);
+  background: var(--boot-accent);
+  opacity: 0.75;
+  animation: none;
+}
+.hud-boot__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-boot__row:not([data-done='true']) .hud-boot__label {
+  color: #f1f5f9;
+}
+.hud-boot__detail {
+  color: #64748b;
+  white-space: nowrap;
+}
+.hud-boot__at {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--boot-accent) 70%, #94a3b8);
+}
+.hud-boot__sub {
+  padding-left: 1.25rem;
+  color: #7c8aa0;
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.hud-boot__sub::before {
+  content: '└ ';
+  color: color-mix(in srgb, var(--boot-accent) 60%, transparent);
+}
+@keyframes hud-boot-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes hud-boot-row {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+@keyframes hud-boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* School strip: the same readout as one line in the stream slot. */
+.sbar-boot {
+  --boot-accent: #a855f7;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  width: 100%;
+  min-width: 0;
+  padding-left: 0.6em;
+  white-space: nowrap;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: clamp(11px, calc(var(--h) * 0.28), 13px);
+  color: var(--text);
+}
+.sbar-boot[data-online='true'] {
+  --boot-accent: #22d3ee;
+}
+.sbar-boot b {
+  flex: none;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--boot-accent);
+}
+.sbar-boot__label {
+  flex: none;
+  animation: sbar-line-in 0.35s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-boot__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--subtle);
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.sbar-boot__sub::before {
+  content: '· ';
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-boot,
+  .hud-boot__row,
+  .hud-boot__sub,
+  .sbar-boot__label,
+  .sbar-boot__sub {
+    animation: none;
+  }
+  .hud-boot__mark {
+    animation: none;
+    border-right-color: var(--boot-accent);
+  }
+}

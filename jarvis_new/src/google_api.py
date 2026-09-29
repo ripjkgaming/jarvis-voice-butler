@@ -25,6 +25,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.readonly",
+    # Calendar: added 2026-09-29. Tokens minted before then lack it, so
+    # calendar calls 403 until Sir re-runs scripts/google_auth.py.
+    "https://www.googleapis.com/auth/calendar.events",
 ]
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -34,6 +37,11 @@ DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
 DOCS_BASE = "https://docs.googleapis.com/v1/documents"
 SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
+CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars"
+CALENDAR_SCOPE_HINT = (
+    "Your Google connection predates calendar access, Sir. Re-run "
+    "scripts/google_auth.py once and tick the calendar box."
+)
 
 SETUP_HINT = (
     "Google isn't connected yet, Sir — run scripts/google_auth.py once to connect it."
@@ -535,3 +543,104 @@ def ensure_folder(name: str, opener=None) -> str:
     if not folder_id:
         raise GoogleError("I could not set up the Drive folder, Sir.")
     return str(folder_id)
+
+
+def _has_calendar_scope(account: str = "personal") -> bool:
+    """Was the saved token granted calendar access? Unknown counts as yes."""
+    saved = _load_token(account) or {}
+    scopes = saved.get("scopes") or saved.get("scope")
+    if not scopes:
+        return True
+    if isinstance(scopes, str):
+        scopes = scopes.split()
+    return any("auth/calendar" in str(s) for s in scopes)
+
+
+def _calendar_token(opener=None, account: str = "personal") -> str:
+    if not _has_calendar_scope(account):
+        raise GoogleError(CALENDAR_SCOPE_HINT)
+    return access_token(opener=opener, account=account)
+
+
+def event_body(event: dict, timezone: str = "") -> dict:
+    """Normalized event dict -> Calendar API body. Pure. Raises GoogleError.
+
+    Input keys: title, date (YYYY-MM-DD), start/end ("HH:MM", optional),
+    location, notes. No start -> all-day event; start without end -> 1 hour.
+    """
+    title = str(event.get("title") or "").strip()[:200]
+    date = str(event.get("date") or "").strip()
+    if not title or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise GoogleError("That event needs a title and a YYYY-MM-DD date, Sir.")
+    start = str(event.get("start") or "").strip()
+    end = str(event.get("end") or "").strip()
+    body: dict = {"summary": title}
+    for key, field in (("location", "location"), ("notes", "description")):
+        if str(event.get(key) or "").strip():
+            body[field] = str(event[key]).strip()[:1000]
+    hhmm = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+    if not hhmm.match(start):
+        import datetime as _dt
+
+        nxt = (_dt.date.fromisoformat(date) + _dt.timedelta(days=1)).isoformat()
+        body["start"] = {"date": date}
+        body["end"] = {"date": nxt}
+        return body
+    if not hhmm.match(end):
+        h, m = (int(x) for x in start.split(":"))
+        end = f"{min(h + 1, 23):02d}:{m:02d}" if h < 23 else "23:59"
+    tz = timezone or local_timezone()
+    body["start"] = {"dateTime": f"{date}T{int(start.split(':')[0]):02d}:{start.split(':')[1]}:00", "timeZone": tz}
+    body["end"] = {"dateTime": f"{date}T{int(end.split(':')[0]):02d}:{end.split(':')[1]}:00", "timeZone": tz}
+    return body
+
+
+def local_timezone() -> str:
+    """IANA zone for new events: $JARVIS_TZ, else the system zone, else UTC."""
+    tz = os.environ.get("JARVIS_TZ", "").strip()
+    if tz:
+        return tz
+    try:
+        link = os.readlink("/etc/localtime")
+        if "zoneinfo/" in link:
+            return link.split("zoneinfo/", 1)[1]
+    except OSError:
+        pass
+    return "UTC"
+
+
+def calendar_list(
+    time_min: str,
+    time_max: str,
+    calendar_id: str = "primary",
+    account: str = "personal",
+    opener=None,
+) -> list[dict]:
+    """Events between two RFC3339 instants, soonest first."""
+    token = _calendar_token(opener=opener, account=account)
+    params = urllib.parse.urlencode(
+        {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": 250,
+        }
+    )
+    cal = urllib.parse.quote(calendar_id, safe="")
+    data = _request_json("GET", f"{CALENDAR_BASE}/{cal}/events?{params}", token, opener=opener)
+    return list(data.get("items") or []) if isinstance(data, dict) else []
+
+
+def calendar_create(
+    event: dict,
+    calendar_id: str = "primary",
+    account: str = "personal",
+    opener=None,
+) -> dict:
+    """Create one event from a normalized dict (see event_body)."""
+    body = event_body(event)
+    token = _calendar_token(opener=opener, account=account)
+    cal = urllib.parse.quote(calendar_id, safe="")
+    data = _request_json("POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener)
+    return data if isinstance(data, dict) else {}

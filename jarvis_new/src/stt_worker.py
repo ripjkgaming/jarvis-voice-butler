@@ -37,6 +37,9 @@ def main() -> int:
                 beam_size=1,
                 vad_filter=False,
                 condition_on_previous_text=False,
+                # Bias toward the wake name: tiny Whisper heard Sir's "hey
+                # Jarvis" as "he's nervous" and school mode ignored him.
+                hotwords="Jarvis",
             )
             text = " ".join(s.text.strip() for s in segments).strip()
         except Exception:

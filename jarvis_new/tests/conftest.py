@@ -36,6 +36,25 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolated_school_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests off Sir's real ~/.jarvis/mode.json (school mode).
+
+    src/school.py reads $JARVIS_HOME/mode.json and mtime-caches it in
+    school._cache, so without isolation a machine that is really in
+    school mode leaks into every test (loud-action guards, VAD kwargs).
+    Every test gets a throwaway JARVIS_HOME plus a reset cache; a test
+    that needs its own mode sets JARVIS_HOME itself (its own patch wins,
+    applied after this fixture).
+    """
+    import school
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis-home"))
+    school._cache.update(path=None, mtime=None, mode=school.NORMAL)
+    school._confirmed_at.update(at=0.0, used=None)
+    school._asked_at.update(at=0.0)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_dbus(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never touch the live session D-Bus from tests.
 

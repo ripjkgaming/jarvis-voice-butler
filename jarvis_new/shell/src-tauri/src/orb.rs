@@ -84,7 +84,7 @@ pub fn apply(app: &AppHandle) {
             height: ORB_SIZE,
         }));
         let _ = win.show();
-        let _ = win.set_ignore_cursor_events(true);
+        crate::commands::click_through_if_visible(&win, true);
     }
     std::thread::spawn(|| {
         // Let the compositor map the resized window before docking it.

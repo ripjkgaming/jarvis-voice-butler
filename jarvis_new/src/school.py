@@ -28,15 +28,33 @@ from pathlib import Path
 SCHOOL = "school"
 NORMAL = "normal"
 
-WAKE_THRESHOLD = 0.8
+WAKE_THRESHOLD = 0.65
 WAKE_FRAMES = 2  # consecutive openWakeWord frames at or above the threshold
 FOLLOW_UP_S = 8.0
+# After "Are you sure?" the call waits this long for Sir's answer: at 8 s
+# a quiet "yes" that the VAD missed let the call close mid-question.
+CONFIRM_WAIT_S = 15.0
 SCHOOL_VOLUME = 0.35  # gain on Jarvis's voice through the wake client
-VAD = {"min_speech_duration": 0.25, "activation_threshold": 0.7}
+# Stricter than normal (coughs, chairs), but a short "yes" must still pass:
+# 0.25 s / 0.7 dropped one-word answers.
+VAD = {"min_speech_duration": 0.15, "activation_threshold": 0.6}
 LOUD_CONFIRM_S = 30.0
 
 _cache: dict = {"path": None, "mtime": None, "mode": NORMAL}
 _confirmed_at = {"at": 0.0}
+_asked_at = {"at": 0.0}
+
+
+def mark_asked(now: float | None = None) -> None:
+    """Jarvis just asked Sir to confirm a loud action."""
+    _asked_at["at"] = now if now is not None else time.monotonic()
+
+
+def awaiting_answer(now: float | None = None) -> bool:
+    """A confirmation question is open (asked recently, not yet answered)."""
+    now = now if now is not None else time.monotonic()
+    at = _asked_at["at"]
+    return bool(at) and now - at <= CONFIRM_WAIT_S + 10.0 and _confirmed_at["at"] < at
 
 
 def mode_path(home: Path | None = None) -> Path:
@@ -60,6 +78,38 @@ def current(home: Path | None = None) -> str:
     mode = SCHOOL if mode == SCHOOL else NORMAL
     _cache.update(path=path, mtime=mtime, mode=mode)
     return mode
+
+
+def since(home: Path | None = None) -> float:
+    """Epoch of the last mode switch (0.0 when unknown). Never raises."""
+    try:
+        return float(json.loads(mode_path(home).read_text()).get("since", 0.0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
+
+
+#: A model call reversing a switch made this recently is refused: the
+#: realtime model once entered school mode and undid it 2 s later in the
+#: same turn, which aborted the entry transition mid-way.
+FLIP_GUARD_S = 20.0
+
+
+def flip_refusal(want: str, home: Path | None = None, now: float | None = None) -> str | None:
+    """Why a model-initiated switch to `want` should not run, else None. Pure-ish.
+
+    "already" when the mode already matches (no-op, no transition), a
+    refusal text when it reverses a switch made < FLIP_GUARD_S ago.
+    """
+    want = SCHOOL if want == SCHOOL else NORMAL
+    if current(home) == want:
+        return "already"
+    now = time.time() if now is None else now
+    if now - since(home) < FLIP_GUARD_S:
+        return (
+            "School mode was switched moments ago; do NOT switch it back. "
+            "Only call this again if Sir explicitly says to exit/enter school mode."
+        )
+    return None
 
 
 def is_school(home: Path | None = None) -> bool:
@@ -240,8 +290,9 @@ def meta_sync_on_startup(run=None, home: Path | None = None) -> None:
 
 
 _ENTER = re.compile(
-    r"^(?:(?:please )?(?:enter|start|turn on|switch to|activate|go into|begin) )?"
-    r"school mode(?: on| please)?$|^school mode on$"
+    r"^(?:(?:please )?(?:enter|start|turn on|switch on|switch to|activate|go into|get into"
+    r"|begin|open|launch|enable|put on|put me in|go to|use) )?"
+    r"(?:the )?school mode(?: on| please| now)?$|^(?:turn |switch )?school mode on$"
 )
 _EXIT = re.compile(
     r"^(?:(?:please )?(?:exit|leave|end|stop|turn off|disable|deactivate|quit) )"
@@ -266,7 +317,18 @@ def parse_command(text: str) -> str | None:
 
 _ADDRESSED = re.compile(
     r"\b(?:hey|hi|ok|okay|yo|hello)[\s,]+(?:jarvis|jarvus|javis|jafis|jervis)\b"
-    r"|\b(?:jarvis|jarvus|javis|jafis|jervis)\s*[,!?.:]",
+    r"|\b(?:jarvis|jarvus|javis|jafis|jervis)\s*[,!?.:]"
+    # The whole turn is just the name ("Jarvis"): nothing else was said, so
+    # it is a call, not chatter mentioning him.
+    r"|^\W*(?:jarvis|jarvus|javis|jafis|jervis)\W*$",
+    re.I,
+)
+# Whisper's usual mishearings of Sir's "hey Jarvis" ("He's nervous.", "Are
+# you nervous?"). Only at the very start: the wake model has already fired
+# on the audio, so this is the wake phrase, never chatter mid-sentence.
+_MISHEARD = re.compile(
+    r"^\W*(?:(?:hey|hi|he's|hes|a|are you|hey you|in)[\s,]+)?"
+    r"(?:nervous|nervis|jarvice|jarvi)\b",
     re.I,
 )
 
@@ -278,7 +340,7 @@ def addressed(text: str) -> bool:
     so a school call only answers a first turn that addresses Jarvis:
     "hey Jarvis ..." or "Jarvis, ..." (the transcript's comma is the pause).
     """
-    return bool(_ADDRESSED.search(text or ""))
+    return bool(_ADDRESSED.search(text or "") or _MISHEARD.match(text or ""))
 
 
 _ADDRESS_PREFIX = re.compile(
@@ -289,13 +351,20 @@ _ADDRESS_PREFIX = re.compile(
 
 def question_after_address(text: str) -> str:
     """What Sir asked after "hey Jarvis," ("" if nothing). Pure."""
-    rest = _ADDRESS_PREFIX.sub("", (text or "").strip(), count=1).strip()
+    text = (text or "").strip()
+    misheard = _MISHEARD.match(text)
+    if misheard and not _ADDRESSED.search(text):
+        rest = text[misheard.end():].lstrip(" ,.!?:")
+    else:
+        rest = _ADDRESS_PREFIX.sub("", text, count=1).strip()
     return rest if re.search(r"[a-z0-9]", rest, re.I) else ""
 
 
 # --- loud actions ---------------------------------------------------------
 
 _LOUD_TOOLS = frozenset({"play_media"})
+
+
 _LOUD_APPS = ("sober", "roblox", "steam", "spotify", "vlc", "resolve", "obs")
 
 

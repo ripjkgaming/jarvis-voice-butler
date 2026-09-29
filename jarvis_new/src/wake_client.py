@@ -41,6 +41,11 @@ from pathlib import Path
 logger = logging.getLogger("jarvis-wake")
 
 MIC_RATE = 48000
+# School wake: stop recording the question after this long even if the
+# room never goes quiet, and treat blocks under SPEECH_DROP x Sir's wake
+# phrase loudness as silence.
+RECORD_MAX_S = 6.0
+SPEECH_DROP = 0.3
 BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
 OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
 WAKE_MODEL = "hey_jarvis"
@@ -225,12 +230,29 @@ def publish_hud_room(room: str) -> bool:
 HUD_WAKING_FILE = "hud_waking"
 
 
+_boot_log: list[list] = []
+
+
 def mark_hud_waking() -> None:
-    """Stamp "wake heard, call starting" for the HUD. Fail-soft."""
+    """Stamp "wake heard, call starting" for the HUD. Fail-soft.
+
+    Starts the boot log the HUD shows while the call comes up; each
+    later hud_stage() appends the real step in progress."""
+    _boot_log.clear()
+    hud_stage("wake")
+
+
+def hud_stage(stage: str) -> None:
+    """Record a real call-setup step ("transcribe", "connect", ...) in the
+    waking file as {"log": [[stage, ts], ...]}. The bridge serves it on
+    /room; the HUD words it. Fail-soft."""
+    _boot_log.append([stage, round(time.time(), 3)])
     try:
         path = hud_room_path().with_name(HUD_WAKING_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(str(time.time()))
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"log": _boot_log[-16:]}))
+        tmp.replace(path)
     except OSError as exc:
         logger.debug("hud waking mark failed: %s", exc)
 
@@ -714,8 +736,9 @@ class WakeClient:
                     if hot["run"] >= (_school.WAKE_FRAMES if strict else 1):
                         hot["run"] = 0
                         logger.warning("wake word detected (%.2f)%s", score, " [school]" if strict else "")
-                        # First thing, before any network: the HUD goes
-                        # purple off this stamp, not the room (seconds later).
+                        # First thing, before any network: the HUD starts
+                        # its link log off this stamp (it turns purple only
+                        # once the agent is online).
                         mark_hud_waking()
                         summon_overlay()
                         if strict:
@@ -724,22 +747,37 @@ class WakeClient:
                             # and only summon if Sir addressed Jarvis. The
                             # captured audio is replayed into the call, so
                             # nothing said after the wake word is lost.
-                            heard = list(ring) + await self._record_question(queue)
+                            levels = [
+                                float(np.sqrt(np.mean(np.frombuffer(b, dtype=np.int16).astype(np.float32) ** 2)))
+                                for b in ring
+                            ]
+                            hud_stage("capture")
+                            heard = list(ring) + await self._record_question(
+                                queue, max(levels, default=0.0), min(levels, default=None)
+                            )
                             pcm16 = np.concatenate(
                                 [np.frombuffer(b, dtype=np.int16)[::3] for b in heard]
                             )
+                            hud_stage("transcribe")
                             text = await loop.run_in_executor(
                                 None, self._spotter.transcribe, pcm16
                             )
                             if _school.addressed(text):
                                 question = _school.question_after_address(text)
                                 logger.warning("school wake confirmed: %r", text[:80])
+                                hud_stage("verify")
                                 # The question rides in as the opening text
                                 # turn (replaying audio split at the comma
                                 # pause and Gemini answered "aves").
                                 with self._mic_lock:
                                     self._pending_text = question
-                                await self._summon_session(mic_queue=queue)
+                                # A bare "hey Jarvis" gets a short "Yes, Sir?"
+                                # from the agent: silence left Sir and Jarvis
+                                # both waiting until the call timed out.
+                                await self._summon_session(
+                                    mic_queue=queue,
+                                    reason="school-ask" if question else "school-bare",
+                                )
                             else:
                                 clear_hud_waking()
                                 logger.warning("school wake ignored (not addressed): %r", text[:80])
@@ -804,6 +842,7 @@ class WakeClient:
         # Never layer a second Jarvis over an ongoing call (an earlier
         # summon that hasn't hung up yet). The HUD stays visible either
         # way: "hey Jarvis" always summons the UI.
+        hud_stage("check")
         if await active_call_exists(self._creds):
             logger.warning("already in a call; staying out")
             clear_hud_waking()
@@ -823,6 +862,7 @@ class WakeClient:
         # Publish the name only once WE are in — the watcher joins live
         # rooms, never stale names.
         room_name = summon_room_name()
+        hud_stage("auth")
         jwt = mint_summon_token(
             url=self._creds["LIVEKIT_URL"],
             api_key=self._creds["LIVEKIT_API_KEY"],
@@ -851,6 +891,7 @@ class WakeClient:
         self._last_agent_voice = time.monotonic()
         if mic_queue is None:
             self._listen_queue_live = False
+        hud_stage("connect")
         try:
             await room.connect(self._creds["LIVEKIT_URL"], jwt)
         except Exception:
@@ -865,6 +906,7 @@ class WakeClient:
             # SOURCE_UNKNOWN, which AgentSession input streams reject
             # (accepted_sources={microphone}) — the agent heard silence on
             # every call while raw subscribers heard us fine.
+            hud_stage("uplink")
             source = rtc.AudioSource(MIC_RATE, 1)
             mic_track = rtc.LocalAudioTrack.create_audio_track("jarvis-mic", source)
             await room.local_participant.publish_track(
@@ -878,12 +920,14 @@ class WakeClient:
             )
 
             # Wait for the agent, then relay its voice to the speakers.
+            hud_stage("dispatch")
             try:
                 track = await asyncio.wait_for(agent_audio.get(), AGENT_JOIN_TIMEOUT)
             except TimeoutError:
                 logger.warning("no agent joined; leaving %s", room_name)
                 await self._cancel_task(mic_task)
                 return False
+            hud_stage("online")
             play_task = asyncio.create_task(self._play_agent(track))
             if seed_text:
                 # Text→voice: the typed opener becomes the first user
@@ -965,23 +1009,30 @@ class WakeClient:
                         self._rewake.set()
                         return
 
-    async def _record_question(self, queue) -> list:
+    async def _record_question(
+        self, queue, peak: float = 0.0, floor: float | None = None
+    ) -> list:
         """After a school wake: blocks until Sir stops talking (0.8 s under
-        the noise gate, after at least 0.6 s) or 8 s. Returns raw blocks."""
+        the noise gate, after at least 0.6 s) or RECORD_MAX_S. Returns raw
+        blocks. `peak` is the wake phrase's loudest block RMS: anything
+        well under Sir's own voice counts as quiet, so a video playing in
+        the room can't hold the gate open for the whole cap. `floor` is the
+        room's level from before the wake word; without it the floor is
+        learned from the question itself, and steady speech reads as quiet."""
         import numpy as np
 
         out: list = []
         quiet = 0.0
-        floor = None
         block_s = BLOCKSIZE / MIC_RATE
-        while len(out) * block_s < 8.0:
+        while len(out) * block_s < RECORD_MAX_S:
             raw = await queue.get()
             out.append(raw)
             x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
             rms = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
             # Noise floor: drops to quieter blocks at once, creeps up slowly.
             floor = rms if floor is None or rms < floor else floor * 1.01
-            loud = rms > max(150.0, 2.5 * floor)
+            peak = max(peak, rms)
+            loud = rms > max(150.0, 2.5 * floor, SPEECH_DROP * peak)
             quiet = 0.0 if loud else quiet + block_s
             if len(out) * block_s >= 0.6 and quiet >= 0.8:
                 break

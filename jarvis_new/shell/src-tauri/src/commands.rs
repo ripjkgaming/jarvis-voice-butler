@@ -345,6 +345,14 @@ pub fn click_through_desired() -> bool {
     CLICK_THROUGH_DESIRED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
+/// `set_ignore_cursor_events` only while the window is visible (see the
+/// GTK hazard above); a hidden window is left alone. Never panics.
+pub fn click_through_if_visible(win: &tauri::WebviewWindow, ignore: bool) {
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.set_ignore_cursor_events(ignore);
+    }
+}
+
 /// Apply the stashed click-through desire to a now-visible window.
 pub fn apply_click_through(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {

@@ -15,6 +15,16 @@ def _home(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_CLAUDE", "1")  # runners are always stubbed here
     monkeypatch.setattr(projects, "BUS", UiBus())
     monkeypatch.setattr(projects, "_announce", lambda meta: None)
+    # ResearchProgress pops a persistent (-t 0) toast; a real one from a
+    # test is never replaced and sat on Sir's desktop at 3% for good.
+    real_run = projects.subprocess.run
+
+    def no_notify(argv, *a, **kw):
+        if argv and argv[0] == "notify-send":
+            return _Proc()
+        return real_run(argv, *a, **kw)
+
+    monkeypatch.setattr(projects.subprocess, "run", no_notify)
 
 
 class _Proc:
@@ -54,7 +64,7 @@ def test_research_project_writes_documents_and_parses(monkeypatch):
     assert meta["summary"].startswith("Solid-state cells are close.")
     assert meta["sources"] == ["https://example.com/a", "https://example.org/b"]
     argv = seen["argv"]
-    assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
+    assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
     assert argv[argv.index("--tools") + 1] == "WebSearch,WebFetch,Bash"
     # Headless runs can't ask: Bash is pre-approved only for the pdf reader.
     assert argv[argv.index("--allowedTools") + 1] == (
