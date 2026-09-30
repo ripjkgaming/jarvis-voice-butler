@@ -160,3 +160,37 @@ async def test_exam_tool_actions(home) -> None:
         tools, None, action="remove", subject="maths"
     )
     assert gone["say"].startswith("Removed 1")
+
+
+def test_shipped_timetable(home, monkeypatch) -> None:
+    from pathlib import Path
+
+    monkeypatch.setenv(
+        "JARVIS_EXAM_SCHEDULE",
+        str(Path(__file__).resolve().parent.parent / "data" / "exams.json"),
+    )
+    monkeypatch.setattr(exams, "_today", lambda: dt.date(2026, 9, 30))
+    rows = exams.exams()
+    assert len(rows) == 18
+    nxt = exams.next_exam()
+    assert (nxt["title"], nxt["start"], nxt["end"]) == ("Physics P6", "11:30", "12:30")
+    physics = [e["title"] for e in exams.find("physics")]
+    assert physics == ["Physics P6", "Physics P4", "Physics P2"]
+    chem = exams.find("chemistry")
+    assert [(e["title"], e["start"], e["end"]) for e in chem] == [
+        ("Chemistry P2", "13:30", "14:00"),
+        ("Chemistry P4", "13:30", "14:45"),
+    ]
+    hindi = exams.find("hindi")[1]
+    assert hindi["end"] == "12:25"
+    assert "Mon 05 Oct" in exams.summary(days=7)
+    # Sir's own entry for the same paper wins over the shipped one.
+    exams.add(
+        {
+            "title": "Physics P2",
+            "date": "2026-10-09",
+            "start": "11:30",
+            "location": "Hall A",
+        }
+    )
+    assert exams.find("physics p2")[0]["location"] == "Hall A"

@@ -39,6 +39,8 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
     monkeypatch.setenv("JARVIS_WA_VISION", "0")
     monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
+    # Sir's shipped exam timetable stays out of tests unless one opts in.
+    monkeypatch.setenv("JARVIS_EXAM_SCHEDULE", "/nonexistent/exams.json")
 
 
 @pytest.fixture(autouse=True)
