@@ -283,6 +283,11 @@ def blocklist() -> set[str]:
         for line in (home() / "wa_blocklist.txt").read_text().splitlines():
             if line.strip() and not line.startswith("#"):
                 names.add(line.strip().lower())
+    # Never mimic Sir back at Muse: the delegation thread is Jarvis's own.
+    with contextlib.suppress(Exception):
+        from system.muse import muse_chat
+
+        names.add(muse_chat().lower())
     return names
 
 

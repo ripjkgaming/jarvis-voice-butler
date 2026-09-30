@@ -60,6 +60,7 @@ from system.focus_tools import FocusTools
 from draft_tools import DraftTools
 from notify_tools import NotifyTools
 from system.exam_tools import ExamTools
+from system.muse_tools import MuseTools
 from system.memory_tools import MemoryTools
 from system.code_tools import CodeTools
 from system.look_tools import LookTools
@@ -1399,6 +1400,7 @@ class Assistant(Agent):
         self.workspace_tools = WorkspaceTools()
         self.recall_tools = RecallTools()
         self.exam_tools = ExamTools()
+        self.muse_tools = MuseTools()
         self.memory_tools = MemoryTools()
         self.window_tools = WindowTools()
         self.look_tools = LookTools()
@@ -1459,6 +1461,9 @@ class Assistant(Agent):
                 *self.recall_tools.tools,
                 # Exam schedule: next / find / add, fed by schedule imports.
                 *self.exam_tools.tools,
+                # Delegate a task to Meta's Muse agent (email/WhatsApp),
+                # read back and confirm-gated before anything is sent.
+                *self.muse_tools.tools,
                 # Long-term memory: recall, last time, remember/forget.
                 *self.memory_tools.tools,
                 # Windows: list / focus / arrange / undo (reversible, logged).
