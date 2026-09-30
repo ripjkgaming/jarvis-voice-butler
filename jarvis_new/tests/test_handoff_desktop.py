@@ -43,6 +43,7 @@ async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> li
     ]
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_handoff_to_system_control_survives() -> None:
     await throttle()
@@ -77,6 +78,7 @@ async def test_desktop_tool_ids_reachable_on_specialist() -> None:
         assert expected in ids
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_handoff_calculator_launches_open_app() -> None:
     await throttle()

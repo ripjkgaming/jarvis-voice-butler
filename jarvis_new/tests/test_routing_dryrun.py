@@ -43,6 +43,7 @@ async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> li
     ]
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_shutdown_uses_narrow_handoff() -> None:
     await throttle()
@@ -54,6 +55,7 @@ async def test_routing_shutdown_uses_narrow_handoff() -> None:
         assert "power_control" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_open_app_uses_narrow_handoff() -> None:
     await throttle()
@@ -65,6 +67,7 @@ async def test_routing_open_app_uses_narrow_handoff() -> None:
         assert "open_app" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_gmail_never_touches_browser() -> None:
     await throttle()
@@ -76,6 +79,7 @@ async def test_routing_gmail_never_touches_browser() -> None:
         assert "open_url" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_common_tools_stay_direct() -> None:
     await throttle()
@@ -91,6 +95,7 @@ async def test_routing_common_tools_stay_direct() -> None:
         assert "transfer_to_system_control" not in volume_calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_search_uses_search_tool() -> None:
     await throttle()
