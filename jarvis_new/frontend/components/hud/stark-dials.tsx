@@ -95,8 +95,12 @@ export function StarkDials() {
   // Telemetry from the shared /sys snapshot (one poll for the whole HUD);
   // only the clock ticks here, and not while hidden.
   const sys = useBridgeSysSnapshot();
-  const [now, setNow] = useState(() => new Date());
+  // null until mounted: the static export is pre-rendered at build time, so
+  // rendering the clock there made the first client render mismatch
+  // (a hydration error on every load). Dashes for that first frame.
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    setNow(new Date());
     const clockTimer = setInterval(() => {
       if (!document.hidden) setNow(new Date());
     }, 1000);
@@ -111,21 +115,23 @@ export function StarkDials() {
   const memUsed = Math.max(0, memTotal - memAvail);
   const memPct = memTotal ? (memUsed / memTotal) * 100 : 0;
 
-  const day = now.getDate();
-  const month = now.toLocaleString('en-US', { month: 'short' }).toUpperCase();
-  const year = now.getFullYear();
-  const daysInMonth = new Date(year, now.getMonth() + 1, 0).getDate();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
+  const day = now?.getDate() ?? 0;
+  const month = now?.toLocaleString('en-US', { month: 'short' }).toUpperCase() ?? '---';
+  const year = now?.getFullYear() ?? '';
+  const daysInMonth = now ? new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() : 30;
+  const two = (n: number | undefined) => (n === undefined ? '--' : String(n).padStart(2, '0'));
+  const hh = two(now?.getHours());
+  const mm = two(now?.getMinutes());
+  const ss = two(now?.getSeconds());
+  const daySeconds = now ? now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() : 0;
 
   return (
     <div className="stark-dials" role="status" aria-label="Stark instruments">
       <Dial
         label="DATE"
         pct={(day / daysInMonth) * 100}
-        value={String(day)}
-        sub={`${month} ${year}`}
+        value={now ? String(day) : '--'}
+        sub={`${month} ${year}`.trim()}
       />
       <Dial label="CPU" pct={cpuPct} value={`${load.toFixed(1)}`} sub={`${cores} CORE`} />
       <Dial
@@ -134,12 +140,7 @@ export function StarkDials() {
         value={`${fmtBytes(memUsed)}`}
         sub={`OF ${fmtBytes(memTotal)}`}
       />
-      <Dial
-        label="TIME"
-        pct={((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 864) * 100}
-        value={`${hh}:${mm}`}
-        sub={`${ss} LOCAL`}
-      />
+      <Dial label="TIME" pct={(daySeconds / 864) * 100} value={`${hh}:${mm}`} sub={`${ss} LOCAL`} />
     </div>
   );
 }
