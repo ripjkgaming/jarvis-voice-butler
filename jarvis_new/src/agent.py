@@ -60,6 +60,7 @@ from draft_tools import DraftTools
 from notify_tools import NotifyTools
 from system.exam_tools import ExamTools
 from system.memory_tools import MemoryTools
+from system.code_tools import CodeTools
 from system.look_tools import LookTools
 from system.window_tools import WindowTools
 from system.inbox import InboxTools
@@ -1348,6 +1349,7 @@ class Assistant(Agent):
         self.memory_tools = MemoryTools()
         self.window_tools = WindowTools()
         self.look_tools = LookTools()
+        self.code_tools = CodeTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1407,6 +1409,8 @@ class Assistant(Agent):
                 *self.window_tools.tools,
                 # Vision on demand: the active window or one camera frame.
                 *self.look_tools.tools,
+                # Code: background test runs, failure explanations, gated PRs.
+                *self.code_tools.tools,
                 # One voice tool: notify Sir (spoken if present, toast otherwise).
                 *self.notify_tools.tools,
                 *[
