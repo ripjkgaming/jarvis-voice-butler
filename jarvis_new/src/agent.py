@@ -1561,6 +1561,12 @@ async def my_agent(ctx: JobContext):
             getattr(event, "transcript", ""), bool(getattr(event, "is_final", False))
         ):
             _turn_clock["last"] = time.monotonic()
+            # Proactive engine: Sir answered, so recent announcements
+            # were not ignored (IRONMAN_SPEC §1.2 learned penalty).
+            with contextlib.suppress(Exception):
+                from proactive import engine as _proactive_engine
+
+                _proactive_engine.note_user_turn()
 
     def _mark_tools(*_args, **_kwargs) -> None:
         _turn_clock["last"] = time.monotonic()

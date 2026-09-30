@@ -760,6 +760,8 @@ SIDECAR_THREADS = (
     ("wa_autoreply", "JARVIS_WA_WATCH"),
     # Exam reminders: the evening before and the morning of each exam.
     ("exams", "JARVIS_EXAM_REMIND"),
+    # Proactive engine: calendar/mail/jobs/disk/deadline signals, one policy.
+    ("proactive.engine", "JARVIS_PROACTIVE_ENGINE"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
 )

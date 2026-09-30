@@ -4,7 +4,7 @@ One JSON line per event in ~/.jarvis/mail_digest.jsonl:
     {"ts", "kind", "sender", "to", "subject", "level", "summary", "body"}
 kind is one of: flagged (high priority), acked (automatic acknowledgement
 sent), drafted (reply draft ready), sent (Sir-approved email or draft sent),
-discarded (draft thrown away).
+discarded (draft thrown away), received (normal human mail, for the HUD).
 
 Append-only and fail-soft: logging never breaks the mail path.
 """
@@ -17,7 +17,7 @@ import os
 import time
 from pathlib import Path
 
-KINDS = ("flagged", "acked", "drafted", "sent", "discarded")
+KINDS = ("flagged", "acked", "drafted", "sent", "discarded", "received")
 KEEP_BYTES = 2_000_000
 
 

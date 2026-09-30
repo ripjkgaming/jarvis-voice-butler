@@ -291,6 +291,10 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
     if level == "skip":
         return "skip"
     if level == "normal":
+        if verdict["human"]:
+            mail_log.record(
+                "received", id=msg_id, sender=sender, subject=subject, level=level
+            )
         await _maybe_draft(parsed, full, verdict)
         return "normal-logged"
 
