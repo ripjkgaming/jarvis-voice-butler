@@ -827,7 +827,7 @@ def _session_for_pipeline(
             # present, no realtime model), so endpointing stays local too.
             # Same adaptive interruptions + preemptive replies as realtime.
             turn_handling=TurnHandlingOptions(
-                interruption={"mode": "adaptive"},
+                interruption=barge_in("adaptive"),
                 preemptive_generation={"enabled": True},
             ),
             user_away_timeout=IDLE_HANGUP_SECONDS,
@@ -902,6 +902,43 @@ def _default_agent_llm():
 SLOW_TOOL_S = 5.0
 
 
+def _say_ack(tool: str, args: tuple, kwargs: dict) -> None:
+    """Say a cached "On it, Sir." before a tool expected to be slow (§4).
+
+    Finds the RunContext among the call's arguments; a session that cannot
+    speak a fixed line (realtime without TTS) just skips it. Never raises.
+    """
+    try:
+        import acks
+
+        line = acks.next_line(tool)
+        if not line:
+            return
+        ctx = kwargs.get("context")
+        if ctx is None:
+            ctx = next((a for a in args if hasattr(a, "session")), None)
+        session = getattr(ctx, "session", None)
+        if session is not None:
+            session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
+    except Exception:
+        pass
+
+
+def barge_in(mode: str) -> dict:
+    """Interruption options: Sir cuts Jarvis off after JARVIS_BARGE_IN_S
+    (default 0.3 s) of speech; a false interruption resumes the reply, so
+    nothing said is lost (IRONMAN_SPEC §4). Pure (env only)."""
+    try:
+        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.3"))
+    except ValueError:
+        secs = 0.3
+    return {
+        "mode": mode,
+        "min_duration": max(0.1, min(2.0, secs)),
+        "resume_false_interruption": True,
+    }
+
+
 def _wrap_tools_with_timing(tools: list) -> list:
     """Time every tool call and feed src/latency.py. Idempotent.
 
@@ -953,6 +990,7 @@ def _wrap_tools_with_timing(tools: list) -> list:
                     pass
 
             slow_task = loop.create_task(_nudge()) if loop is not None else None
+            _say_ack(_tid, args, kwargs)
             TRACKER.call_started()
             try:
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
@@ -965,6 +1003,9 @@ def _wrap_tools_with_timing(tools: list) -> list:
                 try:
                     ms = (time.monotonic() - start) * 1000.0
                     TRACKER.call_finished(_tid, ms)
+                    import acks as _acks
+
+                    _acks.record(_tid, ms / 1000.0)
                     if log_action is not None:
                         log_action("latency", f"{_tid} {ms:.0f}ms")
                 except Exception:
@@ -1528,7 +1569,7 @@ async def my_agent(ctx: JobContext):
         # dials wss://agent-gateway.livekit.cloud (401 with no Cloud
         # credentials) and retries forever. Same Cloud dependency class
         # as the old TurnDetector and QUAIL enhancement.
-        interruption={"mode": "vad"},
+        interruption=barge_in("vad"),
         # Silero already waits min_silence_duration (0.55 s) before it
         # reports end of speech; the framework's default 0.5 s endpointing
         # delay stacked on top of that, ~1 s of dead air before Gemini even
