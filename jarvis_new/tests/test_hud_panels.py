@@ -96,3 +96,12 @@ def test_bridge_route() -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_exam_rows_are_short(monkeypatch) -> None:
+    import exams
+
+    monkeypatch.setattr(exams, "_today", lambda: dt.date(2026, 10, 1))
+    exams.add({"title": "Physics P4", "date": "2026-10-08", "start": "10:30"})
+    rows = hud_panels._exams(dt.datetime(2026, 10, 1, 9).timestamp())["items"]
+    assert rows == [{"title": "Physics P4", "when": "Thu 08 Oct 10:30 · in 7d"}]

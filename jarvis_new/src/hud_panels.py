@@ -177,12 +177,14 @@ def _exams(now: float) -> dict:
     import exams
 
     today = dt.date.fromtimestamp(now)
-    return {
-        "items": [
-            {"title": e["title"], "when": exams.describe(e, today).split(", ", 1)[-1]}
-            for e in exams.upcoming(today, 14)[:8]
-        ]
-    }
+    items = []
+    for e in exams.upcoming(today, 14)[:8]:
+        day = dt.date.fromisoformat(e["date"])
+        days = exams.days_until(e, today)
+        until = "today" if days == 0 else ("tomorrow" if days == 1 else f"in {days}d")
+        when = day.strftime("%a %d %b") + (f" {e['start']}" if e.get("start") else "")
+        items.append({"title": e["title"], "when": f"{when} · {until}"})
+    return {"items": items}
 
 
 def _system(now: float) -> dict:
