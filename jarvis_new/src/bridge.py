@@ -764,6 +764,8 @@ SIDECAR_THREADS = (
     ("proactive.engine", "JARVIS_PROACTIVE_ENGINE"),
     # Long-term memory: summarise each session into the vault when it ends.
     ("memory", "JARVIS_MEMORY"),
+    # Background tasks: resume any a restart interrupted.
+    ("agent_tasks", "JARVIS_TASKS"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
 )
