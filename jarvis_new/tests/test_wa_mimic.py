@@ -27,6 +27,8 @@ def home(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(notify, "send", lambda *a, **k: {"route": "test"})
+    monkeypatch.delenv("JARVIS_WA_RUDE", raising=False)
+    monkeypatch.setenv("JARVIS_WA_WAIT_MIN", "0")
     # Built-in list entries (Raphael) have their own tests below.
     monkeypatch.setattr(wa_mimic, "DEFAULT_MIMIC", ())
     return h
@@ -306,8 +308,12 @@ def test_slang_defaults_and_file(home) -> None:
 
 
 def test_swearing_toggle(home, monkeypatch) -> None:
+    # Default: casual swearing in his voice, but no insults and no rude Jarvis.
     assert "SWEARING is allowed" in wa_mimic.system_prompt()
     assert "Never slurs" in wa_mimic.system_prompt()
+    assert "WHEN THEY ANNOY HIM" not in wa_mimic.system_prompt()
+    assert "mild swearing" not in wa_autoreply.reply_system()
+    monkeypatch.setenv("JARVIS_WA_RUDE", "1")
     assert "WHEN THEY ANNOY HIM" in wa_mimic.system_prompt()
     assert "clown" in wa_mimic.system_prompt()
     assert "never slurs of any kind" in wa_autoreply.reply_system()
@@ -396,6 +402,7 @@ async def test_handle_chat_learns_their_profile(home) -> None:
         [
             _m("home bro", me=True),
             _m("bet", sender="Raphael"),
+            _m("aight lemme see", me=True),  # Sir wrote himself since
             _m("u coming?", sender="Raphael"),
         ]
     )

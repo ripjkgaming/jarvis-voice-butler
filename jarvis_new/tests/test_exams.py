@@ -194,3 +194,16 @@ def test_shipped_timetable(home, monkeypatch) -> None:
         }
     )
     assert exams.find("physics p2")[0]["location"] == "Hall A"
+
+
+def test_current_exam(home) -> None:
+    exams.add(
+        {"title": "Physics P4", "date": "2026-10-01", "start": "10:30", "end": "11:30"}
+    )
+    exams.add({"title": "Chem P2", "date": "2026-10-01", "start": "13:30"})
+    assert exams.current_exam(dt.datetime(2026, 10, 1, 10, 29)) is None
+    now = exams.current_exam(dt.datetime(2026, 10, 1, 10, 45))
+    assert now["title"] == "Physics P4" and now["until"] == "11:30"
+    assert exams.current_exam(dt.datetime(2026, 10, 1, 11, 30)) is None
+    assert exams.current_exam(dt.datetime(2026, 10, 1, 15, 0))["until"] == "15:30"
+    assert exams.current_exam(dt.datetime(2026, 10, 2, 10, 45)) is None

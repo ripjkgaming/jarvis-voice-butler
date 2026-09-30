@@ -137,10 +137,27 @@ def swearing() -> bool:
     )
 
 
+EXAM_RULE = (
+    " EXAMS: when the header has an owner_status line saying {first} is in an "
+    "exam, reply in his voice that you're in an exam rn till that time, ask "
+    "them to wish you luck, and say you'll text after, e.g. 'in an exam rn "
+    "till 11:30, wish me luck, will text after'. Nothing else."
+)
+HELPFUL_RULE = (
+    " Keep it to one short reply that helps: answer what you can, otherwise "
+    "say you'll get back to them. Do not keep the conversation going."
+)
+
+
 def system_prompt() -> str:
-    return MIMIC_SYSTEM.format(
-        first=owner_first(), swearing=SWEAR_ON if swearing() else SWEAR_OFF
-    )
+    """Mimic prompt. The clap-back-with-insults part only with JARVIS_WA_RUDE=1."""
+    import wa_autoreply
+
+    swear = SWEAR_ON if swearing() else SWEAR_OFF
+    if swearing() and not wa_autoreply.rude_enabled():
+        swear = swear[: swear.index("WHEN THEY ANNOY HIM")]
+    base = MIMIC_SYSTEM.format(first=owner_first(), swearing=swear)
+    return base + EXAM_RULE.format(first=owner_first()) + HELPFUL_RULE
 
 
 def slang_path() -> Path:
@@ -456,6 +473,7 @@ def build_prompt(
     now_text: str,
     brief: dict | None = None,
     slang_map: dict[str, str] | None = None,
+    status: str = "",
 ) -> str:
     """STYLE + SLANG + ANALYSIS + EARLIER + NEW. Pure (given slang_map)."""
     import wa_analyst
@@ -467,6 +485,8 @@ def build_prompt(
     )
     if note:
         head += f"\nAbout this person (from {owner_first()}): {war._fence(note)[:200]}"
+    if status:
+        head += f"\nowner_status: {war._fence(status)[:120]}"
     profile = style_profile(samples)
     style = ["STYLE (how he texts; copy it, never reuse these lines verbatim):"]
     if profile:

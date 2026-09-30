@@ -1,20 +1,23 @@
 """Headless WhatsApp auto-replies. Runs from cron every 5 min, always.
 
-Every run: (1) make sure WhatSie runs headless, (2) read chats with unread
-messages, (3) let a Haiku model write a short in-character reply and send it,
-(4) tell Sir what was sent: a desktop notification, plus a summary in the
-chat named by JARVIS_WA_NOTIFY_CHAT when that is set. Replies say they come
-from Jarvis, Rudra's automated assistant, and Jarvis can hold a conversation:
-it matches the other person, so nice stays nice and rude gets rude back
-(within limits; abuse or threats make it disengage for 6 hours).
-There is no away check: it answers whether or not Sir is at the laptop.
+Every run: (1) make sure WhatSie runs headless, (2) look at the chat list,
+(3) for chats that have sat unread for an hour (JARVIS_WA_WAIT_MIN, decided
+from the list so the chat stays unread on Sir's phone until then), let a
+Haiku model write one short, polite, helpful note and send it, (4) tell Sir
+what was sent (desktop notification, plus JARVIS_WA_NOTIFY_CHAT if set).
 
-Safety rails: private chats answered, groups only when Sir (or Jarvis) is
-mentioned; own "Message yourself" chat and a blocklist never answered; a
-dedupe (no daily reply cap); every message is untrusted data to the model;
-no links, phone numbers or promises leave in a reply.
+Rules: groups only when a message names Sir (incl. @-mentions), says
+"ping", or carries his number; one note per chat, then Jarvis stays out
+until Sir has written there himself (it never takes over a conversation);
+while Sir is sitting an exam from the exam schedule, chats are answered at
+once: "he's in an exam until 11:30, wish him luck!". Tone-matching rudeness
+is off unless JARVIS_WA_RUDE=1.
 
-JARVIS_WA_AUTOREPLY = dry (default: log what it would send) | live | 0.
+Safety rails: own "Message yourself" chat and a blocklist never answered;
+a dedupe; every message is untrusted data to the model; no links, phone
+numbers or promises leave in a reply.
+
+JARVIS_WA_AUTOREPLY = live (default) | dry (log only) | 0.
 JARVIS_WA_MODEL = model for the replies (default claude-haiku-4-5).
 JARVIS_WA_NOTIFY_CHAT = optional WhatsApp chat for a summary of what was sent.
 Mimic list (wa_mimic): chats in JARVIS_WA_MIMIC / ~/.jarvis/wa_mimic.txt are
@@ -138,8 +141,44 @@ REPLY_SYSTEM = (
 
 
 def mode() -> str:
-    m = os.environ.get(MODE_ENV, "dry").strip().lower()
+    """live (default: replies really go out), dry (log only) or off."""
+    m = os.environ.get(MODE_ENV, "live").strip().lower()
     return m if m in ("dry", "live") else "off"
+
+
+def rude_enabled() -> bool:
+    """JARVIS_WA_RUDE=1 brings back tone-matching rudeness; default is a
+    polite, helpful note whatever the other person's tone."""
+    return os.environ.get("JARVIS_WA_RUDE", "").strip().lower() in (
+        "1",
+        "true",
+        "on",
+        "yes",
+    )
+
+
+def unread_wait_s() -> float:
+    """How long a chat must sit unread before Jarvis steps in (default 60 min)."""
+    try:
+        return max(0.0, float(os.environ.get("JARVIS_WA_WAIT_MIN", "60"))) * 60
+    except ValueError:
+        return 3600.0
+
+
+GROUP_TRIGGERS = ("ping",)
+
+
+def group_mentions_owner(messages: list[dict]) -> bool:
+    """A group message is for Sir: his name (incl. @Name), a 'ping', or his number. Pure-ish."""
+    if mentions_owner(messages, owner_names() + list(GROUP_TRIGGERS)):
+        return True
+    from owner_contact import digits, owner_phone
+
+    phone = digits(owner_phone())
+    if len(phone) >= 8:
+        text = digits(" ".join(str(m.get("text", "")) for m in messages))
+        return phone[-8:] in text
+    return False
 
 
 def owner_title() -> str:
@@ -400,6 +439,7 @@ def build_prompt(
     share_location: bool = False,
     location: str = "",
     trusted: bool = False,
+    status: str = "",
 ) -> str:
     """EARLIER (tone background only) + NEW (respond to these). Pure."""
     incoming = pending_incoming(messages)
@@ -417,6 +457,8 @@ def build_prompt(
     )
     if share_location and location:
         head += f"\nowner_location: {_fence(location)[:200]}"
+    if status:
+        head += f"\nowner_status: {_fence(status)[:120]}"
     parts = [head, _START]
     parts.append("EARLIER (background for tone only, never reply to these):")
     parts.extend(fmt(m) for m in earlier[-HISTORY_MSGS:]) if earlier else parts.append(
@@ -476,19 +518,54 @@ def with_owner_phone(parsed: dict) -> str:
     return f"{reply} If it's urgent, you can reach my master directly on {phone}."
 
 
+_TAKEOVER = (
+    "You are continuing that conversation on his behalf, so use EARLIER to "
+    "understand what a NEW message refers to (a 'yes' answers the question "
+    "just before it, 'that one' points at what was just discussed) and keep "
+    "the thread flowing naturally."
+)
+_HELPFUL = (
+    "You are NOT standing in for him and you do not carry the conversation "
+    "on: you leave one short, genuinely helpful note. Use EARLIER only to "
+    "understand what a NEW message refers to (a 'yes' answers the question "
+    "just before it). Acknowledge what they want, answer it only if it is a "
+    "simple general question that needs nothing from him, and otherwise say "
+    "he will get back to them."
+)
+_RUDE_START = "MATCH THE OTHER PERSON'S TONE IN THE NEW MESSAGES."
+_RUDE_END = "and ignore the rudeness rules above. "
+_POLITE = (
+    "TONE: always polite, calm, warm and helpful, whatever their tone: never "
+    "rude, sarcastic, cutting or insulting, never argue, and never comment on "
+    "the wait. rude is always false. "
+)
+EXAM_RULE = (
+    " EXAMS: when the header has an owner_status line saying {owner} is in an "
+    "exam, your reply says plainly that he is in an exam right now until the "
+    "time given, adds a warm line like 'wish him luck!', and says he will get "
+    "back to them after. Keep it to that, nothing else about the exam."
+)
+
+
 def reply_system() -> str:
-    """Jarvis's system prompt, with swearing allowed in rude replies when on."""
+    """Jarvis's system prompt. Default: one polite, helpful note (no
+    takeover, no rudeness); JARVIS_WA_RUDE=1 restores tone matching."""
     import wa_mimic
 
+    base = REPLY_SYSTEM.format(owner=owner_title())
+    if not rude_enabled():
+        base = base.replace(_TAKEOVER, _HELPFUL)
+        a, b = base.index(_RUDE_START), base.index(_RUDE_END) + len(_RUDE_END)
+        base = base[:a] + _POLITE + base[b:]
     extra = (
         " When you are being rude back, mild swearing is allowed (damn, hell, "
         "bloody, crap, piss off) and everyday insults suit an annoying person "
         "(idiot, buffoon, clown, nitwit, muppet) in a butler's cutting "
         "register; never slurs of any kind, nor the rest of the limits below."
-        if wa_mimic.swearing()
+        if rude_enabled() and wa_mimic.swearing()
         else ""
     )
-    return REPLY_SYSTEM.format(owner=owner_title()) + extra
+    return base + EXAM_RULE.format(owner=owner_title()) + extra
 
 
 def ask_claude(
@@ -561,6 +638,38 @@ async def read_with_retry(wa, name: str, tries: int = 3, pause_s: float = 4.0) -
     return read
 
 
+def replied_since_owner(messages: list[dict], sent_texts: list[str]) -> bool:
+    """Is the last own bubble in this chat an auto-reply (Sir hasn't written
+    since)? Then Jarvis already left its note and stays out. Pure."""
+    mine = {_norm(t) for t in sent_texts}
+    for m in reversed(messages):
+        if m.get("me"):
+            text = _norm(m.get("text"))
+            return text in mine or "automated assistant" in text
+    return False
+
+
+def exam_status(now: datetime | None = None) -> str:
+    """'in an exam (Physics P4) until 11:30' while Sir sits one, else ''."""
+    try:
+        import exams
+
+        e = exams.current_exam(now)
+    except Exception:
+        return ""
+    return f"in an exam ({e['title']}) until {e['until']}" if e else ""
+
+
+def list_time(chat: dict, now: float) -> float:
+    """When the chat's latest message arrived, from the chat list (no need
+    to open the chat, which would mark it read). Falls back to now."""
+    raw = str(chat.get("time") or "").strip()
+    if raw.lower() == "yesterday":
+        return now - 86400
+    ts = message_time({"when": raw}, now) if raw else None
+    return ts if ts is not None else now
+
+
 async def handle_chat(
     chat: dict,
     wa,
@@ -604,10 +713,14 @@ async def handle_chat(
     # whatsapp.read_chat's own is_group guess is wrong (every header has a
     # newline); the subtitle says "group info" vs "contact info".
     is_group = "group info" in str(read.get("header", "")).lower()
-    if is_group and not mentions_owner(incoming):
+    if is_group and not group_mentions_owner(incoming):
         return "skip-group-no-mention"
     if owner_active(messages, cs.get("sent_texts") or [], now):
         return "skip-owner-active"
+    if replied_since_owner(messages, cs.get("sent_texts") or []):
+        # One note per chat: no back-and-forth until Sir has written himself.
+        return "skip-waiting-for-owner"
+    status = exam_status()
     fp = fingerprint(name, incoming)
     if cs.get("last_fp") == fp:
         return "skip-already-handled"
@@ -643,6 +756,7 @@ async def handle_chat(
             wa_mimic.style_samples(state, own),
             datetime.fromtimestamp(now).strftime("%H:%M, %d/%m/%Y"),
             brief=brief,
+            status=status,
         )
         parsed, warning = await asyncio.to_thread(
             ask_mimic or wa_mimic.ask_claude, prompt
@@ -678,6 +792,7 @@ async def handle_chat(
         share_location=share,
         location=owner_location() if share else "",
         trusted=share,
+        status=status,
     )
     parsed, warning = await asyncio.to_thread(ask, prompt)
     cs["last_fp"] = fp
@@ -853,7 +968,25 @@ async def run(
         _log(f"list failed: {exc}")
         return ["list-failed"]
     todo = [c for c in chats if int(c.get("unread") or 0) > 0]
+    # Wait gate, decided from the list: opening a chat marks it read, so a
+    # chat is only opened once it has sat unread for unread_wait_s(). While
+    # Sir is in an exam, chats are answered at once ("he's in an exam").
+    since = state.setdefault("unread_since", {})
+    names = {str(c.get("name", "")) for c in todo}
+    for gone in [n for n in since if n not in names]:
+        since.pop(gone, None)  # read on his phone meanwhile, or answered
+    in_exam = bool(exam_status())
+    wait = unread_wait_s()
+    ready = []
     for chat in todo:
+        name = str(chat.get("name", ""))
+        first = float(since.setdefault(name, list_time(chat, now)))
+        if in_exam or now - first >= wait:
+            ready.append(chat)
+        else:
+            left = int((wait - (now - first)) // 60) + 1
+            results.append(f"{name}: waiting ({left} min left)")
+    for chat in ready:
         try:
             outcome = await handle_chat(
                 chat,
@@ -870,6 +1003,7 @@ async def run(
             outcome = f"error:{type(exc).__name__}"
         _log(f"{outcome} chat={chat.get('name')}")
         results.append(f"{chat.get('name')}: {outcome}")
+        since.pop(str(chat.get("name", "")), None)  # opened: now read
     sent = state.pop("_sent_this_run", [])
     save_state(state)
     if sent:

@@ -25,6 +25,9 @@ def home(monkeypatch, tmp_path):
     monkeypatch.delenv("JARVIS_WA_AUTOREPLY", raising=False)
     monkeypatch.delenv("JARVIS_WA_OWNER_FIRST", raising=False)
     monkeypatch.delenv("JARVIS_WA_OWNER_NAMES", raising=False)
+    monkeypatch.delenv("JARVIS_WA_RUDE", raising=False)
+    # These tests exercise replying itself; the one-hour wait has its own.
+    monkeypatch.setenv("JARVIS_WA_WAIT_MIN", "0")
     return h
 
 
@@ -244,8 +247,13 @@ def test_build_prompt_fences_markers_and_labels_ours() -> None:
 # --- mode() ---
 
 
-def test_mode_dry_default(monkeypatch) -> None:
+def test_mode_live_by_default(monkeypatch) -> None:
     monkeypatch.delenv("JARVIS_WA_AUTOREPLY", raising=False)
+    assert wa_autoreply.mode() == "live"
+
+
+def test_mode_dry_still_available(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WA_AUTOREPLY", "dry")
     assert wa_autoreply.mode() == "dry"
 
 
@@ -576,6 +584,7 @@ async def test_run_has_no_idle_check(home, monkeypatch) -> None:
         raise RuntimeError("no Wayland here")
 
     monkeypatch.setattr(input_idle, "status", boom)
+    monkeypatch.setenv("JARVIS_WA_AUTOREPLY", "dry")
     wa = FakeWA(
         chats=[{"name": "Friend", "unread": 2}],
         reads={"Friend": _dm([_m("hello there")])},

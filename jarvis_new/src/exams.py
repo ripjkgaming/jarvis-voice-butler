@@ -242,6 +242,33 @@ def describe(e: dict, today: dt.date | None = None) -> str:
     return f"{e['title']}, {day}{when}{until}{where} ({_in_days(days_until(e, today))})"
 
 
+#: Assumed length of an exam with a start time but no end time.
+DEFAULT_EXAM_MIN = 120
+
+
+def current_exam(now: dt.datetime | None = None) -> dict | None:
+    """The exam Sir is sitting right now (start <= now < end), else None.
+
+    Needs a start time; a missing end means DEFAULT_EXAM_MIN minutes. The
+    returned dict carries "until" ('HH:MM') for 'back after' messages.
+    """
+    now = now or dt.datetime.now()
+    today = now.date().isoformat()
+    for e in exams():
+        if e["date"] != today or not e.get("start"):
+            continue
+        h, m = (int(x) for x in e["start"].split(":"))
+        start = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if e.get("end"):
+            eh, em = (int(x) for x in e["end"].split(":"))
+            end = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+        else:
+            end = start + dt.timedelta(minutes=DEFAULT_EXAM_MIN)
+        if start <= now < end:
+            return {**e, "until": end.strftime("%H:%M")}
+    return None
+
+
 def busy_days(rows: list[dict]) -> list[str]:
     """Dates with two or more exams. Pure."""
     counts: dict[str, int] = {}
