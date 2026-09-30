@@ -262,6 +262,14 @@ def test_assistant_carries_all_system_tools_directly() -> None:
                 assert tool.id in ids
 
 
+def test_assistant_carries_notify_tool() -> None:
+    """The model notifies Sir via the notify voice tool (spoken if present)."""
+    assistant = Assistant(browser=None, llm=None)
+    ids = [tool.id for tool in assistant.tools]
+    assert "notify" in ids
+    assert [tool.id for tool in assistant.notify_tools.tools] == ["notify"]
+
+
 def test_assistant_tool_ids_unique() -> None:
     assistant = Assistant(browser=None, llm=None)
     ids = [tool.id for tool in assistant.tools]
@@ -351,10 +359,13 @@ def test_desktop_fast_prefix_is_regex_only(monkeypatch: pytest.MonkeyPatch) -> N
     assert desktop_fast_prefix("tell me about black holes") is None
     assert desktop_fast_prefix("") is None
     # Long dictation never fast-paths, even with a command word inside.
-    assert desktop_fast_prefix(
-        "so I was reading about how to make things louder in the mix "
-        "and the article said the mastering engineer always checks"
-    ) is None
+    assert (
+        desktop_fast_prefix(
+            "so I was reading about how to make things louder in the mix "
+            "and the article said the mastering engineer always checks"
+        )
+        is None
+    )
     monkeypatch.setenv("JARVIS_DESKTOP_FASTPATH", "0")
     assert desktop_fast_prefix("lock the computer") is None
 
@@ -369,8 +380,14 @@ def test_desktop_fast_command_executes_or_abstains(
     monkeypatch.setattr(
         bridge_mod,
         "handle_route",
-        lambda body: (200, {"ok": True, "reply": "Locked, Sir.",
-                            "action": {"tool": "lock", "ok": True}}),
+        lambda body: (
+            200,
+            {
+                "ok": True,
+                "reply": "Locked, Sir.",
+                "action": {"tool": "lock", "ok": True},
+            },
+        ),
     )
     payload = agent_mod.desktop_fast_command("lock the computer")
     assert payload is not None and payload["reply"] == "Locked, Sir."
@@ -381,9 +398,7 @@ def test_desktop_fast_command_executes_or_abstains(
         lambda body: (200, {"ok": True, "reply": "Louder — correct?"}),
     )
     assert agent_mod.desktop_fast_command("crank it") is None
-    monkeypatch.setattr(
-        bridge_mod, "handle_route", lambda body: (404, {"ok": False})
-    )
+    monkeypatch.setattr(bridge_mod, "handle_route", lambda body: (404, {"ok": False}))
     assert agent_mod.desktop_fast_command("ramble on") is None
     monkeypatch.setenv("JARVIS_DESKTOP_FASTPATH", "off")
     assert agent_mod.desktop_fast_command("lock the computer") is None

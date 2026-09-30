@@ -56,6 +56,8 @@ from system.devices import DeviceTools
 from system.alternatives_tools import AlternativesTools
 from system.files_tools import FilesTools
 from system.focus_tools import FocusTools
+from draft_tools import DraftTools
+from notify_tools import NotifyTools
 from system.inbox import InboxTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
@@ -730,6 +732,17 @@ def _session_tts():
     return PiperTTS()
 
 
+def endpointing_delay() -> float:
+    """Extra wait (s) after Silero's end of speech before the turn is
+    committed (JARVIS_ENDPOINT_DELAY, default 0.15). Pure (env only)."""
+    try:
+        return max(
+            0.0, float(os.environ.get("JARVIS_ENDPOINT_DELAY", "").strip() or 0.15)
+        )
+    except ValueError:
+        return 0.15
+
+
 def vad_kwargs() -> dict:
     """Silero endpointing knobs, env-overridable. Pure (env only).
 
@@ -1257,6 +1270,8 @@ class Assistant(Agent):
         self.background_tools = background_tools or BackgroundTools()
         self.inbox_tools = inbox_tools or InboxTools()
         self.reddit_tools = reddit_tools or RedditTools()
+        self.draft_tools = DraftTools(self.inbox_tools)
+        self.notify_tools = NotifyTools()
         self.osint_tools = OsintTools()
         self.project_tools = ProjectTools()
         self.quote_tools = QuoteTools(
@@ -1314,6 +1329,10 @@ class Assistant(Agent):
                 *self.vision_tools.tools,
                 # Google Docs/Sheets/Drive, Notion, invoice generation.
                 *self.workspace_tools.tools,
+                # Email reply drafts (send stays behind confirm_email_action).
+                *self.draft_tools.tools,
+                # One voice tool: notify Sir (spoken if present, toast otherwise).
+                *self.notify_tools.tools,
                 *[
                     tool
                     for group in (
@@ -1432,6 +1451,14 @@ async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    # Start the isolated Needle worker now so its model is loaded by the
+    # first turn (a native crash there only kills the child, never this job).
+    try:
+        from intent.needle_router import warm_up as _needle_warm_up
+
+        _needle_warm_up()
+    except Exception:
+        pass
     # Warm the local launch-router model off the event loop so the first
     # ambiguous "open <thing>" costs ~0.5s, not a ~6s cold load.
     if os.environ.get("JARVIS_LOCAL") == "1":
@@ -1471,6 +1498,12 @@ async def my_agent(ctx: JobContext):
         # credentials) and retries forever. Same Cloud dependency class
         # as the old TurnDetector and QUAIL enhancement.
         interruption={"mode": "vad"},
+        # Silero already waits min_silence_duration (0.55 s) before it
+        # reports end of speech; the framework's default 0.5 s endpointing
+        # delay stacked on top of that, ~1 s of dead air before Gemini even
+        # heard the turn had ended. Silero's silence window is the guard
+        # against mid-sentence pauses, so the extra delay stays short.
+        endpointing={"min_delay": endpointing_delay()},
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation={"enabled": True},
@@ -1743,6 +1776,24 @@ async def my_agent(ctx: JobContext):
         finally:
             _hangup_watching["active"] = False
 
+    # Where a reply's wait goes: local end-of-turn wait (EOU) vs Gemini's
+    # time to first token and how much context it had to read.
+    @session.on("metrics_collected")
+    def _on_metrics(event) -> None:
+        with contextlib.suppress(Exception):
+            from system import log_action as _log
+
+            m = event.metrics
+            kind = getattr(m, "type", "")
+            if kind == "eou_metrics":
+                _log("latency", f"eou {m.end_of_utterance_delay:.2f}s")
+            elif kind == "realtime_model_metrics" and m.ttft >= 0:
+                _log(
+                    "latency",
+                    f"model ttft {m.ttft:.2f}s in={m.input_tokens} "
+                    f"cached={m.input_token_details.cached_tokens}",
+                )
+
     @session.on("user_state_changed")
     def _on_user_state_changed(event: UserStateChangedEvent) -> None:
         if event.new_state == "away":
@@ -1874,6 +1925,33 @@ async def my_agent(ctx: JobContext):
     except Exception:
         pass
 
+    # Draft-ready notices: off by default (drafts are announced at creation
+    # via notify.send in mail_watch_job). Opt back in with
+    # JARVIS_DRAFT_WATCHER=1. Swallowed on failure like the watcher above.
+    try:
+        from draft_notify import DraftWatcher, announce_enabled
+
+        if (
+            os.environ.get("JARVIS_DRAFT_WATCHER", "0").strip().lower()
+            in ("1", "true", "yes", "on")
+            and announce_enabled()
+        ):
+
+            async def _speak_draft(line: str) -> None:
+                await session.say(line)
+
+            _draft_watcher = DraftWatcher(_speak_draft)
+            _draft_task = _draft_watcher.start()
+            _background_tasks.add(_draft_task)
+            _draft_task.add_done_callback(_background_tasks.discard)
+
+            async def _stop_draft_watcher() -> None:
+                _draft_watcher.stop()
+
+            ctx.add_shutdown_callback(_stop_draft_watcher)
+    except Exception:
+        pass
+
     # HUD Region 2: data-channel task events (best-effort, never breaks voice).
     try:
         from hud_events import (
@@ -1999,8 +2077,13 @@ async def my_agent(ctx: JobContext):
     import school as _school
 
     _school_call = _school.is_school()
-    _join = {"status": "unknown"} if _school_call else await _presence_snapshot()
     _wake = _wake_summoned(ctx.room)
+    # A wake always greets whatever the camera says, so skip the check: it
+    # took ~11s with the camera present, and anything Sir said in that
+    # window (e.g. "launch YouTube") was lost before the session listened.
+    _join = (
+        {"status": "unknown"} if (_school_call or _wake) else await _presence_snapshot()
+    )
     _decision = (
         "school" if _school_call else _join_decision(_wake, str(_join.get("status", "unknown")))
     )

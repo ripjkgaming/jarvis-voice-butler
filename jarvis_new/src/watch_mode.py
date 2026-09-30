@@ -72,6 +72,17 @@ _START = re.compile(
 )
 
 
+def enabled() -> bool:
+    """Watch mode is on unless JARVIS_WATCH_MODE=0.
+
+    Was switched off once, when the Tk keybind failed to reach the card on
+    KDE Wayland and locked Sir out. Back on now that the stop paths are
+    verified: the KDE global shortcut Ctrl+Alt+Shift+W and
+    `jarvis-watch-stop` (both via request_stop), plus the card's own keybind.
+    """
+    return os.environ.get("JARVIS_WATCH_MODE", "1").strip() != "0"
+
+
 def parse_command(text: str) -> bool:
     """Is this cleaned voice text a watch-mode start? Pure.
 
@@ -79,6 +90,8 @@ def parse_command(text: str) -> bool:
     ends so "I'm leaving for school at eight, remind me" stays with the
     model. There is intentionally no voice command to stop.
     """
+    if not enabled():
+        return False
     t = " ".join(re.sub(r"[^a-z' ]+", " ", (text or "").lower()).split())
     t = re.sub(r"^(?:can you |could you |would you |will you )", "", t)
     return bool(_START.match(t))
@@ -113,6 +126,29 @@ def state_dir() -> Path:
 
 def pid_path() -> Path:
     return state_dir() / "watch.pid"
+
+
+def stop_path() -> Path:
+    return state_dir() / "stop"
+
+
+def request_stop() -> bool:
+    """Ask a running watch to end and save (the focus-free exit path).
+
+    The card polls this file, so anything can trigger it: the KDE global
+    shortcut, `jarvis-watch-stop` from a TTY, a phone button. The Tk
+    keybind alone was not enough: under KDE Wayland the XWayland card
+    does not reliably get keyboard focus. True when a watch is running.
+    Never raises.
+    """
+    if not is_running():
+        return False
+    try:
+        state_dir().mkdir(parents=True, exist_ok=True)
+        stop_path().write_text(str(time.time()))
+    except OSError:
+        return False
+    return True
 
 
 def status_path() -> Path:
@@ -165,6 +201,8 @@ def launch(popen=subprocess.Popen) -> dict:
     Wrapped in systemd-inhibit so the laptop neither sleeps nor idles
     into the lock screen while it is watching.
     """
+    if not enabled():
+        return {"ok": False, "error": "Watch mode is switched off (JARVIS_WATCH_MODE=0)."}
     if is_running():
         return {"ok": True, "state": "already watching"}
     argv = [sys.executable, str(Path(__file__).resolve())]
@@ -178,6 +216,8 @@ def launch(popen=subprocess.Popen) -> dict:
         ]
     try:
         state_dir().mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):
+            stop_path().unlink()  # a stale request must not end the new watch
         log = open(state_dir() / "watch.log", "ab")  # noqa: SIM115
         popen(
             argv,
@@ -766,6 +806,7 @@ class WatchScreen:
         self.held: set[str] = set()
         self.glow = 0.0
         self.closing = False
+        self._stop_polled = 0.0
         self._display = _font(self.root, ("Inter Display Light", "Inter Display", "Inter"))
         self._mono = _font(self.root, ("Adwaita Mono", "DejaVu Sans Mono"), "TkFixedFont")
         self._fixed_geoms = geoms is not None
@@ -829,6 +870,13 @@ class WatchScreen:
         if self.closing:
             return
         now = time.time()
+        if now - self._stop_polled >= 0.25:
+            self._stop_polled = now
+            if stop_path().exists():
+                with contextlib.suppress(OSError):
+                    stop_path().unlink()
+                self.close()
+                return
         wt = self.watcher
         live = wt.armed(now) and now - wt.last_motion < HIGHLIGHT_HOLD_S
         target = 1.0 if live else 0.0
@@ -903,6 +951,8 @@ def main() -> int:
     if is_running() and running_pid() != os.getpid():
         return 0
     state_dir().mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        stop_path().unlink()
     pid_path().write_text(str(os.getpid()))
     folder = state_dir() / time.strftime("session-%Y%m%d-%H%M%S")
     watcher = Watcher(folder)
@@ -941,4 +991,11 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    if sys.argv[1:2] == ["stop"]:
+        # `jarvis-watch-stop`: works from a TTY or the global shortcut.
+        got = request_stop()
+        with contextlib.suppress(OSError):
+            with open(state_dir() / "stop-requests.log", "a") as fh:
+                fh.write(f"{time.strftime('%F %T')} stop requested running={got}\n")
+        raise SystemExit(0 if got else 1)
     raise SystemExit(main())

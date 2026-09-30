@@ -28,6 +28,10 @@ SCOPES = [
     # Calendar: added 2026-09-29. Tokens minted before then lack it, so
     # calendar calls 403 until Sir re-runs scripts/google_auth.py.
     "https://www.googleapis.com/auth/calendar.events",
+    # Gmail: added 2026-09-29. Tokens minted before then lack it, so
+    # Gmail calls 403 until Sir re-runs scripts/google_auth.py.
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -41,6 +45,10 @@ CALENDAR_BASE = "https://www.googleapis.com/calendar/v3/calendars"
 CALENDAR_SCOPE_HINT = (
     "Your Google connection predates calendar access, Sir. Re-run "
     "scripts/google_auth.py once and tick the calendar box."
+)
+GMAIL_SCOPE_HINT = (
+    "Your Google connection predates Gmail access, Sir. Re-run "
+    "scripts/google_auth.py once and tick the Gmail boxes."
 )
 
 SETUP_HINT = (
@@ -377,7 +385,9 @@ def drive_upload(
         detail = ""
         with contextlib.suppress(Exception):
             detail = json.loads(exc.read().decode())["error"]["message"][:160]
-        raise GoogleError(f"Google refused the upload ({exc.code}) {detail}".strip()) from exc
+        raise GoogleError(
+            f"Google refused the upload ({exc.code}) {detail}".strip()
+        ) from exc
     except Exception as exc:
         raise GoogleError(f"Google did not respond ({exc}).") from exc
     if not isinstance(meta, dict) or not meta.get("id"):
@@ -562,6 +572,20 @@ def _calendar_token(opener=None, account: str = "personal") -> str:
     return access_token(opener=opener, account=account)
 
 
+def _has_gmail_scope(account: str = "personal") -> bool:
+    """Was the saved token granted Gmail read+send? Unknown counts as yes."""
+    saved = _load_token(account) or {}
+    scopes = saved.get("scopes") or saved.get("scope")
+    if not scopes:
+        return True
+    if isinstance(scopes, str):
+        scopes = scopes.split()
+    texts = [str(s) for s in scopes]
+    return any("gmail.readonly" in s for s in texts) and any(
+        "gmail.send" in s for s in texts
+    )
+
+
 def event_body(event: dict, timezone: str = "") -> dict:
     """Normalized event dict -> Calendar API body. Pure. Raises GoogleError.
 
@@ -590,8 +614,14 @@ def event_body(event: dict, timezone: str = "") -> dict:
         h, m = (int(x) for x in start.split(":"))
         end = f"{min(h + 1, 23):02d}:{m:02d}" if h < 23 else "23:59"
     tz = timezone or local_timezone()
-    body["start"] = {"dateTime": f"{date}T{int(start.split(':')[0]):02d}:{start.split(':')[1]}:00", "timeZone": tz}
-    body["end"] = {"dateTime": f"{date}T{int(end.split(':')[0]):02d}:{end.split(':')[1]}:00", "timeZone": tz}
+    body["start"] = {
+        "dateTime": f"{date}T{int(start.split(':')[0]):02d}:{start.split(':')[1]}:00",
+        "timeZone": tz,
+    }
+    body["end"] = {
+        "dateTime": f"{date}T{int(end.split(':')[0]):02d}:{end.split(':')[1]}:00",
+        "timeZone": tz,
+    }
     return body
 
 
@@ -628,7 +658,9 @@ def calendar_list(
         }
     )
     cal = urllib.parse.quote(calendar_id, safe="")
-    data = _request_json("GET", f"{CALENDAR_BASE}/{cal}/events?{params}", token, opener=opener)
+    data = _request_json(
+        "GET", f"{CALENDAR_BASE}/{cal}/events?{params}", token, opener=opener
+    )
     return list(data.get("items") or []) if isinstance(data, dict) else []
 
 
@@ -642,5 +674,7 @@ def calendar_create(
     body = event_body(event)
     token = _calendar_token(opener=opener, account=account)
     cal = urllib.parse.quote(calendar_id, safe="")
-    data = _request_json("POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener)
+    data = _request_json(
+        "POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener
+    )
     return data if isinstance(data, dict) else {}

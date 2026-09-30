@@ -44,6 +44,8 @@ const RIM_INSET = 2.5;
 const RIM_RADIUS = 22;
 /** Pool height when the primary has no bottom panel to match. */
 const FALLBACK_BAR_PX = 48;
+/** Corner radius of a floating bar (matches Plasma's floating panel). */
+export const BAR_RADIUS = 8;
 
 /** Where the HUD was when school mode began (screen coordinates, as
  *  [x, y, w, h]): its window frame (GTK title bar included), its content,
@@ -124,6 +126,7 @@ function freezeHud(): HTMLElement[] | null {
 export function useSchoolTransition() {
   const [tx, setTx] = useState<SchoolTx | null>(null);
   const [barH, setBarH] = useState<number | null>(null);
+  const [barInset, setBarInset] = useState(0);
   useEffect(() => {
     const onSignal = (e: Event) => {
       const phase = String((e as CustomEvent).detail);
@@ -143,7 +146,11 @@ export function useSchoolTransition() {
     return () => window.removeEventListener('jarvis-school', onSignal);
   }, []);
   const done = useCallback(() => setTx(null), []);
-  return { tx, barH, showBar: setBarH, done };
+  const showBar = useCallback((height: number, inset: number) => {
+    setBarInset(inset);
+    setBarH(height);
+  }, []);
+  return { tx, barH, barInset, showBar, done };
 }
 
 /* ------------------------------ geometry ------------------------------ */
@@ -255,6 +262,9 @@ type Pool = {
   alpha: number;
   /** Set once the run takes over the rise from the arrivals. */
   held: boolean;
+  /** Floating panel gap (px): the pool fills the panel as drawn, that far
+   *  in from the screen's bottom and sides. */
+  inset: number;
 };
 
 type Scene = {
@@ -397,6 +407,14 @@ function drawPool(
   }
   const half = p.spread * (w / 2 + 40);
   if (half < 1 || p.alpha <= 0.001) return;
+  // A floating panel: the liquid only fills the bar's own rect.
+  ctx.save();
+  if (p.inset > 0) {
+    ctx.beginPath();
+    ctx.roundRect(p.inset, 0, w - 2 * p.inset, h - p.inset, BAR_RADIUS);
+    ctx.clip();
+    h -= p.inset;
+  }
   const cx = w / 2;
   const amp = 3.2 * (1 - p.settle);
   const surf = (x: number) => {
@@ -435,6 +453,7 @@ function drawPool(
   ctx.lineWidth = 1.4;
   ctx.globalAlpha = 0.9 * p.alpha;
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawScene(
@@ -593,6 +612,96 @@ export function drawPackets(ctx: CanvasRenderingContext2D, ps: Packet[], now: nu
 /** When the last packet in `ps` lands (ms timestamp). */
 export const beamEnd = (ps: Packet[]) => Math.max(0, ...ps.map((p) => p.t0 + p.dur));
 
+/* ------------------------------ frame clock ------------------------------ */
+
+/** Longest step one frame may advance the animation (ms). */
+const MAX_FRAME_MS = 34;
+
+/** Animation time that only runs while frames are drawn. Every window move
+ *  (cover, primary, cover-at) stalls the webview for a moment, longer under
+ *  load (Jarvis speaking while the switch plays). On wall-clock time a
+ *  sub-second particle burst could finish inside that stall and never be
+ *  seen; on this clock a stall pauses the animation instead of skipping it.
+ *  `tick` is called once per drawn frame, before anything reads `now`. */
+export function frameClock() {
+  let t = 0;
+  let last = -1;
+  let waiters: { n: number; done: () => void }[] = [];
+  return {
+    get now() {
+      return t;
+    },
+    tick(raf: number) {
+      if (last >= 0) t += Math.max(0, Math.min(raf - last, MAX_FRAME_MS));
+      last = raf;
+      waiters = waiters.filter((w) => (--w.n > 0 ? true : (w.done(), false)));
+      return t;
+    },
+    /** Resolves after `n` more frames are drawn (or `capMs` of real time,
+     *  so a window that never paints can't hang the run). */
+    frames(n: number, capMs = 700) {
+      return new Promise<void>((done) => {
+        const w = { n, done };
+        waiters.push(w);
+        setTimeout(() => {
+          waiters = waiters.filter((x) => x !== w);
+          done();
+        }, capMs);
+      });
+    },
+  };
+}
+
+export type FrameClock = ReturnType<typeof frameClock>;
+
+/** The run's timing helpers on `clock`: tweens and waits measured in drawn
+ *  frames' time, plus `until` for window changes (real time: KWin moves the
+ *  window whether or not we paint). */
+export function runTimers(clock: FrameClock, alive: () => boolean) {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const until = async (cond: () => boolean, timeout: number) => {
+    const t0 = performance.now();
+    while (alive() && !cond()) {
+      if (performance.now() - t0 > timeout) return false;
+      await sleep(30);
+    }
+    return alive();
+  };
+  /** Wait for `cond` for up to `ms` of animation time. */
+  const untilT = async (cond: () => boolean, ms: number) => {
+    const t0 = clock.now;
+    const r0 = performance.now();
+    while (alive() && !cond()) {
+      if (clock.now - t0 > ms || performance.now() - r0 > ms * 3 + 3000) return false;
+      await sleep(16);
+    }
+    return alive();
+  };
+  const waitT = (ms: number) => {
+    const end = clock.now + ms;
+    return untilT(() => clock.now >= end, ms + 50);
+  };
+  const tween = (ms: number, fn: (e: number) => void, ease: (u: number) => number = easeInOut) =>
+    new Promise<void>((done) => {
+      const t0 = clock.now;
+      const r0 = performance.now();
+      const step = () => {
+        if (!alive()) return done();
+        // Real-time cap: if frames stop entirely, still finish.
+        const late = performance.now() - r0 > ms * 3 + 3000;
+        const u = late ? 1 : clamp01((clock.now - t0) / ms);
+        fn(ease(u));
+        if (u < 1) requestAnimationFrame(step);
+        else done();
+      };
+      step();
+    });
+  /** After a window move: the window has its new size and has painted a
+   *  couple of frames at it, so the next burst starts on screen. */
+  const settle = () => clock.frames(3);
+  return { sleep, until, untilT, waitT, tween, settle };
+}
+
 /* ------------------------------ the run ------------------------------ */
 
 export const stage = (name: string, nonce?: string, rect?: number[]) =>
@@ -677,8 +786,9 @@ export function SchoolTransition({
 }: {
   tx: SchoolTx;
   color: string;
-  /** The pool has formed: show the real bar at this height (px). */
-  onBar: (height: number) => void;
+  /** The pool has formed: show the real bar at this height (px), `inset`
+   *  px in from the screen's edges (a floating panel's gap). */
+  onBar: (height: number, inset: number) => void;
   onDone: () => void;
 }) {
   const layer = useRef<HTMLDivElement>(null);
@@ -700,38 +810,19 @@ export function SchoolTransition({
       tracers: [],
       pool: null,
       onResize: null,
-      last: performance.now(),
+      last: 0,
       packets: [],
     };
 
+    const clock = frameClock();
     let raf = 0;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      drawScene(canvas, ctx, scene, now, colorRef.current);
+      drawScene(canvas, ctx, scene, clock.tick(now), colorRef.current);
     };
     raf = requestAnimationFrame(frame);
 
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const until = async (cond: () => boolean, timeout: number) => {
-      const t0 = performance.now();
-      while (alive && !cond()) {
-        if (performance.now() - t0 > timeout) return false;
-        await sleep(30);
-      }
-      return alive;
-    };
-    const tween = (ms: number, fn: (e: number) => void, ease: (u: number) => number = easeInOut) =>
-      new Promise<void>((done) => {
-        const t0 = performance.now();
-        const step = () => {
-          if (!alive) return done();
-          const u = clamp01((performance.now() - t0) / ms);
-          fn(ease(u));
-          if (u < 1) setTimeout(step, 16);
-          else done();
-        };
-        step();
-      });
+    const { sleep, until, untilT, tween, settle } = runTimers(clock, () => alive);
     const measure = async (): Promise<SchoolGeom | null> => {
       const nonce = Math.random().toString(36).slice(2, 12);
       await stage('measure', nonce);
@@ -824,8 +915,9 @@ export function SchoolTransition({
         await until(
           () =>
             geom ? fills(geom.out) : window.innerWidth > w0 + 40 || window.innerHeight > h0 + 40,
-          1500
+          2500
         );
+        await settle();
         scene.onResize(window.innerWidth, window.innerHeight);
         scene.onResize = null;
         const w = window.innerWidth;
@@ -845,7 +937,8 @@ export function SchoolTransition({
         await stage('primary');
         await sleep(380);
         geom = await measure();
-        await until(() => fills(geom?.primary), 1200);
+        await until(() => fills(geom?.primary), 2500);
+        await settle();
         const w = window.innerWidth;
         const h = window.innerHeight;
         left = { x0: 1.5, y0: h / 2, x1: 1.5, y1: h / 2, a: 0 };
@@ -870,15 +963,16 @@ export function SchoolTransition({
         const dir = geom.dir;
         const w = window.innerWidth;
         const h = window.innerHeight;
-        scene.packets = uplink(scene.segs, dir, w, h, performance.now());
+        scene.packets = uplink(scene.segs, dir, w, h, clock.now);
         const outEnd = beamEnd(scene.packets);
         await tween(UPLINK_MS, (e) => scene.segs.forEach((seg) => (seg.a = 1 - e)), easeIn);
-        await until(() => performance.now() >= outEnd, 1500);
+        await untilT(() => clock.now >= outEnd, 1500);
         scene.segs = [];
         scene.packets = [];
         await stage('primary');
         await sleep(420);
-        await until(() => fills(geom?.primary), 1200);
+        await until(() => fills(geom?.primary), 2500);
+        await settle();
         // ...and pour in through its facing edge, packing onto a short
         // line at the bottom middle: the tracers run out from there.
         const pw = window.innerWidth;
@@ -892,10 +986,10 @@ export function SchoolTransition({
           a: 0,
         };
         scene.segs = [mid];
-        scene.packets = downlink(mid, dir, pw, ph, performance.now());
+        scene.packets = downlink(mid, dir, pw, ph, clock.now);
         const inEnd = beamEnd(scene.packets);
         await tween(DOWNLINK_MS, (e) => (mid.a = e), easeIn);
-        await until(() => performance.now() >= inEnd, 1500);
+        await untilT(() => clock.now >= inEnd, 1500);
         scene.packets = [];
       }
       if (!alive) return;
@@ -910,7 +1004,7 @@ export function SchoolTransition({
       const l: Seg = { x0: w / 2, y0, x1: w / 2, y1, a: 0 };
       const r: Seg = { ...l };
       const fromSegs = scene.segs;
-      scene.packets = flow(fromSegs, w, h, performance.now());
+      scene.packets = flow(fromSegs, w, h, clock.now);
       const flowEnd = beamEnd(scene.packets);
       scene.segs = [...fromSegs, l, r];
       await Promise.all([
@@ -924,7 +1018,7 @@ export function SchoolTransition({
         }),
       ]);
       scene.segs = [l, r];
-      await until(() => performance.now() >= flowEnd, 600);
+      await untilT(() => clock.now >= flowEnd, 600);
       scene.packets = [];
       if (!alive) return;
 
@@ -932,7 +1026,8 @@ export function SchoolTransition({
       const rim = buildRim(w, h);
       scene.rim = rim;
       const bar = geom && geom.panel >= 24 ? geom.panel : FALLBACK_BAR_PX;
-      scene.tracers = lapTracers(rim, l, r, performance.now());
+      const inset = geom && geom.panel >= 24 ? Math.max(0, geom.inset ?? 0) : 0;
+      scene.tracers = lapTracers(rim, l, r, clock.now);
       scene.pool = {
         ph: bar,
         total: scene.tracers.length,
@@ -942,10 +1037,11 @@ export function SchoolTransition({
         settle: 0,
         alpha: 1,
         held: false,
+        inset,
       };
       scene.segs = [];
       const longest = Math.max(...scene.tracers.map((t) => t.dur));
-      await until(() => scene.tracers.every((t) => t.landed), longest + 1500);
+      await untilT(() => scene.tracers.every((t) => t.landed), longest + 1500);
       if (!alive) return;
 
       // Pool: rise to the bar's height across the whole bottom, then calm.
@@ -961,7 +1057,7 @@ export function SchoolTransition({
       if (!alive) return;
 
       // The real bar surfaces out of the pool, then the window docks.
-      onBar(bar);
+      onBar(bar, inset);
       await tween(REVEAL_MS, (e) => (pool.alpha = 1 - e));
       await stage('dock');
       await until(() => window.innerHeight < 300, 2500);

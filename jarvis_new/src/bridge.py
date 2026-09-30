@@ -393,6 +393,21 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
             {"commands": cmds, "heard": (text or "").strip()[:200]},
             _projects.reply_for(cmds),
         )
+    # Voice-only Drafts window ("open my drafts", "close drafts").
+    # Before the generic open_app route, same as the archive above.
+    try:
+        import drafts_ui as _drafts
+
+        dop = _drafts.parse_voice(lowered)
+    except Exception:
+        dop = None
+    if dop:
+        op = dop.get("op")
+        return (
+            "drafts_ui",
+            {"op": op, "heard": (text or "").strip()[:200]},
+            None,
+        )
     for pattern, tool, args_fn, reply in _VOICE_TOOLS:
         match = re.search(pattern, lowered)
         if match:
@@ -740,6 +755,11 @@ SIDECAR_THREADS = (
     ("camera_hub", "JARVIS_CAMERA_HUB"),
     # Focus sessions survive agent restarts: the drift loop lives here.
     ("focus", "JARVIS_FOCUS"),
+    # Email drafts + urgency triage every minute; WhatsApp replies every 5.
+    ("mail_watch_job", "JARVIS_MAIL_WATCH"),
+    ("wa_autoreply", "JARVIS_WA_WATCH"),
+    # Queued notifications are announced once Sir is back at the keyboard.
+    ("notify", "JARVIS_NOTIFY_QUEUE"),
 )
 
 
@@ -1628,7 +1648,7 @@ def build_status() -> dict:
             and _env("LIVEKIT_API_KEY")
             and _env("LIVEKIT_API_SECRET")
         ),
-        "needle_enabled": _env("JARVIS_NEEDLE", "0") != "0",
+        "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
         "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
         "voice_model_present": _voice_model_present(),
         "whatsapp_reachable": _whatsapp_reachable(),
@@ -1981,6 +2001,22 @@ def run_phone_tool(tool: str, args: dict) -> dict:
                 ),
             )
         return _tool_result(True)
+    if tool == "drafts_ui":
+        import drafts_ui as _drafts
+
+        op = args.get("op")
+        if op == "open":
+            say, opened = _drafts.open_drafts()
+            if not opened and say.startswith("No drafts"):
+                return _tool_result(True, say=say, opened=False)
+            if opened:
+                return _tool_result(True, say=say, opened=True)
+            return _tool_result(False, error="the drafts window didn't respond")
+        if op == "close":
+            if _drafts.close_drafts():
+                return _tool_result(True, say="Drafts closed.")
+            return _tool_result(False, error="the drafts window didn't respond")
+        return _tool_result(False, error="op must be open or close")
     if tool == "open_app":
         name = str(args.get("app", "")).strip().lower().rstrip(".,!? ")
         from system.launcher import blocked_say, is_blocked
@@ -2097,8 +2133,21 @@ def run_phone_tool(tool: str, args: dict) -> dict:
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
-        rc, _, err = _run(["notify-send", title, body], 5.0)
-        return _tool_result(rc == 0, error=None if rc == 0 else err)
+        try:
+            import notify
+
+            result = notify.send(
+                body,
+                title=title,
+                kind="phone",
+                source="phone",
+                allow_speech=False,
+            )
+            route = result.get("route")
+            ok = route != "empty"
+            return _tool_result(ok, error=None if ok else f"route={route}")
+        except Exception as exc:
+            return _tool_result(False, error=str(exc)[:200])
     if tool == "lock":
         # lock-sessions (plural, all) — bare lock-session locks only the
         # caller's session (the headless manager session under systemd,
@@ -2252,6 +2301,9 @@ def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
         return "Volume unknown, Sir."
     if tool == "close_app":
         return (result.get("say") or "Closed").rstrip(". ") + ", Sir."
+    if tool == "drafts_ui":
+        say = result.get("say")
+        return say if isinstance(say, str) and say else "Very good."
     if tool == "play_media":
         q = args.get("query") or ""
         return f"Playing {q} on YouTube, Sir." if q else "Playing your playlist, Sir."
@@ -2884,6 +2936,11 @@ class _Handler(BaseHTTPRequestHandler):
             pid = route[len("/projects/") : -len("/cancel")]
             self._send(200, {"ok": _projects.cancel_project(pid)})
             return
+        if route == "/drafts/close":
+            import drafts_ui as _drafts
+
+            self._send(200, {"ok": True, "closed": bool(_drafts.sync_close())})
+            return
         if route == "/chat":
             body = _read_json_body(self, 65536)
             if body is None:
@@ -3120,6 +3177,31 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "no such project"})
             else:
                 self._send(200, {"ok": True, "project": proj})
+        elif route == "/drafts":
+            import drafts_ui as _drafts
+
+            rows = _drafts.pending_drafts()
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "count": len(rows),
+                    "drafts": [
+                        {
+                            "id": d.get("id"),
+                            "to": d.get("to"),
+                            "subject": d.get("subject"),
+                            "body": d.get("body"),
+                            "summary": d.get("summary"),
+                            "sender": d.get("sender"),
+                            "created": d.get("created"),
+                            "status": d.get("status"),
+                            "priority": d.get("priority"),
+                        }
+                        for d in rows
+                    ],
+                },
+            )
         elif route == "/config":
             self._send(
                 200,
@@ -3127,7 +3209,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "pipeline": _env("JARVIS_PIPELINE", "realtime"),
                     "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
-                    "needle_enabled": _env("JARVIS_NEEDLE", "0") != "0",
+                    "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
                     "local_unlocked": _env("JARVIS_LOCAL") == "1",
                     "livekit_configured": bool(
                         _env("LIVEKIT_URL")

@@ -134,41 +134,65 @@ def parse_gmail_message(data: dict) -> dict:
 
 
 def _gmail_access_token() -> str:
-    """Refresh-token grant via urllib. Raises ToolError when unusable."""
+    """Refresh-token grant via urllib. Raises ToolError when unusable.
+
+    Prefers the separate gmail_connect token (~/jarvis/data/gmail_token.json)
+    so existing connects keep working untouched; otherwise falls back to the
+    shared Google login when it carries the Gmail scopes, else raises the
+    re-auth hint instead of a raw 403.
+    """
     saved = _read_json(GMAIL_TOKEN, None)
-    if not isinstance(saved, dict) or not saved.get("refresh_token"):
+    if isinstance(saved, dict) and saved.get("refresh_token"):
+        payload = urllib.parse.urlencode(
+            {
+                "client_id": saved.get("client_id", ""),
+                "client_secret": saved.get("client_secret", ""),
+                "refresh_token": saved["refresh_token"],
+                "grant_type": "refresh_token",
+            }
+        ).encode()
+        req = urllib.request.Request(
+            saved.get("token_uri") or "https://oauth2.googleapis.com/token",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                fresh = json.loads(r.read().decode())
+        except Exception as exc:
+            raise ToolError(f"Gmail sign-in expired ({exc}). Reconnect it.") from exc
+        token = fresh.get("access_token", "")
+        if not token:
+            raise ToolError("Gmail sign-in expired. Reconnect it.")
+        # Best-effort: persist the fresh access token for next time.
+        try:
+            saved["token"] = token
+            GMAIL_TOKEN.write_text(json.dumps(saved))
+        except Exception:
+            pass
+        return token
+    try:
+        import google_api
+    except ImportError as exc:
         raise ToolError(
             "Gmail is not connected. On the full laptop Jarvis say "
             "'connect gmail' once; I only read an existing connection."
-        )
-    payload = urllib.parse.urlencode(
-        {
-            "client_id": saved.get("client_id", ""),
-            "client_secret": saved.get("client_secret", ""),
-            "refresh_token": saved["refresh_token"],
-            "grant_type": "refresh_token",
-        }
-    ).encode()
-    req = urllib.request.Request(
-        saved.get("token_uri") or "https://oauth2.googleapis.com/token",
-        data=payload,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+        ) from exc
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            fresh = json.loads(r.read().decode())
-    except Exception as exc:
-        raise ToolError(f"Gmail sign-in expired ({exc}). Reconnect it.") from exc
-    token = fresh.get("access_token", "")
-    if not token:
-        raise ToolError("Gmail sign-in expired. Reconnect it.")
-    # Best-effort: persist the fresh access token for next time.
-    try:
-        saved["token"] = token
-        GMAIL_TOKEN.write_text(json.dumps(saved))
+        has_scope = google_api._has_gmail_scope()
     except Exception:
-        pass
-    return token
+        has_scope = False
+    if not has_scope:
+        raise ToolError(google_api.GMAIL_SCOPE_HINT)
+    try:
+        return google_api.access_token()
+    except ToolError:
+        raise
+    except Exception as exc:
+        msg = str(exc).strip()
+        if msg:
+            raise ToolError(msg) from exc
+        raise ToolError(google_api.GMAIL_SCOPE_HINT) from exc
 
 
 def _gmail_api(path: str, token: str, params: dict | None = None) -> dict:
@@ -331,13 +355,25 @@ def classify_email(
 
 
 def autoreply_body(subject: str) -> str:
-    """Conservative acknowledgment template for high-priority mail. Pure."""
+    """Conservative acknowledgment template for high-priority mail. Pure.
+
+    Includes Sir's own number (owner_contact) so the sender can reach him
+    directly when it is genuinely urgent.
+    """
+    from owner_contact import owner_phone
+
     subject = (subject or "(no subject)").strip()[:120]
+    phone = owner_phone()
+    reach = (
+        f"call or WhatsApp my master directly on {phone}"
+        if phone
+        else "follow up by phone or WhatsApp"
+    )
     return (
         f"Hello — this is an automatic reply from Jarvis, assistant to Sir.\n\n"
         f"Your email '{subject}' has been flagged as important and will "
-        f"be reviewed shortly. For anything time-critical, please follow "
-        f"up by phone or WhatsApp.\n\n— Jarvis (automated acknowledgment)"
+        f"be reviewed shortly. For anything time-critical, please {reach}."
+        f"\n\n— Jarvis (automated acknowledgment)"
     )
 
 

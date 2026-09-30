@@ -108,6 +108,26 @@ function useRunning(): BridgeActivity[] {
   return items;
 }
 
+/** Docked over a floating Plasma panel? school.rs trims the panel's gap,
+ *  so the window is then narrower than the screen: the bar takes the
+ *  panel's rounded corners. (While it still covers the screen the pool's
+ *  inset, --sbar-inset, decides; see globals.css.) */
+function useFloating(): boolean {
+  const [floating, setFloating] = useState(false);
+  useEffect(() => {
+    const check = () =>
+      setFloating(window.innerHeight < 300 && window.innerWidth < window.screen.width - 4);
+    check();
+    window.addEventListener('resize', check);
+    const t = setInterval(check, 500); // WebKitGTK resize events are unreliable
+    return () => {
+      window.removeEventListener('resize', check);
+      clearInterval(t);
+    };
+  }, []);
+  return floating;
+}
+
 function useNow(): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -570,6 +590,7 @@ export function SchoolStrip({
   const boot = useBootLog();
   const running = useRunning();
   const now = useNow();
+  const floating = useFloating();
   const { menu, shown, closing, toggle, close } = useMenu();
   const state = muted ? 'muted' : jarvis;
   const color = muted ? MUTED_COLOR : JARVIS_COLORS[jarvis];
@@ -625,6 +646,7 @@ export function SchoolStrip({
       )}
       <div
         className="sbar"
+        data-floating={floating}
         data-leaving={leaving}
         data-state={state}
         data-talking={line !== null}

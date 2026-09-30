@@ -48,7 +48,13 @@ JARVIS_NEEDLE_WEIGHTS at it). Hard lessons from the first tuning round
 
 from __future__ import annotations
 
+import json
 import os
+import queue
+import subprocess
+import sys
+import threading
+import time
 from typing import Literal
 
 os.environ.setdefault("NEEDLE_TELEMETRY", "0")
@@ -213,13 +219,6 @@ def _get_agent():
     return _agent
 
 
-def reset_agent() -> None:
-    """Forget the cached agent (tests only)."""
-    global _agent, _dead
-    _agent = None
-    _dead = False
-
-
 # Needle tool name -> (Jarvis action, params mapping).
 _ACTION_MAP: dict[str, str] = {
     "tell_time": "tell_time",
@@ -264,10 +263,7 @@ def _to_result(raw: dict) -> dict | None:
         return None
 
 
-def route_with_needle(text: str) -> dict | None:
-    """Semantic route for text, or None when abstaining/unavailable. Pure I/O."""
-    if not needle_enabled():
-        return None
+def _route_in_process(text: str) -> dict | None:
     agent = _get_agent()
     if agent is None:
         return None
@@ -275,3 +271,152 @@ def route_with_needle(text: str) -> dict | None:
         return _to_result(agent.complete(text.strip()[:200]))
     except Exception:
         return None
+
+
+# --- Crash isolation -------------------------------------------------------
+# libneedle's native complete() segfaults on some utterances (coredumps, exit
+# code -11). In the agent process that kills the whole LiveKit job, which is
+# re-dispatched: Jarvis restarts mid-answer and loops. So the model lives in a
+# persistent child process instead. A crash costs one abstention (the turn
+# falls through to Gemini) and a respawn; repeated crashes retire the layer
+# for the session.
+
+ISOLATE_ENV = "JARVIS_NEEDLE_ISOLATE"
+_REPLY_TIMEOUT = 3.0  # s; over this the turn abstains and the worker is recycled
+_MAX_CRASHES = 4  # within _CRASH_WINDOW seconds -> retire for the session
+_CRASH_WINDOW = 600.0
+
+_lock = threading.Lock()
+_proc: subprocess.Popen | None = None
+_replies: "queue.Queue[dict]" = queue.Queue()
+_ready = threading.Event()
+_crashes: list[float] = []
+_retired = False
+
+
+def _pump(proc: subprocess.Popen, replies: "queue.Queue[dict]") -> None:
+    """Reader thread: worker stdout lines -> queue; EOF -> death sentinel."""
+    try:
+        for line in proc.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("ready"):
+                _ready.set()
+            else:
+                replies.put(msg)
+    except Exception:
+        pass
+    replies.put({"dead": True})
+
+
+def _kill_worker(crashed: bool) -> None:
+    global _proc, _retired
+    proc, _proc = _proc, None
+    _ready.clear()
+    if proc is not None:
+        try:
+            proc.kill()
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+    if crashed:
+        now = time.monotonic()
+        _crashes[:] = [t for t in _crashes if now - t < _CRASH_WINDOW] + [now]
+        if len(_crashes) >= _MAX_CRASHES:
+            _retired = True
+
+
+def _spawn() -> None:
+    global _proc, _replies
+    _replies = queue.Queue()
+    _ready.clear()
+    _proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "--worker"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
+    threading.Thread(target=_pump, args=(_proc, _replies), daemon=True).start()
+
+
+def _route_isolated(text: str) -> dict | None:
+    with _lock:
+        if _retired:
+            return None
+        if _proc is None or _proc.poll() is not None:
+            if _proc is not None:
+                _kill_worker(crashed=True)
+                if _retired:
+                    return None
+            _spawn()
+        # Still loading the model: abstain rather than stall the turn.
+        if not _ready.is_set():
+            return None
+        try:
+            _proc.stdin.write(json.dumps({"text": text.strip()[:200]}) + "\n")
+            _proc.stdin.flush()
+            reply = _replies.get(timeout=_REPLY_TIMEOUT)
+        except (OSError, ValueError, queue.Empty):
+            _kill_worker(crashed=True)
+            return None
+        if reply.get("dead"):
+            _kill_worker(crashed=True)
+            return None
+        return _to_result(reply.get("raw"))
+
+
+def warm_up() -> None:
+    """Start the worker early so the first real turn already has a model."""
+    if needle_enabled() and _isolated():
+        with _lock:
+            if not _retired and (_proc is None or _proc.poll() is not None):
+                _spawn()
+
+
+def _isolated() -> bool:
+    return os.environ.get(ISOLATE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def route_with_needle(text: str) -> dict | None:
+    """Semantic route for text, or None when abstaining/unavailable. Pure I/O."""
+    if not needle_enabled():
+        return None
+    if _isolated():
+        return _route_isolated(text)
+    return _route_in_process(text)
+
+
+def _worker_main() -> None:
+    """Child process: own fd 1 for the protocol, send everything else to stderr."""
+    out = os.fdopen(os.dup(1), "w", buffering=1)
+    os.dup2(2, 1)
+    try:
+        agent = _build_agent()
+    except Exception:
+        return
+    out.write(json.dumps({"ready": True}) + "\n")
+    for line in sys.stdin:
+        try:
+            raw = agent.complete(json.loads(line)["text"])
+            out.write(json.dumps({"raw": raw}, default=str) + "\n")
+        except Exception:
+            out.write(json.dumps({"raw": None}) + "\n")
+
+
+def reset_agent() -> None:
+    """Forget cached state (tests only)."""
+    global _agent, _dead, _retired
+    _agent = None
+    _dead = False
+    _retired = False
+    _crashes.clear()
+    with _lock:
+        _kill_worker(crashed=False)
+
+
+if __name__ == "__main__" and "--worker" in sys.argv:
+    _worker_main()

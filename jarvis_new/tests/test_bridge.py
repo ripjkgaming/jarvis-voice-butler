@@ -1640,7 +1640,8 @@ def test_sys_stats_never_starts_real_listener(monkeypatch):
     assert bridge._sys_stats()["windows"] == []
 
 
-def test_watch_mode_voice_routing() -> None:
+def test_watch_mode_voice_routing(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WATCH_MODE", "1")
     assert bridge._match_voice_tool("Jarvis, I'm leaving") == (
         "watch_mode",
         {},
@@ -1653,3 +1654,143 @@ def test_watch_mode_voice_routing() -> None:
     )
     hit = bridge._match_voice_tool("jarvis i'm leaving for school at eight remind me")
     assert hit is None or hit[0] != "watch_mode"
+
+
+def test_watch_mode_voice_routing_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WATCH_MODE", "0")
+    hit = bridge._match_voice_tool("jarvis watch the laptop")
+    assert hit is None or hit[0] != "watch_mode"
+
+
+# --- Drafts window: voice route + GET /drafts + POST /drafts/close ---
+
+
+def _draft_row(did="m1", status="pending"):
+    return {
+        "id": did,
+        "to": "t@school.edu",
+        "subject": "Re: Homework",
+        "body": "Done, Sir.",
+        "summary": "Teacher asks about homework.",
+        "sender": "Teacher <t@school.edu>",
+        "created": 1700000000.0,
+        "status": status,
+        "priority": "normal",
+    }
+
+
+def test_drafts_voice_route_open_and_close(monkeypatch):
+    import drafts_ui
+
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [_draft_row()])
+    hit = bridge._match_voice_tool("Jarvis, open my drafts.")
+    assert hit is not None and hit[0] == "drafts_ui"
+    assert hit[1]["op"] == "open"
+    hit = bridge._match_voice_tool("hide my drafts")
+    assert hit is not None and hit[0] == "drafts_ui"
+    assert hit[1]["op"] == "close"
+    # Projects and singular-draft phrases stay off this route.
+    assert bridge._match_voice_tool("open research projects")[0] == "projects_ui"
+    assert bridge._match_voice_tool("draft a whatsapp") is None or (
+        bridge._match_voice_tool("draft a whatsapp")[0] != "drafts_ui"
+    )
+    assert bridge._match_voice_tool("draft an email") is None or (
+        bridge._match_voice_tool("draft an email")[0] != "drafts_ui"
+    )
+
+
+def test_drafts_tool_open_empty_never_shells(monkeypatch):
+    import drafts_ui
+    import projects
+
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [])
+
+    def _boom(*a, **k):
+        raise AssertionError("shell must not run when empty")
+
+    monkeypatch.setattr(projects, "shell_verb", _boom)
+    code, payload = bridge.handle_route({"text": "open my drafts"})
+    assert code == 200
+    assert payload["reply"] == "No drafts, Sir."
+    assert payload["action"]["tool"] == "drafts_ui"
+    assert payload["action"]["ok"] is True
+
+
+def test_drafts_tool_open_nonempty_shells_draftsshow(monkeypatch):
+    import drafts_ui
+    import projects
+
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [_draft_row()])
+    calls: list = []
+    monkeypatch.setattr(
+        projects, "shell_verb", lambda verb, *a, **k: calls.append(verb) or True
+    )
+    code, payload = bridge.handle_route({"text": "show my email drafts"})
+    assert code == 200
+    assert calls == ["draftsshow"]
+    assert payload["action"] == {"tool": "drafts_ui", "ok": True}
+    assert payload["reply"]
+
+
+def test_drafts_http_routes(monkeypatch):
+    import drafts_ui
+
+    rows = [_draft_row("m1"), _draft_row("m2", "announced")]
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: rows)
+    server = _bridge_server()
+    try:
+        status, body = _get(server, "/drafts", token="test-token")
+        assert status == 200 and body["ok"] is True
+        assert body["count"] == 2
+        assert {d["id"] for d in body["drafts"]} == {"m1", "m2"}
+        for key in (
+            "id",
+            "to",
+            "subject",
+            "body",
+            "summary",
+            "sender",
+            "created",
+            "status",
+            "priority",
+        ):
+            assert key in body["drafts"][0], key
+        monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [])
+        sync_calls: list = []
+        monkeypatch.setattr(
+            drafts_ui,
+            "sync_close",
+            lambda run=None: sync_calls.append("sync") or True,
+        )
+        import projects
+
+        monkeypatch.setattr(projects, "shell_verb", lambda *a, **k: True)
+        status, body = _post(server, "/drafts/close", {}, token="test-token")
+        assert status == 200 and body == {"ok": True, "closed": True}
+        assert sync_calls == ["sync"]
+        monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: rows)
+        monkeypatch.setattr(drafts_ui, "sync_close", lambda run=None: False)
+        status, body = _post(server, "/drafts/close", {}, token="test-token")
+        assert status == 200 and body == {"ok": True, "closed": False}
+    finally:
+        server.server_close()
+
+
+def test_drafts_http_routes_use_same_bearer_gate(monkeypatch):
+    import drafts_ui
+
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [])
+    monkeypatch.setattr(drafts_ui, "sync_close", lambda run=None: True)
+    server, _ = bridge._run_in_thread(token="s3cret")
+    try:
+        code, _ = _get(server, "/drafts")
+        assert code == 401
+        code, body = _get(server, "/drafts", token="s3cret")
+        assert code == 200 and body["ok"] is True
+        code, _ = _post(server, "/drafts/close", {})
+        assert code == 401
+        code, body = _post(server, "/drafts/close", {}, token="s3cret")
+        assert code == 200 and body["ok"] is True
+    finally:
+        server.shutdown()
+        server.server_close()

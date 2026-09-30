@@ -10,6 +10,11 @@ import pytest
 import watch_mode
 
 
+@pytest.fixture(autouse=True)
+def _watch_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JARVIS_WATCH_MODE", "1")
+
+
 @pytest.fixture()
 def home(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis"))
@@ -540,3 +545,30 @@ def test_finish_session_announces_save_result(
     out = watch_mode.finish_session(watcher)
     assert out == saved
     assert seen["result"] == saved
+
+
+def test_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JARVIS_WATCH_MODE", "0")
+    assert watch_mode.parse_command("watch the laptop") is False
+
+    def boom(*a, **k):
+        raise AssertionError("must not launch while disabled")
+
+    res = watch_mode.launch(popen=boom)
+    assert res["ok"] is False and "off" in res["error"]
+
+
+def test_request_stop_only_when_running(home, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert watch_mode.request_stop() is False
+    assert not watch_mode.stop_path().exists()
+    monkeypatch.setattr(watch_mode, "is_running", lambda: True)
+    assert watch_mode.request_stop() is True
+    assert watch_mode.stop_path().exists()
+
+
+def test_launch_clears_stale_stop_request(home, monkeypatch: pytest.MonkeyPatch) -> None:
+    watch_mode.state_dir().mkdir(parents=True, exist_ok=True)
+    watch_mode.stop_path().write_text("old")
+    monkeypatch.setattr(watch_mode, "is_running", lambda: False)
+    watch_mode.launch(popen=lambda *a, **k: None)
+    assert not watch_mode.stop_path().exists()

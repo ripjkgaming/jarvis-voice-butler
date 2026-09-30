@@ -304,8 +304,12 @@ def test_uploads_use_the_upload_endpoint(tmp_path, monkeypatch):
         seen["url"] = req.full_url
         return io.BytesIO(_json.dumps({"id": "abc", "name": "x"}).encode())
 
-    google_api.drive_upload("x.html", b"<p>x</p>", "text/html", convert_to="doc", opener=opener)
-    assert seen["url"].startswith("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")
+    google_api.drive_upload(
+        "x.html", b"<p>x</p>", "text/html", convert_to="doc", opener=opener
+    )
+    assert seen["url"].startswith(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+    )
 
 
 def test_share_with_school_shares_as_editor_without_email(tmp_path, monkeypatch):
@@ -317,17 +321,25 @@ def test_share_with_school_shares_as_editor_without_email(tmp_path, monkeypatch)
     monkeypatch.setattr(google_api, "access_token", lambda **k: "tok")
     calls = []
     monkeypatch.setattr(
-        google_api, "_request_json", lambda m, u, t, p=None, opener=None: calls.append((m, u, p)) or {}
+        google_api,
+        "_request_json",
+        lambda m, u, t, p=None, opener=None: calls.append((m, u, p)) or {},
     )
     try:
         google_api.share_with_school("FILE")
         raise AssertionError("expected GoogleError without a school email")
     except google_api.GoogleError:
         pass
-    (tmp_path / "google_accounts.json").write_text(_json.dumps({"school": "s@school.sg"}))
+    (tmp_path / "google_accounts.json").write_text(
+        _json.dumps({"school": "s@school.sg"})
+    )
     assert google_api.share_with_school("FILE") == "s@school.sg"
     method, url, body = calls[-1]
-    assert method == "POST" and "/files/FILE/permissions" in url and "sendNotificationEmail=false" in url
+    assert (
+        method == "POST"
+        and "/files/FILE/permissions" in url
+        and "sendNotificationEmail=false" in url
+    )
     assert body == {"type": "user", "role": "writer", "emailAddress": "s@school.sg"}
 
 
@@ -418,7 +430,13 @@ def test_has_calendar_scope_shapes(tmp_path, monkeypatch) -> None:
 
     (tmp_path / "google_token.json").write_text(
         json.dumps(
-            {"refresh_token": "rt", "scopes": old_scopes + ["https://www.googleapis.com/auth/calendar.events"]}
+            {
+                "refresh_token": "rt",
+                "scopes": [
+                    *old_scopes,
+                    "https://www.googleapis.com/auth/calendar.events",
+                ],
+            }
         )
     )
     assert google_api._has_calendar_scope() is True
@@ -458,3 +476,70 @@ def test_calendar_list_gets_range(tmp_path, monkeypatch) -> None:
     assert body is None
     query = urllib.parse.unquote(url)
     assert "2026-06-01T00:00:00Z" in query and "2026-06-08T00:00:00Z" in query
+
+
+# --- gmail scopes (added 2026-09-29) ---
+
+
+def test_gmail_scopes_in_default_scopes() -> None:
+    import google_api
+
+    assert "https://www.googleapis.com/auth/gmail.readonly" in google_api.SCOPES
+    assert "https://www.googleapis.com/auth/gmail.send" in google_api.SCOPES
+
+
+def test_gmail_scope_hint_mentions_reauth() -> None:
+    import google_api
+
+    assert "Sir" in google_api.GMAIL_SCOPE_HINT
+    assert "scripts/google_auth.py" in google_api.GMAIL_SCOPE_HINT
+
+
+def test_has_gmail_scope_shapes(tmp_path, monkeypatch) -> None:
+    import google_api
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "fake-id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "fake-secret")
+
+    (tmp_path / "google_token.json").write_text(json.dumps({"refresh_token": "rt"}))
+    assert google_api._has_gmail_scope() is True  # no scopes field: lenient
+
+    old_scopes = [
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/documents",
+    ]
+    (tmp_path / "google_token.json").write_text(
+        json.dumps({"refresh_token": "rt", "scopes": old_scopes})
+    )
+    assert google_api._has_gmail_scope() is False
+
+    gmail_scopes = [
+        *old_scopes,
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+    ]
+    (tmp_path / "google_token.json").write_text(
+        json.dumps({"refresh_token": "rt", "scopes": gmail_scopes})
+    )
+    assert google_api._has_gmail_scope() is True
+
+    # Read without send is not enough to reply in-thread.
+    (tmp_path / "google_token.json").write_text(
+        json.dumps(
+            {
+                "refresh_token": "rt",
+                "scopes": [
+                    *old_scopes,
+                    "https://www.googleapis.com/auth/gmail.readonly",
+                ],
+            }
+        )
+    )
+    assert google_api._has_gmail_scope() is False
+
+    # Space-joined string form (OAuth "scope") also counts.
+    (tmp_path / "google_token.json").write_text(
+        json.dumps({"refresh_token": "rt", "scope": " ".join(gmail_scopes)})
+    )
+    assert google_api._has_gmail_scope() is True

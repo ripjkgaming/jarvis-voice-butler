@@ -208,6 +208,22 @@ pub fn hide_projects(app: &AppHandle) {
     }
 }
 
+/// Show + focus the drafts window (voice "open my drafts", only when a
+/// reply draft is waiting; the bridge checks before it asks).
+pub fn show_drafts(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("drafts") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Hide the drafts window ("close drafts", or the last draft was handled).
+pub fn hide_drafts(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("drafts") {
+        let _ = win.hide();
+    }
+}
+
 /// Mirror a confirmed mute on the tray checkbox (HUD/CLI mute paths call
 /// this; no bridge I/O here). Missing handle = no-op.
 pub fn set_mute_checked(app: &AppHandle, checked: bool) {

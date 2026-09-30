@@ -47,7 +47,38 @@ pub fn school_on_disk(home: &std::path::Path) -> bool {
 /// edge. The reserved strip (full minus maximize area) can be shorter than
 /// the panel as drawn (floating panels overhang it by a few px, which then
 /// peek above the bar), so the tallest bottom dock on the same output wins.
-const PANEL_TOP_JS: &str = "const full = workspace.clientArea(KWin.FullScreenArea, w);\n\
+/// Also `inset`/`barH`: see [`PANEL_INSET_JS`].
+/// JS for `inset`/`barH` given `panel`, `top`, `full` and `jkOut` (the
+/// output) in scope. A floating Plasma panel's window is its thickness
+/// plus a gap on every side (a 40 px bar in a 56 px window): the bar covers
+/// only the panel as drawn, so it is the real taskbar's size. But Plasma
+/// de-floats the panel (flush, the whole window) while a window touches
+/// it, e.g. anything maximized; then the bar is flush too, or the real
+/// panel would show around it. `JK_T` (the thickness, from Plasma) is
+/// prepended by [`with_panel_thickness`]; unknown -> no inset.
+macro_rules! inset_js {
+    () => {
+        "const jkT = (typeof JK_T === \"number\") ? JK_T : 0;\n\
+    let jkTouch = false;\n\
+    for (const v of workspace.windowList()) {\n\
+      if (!v.normalWindow || v.minimized || v.dock || v.output !== jkOut) continue;\n\
+      if (String(v.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
+      if (!v.onAllDesktops && !v.desktops.includes(workspace.currentDesktop)) continue;\n\
+      const f = v.frameGeometry;\n\
+      if (f.y + f.height >= top - 1 && f.x < full.x + full.width && f.x + f.width > full.x) { jkTouch = true; break; }\n\
+    }\n\
+    const inset = (!jkTouch && jkT > 0 && panel > jkT + 1 && panel - jkT <= 48) ? Math.floor((panel - jkT) / 2) : 0;\n\
+    const barH = panel - 2 * inset;\n"
+    };
+}
+
+/// JS computing `top`/`panel` for window `w`: the bottom panel's real top
+/// edge. The reserved strip (full minus maximize area) can be shorter than
+/// the panel as drawn (floating panels overhang it by a few px, which then
+/// peek above the bar), so the tallest bottom dock on the same output wins.
+/// Also `inset`/`barH`: see [`inset_js`].
+const PANEL_TOP_JS: &str = concat!(
+    "const full = workspace.clientArea(KWin.FullScreenArea, w);\n\
     const a = workspace.clientArea(KWin.MaximizeArea, w);\n\
     let top = a.y + a.height;\n\
     for (const d of workspace.windowList()) {\n\
@@ -55,7 +86,50 @@ const PANEL_TOP_JS: &str = "const full = workspace.clientArea(KWin.FullScreenAre
       const g = d.frameGeometry;\n\
       if (g.y > full.y + full.height / 2 && g.y < top) top = g.y;\n\
     }\n\
-    const panel = (full.y + full.height) - top;\n";
+    const panel = (full.y + full.height) - top;\n\
+    const jkOut = w.output;\n",
+    inset_js!()
+);
+
+/// [`inset_js`] for the scripts that compute `panel` their own way.
+const PANEL_INSET_JS: &str = inset_js!();
+
+/// Thickness (px) of the primary screen's bottom Plasma panel as drawn
+/// (Plasma's screen 0 is the primary), or 0 when unknown / not Plasma.
+pub fn primary_panel_thickness() -> u32 {
+    let js = "print(panels().filter(function(p){return p.screen==0 && p.location=='bottom';})\
+              .map(function(p){return p.height;}).join(','))";
+    std::process::Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply",
+            "--dest=org.kde.plasmashell",
+            "/PlasmaShell",
+            "org.kde.PlasmaShell.evaluateScript",
+            &format!("string:{js}"),
+        ])
+        .output()
+        .ok()
+        .map(|o| parse_thickness(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or(0)
+}
+
+/// First panel height in a `dbus-send --print-reply` of evaluateScript
+/// (`string "40"`), 0 if none. Pure.
+pub fn parse_thickness(reply: &str) -> u32 {
+    reply
+        .split('"')
+        .nth(1)
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|t| (16..=200).contains(t))
+        .unwrap_or(0)
+}
+
+/// Prefix a school script with the primary panel's thickness (`JK_T`).
+fn with_panel_thickness(script: &str) -> String {
+    format!("const JK_T = {};\n{script}", primary_panel_thickness())
+}
 
 /// Connector name (e.g. "DP-1") of Plasma's primary display: the output
 /// `kscreen-doctor -j` reports at priority 1. None off Plasma / on error.
@@ -91,7 +165,7 @@ pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary:
              const s = w.frameGeometry;\n\
              w.noBorder = true;\n\
              if (panel >= 24) {{\n\
-               w.frameGeometry = {{x: full.x, y: top, width: full.width, height: panel}};\n\
+               w.frameGeometry = {{x: full.x + inset, y: top + inset, width: full.width - 2 * inset, height: barH}};\n\
              }} else {{\n\
                w.frameGeometry = {{x: a.x + a.width - s.width - {m}, y: a.y + a.height - s.height - {m}, width: s.width, height: s.height}};\n\
              }}\n\
@@ -229,7 +303,10 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
              const g = d.frameGeometry;\n\
              if (g.y > full.y + full.height / 2 && g.y < top) top = g.y;\n\
            }}\n\
-           return {{full: full, a: a, panel: (full.y + full.height) - top}};\n\
+           const panel = (full.y + full.height) - top;\n\
+           const jkOut = o;\n\
+           {inset_js}\
+           return {{full: full, a: a, panel: panel, inset: inset, barH: barH}};\n\
          }}\n\
          function jkTarget() {{\n\
            const screens = workspace.screens;\n\
@@ -251,8 +328,8 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
              const g = w.frameGeometry;\n\
              let want;\n\
              if (p.panel >= 24) {{\n\
-               const h = p.panel + {menu_extra};\n\
-               want = {{x: p.full.x, y: p.full.y + p.full.height - h, width: p.full.width, height: h}};\n\
+               const h = p.barH + {menu_extra};\n\
+               want = {{x: p.full.x + p.inset, y: p.full.y + p.full.height - p.inset - h, width: p.full.width - 2 * p.inset, height: h}};\n\
              }} else {{\n\
                want = {{x: p.a.x + p.a.width - g.width - {m}, y: p.a.y + p.a.height - g.height - {m}, width: g.width, height: g.height}};\n\
              }}\n\
@@ -287,25 +364,29 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
          function jkHook(w) {{\n\
            if (!w) return;\n\
            const jarvis = String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\");\n\
-           if (!jarvis && !w.dock) return;\n\
+           // Normal windows too: one touching the panel de-floats it.\n\
+           if (!jarvis && !w.dock && !w.normalWindow) return;\n\
            try {{ w.frameGeometryChanged.connect(jkSoon); }} catch (e) {{}}\n\
            try {{ w.outputChanged.connect(jkSoon); }} catch (e) {{}}\n\
+           try {{ w.minimizedChanged.connect(jkSoon); }} catch (e) {{}}\n\
+           try {{ w.desktopsChanged.connect(jkSoon); }} catch (e) {{}}\n\
            if (jarvis) {{\n\
              try {{ w.captionChanged.connect(jkSoon); }} catch (e) {{}}\n\
-             try {{ w.minimizedChanged.connect(jkSoon); }} catch (e) {{}}\n\
            }}\n\
          }}\n\
          try {{ workspace.screensChanged.connect(jkSoon); }} catch (e) {{}}\n\
          try {{ workspace.stackingOrderChanged.connect(jkRaise); }} catch (e) {{}}\n\
          try {{ workspace.virtualScreenGeometryChanged.connect(jkSoon); }} catch (e) {{}}\n\
          try {{ workspace.windowAdded.connect(function(w) {{ jkHook(w); jkSoon(); }}); }} catch (e) {{}}\n\
-         try {{ workspace.windowRemoved.connect(function(w) {{ if (w && w.dock) jkSoon(); }}); }} catch (e) {{}}\n\
+         try {{ workspace.windowRemoved.connect(function(w) {{ jkSoon(); }}); }} catch (e) {{}}\n\
+         try {{ workspace.currentDesktopChanged.connect(jkSoon); }} catch (e) {{}}\n\
          for (const w of workspace.windowList()) jkHook(w);\n\
          jkDock();\n",
         primary = primary.unwrap_or(""),
         title = STRIP_TITLE,
         m = STRIP_MARGIN,
         menu_extra = menu_extra.min(MENU_MAX_EXTRA),
+        inset_js = PANEL_INSET_JS,
     )
 }
 
@@ -313,8 +394,14 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
 fn start_keeper() {
     std::thread::spawn(|| {
         let primary = primary_output_name();
+        // Re-checked on this thread: an exit or entry that began since the
+        // keeper was asked for has already stopped it, and loading it now
+        // would snap the window back to bar height mid-transition.
+        if !is_school() || in_transition() {
+            return;
+        }
         let extra = MENU_EXTRA_NOW.load(Ordering::SeqCst);
-        load_kwin_named(&keeper_script(primary.as_deref(), extra), KEEPER_NAME);
+        load_kwin_named(&with_panel_thickness(&keeper_script(primary.as_deref(), extra)), KEEPER_NAME);
     });
 }
 
@@ -447,6 +534,11 @@ pub fn enter(app: &AppHandle) {
 /// over the window left it fullscreen and never docked.
 static ENTERING: AtomicBool = AtomicBool::new(false);
 
+/// An entry or return animation owns the window right now.
+fn in_transition() -> bool {
+    ENTERING.load(Ordering::SeqCst) || RETURNING.load(Ordering::SeqCst)
+}
+
 /// Straight to the docked strip, no transition (boot restore).
 pub fn enter_quiet(app: &AppHandle) {
     SCHOOL.store(true, Ordering::SeqCst);
@@ -458,8 +550,10 @@ pub fn enter_quiet(app: &AppHandle) {
 static TX_GEN: AtomicU64 = AtomicU64::new(0);
 /// Generation whose transition reached the "dock" stage.
 static DOCKED_GEN: AtomicU64 = AtomicU64::new(0);
-/// If the page hasn't docked the strip by now (ms), the shell does.
-pub const TX_WATCHDOG_MS: u64 = 10_000;
+/// If the page hasn't docked the strip by now (ms), the shell does. The
+/// page's animation clock pauses while the webview stalls (window moves
+/// under load), so a healthy run can take well over its nominal ~8 s.
+pub const TX_WATCHDOG_MS: u64 = 20_000;
 
 /// KWin script reporting the geometry the entry transition needs, pushed
 /// to the bridge (`SchoolGeom` on org.jarvis.Focus, read back by the page
@@ -484,6 +578,9 @@ pub fn measure_script(nonce: &str, primary: Option<&str>) -> String {
              const f = d.frameGeometry;\n\
              if (f.y > full.y + full.height / 2 && f.y < top) top = f.y;\n\
            }}\n\
+           const panel = (full.y + full.height) - top;\n\
+           const jkOut = prim;\n\
+           {inset_js}\
            const dx = (pg.x + pg.width / 2) - (og.x + og.width / 2);\n\
            const dy = (pg.y + pg.height / 2) - (og.y + og.height / 2);\n\
            const dir = out === prim ? null : Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? \"left\" : \"right\") : (dy < 0 ? \"up\" : \"down\");\n\
@@ -491,12 +588,13 @@ pub fn measure_script(nonce: &str, primary: Option<&str>) -> String {
            const hud = r(g); hud.x -= Math.round(og.x); hud.y -= Math.round(og.y);\n\
            callDBus(\"org.jarvis.Focus\", \"/org/jarvis/Focus\", \"org.jarvis.Focus\", \"SchoolGeom\", JSON.stringify({{\n\
              nonce: \"{nonce}\", visible: !w.minimized, hud: hud, out: r(og), primary: r(pg),\n\
-             same: out === prim, dir: dir, panel: Math.round((full.y + full.height) - top)\n\
+             same: out === prim, dir: dir, panel: Math.round(barH), inset: inset\n\
            }}));\n\
            break;\n\
          }}\n",
         title = STRIP_TITLE,
         primary = primary.unwrap_or(""),
+        inset_js = PANEL_INSET_JS,
     )
 }
 
@@ -614,7 +712,10 @@ pub fn school_stage(
             let nonce = nonce.unwrap_or_default();
             std::thread::spawn(move || {
                 let primary = primary_output_name();
-                run_kwin_named(&measure_script(&nonce, primary.as_deref()), "jarvis_school_measure");
+                run_kwin_named(
+                    &with_panel_thickness(&measure_script(&nonce, primary.as_deref())),
+                    "jarvis_school_measure",
+                );
             });
         }
         "unframe" | "cover" | "primary" | "cover-at" => {
@@ -649,7 +750,7 @@ pub fn school_stage(
             strip_window_props(&app, false);
             std::thread::spawn(|| {
                 let primary = primary_output_name();
-                run_kwin(&kwin_script(true, None, primary.as_deref()));
+                run_kwin(&with_panel_thickness(&kwin_script(true, None, primary.as_deref())));
             });
             start_keeper();
         }
@@ -730,7 +831,7 @@ pub fn menu_script(extra: u32) -> String {
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
            {top_js}\
            if (panel < 24) continue;\n\
-           w.frameGeometry = {{x: full.x, y: top - {extra}, width: full.width, height: panel + {extra}}};\n\
+           w.frameGeometry = {{x: full.x + inset, y: top + inset - {extra}, width: full.width - 2 * inset, height: barH + {extra}}};\n\
          }}\n",
         title = STRIP_TITLE,
         top_js = PANEL_TOP_JS
@@ -742,12 +843,16 @@ pub fn menu_script(extra: u32) -> String {
 /// with 0. Only while docked in school mode.
 #[tauri::command]
 pub fn school_menu(extra: f64) -> Result<(), String> {
-    if !is_school() || crate::orb::is_orb() {
+    // Mid-transition the window belongs to the animation: a menu closing as
+    // the bar leaves must not resize it or re-arm the keeper.
+    if !is_school() || crate::orb::is_orb() || in_transition() {
         return Ok(());
     }
     let extra = if extra.is_finite() { extra.max(0.0) as u32 } else { 0 };
     MENU_EXTRA_NOW.store(extra.min(MENU_MAX_EXTRA), Ordering::SeqCst);
-    std::thread::spawn(move || run_kwin_named(&menu_script(extra), "jarvis_school_menu"));
+    std::thread::spawn(move || {
+        run_kwin_named(&with_panel_thickness(&menu_script(extra)), "jarvis_school_menu")
+    });
     // Re-arm the keeper at the new height, or it would undo the menu.
     start_keeper();
     Ok(())
@@ -777,7 +882,7 @@ pub fn apply(app: &AppHandle) {
         // Let the compositor map the resized window before docking it.
         std::thread::sleep(std::time::Duration::from_millis(400));
         let primary = primary_output_name();
-        run_kwin(&kwin_script(true, None, primary.as_deref()));
+        run_kwin(&with_panel_thickness(&kwin_script(true, None, primary.as_deref())));
     });
     start_keeper();
 }
@@ -897,7 +1002,14 @@ mod tests {
         assert!(dock.contains(STRIP_TITLE));
         // Covers the whole bottom panel, falling back to bottom-right.
         assert!(dock.contains("KWin.FullScreenArea") && dock.contains("panel >= 24"));
-        assert!(dock.contains("width: full.width, height: panel"));
+        assert!(dock.contains("width: full.width - 2 * inset, height: barH"));
+        // A floating panel's gap is trimmed off (bar = the panel as drawn).
+        assert!(dock.contains("Math.floor((panel - jkT) / 2)"));
+        // ...except while a window touches it: Plasma de-floats it flush.
+        assert!(dock.contains("jkTouch = true") && dock.contains("!jkTouch && jkT > 0"));
+        assert!(keeper_script(None, 0).contains("const jkOut = o;"));
+        assert!(measure_script("n", None).contains("const jkOut = prim;"));
+        assert!(with_panel_thickness("x").ends_with("\nx"));
         // Docks on the primary display, else the screen Sir is working on.
         assert!(dock.contains("o.name === \"DP-1\") || workspace.activeScreen"));
         assert!(dock.contains("sendClientToScreen(w, target)"));
@@ -920,10 +1032,10 @@ mod tests {
     fn menu_script_grows_upward_and_clamps() {
         let s = menu_script(420);
         assert!(s.contains(STRIP_TITLE) && s.contains("resourceClass"));
-        assert!(s.contains("y: top - 420") && s.contains("height: panel + 420"));
+        assert!(s.contains("y: top + inset - 420") && s.contains("height: barH + 420"));
         assert!(s.contains("d.dock") && s.contains("d.output !== w.output"));
-        assert!(menu_script(0).contains("height: panel + 0"));
-        assert!(menu_script(99_999).contains(&format!("panel + {MENU_MAX_EXTRA}")));
+        assert!(menu_script(0).contains("height: barH + 0"));
+        assert!(menu_script(99_999).contains(&format!("barH + {MENU_MAX_EXTRA}")));
     }
 
     #[test]
@@ -955,6 +1067,16 @@ mod tests {
     }
 
     #[test]
+    fn panel_thickness_parses_plasma_reply() {
+        let reply = "method return time=1 sender=:1.4 -> destination=:1.9 serial=7 reply_serial=2\n   string \"40\"\n";
+        assert_eq!(parse_thickness(reply), 40);
+        assert_eq!(parse_thickness("   string \"50,30\"\n"), 50);
+        assert_eq!(parse_thickness("   string \"\"\n"), 0);
+        assert_eq!(parse_thickness("Error org.freedesktop.DBus.Error.ServiceUnknown"), 0);
+        assert_eq!(parse_thickness("   string \"4000\"\n"), 0);
+    }
+
+    #[test]
     fn keeper_redocks_on_screen_changes_without_eating_menus() {
         let k = keeper_script(Some("HDMI-A-2"), 0);
         assert!(k.contains("o.name === JK_PRIMARY") && k.contains("\"HDMI-A-2\""));
@@ -965,15 +1087,15 @@ mod tests {
         // Never left stacked under the panel it covers.
         assert!(k.contains("stackingOrderChanged.connect(jkRaise)") && k.contains("workspace.raiseWindow(w)"));
         // Bottom edge pinned to the screen bottom, full width.
-        assert!(k.contains("y: p.full.y + p.full.height - h, width: p.full.width"));
+        assert!(k.contains("y: p.full.y + p.full.height - p.inset - h, width: p.full.width - 2 * p.inset"));
         // Exactly the panel with no menu open: never guesses from the
         // window's own height (a still-full-size window after a transition
         // was taken for a menu and pinned tall, showing the HUD).
-        assert!(k.contains("const h = p.panel + 0;"));
+        assert!(k.contains("const h = p.barH + 0;"));
         assert!(!k.contains("g.height - p.panel"));
         // A granted menu height is kept, capped.
-        assert!(keeper_script(None, 480).contains("const h = p.panel + 480;"));
-        assert!(keeper_script(None, 5000).contains(&format!("const h = p.panel + {MENU_MAX_EXTRA};")));
+        assert!(keeper_script(None, 480).contains("const h = p.barH + 480;"));
+        assert!(keeper_script(None, 5000).contains(&format!("const h = p.barH + {MENU_MAX_EXTRA};")));
         // Falls back to any screen with a panel when the primary is gone.
         assert!(keeper_script(None, 0).contains("jkPanel(o).panel >= 24"));
     }

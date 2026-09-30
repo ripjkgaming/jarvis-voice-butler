@@ -55,6 +55,32 @@ def test_unknown_tool_rejected() -> None:
     assert run_phone_tool("format_disk", {})["ok"] is False
 
 
+def test_notify_tool_routes_via_notify_send(monkeypatch) -> None:
+    import notify
+
+    calls = []
+
+    def fake_send(text, **kw):
+        calls.append((text, kw))
+        return {"route": "notification", "ok": True}
+
+    monkeypatch.setattr(notify, "send", fake_send)
+    result = run_phone_tool("notify", {"title": "T", "body": "ping"})
+    assert result["ok"] is True
+    assert calls[0][0] == "ping"
+    assert calls[0][1]["title"] == "T"
+    assert calls[0][1]["kind"] == "phone"
+    assert calls[0][1]["source"] == "phone"
+    assert calls[0][1]["allow_speech"] is False
+
+
+def test_notify_tool_empty_body_is_not_ok(monkeypatch) -> None:
+    import notify
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: {"route": "empty"})
+    assert run_phone_tool("notify", {"title": "T", "body": "  "})["ok"] is False
+
+
 def test_open_app_unmapped_goes_to_launcher_and_never_spawns(monkeypatch) -> None:
     # Unmapped names reach the universal launcher (never a real launch here:
     # the old "evil" assertion opened a live web result on the desktop).

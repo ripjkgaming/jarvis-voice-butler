@@ -320,7 +320,13 @@ _ADDRESSED = re.compile(
     r"|\b(?:jarvis|jarvus|javis|jafis|jervis)\s*[,!?.:]"
     # The whole turn is just the name ("Jarvis"): nothing else was said, so
     # it is a call, not chatter mentioning him.
-    r"|^\W*(?:jarvis|jarvus|javis|jafis|jervis)\W*$",
+    r"|^\W*(?:jarvis|jarvus|javis|jafis|jervis)\W*$"
+    # Whisper hearing Sir's "hey" as another short word ("He Jarvis",
+    # "Your Jarvis", "Be Jarvis"). Only at the very start of the turn, like
+    # _MISHEARD: a sentence that merely begins "Jarvis ..." still needs the
+    # comma pause.
+    r"|^\W*(?:he|hay|hei|heh|her|hate|be|bee|a|ay|aye|eh|your|you're|yeah|say|hej)"
+    r"[\s,.!]+(?:jarvis|jarvus|javis|jafis|jervis)\b",
     re.I,
 )
 # Whisper's usual mishearings of Sir's "hey Jarvis" ("He's nervous.", "Are

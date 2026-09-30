@@ -3,7 +3,7 @@
 Idle state costs nothing cloud-side: the laptop mic is monitored
 locally by openWakeWord (fully offline, no account, no key) and no
 room exists until the keyword fires. On wake the client says
-"Yes, Sir." with the local voice ($0), mints a token that dispatches
+"Loading in, Sir." with the local voice ($0), mints a token that dispatches
 the worker into a fresh room, streams the mic, and plays the agent
 back. When the agent hangs up (60s of silence) the room closes and
 we return to listening.
@@ -49,6 +49,9 @@ SPEECH_DROP = 0.3
 BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
 OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
 WAKE_MODEL = "hey_jarvis"
+# Spoken the instant the wake word fires (normal mode), while the call
+# spins up: the room and agent take a few seconds, so it says so.
+ACK_LINE = "Loading in, Sir."
 # Max chars of a typed seed that may ride a talk summon into the call.
 # Spoken openers are short; anything longer belongs in /chat text mode.
 TALK_TEXT_MAX = 500
@@ -600,7 +603,7 @@ class WakeClient:
             raise RuntimeError(f"Missing in frontend/.env.local: {', '.join(missing)}")
 
     def _render_ack(self) -> None:
-        """Pre-render 'Yes, Sir.' with the local voice for instant feedback."""
+        """Pre-render 'Loading in, Sir.' with the local voice for instant feedback."""
         try:
             try:
                 from src.local_voice import PiperTTS, sentence_split
@@ -611,7 +614,7 @@ class WakeClient:
             if not plugin._model_path.exists():
                 return
             out = bytearray()
-            for sentence in sentence_split("Yes, Sir."):
+            for sentence in sentence_split(ACK_LINE):
                 out += plugin._render_sentence(sentence)
             self._ack_pcm = bytes(out)
             self._ack_rate = plugin.sample_rate

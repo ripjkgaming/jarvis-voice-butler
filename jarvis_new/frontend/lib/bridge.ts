@@ -109,7 +109,10 @@ export type SchoolGeom = {
   primary: Rect;
   same: boolean;
   dir: 'left' | 'right' | 'up' | 'down' | null;
+  /** The bar's height: the bottom panel as drawn. */
   panel: number;
+  /** A floating panel's gap from the screen edges (px; 0 or absent: flush). */
+  inset?: number;
 };
 
 /** The geometry report for `nonce`, or null when it hasn't landed yet. */

@@ -104,10 +104,12 @@ async def test_gmail_refuses_without_token(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setattr("system.inbox.GMAIL_TOKEN", tmp_path / "missing.json")
     result = await InboxTools.gmail_status(InboxTools(), None)  # type: ignore[arg-type]
     assert "not connected" in result["say"]
-    with pytest.raises(ToolError, match="not connected"):
+    # No separate token and no shared token: clear re-auth hint, not a 403.
+    with pytest.raises(ToolError, match="google_auth"):
         await InboxTools.gmail_inbox(InboxTools(), None)  # type: ignore[arg-type]
 
 
@@ -139,7 +141,10 @@ def test_gmail_token_refresh_missing_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr("system.inbox.GMAIL_TOKEN", tmp_path / "missing.json")
-    with pytest.raises(ToolError, match="not connected"):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    # Falls back to the shared login; with no shared token either the
+    # re-auth hint surfaces (never a raw 403 or traceback).
+    with pytest.raises(ToolError, match="google_auth"):
         _gmail_access_token()
 
 
@@ -402,3 +407,144 @@ def test_autoreply_template_names_subject() -> None:
 
     body = autoreply_body("Exam on Friday")
     assert "Exam on Friday" in body and "automatic" in body
+
+
+def _fake_urlopen_refresh(payload: dict):
+    """urllib urlopen stub returning one JSON payload (separate-token flow)."""
+
+    class _Resp:
+        def read(self) -> bytes:
+            return json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _open(req, timeout=None):
+        return _Resp()
+
+    return _open
+
+
+def test_gmail_access_token_prefers_separate_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import urllib.request
+
+    import google_api
+
+    token_file = tmp_path / "gmail_token.json"
+    token_file.write_text(
+        json.dumps(
+            {
+                "client_id": "cid",
+                "client_secret": "csec",
+                "refresh_token": "separate-rt",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        )
+    )
+    monkeypatch.setattr("system.inbox.GMAIL_TOKEN", token_file)
+    monkeypatch.setattr(
+        urllib.request, "urlopen", _fake_urlopen_refresh({"access_token": "sep-tok"})
+    )
+
+    def _boom(*a, **k):
+        raise AssertionError("shared Google token must not be used")
+
+    monkeypatch.setattr(google_api, "access_token", _boom)
+    assert _gmail_access_token() == "sep-tok"
+
+
+def test_gmail_access_token_falls_back_to_shared(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import google_api
+
+    monkeypatch.setattr("system.inbox.GMAIL_TOKEN", tmp_path / "missing.json")
+    monkeypatch.setattr(google_api, "_has_gmail_scope", lambda account="personal": True)
+    monkeypatch.setattr(google_api, "access_token", lambda *a, **k: "shared-tok")
+    assert _gmail_access_token() == "shared-tok"
+
+
+def test_gmail_access_token_raises_hint_without_scopes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import google_api
+
+    monkeypatch.setattr("system.inbox.GMAIL_TOKEN", tmp_path / "missing.json")
+    monkeypatch.setattr(
+        google_api, "_has_gmail_scope", lambda account="personal": False
+    )
+    calls: list = []
+    monkeypatch.setattr(
+        google_api, "access_token", lambda *a, **k: calls.append(1) or "unused"
+    )
+    with pytest.raises(ToolError, match="google_auth"):
+        _gmail_access_token()
+    assert calls == []
+    assert "Sir" in google_api.GMAIL_SCOPE_HINT
+
+
+def test_gmail_access_token_shared_failure_surfaces_hint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import google_api
+
+    monkeypatch.setattr("system.inbox.GMAIL_TOKEN", tmp_path / "missing.json")
+    monkeypatch.setattr(google_api, "_has_gmail_scope", lambda account="personal": True)
+
+    def _fail(*a, **k):
+        raise google_api.GoogleError(google_api.SETUP_HINT)
+
+    monkeypatch.setattr(google_api, "access_token", _fail)
+    with pytest.raises(ToolError, match="google_auth"):
+        _gmail_access_token()
+
+
+@pytest.mark.asyncio
+async def test_reply_refuses_without_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr(inbox_mod, "_gmail_access_token", lambda: "tok")
+    monkeypatch.setattr(
+        inbox_mod,
+        "_gmail_api",
+        lambda path, token, params=None: (
+            {"messages": [{"id": "m1"}]}
+            if path == "/messages"
+            else {
+                "threadId": "t9",
+                "payload": {
+                    "headers": [
+                        {"name": "Subject", "value": "Homework"},
+                        {"name": "From", "value": "Teacher <t@school.edu>"},
+                        {"name": "Message-ID", "value": "<orig1>"},
+                    ]
+                },
+            }
+        ),
+    )
+    calls: list = []
+    monkeypatch.setattr(
+        inbox_mod, "_gmail_send_api", lambda *a, **k: calls.append((a, k)) or {}
+    )
+    tools = InboxTools()
+    with pytest.raises(ToolError, match="not authorized"):
+        await InboxTools.gmail_reply(tools, None, "latest", "Done, Sir.")  # type: ignore[arg-type]
+    assert calls == []
+
+
+def test_autoreply_shares_owner_phone(monkeypatch) -> None:
+    from system.inbox import autoreply_body
+
+    monkeypatch.delenv("JARVIS_OWNER_PHONE", raising=False)
+    assert "+65 8753 4735" in autoreply_body("Exam")
+    monkeypatch.setenv("JARVIS_OWNER_PHONE", "")
+    body = autoreply_body("Exam")
+    assert "+65" not in body and "phone or WhatsApp" in body
+    monkeypatch.setenv("JARVIS_OWNER_PHONE", "+1 555 0100")
+    assert "+1 555 0100" in autoreply_body("Exam")

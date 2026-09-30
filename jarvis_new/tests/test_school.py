@@ -198,6 +198,13 @@ async def test_follow_up_custom_window_for_normal_calls():
         ("  jarvis ", True, ""),
         ("Jervis!", True, ""),
         ("Jarvis Cocker was a singer", False, None),
+        # "hey" heard as another short word, turn start only.
+        ("He Jarvis", True, ""),
+        ("Your Jarvis", True, ""),
+        ("Be Jarvis", True, ""),
+        ("He Jarvis, what time is it?", True, "what time is it?"),
+        ("I think he said Jarvis Cocker was a singer", False, None),
+        ("A Jarvis Cocker record", True, None),
     ],
 )
 def test_address_gate_and_question(text, addressed, question):

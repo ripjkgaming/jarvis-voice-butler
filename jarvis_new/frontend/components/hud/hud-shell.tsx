@@ -263,8 +263,15 @@ export function HudShell({ children }: Props) {
   const sys = useBridgeSysSnapshot();
   const tiny = useTinyWindow();
   const school = useSchoolView(sys?.mode);
-  const { tx, barH, showBar, done } = useSchoolTransition();
-  const { ret, retStage, setRetStage, barPx: retBarPx, done: retDone } = useSchoolReturn();
+  const { tx, barH, barInset, showBar, done } = useSchoolTransition();
+  const {
+    ret,
+    retStage,
+    setRetStage,
+    barPx: retBarPx,
+    barInset: retInset,
+    done: retDone,
+  } = useSchoolReturn();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -394,6 +401,7 @@ export function HudShell({ children }: Props) {
           ret={ret}
           color={JARVIS_COLORS[jarvis]}
           barPx={retBarPx}
+          barInset={retInset}
           onStage={setRetStage}
           onDone={retDone}
         />
@@ -404,7 +412,14 @@ export function HudShell({ children }: Props) {
           data-arrived={barH !== null || returning}
           data-pooling={pooling}
           data-returning={returning ? retStage : undefined}
-          style={barPxNow !== null ? ({ '--sbar-h': `${barPxNow}px` } as CSSProperties) : undefined}
+          style={
+            barPxNow !== null
+              ? ({
+                  '--sbar-h': `${barPxNow}px`,
+                  '--sbar-inset': `${returning ? retInset : pooling ? barInset : 0}px`,
+                } as CSSProperties)
+              : undefined
+          }
         >
           <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} leaving={school.leaving} />
         </div>

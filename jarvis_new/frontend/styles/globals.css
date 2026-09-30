@@ -3481,7 +3481,7 @@ html:has(.sbar-root) body > .group.fixed {
   align-items: center;
   gap: calc(var(--h) * 0.5);
   flex: none;
-  width: 100vw;
+  width: 100%;
   height: var(--h);
   padding: 0 calc(var(--h) * 0.3);
   overflow: hidden;
@@ -4928,6 +4928,23 @@ html.school-tx body > .group.fixed {
 }
 .stx-bar[data-pooling='true'] .sbar-root {
   animation: stx-surface 0.38s ease-out both;
+}
+/* A floating Plasma panel: the bar surfaces where it will dock, the panel's
+   gap in from the screen's edges, with its rounded corners. Only while the
+   window still covers the screen: the moment it shrinks onto the panel the
+   bar fills it again (a media query flips with the viewport, no re-render). */
+@media (min-height: 300px) {
+  .stx-bar[data-pooling='true'] .sbar-root,
+  .stx-bar[data-returning] .sbar-root {
+    inset: 0 var(--sbar-inset, 0px) var(--sbar-inset, 0px);
+  }
+  .stx-bar[data-pooling='true'] .sbar,
+  .stx-bar[data-returning] .sbar {
+    border-radius: min(var(--sbar-inset, 0px), 8px);
+  }
+}
+.sbar[data-floating='true'] {
+  border-radius: 8px;
 }
 .stx-bar[data-arrived='true'] .sbar:not([data-leaving='true']) {
   animation: none;

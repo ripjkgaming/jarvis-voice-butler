@@ -40,6 +40,20 @@
         "skipTaskbar": false
       },
       {
+        "label": "drafts",
+        "title": "Jarvis — Drafts",
+        "url": "drafts.html",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 560,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false
+      },
+      {
         "label": "globe",
         "title": "God's Eye (display only)",
         "url": "http://127.0.0.1:4001/index.html?ambient=1",

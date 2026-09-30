@@ -952,6 +952,66 @@ def _speak_ordinal(n: int) -> str:
     return "the last" if n < 0 else (words[n] if 0 < n < len(words) else str(n))
 
 
+NAV_ACTIONS = (
+    "show", "hide", "filter", "select", "open_document", "close_document",
+    "scroll", "back", "abort", "delete",
+)  # fmt: skip
+_NAV_SCROLL = ("start", "stop", "faster", "slower", "up", "down", "top", "bottom")
+
+
+def build_nav_commands(
+    action: str,
+    project: str = "",
+    number: int = 0,
+    mode: str = "",
+    speed: str = "",
+    projects: list[dict] | None = None,
+) -> tuple[list[dict] | None, str]:
+    """One structured navigation step -> ([cmd...], "") or (None, error). Pure.
+
+    Lets the model drive the archive from loosely-worded speech ("the
+    battery one", "uhh next document") without the regex grammar: the model
+    interprets, this only validates and resolves names. Deleting is two-step
+    (delete parks it; only Sir's spoken "confirm delete" erases), so there is
+    deliberately no confirm action here.
+    """
+    a = (action or "").strip().lower().replace(" ", "_")
+    if a not in NAV_ACTIONS:
+        return None, f"Unknown archive action {action!r}."
+    if a in ("show", "hide", "close_document", "back", "abort"):
+        return [{"action": a}], ""
+    if a == "filter":
+        f = _norm(project or mode)
+        f = {"coding": "code", "everything": "all", "every thing": "all"}.get(f, f)
+        if f not in ("research", "code", "all"):
+            return None, "Filter must be research, code or all."
+        return [{"action": "filter", "filter": f}], ""
+    if a == "open_document":
+        if number == 0:
+            return None, "Which document number, Sir?"
+        return [{"action": "open_document", "index": int(number)}], ""
+    if a == "scroll":
+        m = _norm(mode) or "start"
+        if m not in _NAV_SCROLL:
+            return None, f"Scroll mode must be one of {', '.join(_NAV_SCROLL)}."
+        cmd: dict = {"action": "scroll", "mode": m}
+        if m == "start":
+            cmd["speed"] = _SPEED.get(_norm(speed), "slow")
+        return [cmd], ""
+    # select / delete: by name, else by number (negative or "last" = last).
+    if project.strip():
+        plist = projects if projects is not None else list_projects()
+        proj = _find_project(project, plist)
+        if proj is None:
+            return None, f"I can't find a project called {project.strip()}, Sir."
+        return [{"action": a, "project_id": proj["id"], "title": proj.get("title", "")}], ""
+    if number != 0:
+        return [{"action": a, "index": int(number)}], ""
+    if a == "delete":
+        return [{"action": "delete"}], ""  # the currently selected project
+    return None, "Which project, Sir? Give a name or a number."
+
+
 def reply_for(cmds: list[dict]) -> str:
     """Short spoken confirmation for an executed command chain. Pure."""
     for c in cmds:

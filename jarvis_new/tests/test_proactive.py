@@ -105,8 +105,9 @@ def _policy(**kwargs):
 
 def test_quiet_parse_and_overnight_wrap(monkeypatch) -> None:
     assert parse_quiet_hours("22:00-07:00") == (1320, 420)
-    assert parse_quiet_hours("garbage") == (1320, 420)
-    assert parse_quiet_hours("25:00-07:00") == (1320, 420)
+    # A malformed value falls back to the default window, now 22:30-07:00.
+    assert parse_quiet_hours("garbage") == (1350, 420)
+    assert parse_quiet_hours("25:00-07:00") == (1350, 420)
     window = (1320, 420)
     assert in_quiet_hours(DAY.replace(hour=23), window)
     assert in_quiet_hours(DAY.replace(hour=6, minute=59), window)

@@ -16,8 +16,10 @@ import {
   easeIn,
   easeInOut,
   easeOut,
+  frameClock,
   loadHudRect,
   rgb,
+  runTimers,
   stage,
   uplink,
 } from '@/components/hud/school-transition';
@@ -55,17 +57,26 @@ const DEFAULT_H = 720;
 export type ReturnStage = 'bar' | 'sink' | 'draft' | 'scan';
 export type SchoolRet = { id: number };
 
+/** A floating panel's gap (px) around the docked bar: school.rs docks it
+ *  narrower than the screen by that much on each side. 0 when flush. */
+function dockedInset(): number {
+  const gap = (window.screen.width - window.innerWidth) / 2;
+  return window.innerHeight < 300 && gap >= 2 && gap <= 24 ? Math.round(gap) : 0;
+}
+
 /** Listens for the shell's "return" signal and owns the return's state:
  *  which face HudShell shows (`retStage`) and the bar's docked height. */
 export function useSchoolReturn() {
   const [ret, setRet] = useState<SchoolRet | null>(null);
   const [retStage, setRetStage] = useState<ReturnStage>('bar');
   const [barPx, setBarPx] = useState(0);
+  const [barInset, setBarInset] = useState(0);
   useEffect(() => {
     const onSignal = (e: Event) => {
       const phase = String((e as CustomEvent).detail);
       if (phase === 'return') {
         setBarPx(window.innerHeight);
+        setBarInset(dockedInset());
         setRetStage('bar');
         setRet({ id: Date.now() });
       } else if (phase === 'collapse' || phase === 'arrive') {
@@ -76,7 +87,7 @@ export function useSchoolReturn() {
     return () => window.removeEventListener('jarvis-school', onSignal);
   }, []);
   const done = useCallback(() => setRet(null), []);
-  return { ret, retStage, setRetStage, barPx, done };
+  return { ret, retStage, setRetStage, barPx, barInset, done };
 }
 
 /* ------------------------------ drafting ------------------------------ */
@@ -344,6 +355,7 @@ export function SchoolReturn({
   ret,
   color,
   barPx,
+  barInset,
   onStage,
   onDone,
 }: {
@@ -351,6 +363,8 @@ export function SchoolReturn({
   color: string;
   /** The docked bar's height when the return began. */
   barPx: number;
+  /** Its floating-panel gap from the screen's edges (px). */
+  barInset: number;
   onStage: (s: ReturnStage) => void;
   onDone: () => void;
 }) {
@@ -380,34 +394,15 @@ export function SchoolReturn({
       onResize: null,
       packets: [],
     };
+    const clock = frameClock();
     let raf = 0;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      drawScene(canvas, ctx, scene, now, colorRef.current);
+      drawScene(canvas, ctx, scene, clock.tick(now), colorRef.current);
     };
     raf = requestAnimationFrame(frame);
 
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const until = async (cond: () => boolean, timeout: number) => {
-      const t0 = performance.now();
-      while (alive && !cond()) {
-        if (performance.now() - t0 > timeout) return false;
-        await sleep(30);
-      }
-      return alive;
-    };
-    const tween = (ms: number, fn: (e: number) => void, ease: (u: number) => number = easeInOut) =>
-      new Promise<void>((done) => {
-        const t0 = performance.now();
-        const step = () => {
-          if (!alive) return done();
-          const u = clamp01((performance.now() - t0) / ms);
-          fn(ease(u));
-          if (u < 1) requestAnimationFrame(step);
-          else done();
-        };
-        step();
-      });
+    const { sleep, until, untilT, waitT, tween, settle } = runTimers(clock, () => alive);
     /** Where to land: the rect recorded on the way in, else a default-size
      *  HUD centred on the bar's screen (measured now). */
     const target = async (): Promise<HudRect | null> => {
@@ -450,41 +445,47 @@ export function SchoolReturn({
       if (cross) {
         // Sink on the bar's screen, then beam the edge across as data...
         await stage('primary');
-        await until(() => window.innerHeight > barPx + 100, 1500);
+        await until(() => window.innerHeight > barPx + 100, 2500);
+        await settle();
         const pw = window.innerWidth;
         const ph = window.innerHeight;
-        const edge: Seg = { x0: 0, y0: ph - barPx, x1: pw, y1: ph - barPx, a: 0 };
+        const ey = ph - barInset - barPx;
+        const edge: Seg = { x0: barInset, y0: ey, x1: pw - barInset, y1: ey, a: 0 };
         scene.hair = [edge];
         onStage('sink');
         await tween(SINK_MS, (e) => (edge.a = e), easeOut);
         onStage('draft');
-        scene.packets = uplink([edge], cross, pw, ph, performance.now());
+        scene.packets = uplink([edge], cross, pw, ph, clock.now);
         const outEnd = beamEnd(scene.packets);
         await tween(UPLINK_MS, (e) => (edge.a = 1 - e), easeIn);
-        await until(() => performance.now() >= outEnd, 1500);
+        await untilT(() => clock.now >= outEnd, 1500);
         scene.hair = [];
         scene.packets = [];
         await stage('cover-at', undefined, t.content);
         await sleep(420);
+        await until(() => window.innerHeight > barPx + 100, 2500);
+        await settle();
         if (!alive) return;
         // ...packing back into the bottom edge on the HUD's screen.
         const W0 = window.innerWidth;
         const H0 = window.innerHeight;
         hair = { x0: 0, y0: H0 - barPx, x1: W0, y1: H0 - barPx, a: 0 };
         scene.hair = [hair];
-        scene.packets = downlink(hair, cross, W0, H0, performance.now());
+        scene.packets = downlink(hair, cross, W0, H0, clock.now);
         const inEnd = beamEnd(scene.packets);
         await tween(DOWNLINK_MS, (e) => (hair.a = e), easeIn);
-        await until(() => performance.now() >= inEnd, 1500);
+        await untilT(() => clock.now >= inEnd, 1500);
         scene.packets = [];
       } else {
         // Cover the HUD's screen; the bar stays put at the bottom and
         // sinks away, its top edge left glowing.
         await stage('cover-at', undefined, t.content);
-        await until(() => window.innerHeight > barPx + 100, 1500);
+        await until(() => window.innerHeight > barPx + 100, 2500);
+        await settle();
         const W0 = window.innerWidth;
         const H0 = window.innerHeight;
-        hair = { x0: 0, y0: H0 - barPx, x1: W0, y1: H0 - barPx, a: 0 };
+        const hy = H0 - barInset - barPx;
+        hair = { x0: barInset, y0: hy, x1: W0 - barInset, y1: hy, a: 0 };
         scene.hair = [hair];
         onStage('sink');
         await tween(SINK_MS, (e) => (hair.a = e), easeOut);
@@ -506,8 +507,8 @@ export function SchoolReturn({
       await tween(
         SPLIT_MS,
         (e) => {
-          left.x1 = (W / 2) * (1 - e);
-          right.x0 = W / 2 + (W / 2) * e;
+          left.x1 = W / 2 + (hair.x0 - W / 2) * e;
+          right.x0 = W / 2 + (hair.x1 - W / 2) * e;
         },
         easeIn
       );
@@ -519,7 +520,7 @@ export function SchoolReturn({
       const lx = -scene.ox + 1.5;
       const rx = W - scene.ox - 1.5;
       const yb = top - scene.oy;
-      const now = performance.now();
+      const now = clock.now;
       const leftPen = makePen(
         [
           [lx, yb],
@@ -564,7 +565,7 @@ export function SchoolReturn({
       );
       scene.pens = [leftPen, rightPen, branchL, branchR];
       const longest = Math.max(...scene.pens.map((p) => p.t0 - now + p.travelMs + p.draftMs));
-      await sleep(longest + 60);
+      await waitT(longest + 60);
       if (!alive) return;
 
       // Lock: brackets snap on; the grid and label fill the frame.
@@ -592,8 +593,9 @@ export function SchoolReturn({
       await stage('restore', undefined, t.frame);
       await until(
         () => Math.abs(window.innerWidth - cw) <= 4 && Math.abs(window.innerHeight - ch) <= 4,
-        1800
+        2500
       );
+      await settle();
       scene.onResize?.(window.innerWidth, window.innerHeight);
       scene.onResize = null;
       scene.ox = 0;
@@ -625,7 +627,7 @@ export function SchoolReturn({
       root.classList.remove('school-tx', 'stx-scan');
       root.style.removeProperty('--stx-scan');
     };
-  }, [ret, barPx, onStage, onDone]);
+  }, [ret, barPx, barInset, onStage, onDone]);
 
   return (
     <div className="stx stx--return" aria-hidden="true">

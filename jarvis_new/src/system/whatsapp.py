@@ -93,9 +93,7 @@ async def cdp_evaluate(wsurl: str, expr: str, timeout: int = 25):
 
     req_id = next(_cdp_ids)
     # websockets>=14 renamed connect()'s `timeout` to `open_timeout`.
-    async with websockets.connect(
-        wsurl, max_size=10_000_000, open_timeout=10
-    ) as ws:
+    async with websockets.connect(wsurl, max_size=10_000_000, open_timeout=10) as ws:
         await ws.send(
             json.dumps(
                 {
@@ -114,6 +112,63 @@ async def cdp_evaluate(wsurl: str, expr: str, timeout: int = 25):
             if msg.get("id") == req_id:
                 result = msg["result"]["result"]
                 return result.get("value", result.get("description"))
+
+
+async def cdp_press_enter(timeout: int = 10) -> bool:
+    """Trusted Enter key via CDP Input.dispatchKeyEvent (page must be focused).
+
+    WhatsApp Web ignores synthetic DOM key events, so a real send needs the
+    browser-level input path. Returns True when all three events were acked.
+    """
+    import websockets
+
+    wsurl = page_ws_url()
+    if not wsurl:
+        return False
+    events = [
+        {
+            "type": "rawKeyDown",
+            "key": "Enter",
+            "code": "Enter",
+            "windowsVirtualKeyCode": 13,
+            "nativeVirtualKeyCode": 13,
+        },
+        {
+            "type": "char",
+            "key": "Enter",
+            "code": "Enter",
+            "text": "\r",
+            "windowsVirtualKeyCode": 13,
+            "nativeVirtualKeyCode": 13,
+        },
+        {
+            "type": "keyUp",
+            "key": "Enter",
+            "code": "Enter",
+            "windowsVirtualKeyCode": 13,
+            "nativeVirtualKeyCode": 13,
+        },
+    ]
+    try:
+        async with websockets.connect(
+            wsurl, max_size=10_000_000, open_timeout=10
+        ) as ws:
+            for ev in events:
+                rid = next(_cdp_ids)
+                await ws.send(
+                    json.dumps(
+                        {"id": rid, "method": "Input.dispatchKeyEvent", "params": ev}
+                    )
+                )
+                while True:
+                    msg = json.loads(await asyncio.wait_for(ws.recv(), timeout))
+                    if msg.get("id") == rid:
+                        if "error" in msg:
+                            return False
+                        break
+        return True
+    except Exception:
+        return False
 
 
 async def cdp(expr: str, timeout: int = 25):
@@ -248,6 +303,9 @@ def parse_messages(rows: list[dict]) -> list[dict]:
                     "when": when,
                     "text": text,
                     "meta": clean(str(m.get("meta", "")))[:30],
+                    # What this message replies to (a quoted message, or a
+                    # status: 'You · Status\n<text>'). "" when not a reply.
+                    "quote": str(m.get("quote", "") or "").strip()[:240],
                 }
             )
         except Exception:
@@ -457,6 +515,18 @@ async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
     typed = await cdp(type_js)
     if not isinstance(typed, str) or not typed.startswith("typed:"):
         return {"ok": False, "err": f"composer unreachable ({typed})"}
+    # WhatsApp Web ignores synthetic Enter key events (untrusted), so press
+    # the Send button too. Once a send lands the button turns into the mic,
+    # so this cannot double-send.
+    await asyncio.sleep(0.8)
+    await cdp_press_enter()
+    await asyncio.sleep(0.8)
+    with contextlib.suppress(Exception):
+        await cdp(
+            "(()=>{const b=document.querySelector("
+            "'footer button[aria-label=\"Send\"]');"
+            "if(b){b.click();return 'clicked';}return 'nobtn';})()"
+        )
     want = text[:60].lower()
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -464,12 +534,18 @@ async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
             await cdp(
                 "(()=>{const all=[...document.querySelectorAll("
                 "'[data-testid=\"msg-container\"]')];"
-                "const last=all[all.length-1];"
-                "return last?last.innerText.slice(-200):'';})()"
+                "return all.slice(-4).map(x=>x.innerText.slice(-700)).join(' || ');})()"
             )
             or ""
         )
         if want[:30] in str(tail).lower():
             return {"ok": True, "name": opened.get("name", name)}
         await asyncio.sleep(1.0)
+    # Never leave our text sitting in the composer for Sir to trip over.
+    with contextlib.suppress(Exception):
+        await cdp(
+            "(()=>{const b=document.querySelector('footer [contenteditable=\"true\"]');"
+            "if(b){b.focus();document.execCommand('selectAll',false,null);"
+            "document.execCommand('delete',false,null);}return 1;})()"
+        )
     return {"ok": False, "err": "send unverified (no tail match)"}

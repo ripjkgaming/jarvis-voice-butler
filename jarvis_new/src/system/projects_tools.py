@@ -62,7 +62,13 @@ class ProjectTools:
 
     @property
     def tools(self) -> list:
-        return [self.research_project, self.code_project, self.open_projects]
+        return [
+            self.research_project,
+            self.code_project,
+            self.open_projects,
+            self.list_archive,
+            self.navigate_archive,
+        ]
 
     def _report_when_done(self, context: RunContext, pid: str) -> None:
         session = getattr(context, "session", None)
@@ -184,3 +190,74 @@ class ProjectTools:
         if not (got or {}).get("ok"):
             raise ToolError((got or {}).get("error") or "The project archive didn't respond.")
         return {"say": _projects.reply_for(cmds) if command.strip() else "Your projects, Sir."}
+
+    @function_tool()
+    async def list_archive(self, context: RunContext) -> dict:
+        """List the projects in Sir's Project Archive (newest first).
+
+        Call this when Sir asks what he has, or before navigating when you
+        need to know which project he means ("the battery one").
+        """
+        got = await asyncio.to_thread(_bridge_call, "GET", "/projects")
+        projects = (got or {}).get("projects")
+        if projects is None:
+            raise ToolError("The project archive isn't reachable right now.")
+        rows = [
+            {
+                "number": i,
+                "title": p.get("title", ""),
+                "kind": p.get("kind", ""),
+                "status": p.get("status", ""),
+            }
+            for i, p in enumerate(projects[:25], 1)
+        ]
+        return {
+            "projects": rows,
+            "say": f"You have {len(projects)} on file, Sir." if projects else "The archive is empty, Sir.",
+        }
+
+    @function_tool()
+    async def navigate_archive(
+        self,
+        context: RunContext,
+        action: str,
+        project: str = "",
+        number: int = 0,
+        mode: str = "",
+        speed: str = "",
+    ) -> dict[str, str]:
+        """Move around Sir's Project Archive window, ONE step per call.
+
+        Use for any loosely-worded navigation ("uhh pull up the battery
+        one", "next document", "scroll down slowly", "go back"). For a chain
+        ("open project two, then the first document, then scroll") make one
+        call per step, in order, waiting for each result. Never claim
+        something is open unless this returned ok.
+
+        Args:
+            action: show | hide | filter | select | open_document |
+                close_document | scroll | back | abort | delete.
+            project: For select/delete: the project's name or a few words of
+                it ("battery"). For filter: research, code or all.
+            number: For select/delete when Sir gave a position (1 = first,
+                -1 = last); for open_document the document's position.
+            mode: For scroll: start, stop, faster, slower, up, down, top or
+                bottom.
+            speed: For scroll start: slow, medium or fast.
+        """
+        import projects as _projects
+
+        cmds, err = await asyncio.to_thread(
+            _projects.build_nav_commands, action, project, number, mode, speed
+        )
+        if cmds is None:
+            raise ToolError(err)
+        got = await asyncio.to_thread(
+            _bridge_call,
+            "POST",
+            "/tool",
+            {"tool": "projects_ui", "args": {"commands": cmds, "heard": action[:200]}},
+        )
+        if not (got or {}).get("ok"):
+            raise ToolError((got or {}).get("error") or "The project archive didn't respond.")
+        return {"say": _projects.reply_for(cmds)}

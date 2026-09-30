@@ -23,7 +23,6 @@ import datetime
 import hashlib
 import json
 import re
-import subprocess
 from pathlib import Path
 
 BRIEFING_LOG = Path.home() / ".jarvis" / "briefings.log"
@@ -114,12 +113,18 @@ def deliver(text: str, *, full_text: str = "") -> str:
     except Exception:
         pass
     try:
-        subprocess.run(
-            ["notify-send", "Jarvis — morning briefing", text[:2000]],
-            timeout=10,
-            check=False,
+        import notify
+
+        result = notify.send(
+            text[:2000],
+            title="Jarvis - morning briefing",
+            kind="briefing",
+            source="briefing",
+            allow_speech=False,
         )
-        return "notification+log"
+        if result.get("ok") or result.get("route") == "deduped":
+            return "notification+log"
+        return "log"
     except Exception:
         return "log"
 
