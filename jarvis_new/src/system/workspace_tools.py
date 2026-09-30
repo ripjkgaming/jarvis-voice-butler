@@ -97,6 +97,7 @@ class WorkspaceTools:
             self.import_schedule_to_calendar,
             self.confirm_calendar_import,
             self.calendar_upcoming,
+            self.exams_to_calendar,
             self.email_events,
             self.confirm_email_event,
             self.dismiss_email_event,
@@ -523,6 +524,41 @@ class WorkspaceTools:
         if failed:
             say += f" {len(failed)} failed: {describe_events(failed, 3)}."
         return {"say": say}
+
+    @function_tool()
+    async def exams_to_calendar(self, context: RunContext, days: int = 60) -> dict[str, str]:
+        """Prepare Sir's upcoming exams (the exam schedule) for his Google
+        Calendar: "add my exams to my calendar". Reads them back first;
+        nothing is added until Sir says yes and you call
+        confirm_calendar_import (which skips any already on the calendar).
+
+        Args:
+            days: How far ahead to include (1-365).
+        """
+        _guard()
+        import exams
+
+        rows = exams.upcoming(days=max(1, min(365, int(days or 60))))
+        if not rows:
+            return {"say": "There are no upcoming exams to add, Sir."}
+        self._pending_events = [
+            {
+                "title": e["title"],
+                "date": e["date"],
+                "start": e.get("start", ""),
+                "end": e.get("end", ""),
+                "location": e.get("location", ""),
+                "notes": "Exam" + (f" ({e['notes']})" if e.get("notes") else ""),
+            }
+            for e in rows
+        ]
+        log_action("calendar", f"exams prepared n={len(rows)}")
+        return {
+            "say": (
+                f"{len(rows)} exam{'s' if len(rows) != 1 else ''} ready for your calendar: "
+                f"{describe_events(self._pending_events)}. Shall I add them?"
+            )[:1500]
+        }
 
     @function_tool()
     async def email_events(self, context: RunContext) -> dict[str, str]:

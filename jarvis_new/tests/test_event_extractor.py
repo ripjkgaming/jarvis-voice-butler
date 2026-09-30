@@ -241,3 +241,26 @@ def test_event_body_multi_day() -> None:
 def test_tools_registered() -> None:
     ids = [t.id for t in WorkspaceTools().tools]
     assert {"email_events", "confirm_email_event", "dismiss_email_event"} <= set(ids)
+
+
+@pytest.mark.asyncio
+async def test_exams_to_calendar_preview_then_confirm(home, monkeypatch) -> None:
+    import exams
+
+    monkeypatch.setattr(exams, "_today", lambda: dt.date(2026, 10, 1))
+    exams.add(
+        {"title": "Physics P4", "date": "2026-10-08", "start": "10:30", "end": "11:30"}
+    )
+    exams.add({"title": "Old mock", "date": "2026-09-01"})
+    writes = []
+    monkeypatch.setattr(google_api, "calendar_list", lambda *a, **k: [])
+    monkeypatch.setattr(
+        google_api, "calendar_create", lambda ev, *a, **k: writes.append(ev) or {}
+    )
+    tools = WorkspaceTools()
+    preview = await WorkspaceTools.exams_to_calendar(tools, None)  # type: ignore[arg-type]
+    assert preview["say"].startswith("1 exam ready for your calendar: Physics P4")
+    assert writes == []  # nothing before Sir's yes
+    done = await WorkspaceTools.confirm_calendar_import(tools, None)  # type: ignore[arg-type]
+    assert "Added 1" in done["say"]
+    assert writes[0]["start"] == "10:30" and writes[0]["end"] == "11:30"
