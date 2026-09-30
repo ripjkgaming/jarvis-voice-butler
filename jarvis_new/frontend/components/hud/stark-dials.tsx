@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 
+/** Tick coordinates rounded to 0.01: Node (prerender) and the webview
+ *  disagree in the last float digit, which broke hydration. */
+const px = (v: number) => Math.round(v * 100) / 100;
+
 const CYAN = '#5fe3ff';
 const DIM = 'rgba(95, 227, 255, 0.28)';
 
@@ -71,10 +75,10 @@ function Dial({
           return (
             <line
               key={i}
-              x1={60 + r1 * Math.cos(a)}
-              y1={60 + r1 * Math.sin(a)}
-              x2={60 + r2 * Math.cos(a)}
-              y2={60 + r2 * Math.sin(a)}
+              x1={px(60 + r1 * Math.cos(a))}
+              y1={px(60 + r1 * Math.sin(a))}
+              x2={px(60 + r2 * Math.cos(a))}
+              y2={px(60 + r2 * Math.sin(a))}
               stroke={major ? CYAN : DIM}
               strokeWidth={major ? 1.2 : 0.7}
             />

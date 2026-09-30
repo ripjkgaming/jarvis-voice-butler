@@ -15,6 +15,9 @@
 
 const TICKS = Array.from({ length: 72 }, (_, i) => i);
 const COILS = Array.from({ length: 10 }, (_, i) => i);
+/** Tick coordinates rounded to 0.01: Node (prerender) and the webview
+ *  disagree in the last float digit, which broke hydration. */
+const px = (v: number) => Math.round(v * 100) / 100;
 
 export function ArcReactor() {
   const vb = '0 0 400 400';
@@ -58,10 +61,10 @@ export function ArcReactor() {
           return (
             <line
               key={i}
-              x1={200 + r1 * Math.cos(a)}
-              y1={200 + r1 * Math.sin(a)}
-              x2={200 + r2 * Math.cos(a)}
-              y2={200 + r2 * Math.sin(a)}
+              x1={px(200 + r1 * Math.cos(a))}
+              y1={px(200 + r1 * Math.sin(a))}
+              x2={px(200 + r2 * Math.cos(a))}
+              y2={px(200 + r2 * Math.sin(a))}
               className={major ? 'im-tick im-tick--major' : 'im-tick'}
             />
           );
@@ -89,10 +92,10 @@ export function ArcReactor() {
           return (
             <line
               key={i}
-              x1={200 + r1 * Math.cos(a)}
-              y1={200 + r1 * Math.sin(a)}
-              x2={200 + r2 * Math.cos(a)}
-              y2={200 + r2 * Math.sin(a)}
+              x1={px(200 + r1 * Math.cos(a))}
+              y1={px(200 + r1 * Math.sin(a))}
+              x2={px(200 + r2 * Math.cos(a))}
+              y2={px(200 + r2 * Math.sin(a))}
               className="im-tick im-tick--coil"
             />
           );

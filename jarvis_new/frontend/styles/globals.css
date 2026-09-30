@@ -3428,6 +3428,41 @@ html.hud-hidden *::after {
   }
 }
 
+/* ============ Short screens (1366x768 laptops and below) ============
+   At 768 px tall the dual HUD's fixed blocks (orb, dock, mic, caption,
+   panels, graph, system) no longer fit: the activity log and the system
+   card slid under the footer. Tighten the vertical budget instead. */
+@media (max-height: 820px) {
+  .hud--dual .hud__grid {
+    padding-block: 10px;
+    gap: 12px;
+  }
+  .hud--dual .hud__left,
+  .hud--dual .hud__right {
+    gap: 8px;
+  }
+  .hud--dual .hud__orb-wrap {
+    width: clamp(150px, 27vh, 230px);
+  }
+  .hud--dual .hud-log {
+    min-height: 44px;
+    flex-basis: 44px;
+  }
+  .hud--dual .hud-graph {
+    min-height: 64px;
+    flex-basis: 96px;
+  }
+  .hud--dual .hud-graph__stage {
+    min-height: 36px;
+  }
+  .hud--dual .hud-panel {
+    padding: 6px 9px;
+  }
+  .hud--dual .hud-panel__row:nth-child(n + 4) {
+    display: none;
+  }
+}
+
 /* ============ Voice panels (show mail / hide calendar) ============
    Opened and closed only by voice (src/hud_panels.py). Glass cards in the
    right column, same line/panel tokens as the rest of the HUD. */
