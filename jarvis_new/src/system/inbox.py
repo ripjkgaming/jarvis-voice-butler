@@ -316,6 +316,34 @@ def _mail_log(kind: str, **fields) -> None:
         pass
 
 
+def thread_text(token: str, query: str = "", max_chars: int = 6000) -> tuple[str, str, str]:
+    """Newest thread matching a Gmail query (empty = latest mail) as plain text.
+
+    Returns (subject, text, message_id_of_newest). Raises ToolError when nothing
+    matches. Oldest message first, each with From/Date, capped at max_chars
+    keeping the newest end.
+    """
+    params: dict = {"maxResults": 1}
+    if (query or "").strip():
+        params["q"] = query.strip()[:200]
+    listed = _gmail_api("/messages", token, params)
+    msgs = listed.get("messages", []) or []
+    if not msgs:
+        raise ToolError("I can't find an email matching that, Sir.")
+    thread_id = msgs[0].get("threadId") or ""
+    thread = _gmail_api(f"/threads/{thread_id}", token, {"format": "full"})
+    parts, subject, newest = [], "", str(msgs[0].get("id", ""))
+    for m in thread.get("messages", []) or []:
+        parsed = parse_gmail_message(m)
+        subject = subject or parsed["subject"]
+        newest = str(m.get("id", newest))
+        parts.append(
+            f"From: {parsed['sender']}\nDate: {parsed.get('date', '')}\n"
+            f"Subject: {parsed['subject']}\n\n{parsed['body'] or parsed['snippet']}"
+        )
+    return subject, "\n\n---\n\n".join(parts)[-max_chars:], newest
+
+
 def _draft_key(to: str, subject: str, body: str) -> str:
     """Exact-match fingerprint for the email confirm gate. Pure."""
 
@@ -448,26 +476,54 @@ def classify_email(
     }
 
 
-def autoreply_body(subject: str) -> str:
-    """Conservative acknowledgment template for high-priority mail. Pure.
-
-    Includes Sir's own number (owner_contact) so the sender can reach him
-    directly when it is genuinely urgent.
-    """
+def _reach_line() -> str:
     from owner_contact import owner_phone
 
-    subject = (subject or "(no subject)").strip()[:120]
     phone = owner_phone()
-    reach = (
+    return (
         f"call or WhatsApp my master directly on {phone}"
         if phone
         else "follow up by phone or WhatsApp"
     )
+
+
+def passon_body(subject: str) -> str:
+    """Laid-back acknowledgment for ordinary human mail. Pure."""
+    subject = (subject or "(no subject)").strip()[:120]
+    return (
+        f"Hi, this is an automatic reply from Jarvis, assistant to Sir.\n\n"
+        f"Got your email '{subject}'. Will pass it on. If it turns out to be "
+        f"time-sensitive, feel free to {_reach_line()}."
+        f"\n\nCheers,\nJarvis (automated acknowledgment)"
+    )
+
+
+def scam_body(subject: str) -> str:
+    """Dry reply to a scammer. Pure. Deliberately shares no contact details."""
+    subject = (subject or "(no subject)").strip()[:120]
+    return (
+        f"Hello, this is an automatic reply from Jarvis, assistant to Sir.\n\n"
+        f"Your email '{subject}' has been assessed as a scam and filed "
+        f"accordingly. I would commend the effort, but the execution suggests "
+        f"this is not your first attempt, nor your best. Do carry on, "
+        f"elsewhere."
+        f"\n\nRegards,\nJarvis (automated response)"
+    )
+
+
+def autoreply_body(subject: str) -> str:
+    """Urgent-toned acknowledgment for high-priority mail. Pure.
+
+    Includes Sir's own number (owner_contact) so the sender can reach him
+    directly when it is genuinely urgent.
+    """
+    subject = (subject or "(no subject)").strip()[:120]
     return (
         f"Hello — this is an automatic reply from Jarvis, assistant to Sir.\n\n"
-        f"Your email '{subject}' has been flagged as important and will "
-        f"be reviewed shortly. For anything time-critical, please {reach}."
-        f"\n\n— Jarvis (automated acknowledgment)"
+        f"Your email '{subject}' has been flagged as URGENT and is being "
+        f"passed to Sir immediately. If it cannot wait, please "
+        f"{_reach_line()} right now."
+        f"\n\n— Jarvis (automated urgent acknowledgment)"
     )
 
 

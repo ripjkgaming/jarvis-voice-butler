@@ -56,6 +56,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_AUTOREPLY", "1")
     monkeypatch.delenv("JARVIS_OWNER_EMAIL", raising=False)
     mail_watch_job._run["drafts"] = 0
+    mail_watch_job._run["events"] = 0
 
     state = {"payloads": {}, "sends": [], "model_calls": [], "pings": []}
     model_text = json.dumps(
@@ -105,10 +106,38 @@ async def test_normal_human_creates_pending_draft(fakes) -> None:
         "m1", "friend@mailbox.org", "Hello there", "Can we meet tomorrow?"
     )
     outcome = await mail_watch_job._handle_one("m1")
-    assert outcome == "normal-logged"
+    assert outcome.startswith("normal-logged")
     record = draft_engine.read_draft("m1")
     assert record is not None and record["status"] == "pending"
     assert record["body"] == "Thanks, will do."
+    assert outcome == "normal-logged replied=passon"
+    # Only the relaxed pass-on acknowledgement goes out; the draft stays local.
+    assert len(fakes["sends"]) == 1
+
+
+async def test_normal_human_gets_relaxed_reply_once_per_thread(fakes) -> None:
+    import base64
+
+    fakes["payloads"]["p1"] = _full(
+        "p1", "friend@mailbox.org", "Lunch?", "Free Friday?"
+    )
+    fakes["payloads"]["p2"] = _full(
+        "p2", "friend@mailbox.org", "Re: Lunch?", "Or Saturday?"
+    )
+    acks: dict = {}
+    assert await mail_watch_job._handle_one("p1", acks) == "normal-logged replied=passon"
+    raw = base64.urlsafe_b64decode(fakes["sends"][0][1] + "==").decode(errors="ignore")
+    assert "Will pass it on" in raw and "URGENT" not in raw
+    second = await mail_watch_job._handle_one("p2", acks)
+    assert second.startswith("normal-logged") and "passon" not in second
+    assert len(fakes["sends"]) == 1
+
+
+async def test_passon_reply_respects_autoreply_kill_switch(fakes, monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_AUTOREPLY", "0")
+    fakes["payloads"]["p3"] = _full("p3", "friend@mailbox.org", "Hi", "Hello there")
+    outcome = await mail_watch_job._handle_one("p3")
+    assert outcome == "normal-logged replied=no(disabled)"
     assert fakes["sends"] == []
 
 
@@ -154,8 +183,8 @@ async def test_existing_draft_not_redrafted(fakes) -> None:
     fakes["payloads"]["m5"] = _full(
         "m5", "friend@mailbox.org", "Hello again", "Ping me back?"
     )
-    assert await mail_watch_job._handle_one("m5") == "normal-logged"
-    assert await mail_watch_job._handle_one("m5") == "normal-logged"
+    assert (await mail_watch_job._handle_one("m5")).startswith("normal-logged")
+    assert (await mail_watch_job._handle_one("m5")).startswith("normal-logged")
     assert len(fakes["model_calls"]) == 1
     assert len(draft_engine.list_drafts()) == 1
 
@@ -175,11 +204,12 @@ async def test_cap_three_per_run(fakes) -> None:
 
 async def test_drafts_disabled_keeps_normal_outcome(fakes, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_DRAFTS", "0")
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")  # this test is about drafts only
     fakes["payloads"]["m6"] = _full(
         "m6", "friend@mailbox.org", "Hello there", "Can we meet tomorrow?"
     )
     outcome = await mail_watch_job._handle_one("m6")
-    assert outcome == "normal-logged"
+    assert outcome.startswith("normal-logged")
     assert draft_engine.read_draft("m6") is None
     assert fakes["model_calls"] == []
 
@@ -223,13 +253,34 @@ async def test_claude_downgrades_keyword_high_to_normal(fakes, monkeypatch) -> N
         "u1", "teacher@school.com", "URGENT: exam", "Exam moved to Friday."
     )
     outcome = await mail_watch_job._handle_one("u1")
-    assert outcome == "normal-logged"
+    assert outcome.startswith("normal-logged")
     assert "replied=autoconfirm" not in outcome
-    assert fakes["sends"] == []
+    # A human normal-level mail gets the relaxed pass-on reply, never the urgent one.
+    assert len(fakes["sends"]) == 1
     record = draft_engine.read_draft("u1")
     assert record is not None and record["priority"] == "normal"
     assert record["body"] == "Thanks, will do."
     assert len(fakes["urgency_calls"]) == 1
+
+
+async def test_scam_gets_scam_reply_and_no_draft(fakes, monkeypatch) -> None:
+    import base64
+
+    _fake_urgency_and_draft(
+        monkeypatch,
+        fakes,
+        urgency_text=json.dumps(
+            {"urgent": False, "scam": True, "reason": "extended warranty scam"}
+        ),
+    )
+    fakes["payloads"]["s1"] = _full(
+        "s1", "hunter@mailbox.org", "Hello there", "Your car warranty expired."
+    )
+    outcome = await mail_watch_job._handle_one("s1")
+    assert outcome == "normal-logged replied=scam"
+    assert draft_engine.read_draft("s1") is None
+    raw = base64.urlsafe_b64decode(fakes["sends"][0][1] + "==").decode(errors="ignore")
+    assert "scam" in raw and "+65" not in raw and "Will pass it on" not in raw
 
 
 async def test_claude_upgrades_keyword_normal_to_high(fakes, monkeypatch) -> None:
@@ -277,7 +328,7 @@ async def test_bulk_never_calls_claude(fakes, monkeypatch) -> None:
         extra_headers=(("List-Unsubscribe", "<mailto:u@x>"),),
     )
     outcome = await mail_watch_job._handle_one("u4")
-    assert outcome == "normal-logged"
+    assert outcome.startswith("normal-logged")
     assert draft_engine.read_draft("u4") is None
     assert fakes["urgency_calls"] == []
     assert fakes["model_calls"] == []
@@ -344,7 +395,7 @@ async def test_created_draft_notifies_once(fakes) -> None:
         "n2", "friend@mailbox.org", "Hello there", "Can we meet tomorrow?"
     )
     outcome = await mail_watch_job._handle_one("n2")
-    assert outcome == "normal-logged"
+    assert outcome.startswith("normal-logged")
     drafts = _notifies_of(fakes, "email-draft")
     assert len(drafts) == 1
     _, kw = drafts[0]
@@ -359,7 +410,7 @@ async def test_no_draft_notify_when_outcome_not_created(fakes, monkeypatch) -> N
     fakes["payloads"]["n3"] = _full(
         "n3", "friend@mailbox.org", "Hello there", "Can we meet tomorrow?"
     )
-    assert await mail_watch_job._handle_one("n3") == "normal-logged"
+    assert (await mail_watch_job._handle_one("n3")).startswith("normal-logged")
     assert _notifies_of(fakes, "email-draft") == []
 
 
@@ -504,7 +555,7 @@ async def test_draft_gets_thread_and_style_context(fakes) -> None:
     fakes["payloads"]["messages"] = {"messages": [{"id": "s1"}]}
     fakes["payloads"]["s1"] = _full("s1", "me@x.com", "Re: stuff", "yo, sure thing - R")
     out = await mail_watch_job._handle_one("n1")
-    assert out == "normal-logged"
+    assert out.startswith("normal-logged")
     prompt = fakes["model_calls"][-1]
     assert "Started the deck" in prompt
     assert "yo, sure thing - R" in prompt
@@ -516,10 +567,55 @@ async def test_draft_context_failures_are_soft(fakes) -> None:
     fakes["payloads"]["n2"] = _full(
         "n2", "Bo <b@x.com>", "Hi", "question?", thread="gone"
     )
-    assert await mail_watch_job._handle_one("n2") == "normal-logged"
+    assert (await mail_watch_job._handle_one("n2")).startswith("normal-logged")
     assert fakes["model_calls"]
 
 
 def test_state_path_follows_jarvis_home(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     assert mail_watch_job.state_path() == tmp_path / "mail_watch.state.json"
+
+
+async def test_dated_mail_stores_suggestion_and_asks_out_loud(fakes, monkeypatch) -> None:
+    import event_suggest
+    import google_api
+
+    monkeypatch.setattr(google_api, "calendar_list", lambda *a, **k: [])
+    fakes["model_text"] = json.dumps(
+        [{"title": "Wedding", "date": "2099-10-03", "start": "18:00"}]
+    )
+    fakes["payloads"]["e1"] = _full(
+        "e1", "friend@mailbox.org", "Wedding", "Wedding is on Saturday 3 Oct at 6pm."
+    )
+    await mail_watch_job._handle_one("e1")
+    saved = event_suggest.load()
+    assert saved and saved["events"][0]["title"] == "Wedding"
+    asks = [kw for _t, kw in fakes.get("notifies", []) if kw.get("kind") == "calendar-suggest"]
+    assert len(asks) == 1 and asks[0]["speak_text"].endswith("calendar?")
+
+
+async def test_already_booked_event_is_not_suggested(fakes, monkeypatch) -> None:
+    import event_suggest
+    import google_api
+
+    monkeypatch.setattr(
+        google_api,
+        "calendar_list",
+        lambda *a, **k: [{"summary": "Wedding", "start": {"date": "2099-10-03"}}],
+    )
+    fakes["model_text"] = json.dumps([{"title": "Wedding", "date": "2099-10-03"}])
+    fakes["payloads"]["e2"] = _full(
+        "e2", "friend@mailbox.org", "Wedding", "Wedding on 3 Oct."
+    )
+    await mail_watch_job._handle_one("e2")
+    assert event_suggest.load() is None
+
+
+async def test_event_suggestions_kill_switch(fakes, monkeypatch) -> None:
+    import event_suggest
+
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
+    fakes["model_text"] = json.dumps([{"title": "Wedding", "date": "2099-10-03"}])
+    fakes["payloads"]["e3"] = _full("e3", "friend@mailbox.org", "Wedding", "3 Oct at 6pm")
+    await mail_watch_job._handle_one("e3")
+    assert event_suggest.load() is None

@@ -67,6 +67,7 @@ def test_daily_tools_register_expected_ids() -> None:
     ids = [tool.id for tool in DailyTools().tools]
     for expected in (
         "school_day",
+        "exam_times",
         "daily_briefing",
         "study_plan",
         "study_tick",

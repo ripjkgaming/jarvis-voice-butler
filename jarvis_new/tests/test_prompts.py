@@ -126,3 +126,16 @@ def test_research_search_and_site_opens_never_mix() -> None:
     assert "Never turn a search or a site open into research_project" in AGENT_INSTRUCTIONS
     assert "= code_project" in AGENT_INSTRUCTIONS
     assert "= open_projects" in AGENT_INSTRUCTIONS
+
+
+def test_interrupt_min_s_default_env_and_floor(monkeypatch) -> None:
+    import agent
+
+    monkeypatch.delenv("JARVIS_INTERRUPT_MIN_S", raising=False)
+    assert agent.interrupt_min_s() == 0.9
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "1.4")
+    assert agent.interrupt_min_s() == 1.4
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "0.01")
+    assert agent.interrupt_min_s() == 0.3
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "junk")
+    assert agent.interrupt_min_s() == 0.9

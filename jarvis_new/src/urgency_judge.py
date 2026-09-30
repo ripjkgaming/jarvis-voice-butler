@@ -34,8 +34,13 @@ URGENCY_SYSTEM = (
     "Not urgent: newsletters, promotions, receipts, social notifications, "
     "automated digests, routine questions, and marketing that merely uses "
     "words like URGENT or ACT NOW. Judge the content, not the subject's "
-    "shouting. Reply with ONLY one JSON object and no prose or code fence: "
-    '{"urgent": bool, "reason": str}. reason is one short phrase.'
+    "shouting. Also set scam=true ONLY when the email is clearly a scam, "
+    "phishing or unsolicited fraud (fake prizes or invoices, extended-warranty "
+    "spam, advance-fee or crypto pitches, credential-harvesting links, "
+    "impersonation). Be conservative: a real person, a legitimate company, a "
+    "newsletter or anything you are unsure about is scam=false, and a scam is "
+    "never urgent. Reply with ONLY one JSON object and no prose or code fence: "
+    '{"urgent": bool, "scam": bool, "reason": str}. reason is one short phrase.'
 )
 
 
@@ -67,7 +72,8 @@ def parse_verdict(reply: str) -> dict | None:
     if not isinstance(data, dict) or not isinstance(data.get("urgent"), bool):
         return None
     reason = " ".join(str(data.get("reason") or "").split())[:MAX_REASON_CHARS]
-    return {"urgent": data["urgent"], "reason": reason}
+    scam = data.get("scam") is True
+    return {"urgent": data["urgent"] and not scam, "scam": scam, "reason": reason}
 
 
 def judge(
@@ -102,7 +108,8 @@ def apply(verdict: dict, ai: dict) -> dict:
     """
     out = dict(verdict)
     out["level"] = "high" if ai["urgent"] else "normal"
-    tag = f"claude:{'urgent' if ai['urgent'] else 'routine'}"
+    out["scam"] = bool(ai.get("scam"))
+    tag = f"claude:{'scam' if out['scam'] else 'urgent' if ai['urgent'] else 'routine'}"
     if ai.get("reason"):
         tag += f" ({ai['reason']})"
     out["reasons"] = [*list(verdict.get("reasons", [])), tag]

@@ -57,6 +57,34 @@ def allowed(source: str, now: float, min_gap_s: float) -> bool:
         return True
 
 
+def announce_call_enabled() -> bool:
+    """Announce through a silently opened call? JARVIS_ANNOUNCE_CALL=0 disables."""
+    return os.environ.get("JARVIS_ANNOUNCE_CALL", "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+    )
+
+
+def announce_via_call(text: str, timeout: float = 2.0) -> bool:
+    """Ask the wake client to open a silent call that opens with `text`.
+
+    True when it accepted (Jarvis will say it inside the call, so Sir's reply
+    is heard). False on any refusal or when the wake client is down; callers
+    then speak it locally.
+    """
+    try:
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.settimeout(timeout)
+            sock.connect(str(_jarvis_home() / "wake.sock"))
+            sock.sendall(json.dumps({"announce": text[:300]}).encode() + b"\n")
+            reply = json.loads(sock.recv(4096).decode() or "{}")
+        return bool(reply.get("ok"))
+    except (OSError, ValueError):
+        return False
+
+
 def should_voice(status: dict, school_mode: bool) -> bool:
     """Speak aloud, or notification only? Pure."""
     return not (status.get("muted") or status.get("in_call") or school_mode)
@@ -124,7 +152,23 @@ def speak(
     except Exception:
         school_mode = False
     voice = not force_quiet and should_voice(wake_status(), school_mode)
+    if voice and announce_call_enabled() and announce_via_call(text):
+        # Spoken inside the call (it captions itself); the toast is the
+        # visible receipt in case the first words are missed.
+        threading.Thread(
+            target=_notify, args=(text, title), name=f"toast-{source}", daemon=True
+        ).start()
+        return True
     threading.Thread(
         target=_run, args=(text, title, voice), name=f"speak-{source}", daemon=True
     ).start()
     return True
+
+
+def speak_local(text: str, title: str = "Jarvis") -> None:
+    """Say one line with the local Piper voice, no call (fallback path)."""
+    text = " ".join(str(text or "").split())
+    if text:
+        threading.Thread(
+            target=_run, args=(text, title, True), name="speak-local", daemon=True
+        ).start()

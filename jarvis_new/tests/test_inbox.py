@@ -685,3 +685,24 @@ def test_mail_log_roundtrip(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     assert [e["kind"] for e in mail_log.recent(kinds=("acked",))] == ["acked"]
     assert mail_log.recent(who="bob")[0]["subject"] == "Urgent"
     assert mail_log.recent(since=150)[0]["kind"] == "flagged"
+
+
+def test_passon_body_is_relaxed_and_urgent_body_is_urgent(monkeypatch) -> None:
+    from system.inbox import autoreply_body, passon_body
+
+    monkeypatch.delenv("JARVIS_OWNER_PHONE", raising=False)
+    relaxed, urgent = passon_body("Lunch?"), autoreply_body("Lunch?")
+    assert "Will pass it on" in relaxed and "Lunch?" in relaxed
+    assert "automatic" in relaxed and "URGENT" not in relaxed
+    assert "URGENT" in urgent and "Will pass it on" not in urgent
+    assert "+65 8753 4735" in relaxed
+    monkeypatch.setenv("JARVIS_OWNER_PHONE", "")
+    assert "phone or WhatsApp" in passon_body("x")
+
+
+def test_scam_body_is_dry_and_shares_no_contact() -> None:
+    from system.inbox import scam_body
+
+    body = scam_body("You won a prize")
+    assert "scam" in body and "You won a prize" in body
+    assert "+65" not in body and "WhatsApp" not in body

@@ -698,7 +698,11 @@ async def _send_reply(
         cs["sent_texts"] = ((cs.get("sent_texts") or []) + [parsed["reply"]])[
             -SENT_KEEP:
         ]
-        if parsed.get("disengage", False):
+        # no_mute_until: a temporary per-chat exemption from the rude auto-mute
+        # (set by hand in the state file); the chat keeps being answered.
+        if parsed.get("disengage", False) and now >= float(
+            cs.get("no_mute_until") or 0
+        ):
             cs["muted_until"] = now + RUDE_MUTE_S
         state.setdefault("_sent_this_run", []).append(entry)
         return "sent-rude" if parsed["rude"] else "sent"

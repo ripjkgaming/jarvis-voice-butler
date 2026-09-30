@@ -357,6 +357,22 @@ async def test_handle_disengage_mutes_6h(home, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_no_mute_until_exempts_chat_from_rude_mute(home, monkeypatch) -> None:
+    monkeypatch.setattr(wa_autoreply, "_notify", lambda *a: None)
+    wa = FakeWA(reads={"Rude": _dm([_m("swearing")])})
+    state = {"chats": {"Rude": {"no_mute_until": NOW + 3600}}}
+    chat = {"name": "Rude", "unread": 1}
+    ask = _ask("Enough.", rude=True, disengage=True)
+    assert await wa_autoreply.handle_chat(chat, wa, state, NOW, True, ask) == "sent-rude"
+    assert not state["chats"]["Rude"].get("muted_until")  # exempt: not muted
+    # After the exemption lapses the normal 6 h mute applies again.
+    wa2 = FakeWA(reads={"Rude": _dm([_m("swearing again")])})
+    later = NOW + 3601
+    assert await wa_autoreply.handle_chat(chat, wa2, state, later, True, ask) == "sent-rude"
+    assert state["chats"]["Rude"]["muted_until"] == later + wa_autoreply.RUDE_MUTE_S
+
+
+@pytest.mark.asyncio
 async def test_handle_rude_without_disengage_does_not_mute(home, monkeypatch) -> None:
     monkeypatch.setattr(wa_autoreply, "_notify", lambda *a: None)
     wa = FakeWA(reads={"Rude": _dm([_m("you are useless")])})

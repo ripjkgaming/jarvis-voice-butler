@@ -95,6 +95,7 @@ class WorkspaceTools:
             self.confirm_workspace_action,
             self.generate_document,
             self.import_schedule_to_calendar,
+            self.email_to_calendar,
             self.confirm_calendar_import,
             self.calendar_upcoming,
             self.ask_backend,
@@ -470,16 +471,77 @@ class WorkspaceTools:
         return {"say": f"Reading {path.name} now, Sir. Carry on; I'll tell you what I find."}
 
     @function_tool()
-    async def confirm_calendar_import(self, context: RunContext) -> dict[str, str]:
-        """Add the previewed schedule entries to Sir's Google Calendar.
+    async def email_to_calendar(
+        self, context: RunContext, query: str = "", only: str = ""
+    ) -> dict[str, str]:
+        """Read an email conversation and prepare its dates for Sir's Google Calendar.
 
-        Call ONLY after Sir explicitly says yes to the import_schedule_to_calendar preview.
-        Entries already on the calendar (same title and day) are skipped.
+        Use for "what did X say about Saturday", "put that email in my calendar",
+        "check my emails for anything to book". Runs in the BACKGROUND on the
+        backend model; carry on talking. Nothing is added until Sir says yes
+        and you call confirm_calendar_import.
+
+        Args:
+            query: Gmail search words ("from:riley wedding"); empty = the latest email.
+            only: Optional filter, e.g. "just the dentist".
         """
         _guard()
+        import backend_model
+        import event_suggest
+        from system.inbox import _gmail_access_token, thread_text
+
+        if self._importing:
+            return {"say": "I'm still reading the last one, Sir; I'll tell you when it's done."}
+        token = await asyncio.to_thread(_gmail_access_token)
+        subject, text, newest = await asyncio.to_thread(thread_text, token, query)
+        self._importing = True
+
+        async def job() -> str:
+            try:
+                events, warning = await asyncio.to_thread(
+                    backend_model.extract_events_from_email, text, focus=only
+                )
+            finally:
+                self._importing = False
+            events = event_suggest.future_only(events)
+            if warning:
+                return f"Tell Sir briefly that reading the email '{subject[:60]}' failed: {warning}."
+            if not events:
+                return (
+                    f"The email '{subject[:60]}' has nothing with a date to book. "
+                    "Tell Sir that, briefly."
+                )
+            self._pending_events = events
+            log_action("calendar", f"email {newest[:16]} extracted {len(events)}")
+            return (
+                f"From the email '{subject[:60]}' you found {len(events)} entries: "
+                f"{describe_events(events)}. Tell Sir briefly, then ask whether to book "
+                "them in his calendar. If he says yes, call confirm_calendar_import."
+            )
+
+        self._in_background(
+            context, job, fallback="I've read that email, Sir. Shall I book it in your calendar?"
+        )
+        return {"say": f"Reading '{subject[:60]}' now, Sir. Carry on; I'll tell you what I find."}
+
+    @function_tool()
+    async def confirm_calendar_import(self, context: RunContext) -> dict[str, str]:
+        """Add the previewed entries to Sir's Google Calendar.
+
+        Call ONLY after Sir explicitly says yes: to an import_schedule_to_calendar or
+        email_to_calendar preview, OR to a spoken suggestion like "the email from X
+        mentions Y. Shall I book it in your calendar?" (those wait on disk, so call
+        this even if you never ran a tool). Entries already on the calendar (same
+        title and day) are skipped.
+        """
+        _guard()
+        import event_suggest
         import google_api
 
         events, self._pending_events = self._pending_events, []
+        if not events:
+            saved = event_suggest.load()
+            events = list(saved["events"]) if saved else []
         if not events:
             raise ToolError("There's nothing waiting to be added, Sir.")
         dates = sorted(e["date"] for e in events)
@@ -514,6 +576,8 @@ class WorkspaceTools:
                     self._pending_events = events
                     raise ToolError(str(exc)) from exc
         log_action("calendar", f"import added={added} skipped={skipped} failed={len(failed)}")
+        with contextlib.suppress(Exception):
+            event_suggest.clear()
         say = f"Added {added} to your calendar, Sir."
         if skipped:
             say += f" {skipped} were already there."

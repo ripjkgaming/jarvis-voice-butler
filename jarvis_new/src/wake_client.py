@@ -415,9 +415,26 @@ def extract_talk_text(msg: object) -> str | None:
     return text
 
 
+def extract_announce_text(msg: object) -> str | None:
+    """Announcement text from ``{"announce": "..."}``, else None. Pure.
+
+    Same limits as a typed seed: a stripped string of 1..TALK_TEXT_MAX chars.
+    """
+    if not isinstance(msg, dict):
+        return None
+    text = msg.get("announce")
+    if not isinstance(text, str):
+        return None
+    text = " ".join(text.split())
+    if not text or len(text) > TALK_TEXT_MAX:
+        return None
+    return text
+
+
 def mint_summon_token(
     *, url: str, api_key: str, api_secret: str, room: str, agent_name: str,
     reason: str = "wake",
+    announce: str = "",
 ) -> str:
     """JWT that joins `room` and dispatches the worker. Pure (no I/O)."""
     from livekit.api import (
@@ -430,7 +447,11 @@ def mint_summon_token(
     token = AccessToken(api_key, api_secret)
     token.with_identity(IDENTITY).with_name("Sir")
     # Why we summoned ("wake", "daddy"): the agent picks its greeting.
-    token.with_attributes({"jarvis.wake": reason})
+    attrs = {"jarvis.wake": reason}
+    if announce:
+        # Spoken by the agent as the call's opening line (silent-call announce).
+        attrs["jarvis.announce"] = announce
+    token.with_attributes(attrs)
     token.with_grants(VideoGrants(room_join=True, room=room))
     token.with_room_config(
         RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name)])
@@ -469,6 +490,7 @@ class WakeClient:
         # Set from the socket thread, consumed by the hotword loop, which
         # then runs the exact hotword summon path (ack + overlay + call).
         self._talk_event = threading.Event()
+        self._pending_announce = ""
         # Typed seed for the next summon ("text which activates voice").
         # Guarded by _mic_lock like the mute state; consumed once by
         # _summon_session, never kept across calls.
@@ -552,7 +574,22 @@ class WakeClient:
                     new_muted: bool | None = None
                 else:
                     muted, threshold, in_call = self._mic_snapshot()
-                    if isinstance(msg, dict) and msg.get("talk") is True:
+                    if isinstance(msg, dict) and "announce" in msg:
+                        text = extract_announce_text(msg)
+                        if text is None:
+                            reply = {"ok": False, "error": "bad announce text"}
+                        elif muted or in_call or _school_quiet():
+                            reply = {
+                                "ok": False,
+                                "error": "muted" if muted else "busy",
+                            }
+                        else:
+                            with self._mic_lock:
+                                self._pending_announce = text
+                            self._talk_event.set()
+                            reply = {"ok": True, "announce": "queued"}
+                        new_muted = None
+                    elif isinstance(msg, dict) and msg.get("talk") is True:
                         reply, wants_talk, unmute = handle_talk_request(
                             msg, muted=muted
                         )
@@ -623,6 +660,11 @@ class WakeClient:
 
     async def run_forever(self) -> None:
         self._check_config()
+        # Echo-cancel Jarvis's own voice on laptop speakers BEFORE any audio
+        # stream opens (streams bind to the default devices at open time).
+        import audio_aec
+
+        logger.warning("aec: %s", await asyncio.to_thread(audio_aec.engage))
         self.start_mic_control()
         self._render_ack()
         from openwakeword.model import Model
@@ -716,7 +758,8 @@ class WakeClient:
                     self._talk_event.clear()
                     pending16 = np.zeros(0, dtype=np.int16)
                     logger.warning("PTT talk requested")
-                    self._play_ack()
+                    if not self._pending_announce:
+                        self._play_ack()  # announcements open silently
                     summon_overlay()
                     if not self._in_call:
                         await self._summon_with_rewake()
@@ -836,6 +879,14 @@ class WakeClient:
             self._play_ack()
             summon_overlay()
 
+    @staticmethod
+    def _speak_fallback(text: str) -> None:
+        """The silent call failed: never lose the announcement, say it locally."""
+        with contextlib.suppress(Exception):
+            import speak
+
+            speak.speak_local(text)
+
     async def _summon_session(
         self, reason: str = "wake", mic_queue=None, preroll: list | None = None
     ) -> bool:
@@ -859,6 +910,10 @@ class WakeClient:
         with self._mic_lock:
             seed_text = self._pending_text
             self._pending_text = ""
+            announce_text = self._pending_announce
+            self._pending_announce = ""
+        if announce_text:
+            reason = "announce"
 
         # The HUD joins this room receive-only (eyes on the call; the mic
         # permission is denied in the webview, so the HUD never publishes).
@@ -873,6 +928,7 @@ class WakeClient:
             room=room_name,
             agent_name=self._agent_name,
             reason=reason,
+            announce=announce_text,
         )
         room = rtc.Room()
         disconnected = asyncio.Event()
@@ -900,6 +956,8 @@ class WakeClient:
         except Exception:
             self._listen_queue_live = True
             self._rewake = None
+            if announce_text:
+                self._speak_fallback(announce_text)
             raise
         logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
         publish_hud_room(room_name)
@@ -929,6 +987,8 @@ class WakeClient:
             except TimeoutError:
                 logger.warning("no agent joined; leaving %s", room_name)
                 await self._cancel_task(mic_task)
+                if announce_text:
+                    self._speak_fallback(announce_text)
                 return False
             hud_stage("online")
             play_task = asyncio.create_task(self._play_agent(track))

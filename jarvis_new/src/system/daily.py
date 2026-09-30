@@ -247,6 +247,7 @@ class DailyTools:
     def tools(self) -> list:
         return [
             self.school_day,
+            self.exam_times,
             self.daily_briefing,
             self.study_plan,
             self.study_tick,
@@ -262,10 +263,36 @@ class DailyTools:
     # --- school ---
 
     @function_tool()
+    async def exam_times(self, context: RunContext, when: str = "today") -> dict[str, str]:
+        """Exam times, how long each paper is, and the free time between papers.
+
+        Use this for ANY question about exams: when they are, how long each one
+        is, how much time there is between them, what is next. It answers
+        instantly from the saved timetable; never search the web or open a
+        browser for exam questions. (To add, remove, or find one exam by
+        subject use exam_schedule instead.)
+
+        Args:
+            when: "today", "tomorrow", "next", "all" (every remaining day), a weekday, or YYYY-MM-DD.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        import exam_timetable
+
+        rows = exam_timetable.load(DATA_DIR, Path.home() / "Downloads")
+        if not rows:
+            return {"say": "I don't have your exam timetable saved yet, Sir. Put it in Downloads."}
+        log_action("exams", f"times {when[:20]}")
+        return {"say": exam_timetable.answer(rows, when)}
+
+    @function_tool()
     async def school_day(
         self, context: RunContext, when: str = "today"
     ) -> dict[str, str]:
         """School timetable from the offline .ics (today/tomorrow/date/next).
+        Not for exam lengths or gaps between exams: use exam_times for those.
 
         Args:
             when: "today", "tomorrow", "YYYY-MM-DD", or "next".

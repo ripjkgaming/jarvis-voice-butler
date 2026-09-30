@@ -295,6 +295,7 @@ def drain(
     items = [d for d in load_queue() if now - float(d.get("ts") or 0) < QUEUE_TTL_S]
     if not items:
         return {"spoken": 0, "mode": "none"}
+    real_speaker = speaker is None and not _under_test()
     if speaker is None:
         if _under_test():
             speaker = _test_speaker
@@ -305,7 +306,25 @@ def drain(
     delivered: list[dict] = []
     mode = "each"
     try:
-        if len(items) <= SPEAK_EACH_MAX:
+        if (
+            real_speaker
+            and 1 < len(items) <= SPEAK_EACH_MAX
+            and speak.announce_call_enabled()
+        ):
+            # One silent call, one announcement: a second speak() would race
+            # the call that the first one is still opening.
+            mode = "call"
+            joined = " ".join(
+                str(d.get("speak_text") or d.get("text", "")).strip() for d in items
+            )
+            if speaker(
+                joined[:300],
+                source="notify-queue",
+                min_gap_s=0.0,
+                title="Jarvis",
+            ):
+                delivered = items
+        elif len(items) <= SPEAK_EACH_MAX:
             for d in items:
                 if speaker(
                     d.get("speak_text") or d.get("text", ""),

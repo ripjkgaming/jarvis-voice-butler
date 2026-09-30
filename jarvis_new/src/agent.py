@@ -423,6 +423,24 @@ def _wake_reason(room: object) -> str:
     return ""
 
 
+def _wake_announce(room: object) -> str:
+    """Announcement the wake client attached to this call, else "". Pure.
+
+    Set by wake_client for a silent-call announce: Jarvis opens the call by
+    saying this instead of greeting, so Sir's reply is already being heard.
+    """
+    try:
+        parts = getattr(room, "remote_participants", None) or {}
+        items = parts.values() if hasattr(parts, "values") else parts
+        for participant in items or []:
+            if getattr(participant, "identity", "") == "jarvis-master":
+                attrs = getattr(participant, "attributes", None) or {}
+                return " ".join(str(attrs.get("jarvis.announce") or "").split())
+    except Exception:
+        pass
+    return ""
+
+
 DADDY_GREETING = "Welcome back, Sir."
 
 
@@ -743,6 +761,19 @@ def endpointing_delay() -> float:
         )
     except ValueError:
         return 0.15
+
+
+def interrupt_min_s() -> float:
+    """Seconds of speech-like sound before Sir can cut Jarvis off
+    (JARVIS_INTERRUPT_MIN_S, default 0.9; the framework default 0.5 let short
+    noise bursts, transcribed as "Merci"/"¿Qué?", chop his answers mid-sentence).
+    Pure (env only)."""
+    try:
+        return max(
+            0.3, float(os.environ.get("JARVIS_INTERRUPT_MIN_S", "").strip() or 0.9)
+        )
+    except ValueError:
+        return 0.9
 
 
 def vad_kwargs() -> dict:
@@ -1506,7 +1537,7 @@ async def my_agent(ctx: JobContext):
         # dials wss://agent-gateway.livekit.cloud (401 with no Cloud
         # credentials) and retries forever. Same Cloud dependency class
         # as the old TurnDetector and QUAIL enhancement.
-        interruption={"mode": "vad"},
+        interruption={"mode": "vad", "min_duration": interrupt_min_s()},
         # Silero already waits min_silence_duration (0.55 s) before it
         # reports end of speech; the framework's default 0.5 s endpointing
         # delay stacked on top of that, ~1 s of dead air before Gemini even
@@ -1556,10 +1587,26 @@ async def my_agent(ctx: JobContext):
     # transcripts and tool runs count, never noise or Jarvis's own replies.
     _turn_clock = {"last": time.monotonic()}
 
+    # Text-level echo backstop (see echo_guard): Jarvis's own words heard
+    # back through the speakers are not a user turn.
+    from echo_guard import EchoGuard
+
+    _echo = EchoGuard()
+
+    def _note_agent_speech(event) -> None:
+        item = getattr(event, "item", None)
+        if getattr(item, "role", "") == "assistant":
+            text = getattr(item, "text_content", "") or ""
+            if text:
+                _echo.note_agent(str(text))
+
+    session.on("conversation_item_added", _note_agent_speech)
+
     def _mark_turn(event) -> None:
-        if _is_real_turn(
-            getattr(event, "transcript", ""), bool(getattr(event, "is_final", False))
-        ):
+        transcript = getattr(event, "transcript", "")
+        if _is_real_turn(transcript, bool(getattr(event, "is_final", False))):
+            if _echo.is_echo(transcript):
+                return
             _turn_clock["last"] = time.monotonic()
 
     def _mark_tools(*_args, **_kwargs) -> None:
@@ -1584,6 +1631,8 @@ async def my_agent(ctx: JobContext):
                 text = str(getattr(event, "transcript", "") or "").strip()
                 if not text:
                     return
+                if getattr(event, "is_final", False) and _echo.is_echo(text):
+                    return  # our own voice coming back through the speakers
                 # "Jarvis, dismiss": stop talking, stop listening, hang up
                 # to wake-word standby at once. Checked before everything
                 # else (fast path, model, summons ack) and on final
@@ -2102,7 +2151,24 @@ async def my_agent(ctx: JobContext):
         _log_join(
             "presence", f"join wake={_wake} cam={_join.get('status')} -> {_decision}"
         )
-    if _decision == "greet" and _wake_reason(ctx.room) == "daddy":
+    _announce = _wake_announce(ctx.room)
+    if _announce:
+        # Silent-call announce: the call is already open and listening, so
+        # say the news as the opener (one retry, like the greeting) and keep
+        # the normal follow-up window for Sir's reply.
+        _presence["engaged"] = True
+        # Let the wake client's speaker stream come up first, or the opening
+        # words are lost.
+        await asyncio.sleep(1.2)
+        if not await _say(_announce):
+            await asyncio.sleep(2.0)
+            await _say(_announce)
+        _fu_task = asyncio.create_task(
+            _school_follow_up(session, first=_normal_follow_up_s(), window=_normal_follow_up_s())
+        )
+        _background_tasks.add(_fu_task)
+        _fu_task.add_done_callback(_background_tasks.discard)
+    elif _decision == "greet" and _wake_reason(ctx.room) == "daddy":
         # "Wake up, daddy's home": the custom welcome plus the briefing.
         _presence["engaged"] = True
         await _say(DADDY_GREETING)

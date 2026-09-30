@@ -46,10 +46,12 @@ def _fake_ok(monkeypatch, reply_text, seen=None):
 def test_parse_valid_json() -> None:
     assert urgency_judge.parse_verdict(_good_json(True, "Exam today.")) == {
         "urgent": True,
+        "scam": False,
         "reason": "Exam today.",
     }
     assert urgency_judge.parse_verdict(_good_json(False, "Routine FYI.")) == {
         "urgent": False,
+        "scam": False,
         "reason": "Routine FYI.",
     }
 
@@ -58,10 +60,11 @@ def test_parse_json_wrapped_in_prose_and_fence() -> None:
     payload = _good_json(True, "Deadline tomorrow.")
     assert urgency_judge.parse_verdict(f"Here you go:\n{payload}\nDone.") == {
         "urgent": True,
+        "scam": False,
         "reason": "Deadline tomorrow.",
     }
     fenced = urgency_judge.parse_verdict(f"```json\n{payload}\n```")
-    assert fenced == {"urgent": True, "reason": "Deadline tomorrow."}
+    assert fenced == {"urgent": True, "scam": False, "reason": "Deadline tomorrow."}
 
 
 def test_parse_malformed_returns_none() -> None:
@@ -83,7 +86,7 @@ def test_parse_reason_collapsed_and_capped() -> None:
     data = urgency_judge.parse_verdict(
         json.dumps({"urgent": True, "reason": "  hello\n\t world   again  "})
     )
-    assert data == {"urgent": True, "reason": "hello world again"}
+    assert data == {"urgent": True, "scam": False, "reason": "hello world again"}
     long_reason = "w " * 200
     capped = urgency_judge.parse_verdict(
         json.dumps({"urgent": False, "reason": long_reason})
@@ -108,7 +111,7 @@ def test_injection_body_stays_inside_markers(monkeypatch) -> None:
     assert prompt.count("<<<EMAIL_END>>>") == 1
     verdict, warning = urgency_judge.judge(_msg(id="evil1", body=evil))
     assert warning is None
-    assert verdict == {"urgent": True, "reason": "Exam moved to Friday."}
+    assert verdict == {"urgent": True, "scam": False, "reason": "Exam moved to Friday."}
     assert seen["prompt"].count("<<<EMAIL_START>>>") == 1
     assert seen["prompt"].count("<<<EMAIL_END>>>") == 1
 
@@ -127,7 +130,7 @@ def test_judge_good(monkeypatch) -> None:
     seen = _fake_ok(monkeypatch, _good_json(True, "Exam today."))
     verdict, warning = urgency_judge.judge(_msg())
     assert warning is None
-    assert verdict == {"urgent": True, "reason": "Exam today."}
+    assert verdict == {"urgent": True, "scam": False, "reason": "Exam today."}
     assert seen["model"] == claude_cli.BACKEND_MODEL
 
 
@@ -193,7 +196,7 @@ def test_judge_disabled_no_claude_call(monkeypatch) -> None:
 def test_apply_urgent_true_gives_high() -> None:
     verdict = {"level": "normal", "reasons": ["keyword:urgent"], "human": True}
     before = {"level": "normal", "reasons": ["keyword:urgent"], "human": True}
-    out = urgency_judge.apply(verdict, {"urgent": True, "reason": "Exam today."})
+    out = urgency_judge.apply(verdict, {"urgent": True, "scam": False, "reason": "Exam today."})
     assert out["level"] == "high"
     assert out["reasons"][0] == "keyword:urgent"
     assert any(r.startswith("claude:urgent") for r in out["reasons"])
@@ -212,3 +215,22 @@ def test_apply_urgent_false_gives_normal() -> None:
     assert any(r.startswith("claude:routine") for r in out["reasons"])
     assert "Newsletter." in " ".join(out["reasons"])
     assert verdict == snapshot
+
+
+def test_scam_flag_parsed_and_never_urgent() -> None:
+    data = urgency_judge.parse_verdict(
+        json.dumps({"urgent": True, "scam": True, "reason": "warranty spam"})
+    )
+    assert data == {"urgent": False, "scam": True, "reason": "warranty spam"}
+    # Only a literal true counts; truthy strings do not.
+    loose = urgency_judge.parse_verdict(json.dumps({"urgent": False, "scam": "yes"}))
+    assert loose is not None and loose["scam"] is False
+
+
+def test_apply_carries_scam_into_verdict() -> None:
+    out = urgency_judge.apply(
+        {"level": "high", "reasons": ["kw"], "human": True},
+        {"urgent": False, "scam": True, "reason": "phishing"},
+    )
+    assert out["level"] == "normal" and out["scam"] is True
+    assert out["reasons"][-1].startswith("claude:scam")
