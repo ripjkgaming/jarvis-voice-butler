@@ -482,8 +482,9 @@ def reply_system() -> str:
 
     extra = (
         " When you are being rude back, mild swearing is allowed (damn, hell, "
-        "bloody, crap, piss off) in a butler's cutting register; never slurs "
-        "or the rest of the limits below."
+        "bloody, crap, piss off) and everyday insults suit an annoying person "
+        "(idiot, buffoon, clown, nitwit, muppet) in a butler's cutting "
+        "register; never slurs of any kind, nor the rest of the limits below."
         if wa_mimic.swearing()
         else ""
     )

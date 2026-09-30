@@ -308,9 +308,13 @@ def test_slang_defaults_and_file(home) -> None:
 def test_swearing_toggle(home, monkeypatch) -> None:
     assert "SWEARING is allowed" in wa_mimic.system_prompt()
     assert "Never slurs" in wa_mimic.system_prompt()
+    assert "WHEN THEY ANNOY HIM" in wa_mimic.system_prompt()
+    assert "clown" in wa_mimic.system_prompt()
+    assert "never slurs of any kind" in wa_autoreply.reply_system()
     assert "mild swearing is allowed" in wa_autoreply.reply_system()
     monkeypatch.setenv("JARVIS_WA_SWEAR", "0")
-    assert "Do not swear." in wa_mimic.system_prompt()
+    assert "Do not swear or insult anyone." in wa_mimic.system_prompt()
+    assert "ANNOY" not in wa_mimic.system_prompt()
     assert "mild swearing" not in wa_autoreply.reply_system()
 
 
