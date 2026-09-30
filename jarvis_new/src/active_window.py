@@ -449,6 +449,12 @@ def handle_dbus_message(member: str | None, body: list | tuple) -> str:
             raw = str(args[0]) if args else ""
             _note_windows(parse_windows_payload(raw))
             return "windows"
+        if name == "Layout":
+            # Window arrange undo snapshot (system/window_layout.py).
+            from system import window_layout
+
+            window_layout.note_snapshot(str(args[0]) if args else "")
+            return "layout"
         if name == SCHOOL_GEOM_MEMBER:
             note_school_geom(str(args[0]) if args else "")
             return "schoolgeom"
