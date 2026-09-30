@@ -17,6 +17,9 @@ no links, phone numbers or promises leave in a reply.
 JARVIS_WA_AUTOREPLY = dry (default: log what it would send) | live | 0.
 JARVIS_WA_MODEL = model for the replies (default claude-haiku-4-5).
 JARVIS_WA_NOTIFY_CHAT = optional WhatsApp chat for a summary of what was sent.
+Mimic list (wa_mimic): chats in JARVIS_WA_MIMIC / ~/.jarvis/wa_mimic.txt are
+answered AS Sir in his own texting style instead of as Jarvis;
+JARVIS_WA_ONLY_MIMIC=1 answers only those chats.
 Install (every 5 minutes):
     */5 * * * * cd /mnt/data/jarvis-voice-butler/jarvis_new && PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin JARVIS_LOCAL=1 .venv/bin/python src/wa_autoreply.py
 """
@@ -181,7 +184,10 @@ def phone_presence(status: dict | None = None) -> str:
         try:
             out = subprocess.run(
                 ["tailscale", "status", "--json"],
-                capture_output=True, text=True, timeout=8, check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
             )
             status = json.loads(out.stdout or "{}")
         except Exception:
@@ -329,7 +335,9 @@ def _norm(text: str) -> str:
 
 
 def owner_active(
-    messages: list[dict], sent_texts: list[str], now: float,
+    messages: list[dict],
+    sent_texts: list[str],
+    now: float,
     window: float = OWNER_ACTIVE_S,
 ) -> bool:
     """Did Sir himself write in this chat within `window` seconds? Pure.
@@ -372,6 +380,18 @@ def quote_note(quote: str, chat: str = "") -> str:
     return f' (replying to {who}: "{body}")'
 
 
+def format_message(m: dict, name: str, me_label: str = "Master (via Jarvis)") -> str:
+    """One chat message -> '[when] Who (replying to ...): text'. Pure."""
+    who = me_label if m.get("me") else (m.get("sender") or name)
+    note = quote_note(str(m.get("quote", "")), name)
+    when = (
+        f"[{_fence(str(m.get('when') or m.get('meta') or ''))[:30]}] "
+        if (m.get("when") or m.get("meta"))
+        else ""
+    )
+    return f"{when}{_fence(who)[:40]}{note}: {_fence(m.get('text', ''))[:400]}"
+
+
 def build_prompt(
     name: str,
     is_group: bool,
@@ -386,12 +406,7 @@ def build_prompt(
     earlier = messages[: len(messages) - len(incoming)]
 
     def fmt(m: dict) -> str:
-        who = "Master (via Jarvis)" if m.get("me") else (m.get("sender") or name)
-        note = quote_note(str(m.get("quote", "")), name)
-        when = f"[{_fence(str(m.get('when') or m.get('meta') or ''))[:30]}] " if (
-            m.get("when") or m.get("meta")
-        ) else ""
-        return f"{when}{_fence(who)[:40]}{note}: {_fence(m.get('text', ''))[:400]}"
+        return format_message(m, name)
 
     head = (
         f"Chat: {_fence(name)[:60]} ({'group' if is_group else 'private'})\n"
@@ -521,13 +536,29 @@ async def read_with_retry(wa, name: str, tries: int = 3, pause_s: float = 4.0) -
 
 
 async def handle_chat(
-    chat: dict, wa, state: dict, now: float, live: bool, ask=ask_claude
+    chat: dict,
+    wa,
+    state: dict,
+    now: float,
+    live: bool,
+    ask=ask_claude,
+    ask_mimic=None,
 ) -> str:
-    """One unread chat -> reason-coded outcome. Never raises."""
+    """One unread chat -> reason-coded outcome. Never raises.
+
+    Chats on the mimic list (wa_mimic) are answered AS Sir in his style;
+    everyone else gets Jarvis. JARVIS_WA_ONLY_MIMIC=1 leaves everyone else
+    alone.
+    """
+    import wa_mimic
+
     name = str(chat.get("name", ""))
     low = name.lower()
     if low in SELF_CHATS or low in blocklist():
         return "skip-self-or-blocked"
+    mimic_note = wa_mimic.lookup(name)
+    if mimic_note is None and wa_mimic.only_listed():
+        return "skip-not-on-mimic-list"
     cs = state["chats"].setdefault(name, {})
     if now < float(cs.get("muted_until") or 0):
         return "skip-muted"
@@ -538,6 +569,7 @@ async def handle_chat(
     if not read.get("ok"):
         return f"skip-unreadable:{read.get('err', '?')}"
     messages = read.get("messages") or []
+    wa_mimic.remember_style(state, messages)
     incoming = pending_incoming(messages)
     if not incoming:
         return "skip-nothing-new"
@@ -551,6 +583,41 @@ async def handle_chat(
     fp = fingerprint(name, incoming)
     if cs.get("last_fp") == fp:
         return "skip-already-handled"
+    if mimic_note is not None:
+        own = wa_mimic.genuine_own(messages, cs.get("sent_texts") or [])
+        prompt = wa_mimic.build_prompt(
+            name,
+            is_group,
+            messages,
+            mimic_note,
+            wa_mimic.style_samples(state, own),
+            datetime.fromtimestamp(now).strftime("%H:%M, %d/%m/%Y"),
+        )
+        parsed, warning = await asyncio.to_thread(
+            ask_mimic or wa_mimic.ask_claude, prompt
+        )
+        cs["last_fp"] = fp
+        if parsed is None:
+            return f"skip-model:{warning}"
+        if parsed.get("handoff"):
+            cs["muted_until"] = now + wa_mimic.HANDOFF_PAUSE_S
+            _digest(
+                {
+                    "ts": now,
+                    "chat": name,
+                    "as_owner": True,
+                    "incoming": [str(m.get("text", ""))[:200] for m in incoming],
+                    "reply": "",
+                    "sent": False,
+                    "why": "handoff",
+                    "for_owner": parsed["for_owner"],
+                }
+            )
+            _handoff_notify(name, parsed["for_owner"], now)
+            return "handoff"
+        return await _send_reply(
+            wa, state, cs, name, is_group, incoming, parsed, now, live, as_owner=True
+        )
     share = low in trusted_chats()
     prompt = build_prompt(
         name,
@@ -569,6 +636,40 @@ async def handle_chat(
         # Trusted chats are never answered rudely: send nothing and never mute.
         parsed.update(reply="", rude=False, disengage=False)
     parsed["reply"] = with_owner_phone(parsed)
+    return await _send_reply(wa, state, cs, name, is_group, incoming, parsed, now, live)
+
+
+def _handoff_notify(chat: str, about: str, now: float) -> None:
+    """A mimic chat needs Sir himself: loud notification, spoken. Never raises."""
+    with contextlib.suppress(Exception):
+        import notify
+
+        about = about or "they need you personally"
+        notify.send(
+            f"{chat}: {about} (I did not reply; paused this chat for an hour.)",
+            title="Jarvis - WhatsApp needs you",
+            kind="whatsapp",
+            source="whatsapp",
+            urgency="urgent",
+            speak_text=f"Sir, {chat} needs you personally on WhatsApp: {about} "
+            "I have not replied.",
+            fingerprint=f"wa-handoff:{chat}:{now}",
+        )
+
+
+async def _send_reply(
+    wa,
+    state: dict,
+    cs: dict,
+    name: str,
+    is_group: bool,
+    incoming: list[dict],
+    parsed: dict,
+    now: float,
+    live: bool,
+    as_owner: bool = False,
+) -> str:
+    """Digest, send (when live) and record one parsed reply."""
     entry = {
         "ts": now,
         "chat": name,
@@ -580,6 +681,7 @@ async def handle_chat(
         "pass_along": parsed.get("pass_along", False),
         "important": parsed.get("important", False),
         "for_owner": parsed["for_owner"],
+        "as_owner": as_owner,
     }
     if not parsed["reply"]:
         _digest({**entry, "sent": False, "why": "no-reply-needed"})
@@ -608,6 +710,7 @@ def summary_text(sent: list[dict]) -> str:
     lines = [f"Jarvis replied on WhatsApp ({len(sent)}):"]
     for e in sent[:8]:
         tag = " [rude reply]" if e.get("rude") else ""
+        tag += " [as you]" if e.get("as_owner") else ""
         about = e.get("for_owner") or "; ".join(e.get("incoming", []))[:120]
         lines.append(f"- {e['chat']}{tag}: {about} | I said: {e['reply']}")
     return "\n".join(lines)[:1500]
@@ -664,7 +767,11 @@ async def inform_owner(wa, sent: list[dict]) -> bool:
 
 
 async def run(
-    wa=None, ensure=None, now: float | None = None, ask=ask_claude
+    wa=None,
+    ensure=None,
+    now: float | None = None,
+    ask=ask_claude,
+    ask_mimic=None,
 ) -> list[str]:
     """One pass. Returns a list of 'chat: outcome' lines. Never raises."""
     m = mode()
@@ -691,7 +798,9 @@ async def run(
     todo = [c for c in chats if int(c.get("unread") or 0) > 0]
     for chat in todo:
         try:
-            outcome = await handle_chat(chat, wa, state, now, m == "live", ask)
+            outcome = await handle_chat(
+                chat, wa, state, now, m == "live", ask, ask_mimic
+            )
         except Exception as exc:
             outcome = f"error:{type(exc).__name__}"
         _log(f"{outcome} chat={chat.get('name')}")

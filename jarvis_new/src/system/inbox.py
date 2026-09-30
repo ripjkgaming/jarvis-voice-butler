@@ -106,9 +106,10 @@ def parse_gmail_message(data: dict) -> dict:
             return ""
 
     body = ""
+    html_body = ""
 
     def _walk(part: dict) -> None:
-        nonlocal body
+        nonlocal body, html_body
         if body or not isinstance(part, dict):
             return
         mime = part.get("mimeType", "")
@@ -116,10 +117,16 @@ def parse_gmail_message(data: dict) -> dict:
         if mime == "text/plain" and data_b64:
             body = _decode(data_b64)
             return
+        if mime == "text/html" and data_b64 and not html_body:
+            html_body = _decode(data_b64)
         for sub in part.get("parts", []) or []:
             _walk(sub)
 
     _walk(data.get("payload", {}))
+    if not body and html_body:
+        # HTML-only mail (most newsletters, many school systems).
+        body = html_to_text(html_body)
+    body = strip_quoted(body)
     body = re.sub(r"\s+", " ", body).strip()[:2000]
     sender = headers.get("from", "")
     sender = re.sub(r"<[^>]*>", "", sender).strip()[:80]
@@ -130,7 +137,50 @@ def parse_gmail_message(data: dict) -> dict:
         "date": headers.get("date", "")[:60],
         "snippet": re.sub(r"\s+", " ", data.get("snippet", "")).strip()[:300],
         "body": body,
+        "thread_id": str(data.get("threadId", "") or ""),
+        "unread": "UNREAD" in (data.get("labelIds") or []),
+        "attachments": _attachment_names(data.get("payload", {})),
     }
+
+
+def html_to_text(raw: str) -> str:
+    """Readable text from an HTML email body. Pure."""
+    t = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", " ", raw or "")
+    t = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|li|h[1-6])>", "\n", t)
+    t = re.sub(r"<[^>]+>", " ", t)
+    t = html.unescape(t)
+    return re.sub(r"[ \t\xa0]+", " ", t).strip()
+
+
+_QUOTE_HEAD = re.compile(
+    r"(?m)^\s*(On .{0,200}wrote:|-{2,}\s*Original Message\s*-{2,}|From: .+\nSent: )"
+)
+
+
+def strip_quoted(body: str) -> str:
+    """Drop the quoted history under a reply ('On ... wrote:' / '>' lines). Pure."""
+    text = str(body or "")
+    m = _QUOTE_HEAD.search(text)
+    if m and m.start() > 0:
+        text = text[: m.start()]
+    lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
+    return "\n".join(lines).strip() or str(body or "").strip()
+
+
+def _attachment_names(payload: dict) -> list[str]:
+    names: list[str] = []
+
+    def _walk(part: dict) -> None:
+        if not isinstance(part, dict):
+            return
+        fn = str(part.get("filename") or "").strip()
+        if fn:
+            names.append(fn[:80])
+        for sub in part.get("parts", []) or []:
+            _walk(sub)
+
+    _walk(payload or {})
+    return names[:10]
 
 
 def _gmail_access_token() -> str:
@@ -227,8 +277,19 @@ def _gmail_send_api(token: str, raw_b64: str, thread_id: str | None = None) -> d
         raise ToolError(f"Gmail refused to send ({exc}).") from exc
 
 
-def build_mime_b64(to: str, subject: str, body: str, in_reply_to: str = "") -> str:
-    """Plain-text MIME -> base64url, Gmail /messages/send format. Pure."""
+def build_mime_b64(
+    to: str,
+    subject: str,
+    body: str,
+    in_reply_to: str = "",
+    auto: bool = False,
+    references: str = "",
+) -> str:
+    """Plain-text MIME -> base64url, Gmail /messages/send format. Pure.
+
+    auto=True marks an automatic reply (RFC 3834) so other auto-responders
+    never answer it back and start a mail loop.
+    """
     from email.message import EmailMessage
 
     msg = EmailMessage()
@@ -236,7 +297,11 @@ def build_mime_b64(to: str, subject: str, body: str, in_reply_to: str = "") -> s
     msg["Subject"] = subject.strip()
     if in_reply_to.strip():
         msg["In-Reply-To"] = in_reply_to.strip()
-        msg["References"] = in_reply_to.strip()
+        chain = f"{references.strip()} {in_reply_to.strip()}".strip()
+        msg["References"] = chain
+    if auto:
+        msg["Auto-Submitted"] = "auto-replied"
+        msg["X-Auto-Response-Suppress"] = "All"
     msg.set_content(body.strip())
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
@@ -286,7 +351,22 @@ URGENT_WORDS = (
     "call me",
 )
 
-NOREPLY_HINTS = ("noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster")
+NOREPLY_HINTS = (
+    "noreply",
+    "no-reply",
+    "donotreply",
+    "do-not-reply",
+    "mailer-daemon",
+    "postmaster",
+    "notifications@",
+    "notification@",
+)
+
+AUTO_SUBJECT = re.compile(
+    r"^\s*(automatic reply|auto(?:matic)?[- ]?reply|out of (?:the )?office|"
+    r"away from (?:the )?office|undeliverable|delivery status notification)",
+    re.I,
+)
 
 
 def _is_bulk(full: dict, sender: str) -> bool:
@@ -294,9 +374,13 @@ def _is_bulk(full: dict, sender: str) -> bool:
     lowered = sender.casefold()
     if any(h in lowered for h in NOREPLY_HINTS):
         return True
-    if _header(full, "List-Unsubscribe"):
+    if _header(full, "List-Unsubscribe") or _header(full, "List-Id"):
         return True
-    if "bulk" in _header(full, "Precedence").casefold():
+    if _header(full, "Precedence").casefold().strip() in ("bulk", "list", "junk"):
+        return True
+    if _header(full, "X-Autoreply") or _header(full, "X-Autorespond"):
+        return True
+    if AUTO_SUBJECT.search(_header(full, "Subject")):
         return True
     auto = _header(full, "Auto-Submitted").casefold()
     return auto not in ("", "no")
@@ -377,13 +461,63 @@ def autoreply_body(subject: str) -> str:
     )
 
 
+_METADATA_PARAMS = [
+    ("format", "metadata"),
+    ("metadataHeaders", "From"),
+    ("metadataHeaders", "Subject"),
+    ("metadataHeaders", "Date"),
+]
+
+
+def _age(date_header: str, now: float | None = None) -> str:
+    """'Mon, 29 Sep 2026 09:00:00 +0000' -> '3h ago' / '2d ago'. Pure-ish."""
+    from email.utils import parsedate_to_datetime
+
+    try:
+        ts = parsedate_to_datetime(date_header).timestamp()
+    except Exception:
+        return ""
+    delta = (time.time() if now is None else now) - ts
+    if delta < 0:
+        return ""
+    if delta < 3600:
+        return f"{max(1, int(delta // 60))}m ago"
+    if delta < 86400:
+        return f"{int(delta // 3600)}h ago"
+    return f"{int(delta // 86400)}d ago"
+
+
+def inbox_row(i: int, parsed: dict, now: float | None = None) -> str:
+    """One numbered, speakable inbox line. Pure-ish."""
+    new = "new, " if parsed.get("unread") else ""
+    age = _age(parsed.get("date", ""), now)
+    when = f" ({new}{age})" if (new or age) else ""
+    when = when.replace(", )", ")")
+    return f"{i}. {parsed['sender']}: {parsed['subject']}{when}"
+
+
+def thread_digest(messages: list[dict], n: int = 5) -> str:
+    """Thread messages -> 'Sender (date): body' blocks, last n, oldest first. Pure."""
+    parts = []
+    for full in messages[-n:]:
+        p = parse_gmail_message(full)
+        text = (p["body"] or p["snippet"])[:350]
+        parts.append(f"{p['sender']} ({p['date'][:16]}): {text}")
+    if len(messages) > n:
+        parts.insert(0, f"({len(messages) - n} earlier messages skipped)")
+    return " | ".join(parts)
+
+
 async def _resolve_ref_to_id(token: str, ref: str) -> str:
     """ "latest" / N / message-id -> Gmail message id. Shared by read/reply."""
     ref = (ref or "latest").strip()
     if ref.lower() == "latest" or ref.isdigit():
         idx = 0 if ref.lower() == "latest" else max(0, min(9, int(ref) - 1))
         listed = await asyncio.to_thread(
-            _gmail_api, "/messages", token, {"maxResults": idx + 1}
+            _gmail_api,
+            "/messages",
+            token,
+            {"maxResults": idx + 1, "labelIds": "INBOX"},
         )
         msgs = listed.get("messages", []) or []
         if len(msgs) <= idx:
@@ -536,6 +670,7 @@ class InboxTools:
             self.gmail_status,
             self.gmail_inbox,
             self.gmail_read,
+            self.gmail_thread,
             self.confirm_email_action,
             self.gmail_send,
             self.gmail_reply,
@@ -670,7 +805,13 @@ class InboxTools:
         sent = await asyncio.to_thread(
             _gmail_send_api,
             token,
-            build_mime_b64(orig_from, reply_subject, body, message_id),
+            build_mime_b64(
+                orig_from,
+                reply_subject,
+                body,
+                message_id,
+                references=_header(full, "References"),
+            ),
             thread_id or None,
         )
         log_action("gmail", f"reply {msg_id[:20]} id={str(sent.get('id', ''))[:20]}")
@@ -678,13 +819,18 @@ class InboxTools:
 
     @function_tool()
     async def gmail_inbox(
-        self, context: RunContext, query: str = "", n: int = 5
+        self,
+        context: RunContext,
+        query: str = "",
+        n: int = 5,
+        unread_only: bool = False,
     ) -> dict[str, str]:
-        """Latest inbox mail, optionally filtered by Gmail search query.
+        """Latest inbox mail, numbered so Sir can say "read number 2".
 
         Args:
             query: Gmail search (e.g. "from:teacher subject:homework").
             n: How many (1-10).
+            unread_only: True for only unread mail ("any new email?").
         """
         try:
             require_local()
@@ -693,20 +839,38 @@ class InboxTools:
         n = max(1, min(10, int(n or 5)))
         token = await asyncio.to_thread(_gmail_access_token)
         params: dict = {"maxResults": n}
-        if (query or "").strip():
-            params["q"] = query.strip()[:200]
+        q = " ".join(
+            p
+            for p in ((query or "").strip()[:200], "is:unread" if unread_only else "")
+            if p
+        )
+        if q:
+            params["q"] = q
+        else:
+            params["labelIds"] = "INBOX"
         listed = await asyncio.to_thread(_gmail_api, "/messages", token, params)
         msgs = listed.get("messages", []) or []
         if not msgs:
-            return {"say": "Inbox is clear for that."}
+            return {
+                "say": "No unread mail." if unread_only else "Inbox is clear for that."
+            }
+        fulls = await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    _gmail_api, f"/messages/{m['id']}", token, _METADATA_PARAMS
+                )
+                for m in msgs
+            ),
+            return_exceptions=True,
+        )
         rows = []
-        for m in msgs:
-            full = await asyncio.to_thread(
-                _gmail_api, f"/messages/{m['id']}", token, {"format": "full"}
-            )
-            parsed = parse_gmail_message(full)
-            rows.append(f"{parsed['sender']}: {parsed['subject']}")
-        log_action("gmail", f"inbox q={query[:40]} n={len(rows)}")
+        for i, full in enumerate(fulls, 1):
+            if isinstance(full, BaseException) or not isinstance(full, dict):
+                continue
+            rows.append(inbox_row(i, parse_gmail_message(full)))
+        log_action("gmail", f"inbox q={q[:40]} n={len(rows)}")
+        if not rows:
+            raise ToolError("Gmail listed mail but would not show it. Try again.")
         return {"say": ("Latest mail: " + "; ".join(rows))[:900]}
 
     @function_tool()
@@ -723,29 +887,52 @@ class InboxTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         token = await asyncio.to_thread(_gmail_access_token)
-        ref = (ref or "latest").strip()
-        if ref.lower() == "latest" or ref.isdigit():
-            idx = 0 if ref.lower() == "latest" else max(0, min(9, int(ref) - 1))
-            listed = await asyncio.to_thread(
-                _gmail_api, "/messages", token, {"maxResults": idx + 1}
-            )
-            msgs = listed.get("messages", []) or []
-            if len(msgs) <= idx:
-                raise ToolError("No such email in the inbox.")
-            msg_id = msgs[idx]["id"]
-        else:
-            msg_id = ref[:100]
+        msg_id = await _resolve_ref_to_id(token, ref)
         full = await asyncio.to_thread(
             _gmail_api, f"/messages/{msg_id}", token, {"format": "full"}
         )
         parsed = parse_gmail_message(full)
         log_action("gmail", f"read {msg_id[:20]}")
         text = parsed["body"] or parsed["snippet"]
+        files = parsed.get("attachments") or []
+        attach = f" Attachments: {', '.join(files[:5])}." if files else ""
         return {
-            "say": (f"From {parsed['sender']}: {parsed['subject']}. {text[:1200]}")[
-                :1500
-            ]
+            "say": (
+                f"From {parsed['sender']}: {parsed['subject']}. {text[:1200]}{attach}"
+            )[:1500],
+            "id": str(msg_id),
         }
+
+    @function_tool()
+    async def gmail_thread(
+        self, context: RunContext, ref: str = "latest", n: int = 5
+    ) -> dict[str, str]:
+        """Read the whole conversation an email belongs to, oldest first.
+
+        Use before replying to a back-and-forth, or for "what's the history
+        with that email".
+
+        Args:
+            ref: "latest", a Gmail message id, or a number 1-10.
+            n: How many of the most recent messages in the thread (1-10).
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        n = max(1, min(10, int(n or 5)))
+        token = await asyncio.to_thread(_gmail_access_token)
+        msg_id = await _resolve_ref_to_id(token, ref)
+        full = await asyncio.to_thread(
+            _gmail_api, f"/messages/{msg_id}", token, {"format": "minimal"}
+        )
+        thread_id = str(full.get("threadId", "") or msg_id)
+        thread = await asyncio.to_thread(
+            _gmail_api, f"/threads/{thread_id}", token, {"format": "full"}
+        )
+        say = thread_digest(thread.get("messages") or [], n)
+        log_action("gmail", f"thread {thread_id[:20]}")
+        return {"say": say[:1800] or "That thread is empty."}
 
     @function_tool()
     async def news_digest(

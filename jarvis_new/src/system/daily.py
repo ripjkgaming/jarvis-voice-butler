@@ -256,6 +256,7 @@ class DailyTools:
             self.whatsapp_chats,
             self.whatsapp_read,
             self.whatsapp_draft,
+            self.whatsapp_mimic,
         ]
 
     # --- school ---
@@ -730,3 +731,50 @@ class DailyTools:
         return {
             "say": f"Draft queued for {chat[:40]}. Approve it on your phone to send."
         }
+
+    @function_tool()
+    async def whatsapp_mimic(
+        self, context: RunContext, action: str = "list", chat: str = "", note: str = ""
+    ) -> dict[str, str]:
+        """Manage who gets WhatsApp auto-replies written AS Sir, in his style.
+
+        Chats on this list are answered as Sir himself instead of as Jarvis.
+        Use for "reply as me to Aarav", "add Mum to my mimic list", "stop
+        mimicking me with Kabir", "who am I mimicking".
+
+        Args:
+            action: "list", "add" or "remove".
+            chat: Exact WhatsApp chat name (for add/remove).
+            note: Optional context about the person, e.g. "best friend, gaming".
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        import wa_mimic
+
+        action = (action or "list").strip().lower()
+        chat = " ".join((chat or "").split())[:60]
+        if action == "list":
+            names = sorted(wa_mimic.entries())
+            if not names:
+                return {"say": "Nobody is on the mimic list, Sir."}
+            only = " Everyone else is left alone." if wa_mimic.only_listed() else ""
+            return {
+                "say": f"I reply as you to {len(names)}: {', '.join(names)}.{only}"[
+                    :900
+                ]
+            }
+        if not chat:
+            raise ToolError("Which chat? Give me the exact WhatsApp name.")
+        if action == "add":
+            if not wa_mimic.add(chat, note):
+                raise ToolError("I could not save that to the mimic list.")
+            log_action("whatsapp-mimic", f"add {chat}")
+            return {"say": f"Done. I will reply to {chat} as you, in your style."}
+        if action == "remove":
+            if not wa_mimic.remove(chat):
+                return {"say": f"{chat} was not on the mimic list, Sir."}
+            log_action("whatsapp-mimic", f"remove {chat}")
+            return {"say": f"{chat} is off the mimic list; Jarvis answers them again."}
+        raise ToolError('Action must be "list", "add" or "remove".')

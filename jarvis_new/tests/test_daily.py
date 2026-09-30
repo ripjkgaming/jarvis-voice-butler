@@ -76,6 +76,7 @@ def test_daily_tools_register_expected_ids() -> None:
         "whatsapp_chats",
         "whatsapp_read",
         "whatsapp_draft",
+        "whatsapp_mimic",
     ):
         assert expected in ids
 
@@ -176,3 +177,28 @@ async def test_study_plan_missing_file(
     monkeypatch.setattr("system.daily.STUDY_PLAN_SRC", tmp_path / "missing.json")
     result = await DailyTools.study_plan(DailyTools(), None, action="today")  # type: ignore[arg-type]
     assert result["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_mimic_add_list_remove(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.delenv("JARVIS_WA_MIMIC", raising=False)
+    tools = DailyTools()
+    empty = await DailyTools.whatsapp_mimic(tools, None)  # type: ignore[arg-type]
+    assert "Nobody" in empty["say"]
+    added = await DailyTools.whatsapp_mimic(  # type: ignore[arg-type]
+        tools, None, action="add", chat="Aarav", note="best friend"
+    )
+    assert "as you" in added["say"]
+    assert (tmp_path / "wa_mimic.txt").read_text().strip() == "Aarav | best friend"
+    listed = await DailyTools.whatsapp_mimic(tools, None)  # type: ignore[arg-type]
+    assert "aarav" in listed["say"]
+    gone = await DailyTools.whatsapp_mimic(  # type: ignore[arg-type]
+        tools, None, action="remove", chat="aarav"
+    )
+    assert "off the mimic list" in gone["say"]
+    with pytest.raises(ToolError):
+        await DailyTools.whatsapp_mimic(tools, None, action="add")  # type: ignore[arg-type]
