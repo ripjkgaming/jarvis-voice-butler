@@ -59,6 +59,7 @@ from system.focus_tools import FocusTools
 from draft_tools import DraftTools
 from notify_tools import NotifyTools
 from system.exam_tools import ExamTools
+from system.memory_tools import MemoryTools
 from system.inbox import InboxTools
 from system.recall_tools import RecallTools
 from system.osint import OsintTools
@@ -1252,6 +1253,20 @@ class SystemAgent(Agent):
         )
 
 
+def _with_memory(instructions: str) -> str:
+    """Append Sir's remembered preferences + a 'last time' line (§2).
+
+    Local strings only (no model call); capped in memory.py. Never raises.
+    """
+    try:
+        import memory
+
+        block = memory.persona_block()
+    except Exception:
+        block = ""
+    return f"{instructions}\n\n# Memory\n{block}" if block else instructions
+
+
 class Assistant(Agent):
     def __init__(
         self,
@@ -1287,6 +1302,7 @@ class Assistant(Agent):
         self.workspace_tools = WorkspaceTools()
         self.recall_tools = RecallTools()
         self.exam_tools = ExamTools()
+        self.memory_tools = MemoryTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1304,7 +1320,7 @@ class Assistant(Agent):
             # 3. Add `from livekit.plugins import openai` to the top of this file
             # 4. Replace the llm argument with:
             #     llm=openai.realtime.RealtimeModel(voice="marin")
-            instructions=AGENT_INSTRUCTIONS,
+            instructions=_with_memory(AGENT_INSTRUCTIONS),
             tools=[
                 *self.browser_tools.tools,
                 *self._end_call_tool.tools,
@@ -1340,6 +1356,8 @@ class Assistant(Agent):
                 *self.recall_tools.tools,
                 # Exam schedule: next / find / add, fed by schedule imports.
                 *self.exam_tools.tools,
+                # Long-term memory: recall, last time, remember/forget.
+                *self.memory_tools.tools,
                 # One voice tool: notify Sir (spoken if present, toast otherwise).
                 *self.notify_tools.tools,
                 *[

@@ -762,6 +762,8 @@ SIDECAR_THREADS = (
     ("exams", "JARVIS_EXAM_REMIND"),
     # Proactive engine: calendar/mail/jobs/disk/deadline signals, one policy.
     ("proactive.engine", "JARVIS_PROACTIVE_ENGINE"),
+    # Long-term memory: summarise each session into the vault when it ends.
+    ("memory", "JARVIS_MEMORY"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
 )
