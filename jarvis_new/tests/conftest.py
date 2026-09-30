@@ -33,6 +33,10 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never spend Sir's Pro usage from tests: headless Claude is off unless
     a test opts in (and stubs the runner)."""
     monkeypatch.setenv("JARVIS_CLAUDE", "0")
+    # Nor the OpenRouter key: WhatsApp's analyst/fallback stay off unless a
+    # test opts in with a fake chat function.
+    monkeypatch.setenv("JARVIS_WA_ANALYST", "0")
+    monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
 
 
 @pytest.fixture(autouse=True)

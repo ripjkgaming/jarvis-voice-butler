@@ -33,6 +33,28 @@ from collections import Counter
 from pathlib import Path
 
 MIMIC_ENV = "JARVIS_WA_MIMIC"
+SWEAR_ENV = "JARVIS_WA_SWEAR"
+#: Chats put on the list once, automatically (removing one later sticks).
+DEFAULT_MIMIC = ("Raphael",)
+#: Sir's own slang: term -> what it means / when he uses it. Extend or
+#: override in ~/.jarvis/wa_slang.txt ("term = meaning", one per line).
+DEFAULT_SLANG = {
+    "syfm": "shut your f***ing mouth: 'be quiet', playful, only with close "
+    "mates who are being annoying or chatting nonsense",
+    "stfu": "shut up: 'be quiet' or 'no way!' in surprise, playful",
+    "bro": "what he calls a mate, friendly and warm",
+    "lwk": "lowkey: 'genuinely / honestly', said sincerely, e.g. 'lwk that's "
+    "fire', 'lwk proud of u'",
+}
+SWEAR_ON = (
+    "SWEARING is allowed: casual swearing like a teenager texting a mate "
+    "(damn, shit, wtf, stfu, syfm, bs) when it fits the vibe and the other "
+    "person is fine with it. Never slurs, never sexual content, never real "
+    "threats, never insults about anyone's looks, family, health, race, "
+    "religion or background, and no swearing at parents, teachers or adults "
+    "he is polite with. "
+)
+SWEAR_OFF = "Do not swear. "
 ONLY_ENV = "JARVIS_WA_ONLY_MIMIC"
 BANK_KEEP = 80
 STYLE_SHOWN = 25
@@ -51,6 +73,12 @@ MIMIC_SYSTEM = (
     "sure.' Sound like a real text from him, usually one short line. Match "
     "how warm or jokey he is with THIS person. Never sound like an assistant: "
     "no 'How can I help', no formal sign-offs, no Jarvis, no 'master'. "
+    "ADAPT TO THEM: mirror the other person's energy and texting style (the "
+    "ANALYSIS and their messages show it): if they text short and lowercase, "
+    "so do you; if they use slang or swear casually, you can too, the way "
+    "{first} would with a mate. Use {first}'s SLANG list naturally where it "
+    "fits, never forced, never every message. "
+    "{swearing}"
     "CONTENT: reply only to the NEW messages, using EARLIER to understand "
     "what they refer to; mind the timestamps (hours later is a fresh start). "
     "Never invent facts about {first}'s life, plans, whereabouts, what he is "
@@ -94,6 +122,52 @@ def owner_first() -> str:
     return os.environ.get("JARVIS_WA_OWNER_FIRST", "Rudra").strip() or "Rudra"
 
 
+def swearing() -> bool:
+    return os.environ.get(SWEAR_ENV, "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+    )
+
+
+def system_prompt() -> str:
+    return MIMIC_SYSTEM.format(
+        first=owner_first(), swearing=SWEAR_ON if swearing() else SWEAR_OFF
+    )
+
+
+def slang_path() -> Path:
+    return home() / "wa_slang.txt"
+
+
+def slang() -> dict[str, str]:
+    """Sir's slang: DEFAULT_SLANG plus ~/.jarvis/wa_slang.txt lines."""
+    out = dict(DEFAULT_SLANG)
+    with contextlib.suppress(Exception):
+        for line in slang_path().read_text().splitlines():
+            term, sep, meaning = line.partition("=")
+            if sep and term.strip() and not line.startswith("#"):
+                out[term.strip().lower()[:30]] = " ".join(meaning.split())[:200]
+    return out
+
+
+def _seed_defaults() -> None:
+    """Add DEFAULT_MIMIC names to the list file once each. Never raises."""
+    marker = home() / "wa_mimic.seeded"
+    with contextlib.suppress(Exception):
+        done = set(marker.read_text().splitlines()) if marker.exists() else set()
+        todo = [n for n in DEFAULT_MIMIC if n not in done]
+        if not todo:
+            return
+        have = {(_parse_line(line) or ("", ""))[0].lower() for line in _file_lines()}
+        for name in todo:
+            if name.lower() not in have:
+                add(name)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("\n".join(sorted(done | set(todo))) + "\n")
+
+
 def only_listed() -> bool:
     """JARVIS_WA_ONLY_MIMIC=1: auto-reply to the mimic list and nobody else."""
     return os.environ.get(ONLY_ENV, "").strip().lower() in ("1", "true", "on", "yes")
@@ -110,6 +184,7 @@ def _parse_line(line: str) -> tuple[str, str] | None:
 
 def entries() -> dict[str, str]:
     """Mimic list as {lower-cased chat name: note}. Never raises."""
+    _seed_defaults()
     out: dict[str, str] = {}
     for raw in os.environ.get(MIMIC_ENV, "").split(","):
         parsed = _parse_line(raw)
@@ -330,6 +405,26 @@ def style_samples(state: dict, chat_own: list[str]) -> list[str]:
     return out
 
 
+def transcript(name: str, messages: list[dict]) -> list[str]:
+    """Fenced EARLIER + NEW chat lines, Sir's labelled 'Me'. Pure."""
+    import wa_autoreply as war
+
+    incoming = war.pending_incoming(messages)
+    earlier = messages[: len(messages) - len(incoming)]
+    me = f"Me ({owner_first()})"
+    parts = [war._START, "EARLIER (context; never reply to these):"]
+    if earlier:
+        parts.extend(
+            war.format_message(m, name, me) for m in earlier[-war.HISTORY_MSGS :]
+        )
+    else:
+        parts.append("(none)")
+    parts.append("NEW (reply only to these):")
+    parts.extend(war.format_message(m, name, me) for m in incoming[-8:])
+    parts.append(war._END)
+    return parts
+
+
 def build_prompt(
     name: str,
     is_group: bool,
@@ -337,13 +432,12 @@ def build_prompt(
     note: str,
     samples: list[str],
     now_text: str,
+    brief: dict | None = None,
+    slang_map: dict[str, str] | None = None,
 ) -> str:
-    """STYLE + EARLIER + NEW, with Sir's own lines labelled 'Me'. Pure."""
+    """STYLE + SLANG + ANALYSIS + EARLIER + NEW. Pure (given slang_map)."""
+    import wa_analyst
     import wa_autoreply as war
-
-    incoming = war.pending_incoming(messages)
-    earlier = messages[: len(messages) - len(incoming)]
-    me = f"Me ({owner_first()})"
 
     head = (
         f"Chat: {war._fence(name)[:60]} ({'group' if is_group else 'private'})\n"
@@ -358,17 +452,16 @@ def build_prompt(
     style.extend(f"- {war._fence(s)}" for s in samples)
     if len(style) == 1:
         style.append("(no samples: keep it short, casual and natural)")
-    parts = [head, *style, war._START]
-    parts.append("EARLIER (context; never reply to these):")
-    if earlier:
-        parts.extend(
-            war.format_message(m, name, me) for m in earlier[-war.HISTORY_MSGS :]
-        )
-    else:
-        parts.append("(none)")
-    parts.append("NEW (reply only to these):")
-    parts.extend(war.format_message(m, name, me) for m in incoming[-8:])
-    parts.append(war._END)
+    terms = slang() if slang_map is None else slang_map
+    lingo = ["SLANG he uses (term: meaning):"]
+    lingo.extend(f"- {war._fence(t)}: {war._fence(m)}" for t, m in terms.items())
+    parts = [head, *style]
+    if terms:
+        parts.extend(lingo)
+    analysis = wa_analyst.brief_block(brief)
+    if analysis:
+        parts.append(analysis)
+    parts.extend(transcript(name, messages))
     return "\n".join(parts)
 
 
@@ -402,8 +495,9 @@ def parse_reply(raw: str) -> dict | None:
 
 
 def ask_claude(
-    prompt: str, runner=None, timeout: float = 90.0
+    prompt: str, runner=None, timeout: float = 90.0, chat=None
 ) -> tuple[dict | None, str | None]:
+    """Claude writes the reply; the free OpenRouter chain covers for it."""
     import claude_cli
 
     model = (
@@ -411,14 +505,21 @@ def ask_claude(
         or os.environ.get("JARVIS_WA_MODEL", "").strip()
         or "claude-haiku-4-5"
     )
+    system = system_prompt()
     reply, warning = claude_cli.claude_reply(
-        prompt,
-        model=model,
-        system=MIMIC_SYSTEM.format(first=owner_first()),
-        timeout=timeout,
-        runner=runner,
+        prompt, model=model, system=system, timeout=timeout, runner=runner
     )
-    if warning:
-        return None, warning
-    parsed = parse_reply(reply)
-    return (parsed, None) if parsed else (None, "reply was not valid JSON")
+    parsed = None if warning else parse_reply(reply)
+    if parsed is None:
+        # Claude out (limit, offline, garbage): the free OpenRouter chain.
+        import wa_analyst
+
+        alt, alt_warning = wa_analyst.wa_fallback_reply(prompt, system, chat=chat)
+        parsed = parse_reply(alt) if alt else None
+        if parsed is None:
+            return (
+                None,
+                f"{warning or 'claude reply was not valid JSON'}; {alt_warning or 'fallback reply was not valid JSON'}",
+            )
+        parsed["model"] = "openrouter"
+    return parsed, None

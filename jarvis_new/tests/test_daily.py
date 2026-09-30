@@ -187,6 +187,9 @@ async def test_whatsapp_mimic_add_list_remove(
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.delenv("JARVIS_WA_MIMIC", raising=False)
     tools = DailyTools()
+    first = await DailyTools.whatsapp_mimic(tools, None)  # type: ignore[arg-type]
+    assert first["say"] == "I reply as you to 1: raphael."  # built-in default
+    await DailyTools.whatsapp_mimic(tools, None, action="remove", chat="Raphael")  # type: ignore[arg-type]
     empty = await DailyTools.whatsapp_mimic(tools, None)  # type: ignore[arg-type]
     assert "Nobody" in empty["say"]
     added = await DailyTools.whatsapp_mimic(  # type: ignore[arg-type]

@@ -27,6 +27,8 @@ def home(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(notify, "send", lambda *a, **k: {"route": "test"})
+    # Built-in list entries (Raphael) have their own tests below.
+    monkeypatch.setattr(wa_mimic, "DEFAULT_MIMIC", ())
     return h
 
 
@@ -170,7 +172,7 @@ def test_parse_reply_handoff_and_no_jarvis_leak() -> None:
 
 
 def test_system_prompt_formats() -> None:
-    text = wa_mimic.MIMIC_SYSTEM.format(first="Rudra")
+    text = wa_mimic.system_prompt()
     assert "AS Rudra" in text and '"handoff": bool' in text
     assert "Never deny" in text
 
@@ -270,3 +272,179 @@ async def test_run_uses_mimic_hook_and_learns_style(home, monkeypatch) -> None:
     assert "Aarav: sent" in out
     saved = wa_autoreply.load_state()
     assert "ngl that was sick" in saved["style_bank"]
+
+
+# --- Raphael default, slang, swearing, analyst, OpenRouter fallback ---
+
+
+def test_raphael_seeded_once_and_removal_sticks(home, monkeypatch) -> None:
+    monkeypatch.setattr(wa_mimic, "DEFAULT_MIMIC", ("Raphael",))
+    assert wa_mimic.lookup("Raphael") == ""
+    assert wa_mimic.remove("raphael") is True
+    assert wa_mimic.lookup("Raphael") is None  # not re-added
+    home.joinpath("wa_mimic.txt").unlink()
+    assert wa_mimic.lookup("Raphael") is None
+
+
+def test_raphael_joins_an_existing_list(home, monkeypatch) -> None:
+    home.mkdir(parents=True)
+    (home / "wa_mimic.txt").write_text("Aarav | best friend\n")
+    monkeypatch.setattr(wa_mimic, "DEFAULT_MIMIC", ("Raphael",))
+    assert set(wa_mimic.entries()) == {"aarav", "raphael"}
+
+
+def test_slang_defaults_and_file(home) -> None:
+    terms = wa_mimic.slang()
+    assert {"syfm", "stfu", "bro", "lwk"} <= set(terms)
+    assert "be quiet" in terms["syfm"] and "genuinely" in terms["lwk"]
+    home.mkdir(parents=True)
+    (home / "wa_slang.txt").write_text(
+        "# mine\nfr = for real\nbro = my guy\nnot a pair\n"
+    )
+    terms = wa_mimic.slang()
+    assert terms["fr"] == "for real" and terms["bro"] == "my guy"
+
+
+def test_swearing_toggle(home, monkeypatch) -> None:
+    assert "SWEARING is allowed" in wa_mimic.system_prompt()
+    assert "Never slurs" in wa_mimic.system_prompt()
+    assert "mild swearing is allowed" in wa_autoreply.reply_system()
+    monkeypatch.setenv("JARVIS_WA_SWEAR", "0")
+    assert "Do not swear." in wa_mimic.system_prompt()
+    assert "mild swearing" not in wa_autoreply.reply_system()
+
+
+def test_prompt_includes_slang_and_analysis(home) -> None:
+    brief = {
+        "their_style": "all lowercase, says bruh a lot",
+        "mood": "hyped",
+        "wants": "to play tonight",
+        "advice": "short and hyped",
+        "serious": False,
+    }
+    prompt = wa_mimic.build_prompt(
+        "Raphael",
+        False,
+        [_m("bruh u on", sender="Raphael")],
+        "",
+        [],
+        "10:00",
+        brief=brief,
+    )
+    assert "- lwk: lowkey" in prompt
+    assert "How they text: all lowercase, says bruh a lot" in prompt
+    assert "Suggested pitch: short and hyped" in prompt
+    assert prompt.index("ANALYSIS") < prompt.index("<<<CHAT_START>>>")
+
+
+def test_analyst_parse_and_disable(monkeypatch) -> None:
+    import wa_analyst
+
+    raw = '<think>hmm</think>{"their_style": "short, lowercase", "mood": "chill", "wants": "a yes", "advice": "keep it short", "serious": false}'
+    calls = []
+
+    def chat(prompt, **kw):
+        calls.append((prompt, kw))
+        return raw, None
+
+    monkeypatch.setenv("JARVIS_WA_ANALYST", "1")
+    brief, warn = wa_analyst.analyse(
+        "<<<CHAT_START>>>x<<<CHAT_END>>>", "old profile", "Rudra", chat=chat
+    )
+    assert warn is None and brief["their_style"] == "short, lowercase"
+    assert "PREVIOUS PROFILE of the other person: old profile" in calls[0][0]
+    assert calls[0][1]["model"].endswith(":free")
+    assert (
+        wa_analyst.analyse("x", "", "R", chat=lambda p, **k: ("nope", None))[0] is None
+    )
+    monkeypatch.setenv("JARVIS_WA_ANALYST", "0")
+    assert wa_analyst.analyse("x", "", "R", chat=chat) == (None, "analyst disabled")
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_learns_their_profile(home) -> None:
+    wa_mimic.add("Raphael")
+    wa = FakeWA(
+        {"Raphael": _dm([_m("yo bro", me=True), _m("bruh wya", sender="Raphael")])}
+    )
+    seen = []
+
+    def analyse(block, previous, first):
+        seen.append((block, previous))
+        return {
+            "their_style": f"v{len(seen)} lowercase",
+            "mood": "",
+            "wants": "",
+            "advice": "short",
+            "serious": False,
+        }, None
+
+    mimic = _asker(reply="home bro")
+    state = {"chats": {}}
+    out = await wa_autoreply.handle_chat(
+        {"name": "Raphael"}, wa, state, NOW, True, _asker(), mimic, analyse
+    )
+    assert out == "sent"
+    assert state["chats"]["Raphael"]["their_profile"] == "v1 lowercase"
+    assert "Suggested pitch: short" in mimic.prompts[0]
+    assert "bruh wya" in seen[0][0] and seen[0][1] == ""
+    wa._reads["Raphael"] = _dm(
+        [
+            _m("home bro", me=True),
+            _m("bet", sender="Raphael"),
+            _m("u coming?", sender="Raphael"),
+        ]
+    )
+    await wa_autoreply.handle_chat(
+        {"name": "Raphael"}, wa, state, NOW + 900, True, _asker(), mimic, analyse
+    )
+    assert seen[1][1] == "v1 lowercase"
+    assert state["chats"]["Raphael"]["their_profile"] == "v2 lowercase"
+
+
+@pytest.mark.asyncio
+async def test_analyst_failure_still_replies(home) -> None:
+    wa_mimic.add("Raphael")
+    wa = FakeWA({"Raphael": _dm([_m("yo", sender="Raphael")])})
+    out = await wa_autoreply.handle_chat(
+        {"name": "Raphael"},
+        wa,
+        {"chats": {}},
+        NOW,
+        True,
+        _asker(),
+        _asker(reply="yo"),
+        lambda *a: (None, "rate limited"),
+    )
+    assert out == "sent"
+
+
+def test_openrouter_fallback_when_claude_out(home, monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WA_OPENROUTER", "1")
+    used = []
+
+    def chat(prompt, **kw):
+        used.append(kw)
+        return '{"reply": "ya bro lwk", "handoff": false}', None
+
+    parsed, warn = wa_mimic.ask_claude("prompt", chat=chat)  # JARVIS_CLAUDE=0 in tests
+    assert (
+        warn is None
+        and parsed["reply"] == "ya bro lwk"
+        and parsed["model"] == "openrouter"
+    )
+    assert "ghost-write" in used[0]["system"]
+    jarvis, warn = wa_autoreply.ask_claude(
+        "prompt", chat=lambda p, **k: ('{"reply": "Noted.", "rude": false}', None)
+    )
+    assert jarvis["reply"] == "Noted." and jarvis["model"] == "openrouter"
+    none, warn = wa_mimic.ask_claude("prompt", chat=lambda p, **k: ("", "HTTP 429"))
+    assert none is None and "HTTP 429" in warn and "disabled" in warn.lower()
+
+
+def test_openrouter_fallback_off_switch(home, monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
+    parsed, warn = wa_mimic.ask_claude(
+        "p", chat=lambda p, **k: ('{"reply": "x"}', None)
+    )
+    assert parsed is None and "openrouter fallback disabled" in warn

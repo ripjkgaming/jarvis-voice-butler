@@ -476,20 +476,45 @@ def with_owner_phone(parsed: dict) -> str:
     return f"{reply} If it's urgent, you can reach my master directly on {phone}."
 
 
+def reply_system() -> str:
+    """Jarvis's system prompt, with swearing allowed in rude replies when on."""
+    import wa_mimic
+
+    extra = (
+        " When you are being rude back, mild swearing is allowed (damn, hell, "
+        "bloody, crap, piss off) in a butler's cutting register; never slurs "
+        "or the rest of the limits below."
+        if wa_mimic.swearing()
+        else ""
+    )
+    return REPLY_SYSTEM.format(owner=owner_title()) + extra
+
+
 def ask_claude(
-    prompt: str, runner=None, timeout: float = 90.0
+    prompt: str, runner=None, timeout: float = 90.0, chat=None
 ) -> tuple[dict | None, str | None]:
+    """Claude writes Jarvis's reply; the free OpenRouter chain covers for it."""
+    system = reply_system()
     reply, warning = claude_cli.claude_reply(
         prompt,
         model=os.environ.get("JARVIS_WA_MODEL", "").strip() or DEFAULT_MODEL,
-        system=REPLY_SYSTEM.format(owner=owner_title()),
+        system=system,
         timeout=timeout,
         runner=runner,
     )
-    if warning:
-        return None, warning
-    parsed = parse_reply(reply)
-    return (parsed, None) if parsed else (None, "reply was not valid JSON")
+    parsed = None if warning else parse_reply(reply)
+    if parsed is None:
+        import wa_analyst
+
+        alt, alt_warning = wa_analyst.wa_fallback_reply(prompt, system, chat=chat)
+        parsed = parse_reply(alt) if alt else None
+        if parsed is None:
+            return None, (
+                f"{warning or 'claude reply was not valid JSON'}; "
+                f"{alt_warning or 'fallback reply was not valid JSON'}"
+            )
+        parsed["model"] = "openrouter"
+    return parsed, None
 
 
 def _log(msg: str) -> None:
@@ -543,6 +568,7 @@ async def handle_chat(
     live: bool,
     ask=ask_claude,
     ask_mimic=None,
+    analyse=None,
 ) -> str:
     """One unread chat -> reason-coded outcome. Never raises.
 
@@ -584,7 +610,18 @@ async def handle_chat(
     if cs.get("last_fp") == fp:
         return "skip-already-handled"
     if mimic_note is not None:
+        import wa_analyst
+
         own = wa_mimic.genuine_own(messages, cs.get("sent_texts") or [])
+        brief, _warn = await asyncio.to_thread(
+            analyse or wa_analyst.analyse,
+            "\n".join(wa_mimic.transcript(name, messages)),
+            str(cs.get("their_profile") or ""),
+            wa_mimic.owner_first(),
+        )
+        if brief and brief.get("their_style"):
+            # The learned profile of how THEY text, refined every reply.
+            cs["their_profile"] = brief["their_style"]
         prompt = wa_mimic.build_prompt(
             name,
             is_group,
@@ -592,6 +629,7 @@ async def handle_chat(
             mimic_note,
             wa_mimic.style_samples(state, own),
             datetime.fromtimestamp(now).strftime("%H:%M, %d/%m/%Y"),
+            brief=brief,
         )
         parsed, warning = await asyncio.to_thread(
             ask_mimic or wa_mimic.ask_claude, prompt
@@ -772,6 +810,7 @@ async def run(
     now: float | None = None,
     ask=ask_claude,
     ask_mimic=None,
+    analyse=None,
 ) -> list[str]:
     """One pass. Returns a list of 'chat: outcome' lines. Never raises."""
     m = mode()
@@ -799,7 +838,7 @@ async def run(
     for chat in todo:
         try:
             outcome = await handle_chat(
-                chat, wa, state, now, m == "live", ask, ask_mimic
+                chat, wa, state, now, m == "live", ask, ask_mimic, analyse
             )
         except Exception as exc:
             outcome = f"error:{type(exc).__name__}"
