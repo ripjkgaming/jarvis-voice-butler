@@ -3156,6 +3156,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "live": read_live_caption()})
         elif route == "/activity":
             self._send(200, {"ok": True, "items": read_activity()})
+        elif route == "/panels":
+            # Voice-driven HUD panels (src/hud_panels.py, IRONMAN_SPEC §6).
+            import hud_panels
+
+            self._send(200, hud_panels.payload())
         elif route == "/camera/latest":
             latest = _phone_cam_dir() / "latest.jpg"
             try:
