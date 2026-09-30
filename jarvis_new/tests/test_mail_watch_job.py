@@ -450,3 +450,76 @@ def test_start_thread_stop_during_first_delay_never_runs(monkeypatch) -> None:
         if thread.is_alive():
             thread.join(timeout=5.0)
     assert not thread.is_alive()
+
+
+# --- ack dedupe, mail log, draft context ---
+
+
+def test_ack_allowed_thread_and_sender_cooldown() -> None:
+    acks: dict = {}
+    now = 1_000_000.0
+    assert mail_watch_job.ack_allowed(acks, "t1", "a@x.com", now)
+    mail_watch_job.note_ack(acks, "t1", "a@x.com", now)
+    assert not mail_watch_job.ack_allowed(acks, "t1", "b@x.com", now + 10)
+    assert not mail_watch_job.ack_allowed(acks, "t2", "a@x.com", now + 3600)
+    later = now + mail_watch_job.ACK_SENDER_COOLDOWN_S + 1
+    assert mail_watch_job.ack_allowed(acks, "t2", "a@x.com", later)
+
+
+@pytest.mark.asyncio
+async def test_second_urgent_mail_in_thread_is_not_reacked(fakes) -> None:
+    import mail_log
+
+    fakes["payloads"]["u1"] = _full(
+        "u1", "Teacher <t@school.edu>", "Urgent: form", "pls"
+    )
+    fakes["payloads"]["u2"] = _full(
+        "u2", "Teacher <t@school.edu>", "Urgent: form", "again"
+    )
+    acks: dict = {}
+    first = await mail_watch_job._handle_one("u1", acks)
+    second = await mail_watch_job._handle_one("u2", acks)
+    assert "replied=autoconfirm" in first
+    assert "already-acked" in second
+    assert len(fakes["sends"]) == 1
+    raw = base64.urlsafe_b64decode(fakes["sends"][0][1].encode()).decode()
+    assert "Auto-Submitted: auto-replied" in raw
+    kinds = [e["kind"] for e in mail_log.recent()]
+    assert kinds.count("acked") == 1 and kinds.count("flagged") == 2
+
+
+@pytest.mark.asyncio
+async def test_draft_gets_thread_and_style_context(fakes) -> None:
+    fakes["payloads"]["n1"] = _full(
+        "n1", "Aarav <a@x.com>", "Project", "Can you send the slides?", thread="th9"
+    )
+    fakes["payloads"]["th9"] = {
+        "messages": [
+            _full(
+                "old", "Aarav <a@x.com>", "Project", "Started the deck", thread="th9"
+            ),
+            fakes["payloads"]["n1"],
+        ]
+    }
+    fakes["payloads"]["messages"] = {"messages": [{"id": "s1"}]}
+    fakes["payloads"]["s1"] = _full("s1", "me@x.com", "Re: stuff", "yo, sure thing - R")
+    out = await mail_watch_job._handle_one("n1")
+    assert out == "normal-logged"
+    prompt = fakes["model_calls"][-1]
+    assert "Started the deck" in prompt
+    assert "yo, sure thing - R" in prompt
+    assert prompt.index("EARLIER in this thread") < prompt.index("Can you send")
+
+
+@pytest.mark.asyncio
+async def test_draft_context_failures_are_soft(fakes) -> None:
+    fakes["payloads"]["n2"] = _full(
+        "n2", "Bo <b@x.com>", "Hi", "question?", thread="gone"
+    )
+    assert await mail_watch_job._handle_one("n2") == "normal-logged"
+    assert fakes["model_calls"]
+
+
+def test_state_path_follows_jarvis_home(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert mail_watch_job.state_path() == tmp_path / "mail_watch.state.json"

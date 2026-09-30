@@ -548,3 +548,140 @@ def test_autoreply_shares_owner_phone(monkeypatch) -> None:
     assert "+65" not in body and "phone or WhatsApp" in body
     monkeypatch.setenv("JARVIS_OWNER_PHONE", "+1 555 0100")
     assert "+1 555 0100" in autoreply_body("Exam")
+
+
+# --- parsing upgrades, listing, threads ---
+
+
+def _b64s(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode()).decode()
+
+
+def test_parse_html_only_mail_and_attachments() -> None:
+    data = {
+        "id": "h1",
+        "threadId": "t1",
+        "labelIds": ["INBOX", "UNREAD"],
+        "payload": {
+            "headers": [{"name": "Subject", "value": "News"}],
+            "parts": [
+                {
+                    "mimeType": "text/html",
+                    "body": {
+                        "data": _b64s(
+                            "<style>x{}</style><p>Hello &amp; welcome</p><br>Line 2"
+                        )
+                    },
+                },
+                {
+                    "mimeType": "application/pdf",
+                    "filename": "timetable.pdf",
+                    "body": {},
+                },
+            ],
+        },
+    }
+    parsed = parse_gmail_message(data)
+    assert parsed["body"] == "Hello & welcome Line 2"
+    assert parsed["unread"] is True and parsed["thread_id"] == "t1"
+    assert parsed["attachments"] == ["timetable.pdf"]
+
+
+def test_strip_quoted_history() -> None:
+    body = "Sounds good!\n\nOn Mon, 29 Sep 2026, Bob <b@x.com> wrote:\n> old stuff"
+    assert inbox_mod.strip_quoted(body) == "Sounds good!"
+    assert inbox_mod.strip_quoted("> only quote") == "> only quote"
+
+
+def test_auto_reply_mail_is_not_human() -> None:
+    full = {
+        "payload": {"headers": [{"name": "Subject", "value": "Automatic reply: Hi"}]}
+    }
+    assert inbox_mod._is_bulk(full, "Bob <bob@x.com>") is True
+    ooo = {"payload": {"headers": [{"name": "Subject", "value": "Out of Office"}]}}
+    assert inbox_mod._is_bulk(ooo, "bob@x.com") is True
+    plain = {"payload": {"headers": [{"name": "Subject", "value": "Office hours?"}]}}
+    assert inbox_mod._is_bulk(plain, "bob@x.com") is False
+
+
+def test_auto_mime_headers() -> None:
+    raw = inbox_mod.build_mime_b64(
+        "a@b.c", "Re: x", "hi", "<m1>", auto=True, references="<m0>"
+    )
+    text = base64.urlsafe_b64decode(raw.encode()).decode()
+    assert "Auto-Submitted: auto-replied" in text
+    assert "References: <m0> <m1>" in text
+
+
+def test_inbox_row_marks_new_and_age() -> None:
+    import datetime as _dt
+
+    now = _dt.datetime(2026, 9, 29, 12, 0, tzinfo=_dt.timezone.utc).timestamp()
+    row = inbox_mod.inbox_row(
+        2,
+        {
+            "sender": "Bob",
+            "subject": "Hi",
+            "unread": True,
+            "date": "Mon, 29 Sep 2026 09:00:00 +0000",
+        },
+        now,
+    )
+    assert row == "2. Bob: Hi (new, 3h ago)"
+    assert inbox_mod.inbox_row(1, {"sender": "A", "subject": "S"}) == "1. A: S"
+
+
+def test_thread_digest_last_n() -> None:
+    msgs = [
+        {
+            "id": str(i),
+            "payload": {"headers": [{"name": "From", "value": f"P{i}"}]},
+            "snippet": f"s{i}",
+        }
+        for i in range(4)
+    ]
+    out = inbox_mod.thread_digest(msgs, 2)
+    assert out.startswith("(2 earlier messages skipped)")
+    assert "P3" in out and "P0" not in out
+
+
+@pytest.mark.asyncio
+async def test_gmail_inbox_numbers_and_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr(inbox_mod, "_gmail_access_token", lambda: "tok")
+    calls = []
+
+    def api(path, token, params=None):
+        calls.append((path, params))
+        if path == "/messages":
+            return {"messages": [{"id": "a"}, {"id": "b"}]}
+        return {
+            "id": path[-1],
+            "labelIds": ["UNREAD"] if path.endswith("a") else [],
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": f"S{path[-1]}"},
+                    {"name": "Subject", "value": "Hey"},
+                ]
+            },
+        }
+
+    monkeypatch.setattr(inbox_mod, "_gmail_api", api)
+    out = await InboxTools.gmail_inbox(InboxTools(), None)  # type: ignore[arg-type]
+    assert "1. Sa: Hey (new)" in out["say"] and "2. Sb: Hey" in out["say"]
+    assert calls[0][1]["labelIds"] == "INBOX"
+    await InboxTools.gmail_inbox(InboxTools(), None, unread_only=True)  # type: ignore[arg-type]
+    assert calls[3][1]["q"] == "is:unread"
+
+
+def test_mail_log_roundtrip(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import mail_log
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mail_log.record("acked", to="t@school.edu", subject="Re: Form", ts=100)
+    mail_log.record("flagged", sender="Bob <b@x.com>", subject="Urgent", ts=200)
+    mail_log.record("bogus", subject="ignored")
+    assert [e["kind"] for e in mail_log.recent()] == ["flagged", "acked"]
+    assert [e["kind"] for e in mail_log.recent(kinds=("acked",))] == ["acked"]
+    assert mail_log.recent(who="bob")[0]["subject"] == "Urgent"
+    assert mail_log.recent(since=150)[0]["kind"] == "flagged"

@@ -306,6 +306,16 @@ def build_mime_b64(
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
 
+def _mail_log(kind: str, **fields) -> None:
+    """mail_log.record, but never breaks a send that already happened."""
+    try:
+        import mail_log
+
+        mail_log.record(kind, **fields)
+    except Exception:
+        pass
+
+
 def _draft_key(to: str, subject: str, body: str) -> str:
     """Exact-match fingerprint for the email confirm gate. Pure."""
 
@@ -760,6 +770,7 @@ class InboxTools:
             _gmail_send_api, token, build_mime_b64(to_addr, subject, body)
         )
         log_action("gmail", f"send to={to_addr} id={str(sent.get('id', ''))[:20]}")
+        _mail_log("sent", to=to_addr, subject=subject, body=body)
         return {"say": f"Sent to {to_addr}: {subject[:120]}."}
 
     @function_tool()
@@ -815,6 +826,7 @@ class InboxTools:
             thread_id or None,
         )
         log_action("gmail", f"reply {msg_id[:20]} id={str(sent.get('id', ''))[:20]}")
+        _mail_log("sent", to=orig_from, subject=reply_subject, body=body)
         return {"say": f"Replied to {orig_from}: {reply_subject[:120]}."}
 
     @function_tool()

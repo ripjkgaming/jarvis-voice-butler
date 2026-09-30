@@ -131,6 +131,11 @@ class DraftTools:
         record = _live(id)
         draft_engine.set_status(str(record["id"]), "discarded")
         log_action("drafts", f"discarded id={str(id)[:20]}")
+        import mail_log
+
+        mail_log.record(
+            "discarded", id=record["id"], to=record["to"], subject=record["subject"]
+        )
         try:
             import drafts_ui
 

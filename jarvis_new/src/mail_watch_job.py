@@ -25,19 +25,46 @@ import contextlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-STATE_PATH = Path.home() / ".jarvis" / "mail_watch.state.json"
 MAX_PER_RUN = 20
 MAX_DRAFTS_PER_RUN = 3
+#: One automatic acknowledgement per thread, and per sender per day, at most.
+ACK_SENDER_COOLDOWN_S = 24 * 3600
+ACK_KEEP = 300
 _run = {"drafts": 0}
+
+
+def state_path() -> Path:
+    h = os.environ.get("JARVIS_HOME", "").strip()
+    return (Path(h) if h else Path.home() / ".jarvis") / "mail_watch.state.json"
+
+
+def ack_allowed(acks: dict, thread_id: str, addr: str, now: float) -> bool:
+    """No second auto-ack in a thread, none to a sender acked in the last day. Pure."""
+    if thread_id and f"t:{thread_id}" in acks:
+        return False
+    last = float(acks.get(f"a:{addr}") or 0)
+    return not (addr and now - last < ACK_SENDER_COOLDOWN_S)
+
+
+def note_ack(acks: dict, thread_id: str, addr: str, now: float) -> None:
+    if thread_id:
+        acks[f"t:{thread_id}"] = now
+    if addr:
+        acks[f"a:{addr}"] = now
+    for key in sorted(acks, key=lambda k: float(acks[k]))[
+        : max(0, len(acks) - ACK_KEEP)
+    ]:
+        acks.pop(key, None)
 
 
 def _load_state() -> dict:
     try:
-        data = json.loads(STATE_PATH.read_text())
+        data = json.loads(state_path().read_text())
         if isinstance(data, dict):
             data.setdefault("seen", [])
             return data
@@ -48,8 +75,8 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     try:
-        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_PATH.write_text(json.dumps(state))
+        state_path().parent.mkdir(parents=True, exist_ok=True)
+        state_path().write_text(json.dumps(state))
     except Exception:
         pass
 
@@ -109,16 +136,31 @@ async def _maybe_draft(parsed: dict, full: dict, verdict: dict) -> None:
             return
         to = _extract_email(_header(full, "From") or parsed["sender"])
         _run["drafts"] += 1
+        thread_id = str(full.get("threadId", "") or "")
+        context = await asyncio.to_thread(_draft_context, parsed["id"], thread_id, to)
         _, outcome = await asyncio.to_thread(
             lambda: draft_engine.create_draft(
                 parsed,
                 to=to,
-                thread_id=str(full.get("threadId", "") or ""),
+                thread_id=thread_id,
                 priority=str(verdict["level"]),
+                context=context,
             )
         )
         log_action("mailwatch", f"draft {outcome} id={parsed['id'][:16]}")
         if outcome == "created":
+            with contextlib.suppress(Exception):
+                import mail_log
+
+                rec = draft_engine.read_draft(parsed["id"]) or {}
+                mail_log.record(
+                    "drafted",
+                    id=parsed["id"],
+                    sender=parsed["sender"],
+                    subject=parsed["subject"],
+                    summary=rec.get("summary", ""),
+                    body=rec.get("body", ""),
+                )
             try:
                 from draft_notify import announce_line
 
@@ -139,6 +181,51 @@ async def _maybe_draft(parsed: dict, full: dict, verdict: dict) -> None:
             from system import log_action
 
             log_action("mailwatch", f"draft error: {exc}")
+
+
+def _draft_context(msg_id: str, thread_id: str, to: str) -> dict:
+    """Earlier messages in the thread + Sir's past mail to this person.
+
+    Gives the drafter the conversation so far and his own voice. Every
+    lookup is best-effort: any failure just means less context.
+    """
+    from system.inbox import (
+        _gmail_access_token,
+        _gmail_api,
+        parse_gmail_message,
+    )
+
+    out: dict = {"thread": [], "style": []}
+    try:
+        token = _gmail_access_token()
+    except Exception:
+        return out
+    with contextlib.suppress(Exception):
+        if thread_id:
+            thread = _gmail_api(f"/threads/{thread_id}", token, {"format": "full"})
+            for full in (thread.get("messages") or [])[-6:]:
+                if full.get("id") == msg_id:
+                    continue
+                p = parse_gmail_message(full)
+                out["thread"].append(
+                    {
+                        "sender": p["sender"],
+                        "date": p["date"],
+                        "body": (p["body"] or p["snippet"])[:600],
+                    }
+                )
+    with contextlib.suppress(Exception):
+        if to:
+            listed = _gmail_api(
+                "/messages", token, {"q": f"in:sent to:{to}", "maxResults": 3}
+            )
+            for m in listed.get("messages") or []:
+                p = parse_gmail_message(
+                    _gmail_api(f"/messages/{m['id']}", token, {"format": "full"})
+                )
+                if p["body"]:
+                    out["style"].append(p["body"][:500])
+    return out
 
 
 async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
@@ -167,8 +254,15 @@ async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
         return verdict
 
 
-async def _handle_one(msg_id: str) -> str:
-    """Triage + act on one message. Returns a reason-coded outcome."""
+async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
+    """Triage + act on one message. Returns a reason-coded outcome.
+
+    acks is the persisted auto-acknowledgement memory (thread + sender);
+    None means no memory (every high human mail may be acknowledged).
+    """
+    import mail_log
+
+    acks = {} if acks is None else acks
     from system import log_action
     from system.inbox import (
         _gmail_access_token,
@@ -200,6 +294,14 @@ async def _handle_one(msg_id: str) -> str:
         await _maybe_draft(parsed, full, verdict)
         return "normal-logged"
 
+    mail_log.record(
+        "flagged",
+        id=msg_id,
+        sender=sender,
+        subject=subject,
+        level=level,
+        summary=", ".join(str(r) for r in verdict["reasons"][:3]),
+    )
     # High: ping + desktop notification always; reply only human senders.
     ping = (
         f"High-priority mail from {sender[:60]}: {subject[:100]}. "
@@ -209,29 +311,38 @@ async def _handle_one(msg_id: str) -> str:
     outcome = f"high pinged={pinged}"
     acked = False
     try:
-        if verdict["human"] and os.environ.get("JARVIS_AUTOREPLY", "1") != "0":
-            orig_from = sender
-            try:
-                from system.inbox import _extract_email
+        from system.inbox import _extract_email
 
-                addr = _extract_email(_header(full, "From") or sender)
-                if addr:
-                    orig_from = addr
-            except Exception:
-                pass
+        addr = _extract_email(_header(full, "From") or sender)
+        thread_id = str(full.get("threadId", "") or "")
+        now = time.time()
+        if not ack_allowed(acks, thread_id, addr, now):
+            outcome += " replied=no(already-acked)"
+        elif verdict["human"] and os.environ.get("JARVIS_AUTOREPLY", "1") != "0":
+            orig_from = addr or sender
             reply_subject = (
                 subject if subject.lower().startswith("re:") else f"Re: {subject}"
             )
             body = autoreply_body(subject)
             message_id = _header(full, "Message-ID")
-            thread_id = str(full.get("threadId", "") or "") or None
             await asyncio.to_thread(
                 _gmail_send_api,
                 token,
-                build_mime_b64(orig_from, reply_subject, body, message_id),
-                thread_id,
+                build_mime_b64(
+                    orig_from,
+                    reply_subject,
+                    body,
+                    message_id,
+                    auto=True,
+                    references=_header(full, "References"),
+                ),
+                thread_id or None,
             )
             acked = True
+            note_ack(acks, thread_id, addr, now)
+            mail_log.record(
+                "acked", id=msg_id, to=orig_from, subject=reply_subject, body=body
+            )
             try:
                 from system import log_action as _log
 
@@ -292,9 +403,10 @@ async def main() -> None:
     ]
     if not fresh:
         return
+    acks = dict(state.get("acks", {}))
     for msg_id in fresh:
         try:
-            outcome = await _handle_one(msg_id)
+            outcome = await _handle_one(msg_id, acks)
         except Exception as exc:
             from system import log_action as _log
 
@@ -303,7 +415,7 @@ async def main() -> None:
             outcome = "error"
         seen_map[msg_id] = outcome
         trimmed = dict(list(seen_map.items())[-500:])
-        _save_state({**state, "seen": [], "seen_map": trimmed})
+        _save_state({**state, "seen": [], "seen_map": trimmed, "acks": acks})
     with contextlib.suppress(Exception):
         log_action("mailwatch", f"run done new={len(fresh)}")
 
