@@ -569,7 +569,7 @@ class SystemTools:
     async def set_volume(
         self, context: RunContext, action: str, level: int = 50
     ) -> dict[str, str]:
-        """Get/set/mute the system volume via PulseAudio.
+        """Get/set/mute the system volume (PipeWire/PulseAudio), verified.
 
         Args:
             action: One of status, up, down, set, mute, unmute.
@@ -582,50 +582,32 @@ class SystemTools:
         from system.school_tools import loud_guard
 
         loud_guard("set_volume", {"action": action, "level": level})
-        action = action.lower()
+        from intent import fast_path
+        from system import audio_ctl
 
-        async def pct() -> str:
-            _rc, out, _ = await run_cmd(
-                "pactl", "get-sink-volume", "@DEFAULT_SINK@", timeout=5.0
+        # Verified: wpctl first (PipeWire), read back after; a change that
+        # didn't happen is reported as a failure, never as "done". once():
+        # the voice fast path and Gemini never both apply the same request.
+        ok, say, dup = await fast_path.once(
+            "set_volume",
+            {"action": action, "level": level},
+            "fast" if context is None else "llm",
+            lambda: asyncio.to_thread(audio_ctl.volume, action, level),
+        )
+        if not dup:
+            log_action(
+                "volume",
+                f"{action} {level if action in ('set', 'level') else ''} ok={ok}",
             )
-            m = re.search(r"(\d+)%", out or "")
-            return m.group(1) + "%" if m else "?"
-
-        if action == "status":
-            _rc, out, _ = await run_cmd(
-                "pactl", "get-sink-mute", "@DEFAULT_SINK@", timeout=5.0
-            )
-            muted = "yes" in (out or "").lower()
-            return {"say": f"Volume {await pct()}{' (muted)' if muted else ''}."}
-        if action in ("mute", "unmute"):
-            await run_cmd(
-                "pactl",
-                "set-sink-mute",
-                "@DEFAULT_SINK@",
-                "1" if action == "mute" else "0",
-                timeout=5.0,
-            )
-            log_action("volume", action)
-            return {"say": f"{'Muted' if action == 'mute' else 'Unmuted'}."}
-        delta = None
-        if action in ("up", "down"):
-            delta = "+5%" if action == "up" else "-5%"
-        elif action in ("set", "level"):
-            try:
-                delta = f"{max(0, min(150, int(level)))}%"
-            except Exception:
-                raise ToolError("Volume level must be 0 to 150.") from None
-        else:
-            raise ToolError(f"Unknown volume action {action}.")
-        await run_cmd("pactl", "set-sink-volume", "@DEFAULT_SINK@", delta, timeout=5.0)
-        log_action("volume", f"{action} {delta}")
-        return {"say": f"Volume {await pct()}."}
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
 
     @function_tool()
     async def media_control(
         self, context: RunContext, action: str, value: str = ""
     ) -> dict[str, str]:
-        """Control the local music player via playerctl.
+        """Control the playing media player via playerctl, verified.
 
         Args:
             action: play, pause, play-pause, next, previous, seek, loop,
@@ -640,8 +622,23 @@ class SystemTools:
         action = action.lower().replace("_", "-")
         cmd: list[str] = []
         if action in ("play", "pause", "play-pause", "next", "previous", "stop"):
-            cmd = ["playerctl", action]
-        elif action == "seek":
+            # The playing player, verified (playerctl alone hits whichever
+            # player it lists first, often not the one playing).
+            from intent import fast_path
+            from system import audio_ctl
+
+            ok, say, dup = await fast_path.once(
+                "media_control",
+                {"action": action},
+                "fast" if context is None else "llm",
+                lambda: asyncio.to_thread(audio_ctl.media, action),
+            )
+            if not dup:
+                log_action("media", f"{action} ok={ok}")
+            if not ok:
+                raise ToolError(say)
+            return {"say": say}
+        if action == "seek":
             v = value.strip()
             m = re.fullmatch(r"(\d+):(\d+)", v)
             if m:

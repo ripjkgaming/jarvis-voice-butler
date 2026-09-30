@@ -19,11 +19,11 @@ def test_month_key_format() -> None:
 
 def test_budget_limit_default_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JARVIS_MINUTE_BUDGET", raising=False)
-    assert budget_limit_minutes() == 800
+    assert budget_limit_minutes() == 999
     monkeypatch.setenv("JARVIS_MINUTE_BUDGET", "100")
     assert budget_limit_minutes() == 100
     monkeypatch.setenv("JARVIS_MINUTE_BUDGET", "junk")
-    assert budget_limit_minutes() == 800
+    assert budget_limit_minutes() == 999
 
 
 def test_record_and_status_roundtrip(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

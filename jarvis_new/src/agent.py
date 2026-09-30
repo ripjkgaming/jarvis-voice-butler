@@ -25,6 +25,7 @@ from livekit.agents import (
 )
 from livekit.agents.beta.tools import EndCallTool
 from livekit.agents import llm
+from livekit.agents.llm import StopResponse
 from livekit.agents.llm import FallbackAdapter, RealtimeModelFallbackAdapter
 from livekit.agents.types import NOT_GIVEN
 from livekit.agents.voice import UserStateChangedEvent, io
@@ -173,7 +174,14 @@ def _patch_say_without_tts() -> bool:
         return True
     orig_say = AgentSession.say
 
-    def say(self, text, *, audio=NOT_GIVEN, allow_interruptions=NOT_GIVEN, add_to_chat_ctx=True):
+    def say(
+        self,
+        text,
+        *,
+        audio=NOT_GIVEN,
+        allow_interruptions=NOT_GIVEN,
+        add_to_chat_ctx=True,
+    ):
         activity = getattr(self, "_activity", None)
         rt = activity is not None and isinstance(
             getattr(activity, "llm", None), llm.RealtimeModel
@@ -185,9 +193,13 @@ def _patch_say_without_tts() -> bool:
             and isinstance(text, str)
             and not activity.llm.capabilities.supports_say
         ):
+            # tool_choice="none": say() speaks a fixed line (a fast-path
+            # result, a computed answer) — Gemini must not turn it into a
+            # second tool call.
             return self.generate_reply(
                 instructions=_say_instructions(text),
                 allow_interruptions=allow_interruptions,
+                tool_choice="none",
             )
         return orig_say(
             self,
@@ -304,7 +316,9 @@ def _idle_exceeded(
 def _engaged_idle_seconds() -> float:
     """Idle budget for engaged calls (JARVIS_ENGAGED_IDLE, default 180 s)."""
     try:
-        return max(30.0, float(os.environ.get("JARVIS_ENGAGED_IDLE", "").strip() or 180.0))
+        return max(
+            30.0, float(os.environ.get("JARVIS_ENGAGED_IDLE", "").strip() or 180.0)
+        )
     except ValueError:
         return 180.0
 
@@ -464,7 +478,10 @@ FOLLOW_UP_HOLD_CAP_S = 20.0
 def _normal_follow_up_s() -> float:
     """Normal-mode listening window (JARVIS_FOLLOW_UP, default 15 s)."""
     try:
-        return max(5.0, float(os.environ.get("JARVIS_FOLLOW_UP", "").strip() or NORMAL_FOLLOW_UP_S))
+        return max(
+            5.0,
+            float(os.environ.get("JARVIS_FOLLOW_UP", "").strip() or NORMAL_FOLLOW_UP_S),
+        )
     except ValueError:
         return NORMAL_FOLLOW_UP_S
 
@@ -581,8 +598,7 @@ def _name_called(text: str) -> bool:
     if words & NAME_ALIASES:
         return True
     return any(
-        len(word) >= 5
-        and difflib.get_close_matches(word, ["jarvis"], n=1, cutoff=0.8)
+        len(word) >= 5 and difflib.get_close_matches(word, ["jarvis"], n=1, cutoff=0.8)
         for word in words
     )
 
@@ -596,7 +612,7 @@ _DISMISS = re.compile(
 
 
 def _is_dismiss(text: str) -> bool:
-    """"Jarvis, dismiss" / "Jarvis, you're dismissed": drop the call now,
+    """ "Jarvis, dismiss" / "Jarvis, you're dismissed": drop the call now,
     no farewell, back to wake-word standby. The whole utterance must be
     the command, so "Jarvis, dismiss that notification" stays a request.
     Pure."""
@@ -655,7 +671,11 @@ def desktop_fast_prefix(text: str) -> tuple | None:
         from bridge import _match_voice_tool
 
         hit = _match_voice_tool(clean)
-        if hit is not None and hit[0] in _MODEL_OWNED_FASTPATH and _pipeline_name() == "realtime":
+        if (
+            hit is not None
+            and hit[0] in _MODEL_OWNED_FASTPATH
+            and _pipeline_name() == "realtime"
+        ):
             return None
         return hit
     except Exception:
@@ -1103,8 +1123,8 @@ def _end_call_tool() -> EndCallTool:
     return EndCallTool(
         extra_description=(
             "Only end the call after the user clearly says they are finished, "
-            "says goodbye, or directly asks to end the call. \"Jarvis, dismiss\" "
-            "(or \"you're dismissed\") means end it immediately with no farewell."
+            'says goodbye, or directly asks to end the call. "Jarvis, dismiss" '
+            '(or "you\'re dismissed") means end it immediately with no farewell.'
         ),
         end_instructions=(
             "Give Jarvis's brief, polite British-English farewell, then end the call."
@@ -1476,6 +1496,49 @@ class Assistant(Agent):
         # each twice and LiveKit raises "duplicate function name".
         _wrap_tools_with_timing(self.tools)
 
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """Catch instant commands before Gemini replies (IRONMAN fast path).
+
+        Gemini Live sometimes announced "turned it down" without calling any
+        tool. The final transcript of every turn is matched against a strict
+        volume/media grammar (then the intent resolver / Needle when it is
+        confident); a hit runs the verified local tool here and the line is
+        spoken with tool_choice="none", so Gemini never gets that turn. Sir
+        keeps saying "turn it down" and it actually happens. Everything else
+        falls through to Gemini untouched. JARVIS_FAST_PATH=0 disables it.
+        """
+        try:
+            from intent import fast_path
+
+            if not fast_path.enabled():
+                return
+            text = ""
+            try:
+                text = new_message.text_content or ""
+            except Exception:
+                text = ""
+            hit = fast_path.match(text)
+            if hit is None:
+                return
+            tool, args, source = hit
+            ok, say = await fast_path.execute(self.system_tools, tool, args)
+            with contextlib.suppress(Exception):
+                from system import log_action
+
+                log_action("fastpath", f"{source} {tool} {args} ok={ok}")
+            with contextlib.suppress(Exception):
+                self.session.say(say)
+            raise StopResponse()
+        except StopResponse:
+            raise
+        except Exception:
+            # Never let the fast path break a turn: fall through to Gemini.
+            with contextlib.suppress(Exception):
+                from system import log_action
+
+                log_action("fastpath", "error; deferring to Gemini")
+            return
+
     @function_tool()
     async def latency_report(self, context: RunContext) -> dict[str, str]:
         """Explain what made the last turn slow, with exact timings.
@@ -1819,9 +1882,7 @@ async def my_agent(ctx: JobContext):
                         _floop = asyncio.get_running_loop()
                     except RuntimeError:
                         _floop = asyncio.get_event_loop()
-                    _floop.call_soon(
-                        lambda lp=_floop: lp.create_task(_run_fast())
-                    )
+                    _floop.call_soon(lambda lp=_floop: lp.create_task(_run_fast()))
                     # Wake word: the name spoken engages standby at once —
                     # no camera needed when Sir is clearly talking to us.
                     # Ack only bare summons; a full addressed request goes
@@ -2231,7 +2292,9 @@ async def my_agent(ctx: JobContext):
         {"status": "unknown"} if (_school_call or _wake) else await _presence_snapshot()
     )
     _decision = (
-        "school" if _school_call else _join_decision(_wake, str(_join.get("status", "unknown")))
+        "school"
+        if _school_call
+        else _join_decision(_wake, str(_join.get("status", "unknown")))
     )
     with contextlib.suppress(Exception):
         from system import log_action as _log_join
@@ -2252,7 +2315,9 @@ async def my_agent(ctx: JobContext):
             await asyncio.sleep(2.0)
             await _say(_announce)
         _fu_task = asyncio.create_task(
-            _school_follow_up(session, first=_normal_follow_up_s(), window=_normal_follow_up_s())
+            _school_follow_up(
+                session, first=_normal_follow_up_s(), window=_normal_follow_up_s()
+            )
         )
         _background_tasks.add(_fu_task)
         _fu_task.add_done_callback(_background_tasks.discard)
@@ -2266,7 +2331,9 @@ async def my_agent(ctx: JobContext):
             )
             # One instructed turn: the raw bundle has emoji and fragments,
             # and a verbatim say() made Gemini re-fetch it with tools.
-            await session.generate_reply(instructions=_briefing_instructions(str(_brief.get("say") or "")))
+            await session.generate_reply(
+                instructions=_briefing_instructions(str(_brief.get("say") or ""))
+            )
         except Exception:
             await _say("The briefing is unavailable just now, Sir.")
     elif _decision == "greet":
@@ -2277,7 +2344,9 @@ async def my_agent(ctx: JobContext):
             # window passes with no follow-up it closes, the HUD goes idle
             # and the wake word listens again.
             _fu_task = asyncio.create_task(
-                _school_follow_up(session, first=_normal_follow_up_s(), window=_normal_follow_up_s())
+                _school_follow_up(
+                    session, first=_normal_follow_up_s(), window=_normal_follow_up_s()
+                )
             )
             _background_tasks.add(_fu_task)
             _fu_task.add_done_callback(_background_tasks.discard)
@@ -2349,7 +2418,9 @@ async def my_agent(ctx: JobContext):
         deaf to "hey Jarvis"."""
         while not _presence["stopped"]:
             await asyncio.sleep(10.0)
-            budget = _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
+            budget = (
+                _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
+            )
             if not _idle_exceeded(_turn_clock["last"], time.monotonic(), budget):
                 continue
             if str(getattr(session, "agent_state", "")) in ("thinking", "speaking"):
@@ -2357,7 +2428,9 @@ async def my_agent(ctx: JobContext):
             with contextlib.suppress(Exception):
                 from system import log_action as _log_idle
 
-                _log_idle("presence", f"idle hangup after {budget:.0f}s without a real turn")
+                _log_idle(
+                    "presence", f"idle hangup after {budget:.0f}s without a real turn"
+                )
             with contextlib.suppress(Exception):
                 await session.say("Very good, Sir. Ring when you require me.")
             with contextlib.suppress(Exception):

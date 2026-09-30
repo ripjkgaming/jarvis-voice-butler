@@ -1,3 +1,4 @@
+import types
 import textwrap
 
 import pytest
@@ -498,3 +499,54 @@ def test_end_call_tool_mentions_dismiss() -> None:
             candidates.append(desc)
     assert candidates, "no introspectable description on EndCallTool"
     assert any("dismiss" in text.lower() for text in candidates)
+
+
+@pytest.mark.asyncio
+async def test_fast_path_hook_runs_tool_and_stops_gemini(monkeypatch) -> None:
+    """An instant command is executed locally and Gemini's turn is skipped.
+
+    Regression: Gemini Live said "turned it down" without calling any tool.
+    on_user_turn_completed now catches it, runs the verified tool, speaks
+    the result, and raises StopResponse so the model never replies.
+    """
+    from livekit.agents import llm
+    from livekit.agents.llm import StopResponse
+
+    from intent import fast_path
+
+    fast_path._RECENT.clear()
+    assistant = Assistant(browser=None, llm=None)
+
+    ran = {}
+
+    async def fake_set_volume(self, ctx, action, level=50):
+        assert ctx is None  # marks it as the fast path's call
+        ran["action"] = action
+        return {"say": "Volume 40 percent."}
+
+    monkeypatch.setattr(type(assistant.system_tools), "set_volume", fake_set_volume)
+
+    spoken = []
+    fake_session = types.SimpleNamespace(say=lambda text, **kw: spoken.append(text))
+    monkeypatch.setattr(type(assistant), "session", property(lambda self: fake_session))
+
+    msg = llm.ChatMessage(role="user", content=["turn the volume down"])
+    with pytest.raises(StopResponse):
+        await assistant.on_user_turn_completed(None, msg)
+
+    assert ran["action"] == "down"
+    assert spoken == ["Volume 40 percent."]
+
+
+@pytest.mark.asyncio
+async def test_fast_path_hook_passes_normal_speech_to_gemini(monkeypatch) -> None:
+    from livekit.agents import llm
+
+    from intent import fast_path
+
+    fast_path._RECENT.clear()
+    assistant = Assistant(browser=None, llm=None)
+    msg = llm.ChatMessage(role="user", content=["what's the capital of France"])
+    # No StopResponse: the turn falls through to Gemini untouched.
+    result = await assistant.on_user_turn_completed(None, msg)
+    assert result is None

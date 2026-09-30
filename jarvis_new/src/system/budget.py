@@ -4,9 +4,10 @@ Every voice session records its connected seconds into
 ~/.jarvis/minutes.json under the current month key. The entrypoint
 refuses new sessions at the cap and warns at 70/90%.
 
-The cap defaults to 800 session-minutes: inside the 1,000-minute
-allowance with margin, and far above what the $2.50 inference credits
-cover on the cheap pipeline (~800 min at ~$0.003/min).
+The cap defaults to 999 session-minutes (Sir's setting). On the realtime
+pipeline the Gemini Live free quota is effectively unlimited, so the cap
+is a talk-time guard rather than a cost ceiling; lower JARVIS_MINUTE_BUDGET
+if running the cheap Cloud-inference pipeline, where ~800 min ~= $2.50.
 """
 
 from __future__ import annotations
@@ -22,9 +23,9 @@ LEDGER_PATH = Path.home() / ".jarvis" / "minutes.json"
 def budget_limit_minutes() -> int:
     """Monthly cap in session-minutes (env JARVIS_MINUTE_BUDGET)."""
     try:
-        return max(1, int(os.environ.get("JARVIS_MINUTE_BUDGET", "800")))
+        return max(1, int(os.environ.get("JARVIS_MINUTE_BUDGET", "999")))
     except ValueError:
-        return 800
+        return 999
 
 
 def month_key(today: datetime.date | None = None) -> str:
