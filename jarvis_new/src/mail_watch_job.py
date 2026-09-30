@@ -38,6 +38,23 @@ ACK_KEEP = 300
 _run = {"drafts": 0}
 
 
+MAX_ERROR_RETRIES = 3
+
+
+def error_count(outcome: str) -> int:
+    """'error' / 'error:2' -> how many times this message failed. Pure."""
+    text = str(outcome or "")
+    if not text.startswith("error"):
+        return 0
+    _, _, n = text.partition(":")
+    return int(n) if n.isdigit() else 1
+
+
+def retry_due(outcome: str) -> bool:
+    """A message that errored is retried, at most MAX_ERROR_RETRIES times. Pure."""
+    return 0 < error_count(outcome) < MAX_ERROR_RETRIES
+
+
 def state_path() -> Path:
     h = os.environ.get("JARVIS_HOME", "").strip()
     return (Path(h) if h else Path.home() / ".jarvis") / "mail_watch.state.json"
@@ -228,6 +245,26 @@ def _draft_context(msg_id: str, thread_id: str, to: str) -> dict:
     return out
 
 
+async def _maybe_suggest_event(parsed: dict) -> None:
+    """Email -> 'shall I add it to your calendar?' (IRONMAN_SPEC §1.3).
+
+    Never raises; nothing touches the calendar until Sir says yes.
+    """
+    try:
+        import event_extractor
+        from system import log_action
+
+        if not event_extractor.enabled():
+            return
+        outcome = await asyncio.to_thread(event_extractor.suggest, parsed)
+        log_action("mailwatch", f"event {outcome} id={str(parsed.get('id'))[:16]}")
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("mailwatch", f"event error: {exc}")
+
+
 async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
     """Let Claude make the urgent call on human mail; keywords are the fallback.
 
@@ -290,6 +327,8 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
 
     if level == "skip":
         return "skip"
+    if verdict["human"]:
+        await _maybe_suggest_event(parsed)
     if level == "normal":
         if verdict["human"]:
             mail_log.record(
@@ -403,7 +442,8 @@ async def main() -> None:
     fresh = [
         str(m.get("id", ""))
         for m in (listed.get("messages", []) or [])
-        if m.get("id") and m.get("id") not in seen_map
+        if m.get("id")
+        and (m.get("id") not in seen_map or retry_due(seen_map[m.get("id")]))
     ]
     if not fresh:
         return
@@ -416,7 +456,8 @@ async def main() -> None:
 
             with __import__("contextlib").suppress(Exception):
                 _log("mailwatch", f"{msg_id[:16]} error: {exc}")
-            outcome = "error"
+            outcome = f"error:{error_count(seen_map.get(msg_id, '')) + 1}"
+        seen_map.pop(msg_id, None)  # re-insert at the end so trimming keeps it
         seen_map[msg_id] = outcome
         trimmed = dict(list(seen_map.items())[-500:])
         _save_state({**state, "seen": [], "seen_map": trimmed, "acks": acks})

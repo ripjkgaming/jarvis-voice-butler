@@ -523,3 +523,60 @@ async def test_draft_context_failures_are_soft(fakes) -> None:
 def test_state_path_follows_jarvis_home(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     assert mail_watch_job.state_path() == tmp_path / "mail_watch.state.json"
+
+
+@pytest.mark.asyncio
+async def test_event_suggestion_for_human_mail_only(fakes, monkeypatch) -> None:
+    import event_extractor
+
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "1")
+    seen = []
+    monkeypatch.setattr(
+        event_extractor,
+        "suggest",
+        lambda parsed: seen.append(parsed["id"]) or "suggested",
+    )
+    fakes["payloads"]["h1"] = _full(
+        "h1", "Bob <b@x.com>", "Dinner Friday 7pm?", "see you"
+    )
+    fakes["payloads"]["b1"] = _full(
+        "b1",
+        "News <news@x.com>",
+        "Webinar Tuesday",
+        "join",
+        extra_headers=(("List-Unsubscribe", "<x>"),),
+    )
+    await mail_watch_job._handle_one("h1")
+    await mail_watch_job._handle_one("b1")
+    assert seen == ["h1"]
+
+
+def test_error_retry_is_bounded() -> None:
+    assert mail_watch_job.error_count("normal-logged") == 0
+    assert mail_watch_job.error_count("error") == 1
+    assert mail_watch_job.error_count("error:2") == 2
+    assert mail_watch_job.retry_due("error") and mail_watch_job.retry_due("error:2")
+    assert not mail_watch_job.retry_due("error:3")
+    assert not mail_watch_job.retry_due("skip")
+
+
+@pytest.mark.asyncio
+async def test_main_retries_errored_mail(fakes, monkeypatch) -> None:
+    fakes["payloads"]["messages"] = {
+        "messages": [{"id": "e1"}, {"id": "ok1"}, {"id": "dead"}]
+    }
+    fakes["payloads"]["e1"] = _full("e1", "Bob <b@x.com>", "Hi", "hello")
+    mail_watch_job._save_state(
+        {"seen_map": {"e1": "error", "ok1": "skip", "dead": "error:3"}}
+    )
+    handled = []
+    real = mail_watch_job._handle_one
+
+    async def spy(msg_id, acks=None):
+        handled.append(msg_id)
+        return await real(msg_id, acks)
+
+    monkeypatch.setattr(mail_watch_job, "_handle_one", spy)
+    await mail_watch_job.main()
+    assert handled == ["e1"]
+    assert mail_watch_job._load_state()["seen_map"]["e1"] == "normal-logged"

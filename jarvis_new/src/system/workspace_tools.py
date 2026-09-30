@@ -97,6 +97,9 @@ class WorkspaceTools:
             self.import_schedule_to_calendar,
             self.confirm_calendar_import,
             self.calendar_upcoming,
+            self.email_events,
+            self.confirm_email_event,
+            self.dismiss_email_event,
             self.ask_backend,
         ]
 
@@ -522,6 +525,71 @@ class WorkspaceTools:
         return {"say": say}
 
     @function_tool()
+    async def email_events(self, context: RunContext) -> dict[str, str]:
+        """Events Jarvis found in Sir's email and offered to add to his
+        calendar, still waiting for a yes or no ("any events from my mail?")."""
+        _guard()
+        import event_extractor
+
+        rows = event_extractor.pending()
+        if not rows:
+            return {"say": "No calendar suggestions waiting, Sir."}
+        lines = [
+            f"{r['event']['title']}, {event_extractor.when_text(r['event'])} (id {r['id']})"
+            for r in rows[:5]
+        ]
+        return {"say": f"{len(rows)} waiting: " + "; ".join(lines)}
+
+    @function_tool()
+    async def confirm_email_event(
+        self, context: RunContext, msg_id: str = ""
+    ) -> dict[str, str]:
+        """Add an event Jarvis found in an email to Sir's calendar.
+
+        Call ONLY after Sir explicitly says yes to the "shall I add it to your
+        calendar?" offer. Empty msg_id = the most recent pending suggestion.
+
+        Args:
+            msg_id: Suggestion id from email_events; empty for the latest.
+        """
+        _guard()
+        import event_extractor
+        import google_api
+        from proactive.sources import calendar_source
+
+        record = _pick_suggestion(msg_id)
+        try:
+            await asyncio.to_thread(
+                google_api.calendar_create,
+                record["event"],
+                calendar_source.calendar_id(),
+                calendar_source.calendar_account(),
+            )
+        except google_api.GoogleError as exc:
+            raise ToolError(str(exc)) from exc
+        event_extractor.set_status(record["id"], "added")
+        log_action("calendar", f"email-event added {record['id'][:16]}")
+        ev = record["event"]
+        return {"say": f"Added {ev['title']}, {event_extractor.when_text(ev)}, to your calendar."}
+
+    @function_tool()
+    async def dismiss_email_event(
+        self, context: RunContext, msg_id: str = ""
+    ) -> dict[str, str]:
+        """Sir said no to adding an email's event to his calendar.
+
+        Args:
+            msg_id: Suggestion id; empty for the latest pending one.
+        """
+        _guard()
+        import event_extractor
+
+        record = _pick_suggestion(msg_id)
+        event_extractor.set_status(record["id"], "dismissed")
+        log_action("calendar", f"email-event dismissed {record['id'][:16]}")
+        return {"say": f"Very well, I'll leave {record['event']['title']} off the calendar."}
+
+    @function_tool()
     async def calendar_upcoming(self, context: RunContext, days: int = 7) -> dict[str, str]:
         """What's on Sir's Google Calendar over the next few days.
 
@@ -605,6 +673,21 @@ def describe_events(events: list[dict], limit: int = 8) -> str:
     more = len(events) - limit
     tail = f"; and {more} more" if more > 0 else ""
     return "; ".join(lines) + tail
+
+
+def _pick_suggestion(msg_id: str) -> dict:
+    """A pending email-event suggestion by id, or the newest. ToolError if none."""
+    import event_extractor
+
+    if (msg_id or "").strip():
+        record = event_extractor.get(msg_id.strip())
+        if record is None or record.get("status") != "pending":
+            raise ToolError("I have no pending calendar suggestion with that id, Sir.")
+        return record
+    rows = event_extractor.pending()
+    if not rows:
+        raise ToolError("There's no calendar suggestion waiting, Sir.")
+    return rows[-1]
 
 
 def _event_key(title: str, date: str) -> str:

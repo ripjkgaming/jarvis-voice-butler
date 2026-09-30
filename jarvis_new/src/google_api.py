@@ -590,7 +590,8 @@ def event_body(event: dict, timezone: str = "") -> dict:
     """Normalized event dict -> Calendar API body. Pure. Raises GoogleError.
 
     Input keys: title, date (YYYY-MM-DD), start/end ("HH:MM", optional),
-    location, notes. No start -> all-day event; start without end -> 1 hour.
+    end_date (YYYY-MM-DD, all-day ranges), location, notes. No start ->
+    all-day event; start without end -> 1 hour.
     """
     title = str(event.get("title") or "").strip()[:200]
     date = str(event.get("date") or "").strip()
@@ -606,7 +607,11 @@ def event_body(event: dict, timezone: str = "") -> dict:
     if not hhmm.match(start):
         import datetime as _dt
 
-        nxt = (_dt.date.fromisoformat(date) + _dt.timedelta(days=1)).isoformat()
+        last = date
+        end_date = str(event.get("end_date") or "").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_date) and end_date > date:
+            last = end_date  # multi-day all-day event (end is exclusive)
+        nxt = (_dt.date.fromisoformat(last) + _dt.timedelta(days=1)).isoformat()
         body["start"] = {"date": date}
         body["end"] = {"date": nxt}
         return body

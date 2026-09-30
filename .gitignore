@@ -35,3 +35,6 @@ build/
 *.log
 # God's-Eye globe build (31MB, built from ~/gods-eye-view, served by globe-assets.service)
 jarvis_new/shell/ui/globe/
+
+# Stray SQLite session file some tests leave behind
+jarvis_new/:memory:.ses

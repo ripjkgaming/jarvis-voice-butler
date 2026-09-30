@@ -38,6 +38,7 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_WA_ANALYST", "0")
     monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
     monkeypatch.setenv("JARVIS_WA_VISION", "0")
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
 
 
 @pytest.fixture(autouse=True)
