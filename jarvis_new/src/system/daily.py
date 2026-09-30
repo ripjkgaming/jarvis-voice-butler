@@ -350,6 +350,14 @@ class DailyTools:
                 parts.append("Todos: " + enum)
         except Exception:
             pass
+        try:
+            import exams
+
+            line = exams.briefing_line()
+            if line:
+                parts.append(line)
+        except Exception:
+            pass
         say = " ".join(parts)[:1400] or "Nothing planned for today."
         log_action("briefing", date)
         return {"say": say, "date": date}

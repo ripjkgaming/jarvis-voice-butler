@@ -1067,6 +1067,14 @@ class InboxTools:
                 parts.append("Todos: " + enum)
         except Exception:
             pass
+        try:
+            import exams
+
+            line = exams.briefing_line()
+            if line:
+                parts.append(line)
+        except Exception:
+            pass
         say = " ".join(parts)[:1400] or "Nothing to brief this morning."
         log_action("briefing", "morning")
         return {"say": say}

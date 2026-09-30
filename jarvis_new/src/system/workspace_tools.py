@@ -446,11 +446,22 @@ class WorkspaceTools:
                 return f"Tell Sir briefly that reading {path.name} failed: {warning}."
             self._pending_events = events
             log_action("calendar", f"extracted {len(events)} from {path.name[:60]}")
+            saved = 0
+            with contextlib.suppress(Exception):
+                import exams
+
+                saved = exams.import_events(events)
+            kept = (
+                f" Mention that {saved} exams are also saved to your exam schedule, "
+                "so Sir can ask about them any time."
+                if saved
+                else ""
+            )
             return (
                 f"The schedule {path.name} has been read. Tell Sir, briefly and naturally, "
                 f"that you found {len(events)} entries: {describe_events(events)}. "
                 "Then ask whether to add them to his calendar. If he says yes, call "
-                "confirm_calendar_import."
+                "confirm_calendar_import." + kept
             )
 
         self._in_background(

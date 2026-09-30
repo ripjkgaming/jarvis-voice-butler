@@ -58,7 +58,9 @@ from system.files_tools import FilesTools
 from system.focus_tools import FocusTools
 from draft_tools import DraftTools
 from notify_tools import NotifyTools
+from system.exam_tools import ExamTools
 from system.inbox import InboxTools
+from system.recall_tools import RecallTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
@@ -1283,6 +1285,8 @@ class Assistant(Agent):
         self.focus_tools = FocusTools()
         self.vision_tools = VisionTools()
         self.workspace_tools = WorkspaceTools()
+        self.recall_tools = RecallTools()
+        self.exam_tools = ExamTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1331,6 +1335,11 @@ class Assistant(Agent):
                 *self.workspace_tools.tools,
                 # Email reply drafts (send stays behind confirm_email_action).
                 *self.draft_tools.tools,
+                # "What did you say to X", "what emails did you reply to",
+                # "catch me up": read-only recall of WhatsApp/mail logs.
+                *self.recall_tools.tools,
+                # Exam schedule: next / find / add, fed by schedule imports.
+                *self.exam_tools.tools,
                 # One voice tool: notify Sir (spoken if present, toast otherwise).
                 *self.notify_tools.tools,
                 *[

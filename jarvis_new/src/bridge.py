@@ -758,6 +758,8 @@ SIDECAR_THREADS = (
     # Email drafts + urgency triage every minute; WhatsApp replies every 5.
     ("mail_watch_job", "JARVIS_MAIL_WATCH"),
     ("wa_autoreply", "JARVIS_WA_WATCH"),
+    # Exam reminders: the evening before and the morning of each exam.
+    ("exams", "JARVIS_EXAM_REMIND"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
 )
