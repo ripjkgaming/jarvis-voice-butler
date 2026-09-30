@@ -3477,7 +3477,11 @@ html.hud-hidden *::after {
   background: var(--hud-panel);
   padding: 8px 10px;
   min-width: 0;
-  animation: hud-panel-in 220ms ease-out;
+  animation: hud-panel-in 0.45s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.hud-panel[data-leaving='true'] {
+  pointer-events: none;
+  animation: hud-panel-out 0.28s cubic-bezier(0.4, 0, 0.7, 0.2) both;
 }
 .hud-panel__head {
   display: flex;
@@ -3495,6 +3499,7 @@ html.hud-hidden *::after {
 .hud-panel__count {
   font-size: 10px;
   color: var(--hud-subtle);
+  animation: hud-panel-count 0.4s cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 .hud-panel__list {
   display: flex;
@@ -3505,9 +3510,33 @@ html.hud-hidden *::after {
   list-style: none;
 }
 .hud-panel__row {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+/* A row that arrived while the panel was open: rise in, one sweep. */
+.hud-panel__row[data-fresh='true'] {
+  overflow: hidden;
+  animation: hud-act-in 0.35s ease-out;
+}
+.hud-panel__row[data-fresh='true']::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--jarvis-state, #22d3ee) 26%, transparent),
+    transparent
+  );
+  content: '';
+  pointer-events: none;
+  animation: hud-act-sweep 1.1s cubic-bezier(0.2, 0.75, 0.25, 1) 0.1s both;
+}
+.hud-panel__row[data-fresh='true'] .hud-panel__main {
+  color: var(--stark-hot, #d9fbff);
+  transition: color 1.6s ease-out;
 }
 .hud-panel__main,
 .hud-panel__sub {
@@ -3544,15 +3573,34 @@ html.hud-hidden *::after {
 @keyframes hud-panel-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(10px) scale(0.985);
   }
   to {
     opacity: 1;
     transform: none;
   }
 }
+@keyframes hud-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+@keyframes hud-panel-count {
+  0% {
+    color: var(--stark-hot, #d9fbff);
+    transform: scale(1.45);
+  }
+  100% {
+    transform: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .hud-panel {
+  .hud-panel,
+  .hud-panel[data-leaving='true'],
+  .hud-panel__count,
+  .hud-panel__row[data-fresh='true'],
+  .hud-panel__row[data-fresh='true']::after {
     animation: none;
   }
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSharedPoll } from '@/lib/shared-poll';
 
 /** Voice-driven HUD panels (src/hud_panels.py, IRONMAN_SPEC §6).
@@ -55,21 +56,99 @@ function SystemBody({ data }: { data: PanelData }) {
   );
 }
 
+/** How long a hidden panel plays its exit before it unmounts. */
+const LEAVE_MS = 280;
+
+/** Stable identity for a row, so a poll that returns the same items never
+ *  remounts them and only genuinely new rows animate in. */
+function rowKey(panel: string, it: Item): string {
+  const [main, sub] = row(panel, it);
+  return `${main}|${sub}`;
+}
+
+/** Row keys for a whole list: identical rows (two same notifications) get
+ *  #2, #3... so React keys stay unique. Pure. */
+function rowKeys(panel: string, items: Item[]): string[] {
+  const count: Record<string, number> = {};
+  return items.map((it) => {
+    const base = rowKey(panel, it);
+    count[base] = (count[base] ?? 0) + 1;
+    return count[base] === 1 ? base : `${base}#${count[base]}`;
+  });
+}
+
+type Shown = { name: string; data: PanelData; leaving: boolean };
+
 export function HudPanels() {
   const reply = useSharedPoll<PanelsReply>('/panels', POLL_MS);
+  const visible = useMemo(() => reply?.visible ?? [], [reply]);
 
-  const open = reply?.visible ?? [];
-  if (open.length === 0) return null;
+  // Keep a closed panel mounted for its exit animation, with its last data.
+  const last = useRef<Record<string, PanelData>>({});
+  const [leaving, setLeaving] = useState<string[]>([]);
+  const prevVisible = useRef<string[]>([]);
+  // Layout effect: mark a closed panel "leaving" before the browser paints,
+  // or it would vanish for one frame and then reappear to animate out.
+  useLayoutEffect(() => {
+    visible.forEach((name) => {
+      last.current[name] = reply?.panels?.[name] ?? last.current[name] ?? {};
+    });
+    const gone = prevVisible.current.filter((n) => !visible.includes(n));
+    prevVisible.current = visible;
+    if (gone.length === 0) return;
+    setLeaving((cur) => [...cur.filter((n) => !visible.includes(n)), ...gone]);
+    const t = setTimeout(() => setLeaving((cur) => cur.filter((n) => !gone.includes(n))), LEAVE_MS);
+    return () => clearTimeout(t);
+  }, [visible, reply]);
+
+  // Rows seen per panel: a row is "fresh" only if its panel was already
+  // open and the row wasn't there last time (no flash on first open).
+  const seen = useRef<Record<string, Set<string>>>({});
+  const fresh = useMemo(() => {
+    const out: Record<string, Set<string>> = {};
+    visible.forEach((name) => {
+      const before = seen.current[name];
+      const items = reply?.panels?.[name]?.items ?? [];
+      out[name] = new Set(before ? rowKeys(name, items).filter((k) => !before.has(k)) : []);
+    });
+    return out;
+  }, [visible, reply]);
+  useEffect(() => {
+    const next: Record<string, Set<string>> = {};
+    visible.forEach((name) => {
+      next[name] = new Set(rowKeys(name, reply?.panels?.[name]?.items ?? []));
+    });
+    seen.current = next;
+  }, [visible, reply]);
+
+  const shown: Shown[] = [
+    ...visible.map((name) => ({ name, data: reply?.panels?.[name] ?? {}, leaving: false })),
+    ...leaving
+      .filter((name) => !visible.includes(name))
+      .map((name) => ({ name, data: last.current[name] ?? {}, leaving: true })),
+  ];
+  if (shown.length === 0) return null;
   return (
     <div className="hud-panels" aria-live="polite" aria-label="Open panels">
-      {open.map((name) => {
-        const data = reply?.panels?.[name] ?? {};
+      {shown.map(({ name, data, leaving: isLeaving }) => {
         const items = data.items ?? [];
+        const keys = rowKeys(name, items);
         return (
-          <section key={name} className="hud-panel" aria-label={TITLES[name] ?? name}>
+          <section
+            key={name}
+            className="hud-panel"
+            data-leaving={isLeaving ? 'true' : undefined}
+            aria-hidden={isLeaving ? true : undefined}
+            aria-label={TITLES[name] ?? name}
+          >
             <header className="hud-panel__head">
               <span className="hud-panel__tag">{TITLES[name] ?? name.toUpperCase()}</span>
-              {name !== 'system' && <span className="hud-panel__count">{items.length}</span>}
+              {name !== 'system' && (
+                // Keyed on the count so a change replays the pop.
+                <span key={items.length} className="hud-panel__count">
+                  {items.length}
+                </span>
+              )}
             </header>
             {name === 'system' ? (
               <SystemBody data={data} />
@@ -79,8 +158,13 @@ export function HudPanels() {
               <ul className="hud-panel__list">
                 {items.map((it, i) => {
                   const [main, sub] = row(name, it);
+                  const key = keys[i];
                   return (
-                    <li key={`${name}-${i}`} className="hud-panel__row">
+                    <li
+                      key={key}
+                      className="hud-panel__row"
+                      data-fresh={fresh[name]?.has(key) ? 'true' : undefined}
+                    >
                       <span className="hud-panel__main">{main}</span>
                       {sub && <span className="hud-panel__sub">{sub}</span>}
                     </li>
