@@ -505,6 +505,33 @@ def last_time(now: float | None = None) -> str:
     return ""
 
 
+def habit_line(now: float | None = None, days: int = 14) -> str:
+    """'Sir usually starts around 16:00 and wraps up around 22:00.' from the
+    session times in the last `days` Daily notes; '' with too little data."""
+    now = time.time() if now is None else now
+    today = dt.date.fromtimestamp(now)
+    firsts, lasts = [], []
+    for back in range(1, days + 1):
+        try:
+            text = daily_path(today - dt.timedelta(days=back)).read_text()
+        except OSError:
+            continue
+        hours = [int(h) for h in re.findall(r"## (\d\d):\d\d session", text)]
+        if hours:
+            firsts.append(min(hours))
+            lasts.append(max(hours))
+    if len(firsts) < 3:
+        return ""
+
+    def usual(values: list[int]) -> int:
+        return sorted(values)[len(values) // 2]
+
+    start, end = usual(firsts), usual(lasts)
+    if end > start:
+        return f"Sir usually starts around {start:02d}:00 and wraps up around {end:02d}:00."
+    return f"Sir usually talks to you around {start:02d}:00."
+
+
 def persona_block() -> str:
     """Memory lines for the agent's instructions, small and fixed-size."""
     if not enabled():
@@ -514,6 +541,10 @@ def persona_block() -> str:
         prefs = preferences_text()
         if prefs:
             parts.append(f"Sir asked you to remember: {prefs}.")
+    with contextlib.suppress(Exception):
+        habit = habit_line()
+        if habit:
+            parts.append(habit + " Use it only to time suggestions sensibly.")
     with contextlib.suppress(Exception):
         lt = last_time()
         if lt:

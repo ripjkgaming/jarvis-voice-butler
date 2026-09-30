@@ -245,3 +245,17 @@ def test_agent_instructions_get_memory(home) -> None:
     assert out.startswith(
         "BASE\n\n# Memory\nSir asked you to remember: I like short answers"
     )
+
+
+def test_habit_line(home) -> None:
+    base = dt.datetime(2026, 10, 1, 12, 0).timestamp()
+    assert memory.habit_line(base) == ""
+    for back, (h1, h2) in enumerate([(16, 21), (17, 22), (16, 22), (15, 23)], start=1):
+        day = base - back * 86400
+        d = dt.datetime.fromtimestamp(day)
+        memory.write_session(SUMMARY, d.replace(hour=h1).timestamp())
+        memory.write_session({**SUMMARY, "threads": []}, d.replace(hour=h2).timestamp())
+    assert (
+        memory.habit_line(base)
+        == "Sir usually starts around 16:00 and wraps up around 22:00."
+    )
