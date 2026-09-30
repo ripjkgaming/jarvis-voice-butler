@@ -696,6 +696,13 @@ class DailyTools:
         if not result.get("ok"):
             raise ToolError(str(result.get("err", "could not read that chat"))[:200])
         msgs = result.get("messages", [])
+        try:
+            import wa_vision
+
+            await asyncio.to_thread(wa_vision.fill_photos, msgs, {}, 2)
+        except Exception:
+            for m in msgs:
+                m.pop("image", None)
         if not msgs:
             return {"say": f"No readable messages in {result.get('name', chat)[:40]}."}
         lines = []

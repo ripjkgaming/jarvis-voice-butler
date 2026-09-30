@@ -205,8 +205,23 @@ def entries() -> dict[str, str]:
 
 
 def lookup(chat: str) -> str | None:
-    """The chat's note ('' when it has none) if it is on the list, else None."""
-    return entries().get(" ".join(str(chat or "").split()).lower())
+    """The chat's note ('' when it has none) if it is on the list, else None.
+
+    Exact name first; otherwise a listed name that is the start of the
+    WhatsApp chat name word for word ("Raphael" matches "Raphael Chan",
+    never "Raphaela" or "Big Raphael"). The longest such entry wins.
+    """
+    name = " ".join(str(chat or "").split()).lower()
+    table = entries()
+    if name in table:
+        return table[name]
+    words = name.split()
+    hits = [
+        (len(listed.split()), note)
+        for listed, note in table.items()
+        if listed and words[: len(listed.split())] == listed.split()
+    ]
+    return max(hits, key=lambda h: h[0])[1] if hits else None
 
 
 def _file_lines() -> list[str]:
@@ -272,6 +287,7 @@ def genuine_own(messages: list[dict], sent_texts: list[str]) -> list[str]:
             and text
             and _norm(text) not in jarvis
             and "jarvis" not in text.lower()
+            and not text.startswith("[photo")
         ):
             out.append(text[:300])
     return out

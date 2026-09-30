@@ -34,6 +34,7 @@ import contextlib
 import difflib
 import itertools
 import json
+import os
 import re
 import time
 import urllib.request
@@ -233,6 +234,54 @@ _MSG_JS = """JSON.stringify([...document.querySelectorAll(
 }))"""
 
 
+#: The newest photos in the open chat as small JPEG data URLs, by row index
+#: (same slice as _MSG_JS). Emoji, avatars and blurred previews are skipped.
+_IMG_JS = """(async () => {
+  const rows = [...document.querySelectorAll(
+    '#main [data-testid="msg-container"]')].slice(-%d);
+  const out = [];
+  let budget = %d;
+  for (let i = rows.length - 1; i >= 0 && budget > 0; i--) {
+    const imgs = [...rows[i].querySelectorAll('img')].filter(im =>
+      !im.classList.contains('emoji') && (im.naturalWidth || 0) >= 120
+      && (im.width || 0) >= 100 && /^(blob:|data:image)/.test(im.src || ''));
+    if (!imgs.length) continue;
+    const im = imgs[imgs.length - 1];
+    try {
+      const k = Math.min(1, 768 / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(im.naturalWidth * k);
+      c.height = Math.round(im.naturalHeight * k);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      out.push({i: i, img: c.toDataURL('image/jpeg', 0.8)});
+      budget--;
+    } catch (e) {}
+  }
+  return JSON.stringify(out);
+})()"""
+
+
+def photos_wanted() -> bool:
+    """Grab photos only when auto-replies can describe them (wa_vision)."""
+    return os.environ.get("JARVIS_WA_VISION", "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+    )
+
+
+def attach_images(rows: list[dict], images: list[dict]) -> None:
+    """Put each {i, img} onto its message row as row['img']. Pure-ish."""
+    for item in images or []:
+        try:
+            i, img = int(item["i"]), str(item["img"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= i < len(rows) and img.startswith("data:image/"):
+            rows[i]["img"] = img
+
+
 def parse_chat_rows(rows: list[dict]) -> list[dict]:
     """Raw CDP list rows -> [{name, time, snippet, unread}]. Pure."""
     out = []
@@ -293,11 +342,18 @@ def parse_messages(rows: list[dict]) -> list[dict]:
             text = clean(str(m.get("text", "")))[:500]
             # copyable-text fallback includes the trailing timestamp.
             text = re.sub(r"\s*\d{1,2}:\d{2}\s*(am|pm)?\s*$", "", text).strip()
-            if not text:
-                continue  # sticker/photo/reaction-only row
+            img = str(m.get("img") or "")
+            if not text and not img:
+                continue  # sticker/reaction-only row (or a photo we did not grab)
+            photo = {}
+            if img:
+                # The caption (if any) stays; wa_vision swaps in a description.
+                photo = {"image": img, "caption": text}
+                text = f"[photo] {text}".strip()
             me = tick or tail or (bool(sender) and sender in owner_set)
             out.append(
                 {
+                    **photo,
                     "me": me,
                     "sender": sender,
                     "when": when,
@@ -461,7 +517,14 @@ async def read_chat(name: str, n: int = 30) -> dict:
         rows = json.loads(raw) if isinstance(raw, str) else []
     except Exception:
         return {"ok": False, "err": "could not read messages"}
-    msgs = parse_messages(rows if isinstance(rows, list) else [])
+    rows = rows if isinstance(rows, list) else []
+    if photos_wanted() and rows:
+        with contextlib.suppress(Exception):
+            raw_imgs = await cdp(_IMG_JS % (max(1, min(60, n)), 3), timeout=30)
+            attach_images(
+                rows, json.loads(raw_imgs) if isinstance(raw_imgs, str) else []
+            )
+    msgs = parse_messages(rows)
     hdr = (
         await cdp(
             "(document.querySelector('#main header')||{innerText:''})"

@@ -37,6 +37,7 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     # test opts in with a fake chat function.
     monkeypatch.setenv("JARVIS_WA_ANALYST", "0")
     monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
+    monkeypatch.setenv("JARVIS_WA_VISION", "0")
 
 
 @pytest.fixture(autouse=True)

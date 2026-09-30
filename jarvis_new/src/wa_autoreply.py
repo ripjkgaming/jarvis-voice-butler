@@ -570,6 +570,7 @@ async def handle_chat(
     ask=ask_claude,
     ask_mimic=None,
     analyse=None,
+    describe_photo=None,
 ) -> str:
     """One unread chat -> reason-coded outcome. Never raises.
 
@@ -610,6 +611,17 @@ async def handle_chat(
     fp = fingerprint(name, incoming)
     if cs.get("last_fp") == fp:
         return "skip-already-handled"
+    # Photos -> "[photo: what it shows]" so the reply can react to them.
+    with contextlib.suppress(Exception):
+        import wa_vision
+
+        await asyncio.to_thread(
+            wa_vision.fill_photos,
+            messages,
+            state.setdefault("photo_cache", {}),
+            3,
+            describe_photo,
+        )
     if mimic_note is not None:
         import wa_analyst
 
@@ -812,6 +824,7 @@ async def run(
     ask=ask_claude,
     ask_mimic=None,
     analyse=None,
+    describe_photo=None,
 ) -> list[str]:
     """One pass. Returns a list of 'chat: outcome' lines. Never raises."""
     m = mode()
@@ -839,7 +852,15 @@ async def run(
     for chat in todo:
         try:
             outcome = await handle_chat(
-                chat, wa, state, now, m == "live", ask, ask_mimic, analyse
+                chat,
+                wa,
+                state,
+                now,
+                m == "live",
+                ask,
+                ask_mimic,
+                analyse,
+                describe_photo,
             )
         except Exception as exc:
             outcome = f"error:{type(exc).__name__}"
