@@ -159,3 +159,25 @@ async def test_tools(home, monkeypatch) -> None:
     out = await TaskTools.approve_task(tools, None)  # type: ignore[arg-type]
     assert out["prepared"] == "Hi dad" and "send the email" in out["say"]
     assert at.get("task-2")["status"] == "done"
+
+
+def test_hud_progress_is_a_percentage(home, monkeypatch) -> None:
+    import activity
+
+    seen = []
+    monkeypatch.setattr(
+        activity, "start", lambda *a, **k: seen.append(k.get("progress")) or "id"
+    )
+    task = {
+        "id": "task-p",
+        "goal": "g",
+        "title": "T",
+        "status": "running",
+        "steps": [
+            {"title": "a", "status": "done"},
+            {"title": "b", "status": "done"},
+            {"title": "c", "status": "pending"},
+        ],
+    }
+    at._hud(task)
+    assert seen == [67]  # activity progress is 0-100, not 0-1

@@ -1,7 +1,8 @@
 'use client';
 
-import { type ReactNode, useEffect, useState } from 'react';
-import { type BridgeActivity, bridgeActivity } from '@/lib/bridge';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type BridgeActivity } from '@/lib/bridge';
+import { useSharedPoll } from '@/lib/shared-poll';
 
 /** Rows the panel holds: running first, then the freshest finished. */
 const MAX_RUNNING = 5;
@@ -113,25 +114,18 @@ function DoneRow({ a, now }: { a: BridgeActivity; now: number }) {
  *  research projects, Jarvis tools) from the bridge's /activity feed.
  *  Read-only and voice-first: nothing here needs a pointer. */
 export function ExecFeed() {
-  const [items, setItems] = useState<BridgeActivity[]>([]);
+  // Shared /activity poll: re-renders only when the list really changes.
+  const raw = useSharedPoll<{ items?: BridgeActivity[] }>('/activity', POLL_MS);
+  const items = useMemo(() => (Array.isArray(raw?.items) ? raw.items : []), [raw]);
+  // "Ago" labels are minute-grained: refresh them every 15 s, not per poll.
   const [now, setNow] = useState(() => Date.now() / 1000);
-
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      const next = await bridgeActivity();
-      if (cancelled) return;
-      if (next) setItems(next);
-      setNow(Date.now() / 1000);
-      timer = setTimeout(tick, POLL_MS);
-    };
-    void tick();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, []);
+    setNow(Date.now() / 1000);
+    const timer = setInterval(() => {
+      if (!document.hidden) setNow(Date.now() / 1000);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [items]);
 
   const running = items.filter((a) => a.status === 'running');
   const done = items.filter((a) => a.status !== 'running');

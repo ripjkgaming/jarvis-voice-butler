@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { bridgeSys } from '@/lib/bridge';
+import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 
 const CYAN = '#5fe3ff';
 const DIM = 'rgba(95, 227, 255, 0.28)';
@@ -92,31 +92,15 @@ function Dial({
 
 /** Header instrument cluster: DATE / CPU / RAM / TIME. Same 1s bridge poll. */
 export function StarkDials() {
-  const [sys, setSys] = useState<Awaited<ReturnType<typeof bridgeSys>>>(null);
+  // Telemetry from the shared /sys snapshot (one poll for the whole HUD);
+  // only the clock ticks here, and not while hidden.
+  const sys = useBridgeSysSnapshot();
   const [now, setNow] = useState(() => new Date());
-
   useEffect(() => {
-    let alive = true;
-    const tickSys = async () => {
-      if (document.hidden) return;
-      try {
-        const j = await bridgeSys();
-        if (alive && j) setSys(j);
-      } catch {
-        /* offline — keep last */
-      }
-    };
-    tickSys();
-    // Telemetry at 2s to match SysCore (clock below stays 1s for seconds).
-    const sysTimer = setInterval(tickSys, 2000);
     const clockTimer = setInterval(() => {
       if (!document.hidden) setNow(new Date());
     }, 1000);
-    return () => {
-      alive = false;
-      clearInterval(sysTimer);
-      clearInterval(clockTimer);
-    };
+    return () => clearInterval(clockTimer);
   }, []);
 
   const load = Number(sys?.load_1_5_15?.[0] ?? 0);

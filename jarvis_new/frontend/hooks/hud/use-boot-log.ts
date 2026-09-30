@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { type BootStep, bridgeCallState } from '@/lib/bridge';
+import { useCallState } from '@/hooks/hud/use-room-state';
+import { type BootStep } from '@/lib/bridge';
 
-/** Poll while idle; fast enough that each setup step lands as it happens. */
-const BOOT_POLL_MS = 250;
 /** How long the finished log stays up after the agent comes online. */
 const ONLINE_HOLD_MS = 1400;
 /** Rotation pace of the sub-steps under a stage that is still running. */
@@ -113,42 +112,31 @@ export function useBootLog(): BootView | null {
   // put away: the waking file outlives setup, so later polls ignore it.
   const dismissed = useRef<number | null>(null);
 
+  // One shared /room poll (use-room-state) instead of a 250 ms loop per
+  // mounted copy; this effect reacts whenever the call state changes.
+  const call = useCallState();
+  const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    let cancelled = false;
-    let hold: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      try {
-        const call = await bridgeCallState();
-        if (cancelled || !call) return;
-        const next = call.boot && call.boot.length > 0 ? call.boot : null;
-        const t0 = next?.[0]?.[1] ?? null;
-        if (!next || t0 === dismissed.current) {
-          setLog(null);
-          return;
-        }
-        setLog((prev) =>
-          prev && prev.length === next.length && prev.at(-1)?.[1] === next.at(-1)?.[1] ? prev : next
-        );
-        // Once online, let the finished log sit briefly, then put it away.
-        if (next.at(-1)?.[0] === 'online' && hold === undefined) {
-          hold = setTimeout(() => {
-            hold = undefined;
-            dismissed.current = t0;
-            if (!cancelled) setLog(null);
-          }, ONLINE_HOLD_MS);
-        }
-      } catch {
-        /* keep last state */
-      }
-    };
-    void poll();
-    const timer = setInterval(poll, BOOT_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      clearTimeout(hold);
-    };
-  }, []);
+    if (!call) return; // bridge down: keep the last state
+    const next = call.boot && call.boot.length > 0 ? call.boot : null;
+    const t0 = next?.[0]?.[1] ?? null;
+    if (!next || t0 === dismissed.current) {
+      setLog(null);
+      return;
+    }
+    setLog((prev) =>
+      prev && prev.length === next.length && prev.at(-1)?.[1] === next.at(-1)?.[1] ? prev : next
+    );
+    // Once online, let the finished log sit briefly, then put it away.
+    if (next.at(-1)?.[0] === 'online' && hold.current === undefined) {
+      hold.current = setTimeout(() => {
+        hold.current = undefined;
+        dismissed.current = t0;
+        setLog(null);
+      }, ONLINE_HOLD_MS);
+    }
+  }, [call]);
+  useEffect(() => () => clearTimeout(hold.current), []);
 
   const running = log !== null && log.at(-1)?.[0] !== 'online';
   useEffect(() => {

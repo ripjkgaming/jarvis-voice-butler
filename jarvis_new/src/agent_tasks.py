@@ -183,7 +183,7 @@ def _hud(task: dict) -> None:
                 "task",
                 task["title"] or task["goal"][:60],
                 detail=label,
-                progress=done / total,
+                progress=round(100 * done / total),
                 source="jarvis",
                 item_id=item,
             )

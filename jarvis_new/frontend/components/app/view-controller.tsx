@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { bridgeRoom } from '@/lib/bridge';
+import { useRoom } from '@/hooks/hud/use-room-state';
 
 /**
  * Buttonless call indicator. The Tauri webview has no WebRTC (system
@@ -12,21 +11,8 @@ import { bridgeRoom } from '@/lib/bridge';
  * an ongoing call, silence reads as standby. No buttons, no errors.
  */
 export function ViewController() {
-  const [room, setRoom] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      const live = await bridgeRoom();
-      if (!cancelled) setRoom(live);
-    };
-    void poll();
-    const timer = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
+  // Shared /room poll (one loop for the whole HUD, paused while hidden).
+  const room = useRoom();
 
   return (
     <AnimatePresence mode="wait">

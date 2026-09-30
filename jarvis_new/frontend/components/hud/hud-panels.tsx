@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { bridgeGet } from '@/lib/bridge';
+import { useSharedPoll } from '@/lib/shared-poll';
 
 /** Voice-driven HUD panels (src/hud_panels.py, IRONMAN_SPEC §6).
  *  "Show mail" / "hide calendar" change which panels the bridge reports;
@@ -57,21 +56,7 @@ function SystemBody({ data }: { data: PanelData }) {
 }
 
 export function HudPanels() {
-  const [reply, setReply] = useState<PanelsReply | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      const next = await bridgeGet<PanelsReply>('/panels');
-      if (alive) setReply(next);
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, []);
+  const reply = useSharedPoll<PanelsReply>('/panels', POLL_MS);
 
   const open = reply?.visible ?? [];
   if (open.length === 0) return null;

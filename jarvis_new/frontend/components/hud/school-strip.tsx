@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -12,17 +13,15 @@ import { BootLine } from '@/components/hud/boot-log';
 import { AppIcon, MENU_EXTRA, type MenuKind, MenuLayer } from '@/components/hud/school-menus';
 import { useBootLog } from '@/hooks/hud/use-boot-log';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
+import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import {
   type BridgeActivity,
   type BridgeSys,
   type BridgeWindow,
-  bridgeActivity,
-  bridgeCaptions,
   bridgeLaunch,
-  bridgeLiveCaption,
-  bridgeRoom,
   bridgeWindowAction,
 } from '@/lib/bridge';
+import { useSharedPoll } from '@/lib/shared-poll';
 import { invoke, isTauri } from '@/lib/tauri';
 
 const STATE_LABEL: Record<JarvisState, string> = {
@@ -43,69 +42,27 @@ type Line = { who: 'Sir' | 'Jarvis'; text: string; key: string };
  *  while he talks, else the latest fresh caption. Outside a call, nothing
  *  (the ambient trace). */
 function useStreamLine(): Line | null {
-  const [line, setLine] = useState<Line | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let tick = 0;
-    let lastCaption: Line | null = null;
-    const poll = async () => {
-      // Only while a call is up: once Sir dismisses Jarvis the slot goes
-      // straight back to the idle trace, never the last thing said.
-      const room = await bridgeRoom();
-      if (cancelled) return;
-      if (!room) {
-        lastCaption = null;
-        tick = 0;
-        setLine(null);
-        return;
-      }
-      // Live line every 500 ms; finished captions every third tick.
-      const live = await bridgeLiveCaption();
-      if (tick++ % 3 === 0) {
-        const last = (await bridgeCaptions(2))?.at(-1);
-        lastCaption =
-          last && Date.now() / 1000 - last.ts < CAPTION_FRESH_S
-            ? {
-                who: last.role === 'sir' ? 'Sir' : 'Jarvis',
-                text: last.text,
-                key: `c${last.ts}`,
-              }
-            : null;
-      }
-      if (cancelled) return;
-      setLine(
-        live && !live.done && live.text.trim()
-          ? { who: 'Jarvis', text: live.text, key: `l${live.id}` }
-          : lastCaption
-      );
-    };
-    void poll();
-    const timer = setInterval(poll, 500);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-  return line;
+  // Shared polls: call presence, then (only during a call) the live line
+  // and the captions tail. One request loop each for the whole HUD.
+  const inCall = useRoom(500) !== null;
+  const live = useLiveCaption(inCall, 500);
+  const captions = useCaptions(inCall);
+  return useMemo(() => {
+    if (!inCall) return null;
+    if (live && !live.done && live.text.trim()) {
+      return { who: 'Jarvis', text: live.text, key: `l${live.id}` };
+    }
+    const last = captions.at(-1);
+    return last && Date.now() / 1000 - last.ts < CAPTION_FRESH_S
+      ? { who: last.role === 'sir' ? 'Sir' : 'Jarvis', text: last.text, key: `c${last.ts}` }
+      : null;
+  }, [inCall, live, captions]);
 }
 
 /** Running system activities (downloads, research, builds), max two. */
 function useRunning(): BridgeActivity[] {
-  const [items, setItems] = useState<BridgeActivity[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      const next = await bridgeActivity();
-      if (!cancelled && next) setItems(next.filter((a) => a.status === 'running').slice(0, 2));
-    };
-    void poll();
-    const timer = setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-  return items;
+  const raw = useSharedPoll<{ items?: BridgeActivity[] }>('/activity', 3000);
+  return useMemo(() => (raw?.items ?? []).filter((a) => a.status === 'running').slice(0, 2), [raw]);
 }
 
 /** Docked over a floating Plasma panel? school.rs trims the panel's gap,

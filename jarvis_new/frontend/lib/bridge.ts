@@ -92,9 +92,7 @@ export async function bridgeSys(): Promise<BridgeSys | null> {
 /** Live wake room (wake publishes on summon, clears on hangup). Null =
  *  no call right now (or bridge unreachable — same standby treatment). */
 export async function bridgeRoom(): Promise<string | null> {
-  const j = await getJson<BridgeRoom>('/room');
-  const room = j?.room;
-  return typeof room === 'string' && room.length > 0 ? room : null;
+  return roomFrom(await getJson<BridgeRoom>('/room'));
 }
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -127,11 +125,11 @@ export type BootStep = [string, number];
 /** Call presence for the HUD colour: a live room with the agent in it,
  *  plus the wake's setup log (`boot`) while it is fresh. null = bridge
  *  down. */
-export async function bridgeCallState(): Promise<{
-  live: boolean;
-  boot: BootStep[] | null;
-} | null> {
-  const j = await getJson<BridgeRoom & { waking?: boolean; boot?: BootStep[] | null }>('/room');
+export type BridgeRoomState = BridgeRoom & { waking?: boolean; boot?: BootStep[] | null };
+export type CallState = { live: boolean; boot: BootStep[] | null };
+
+/** Raw /room JSON -> call state. Pure; null in, null out. */
+export function callStateFrom(j: BridgeRoomState | null): CallState | null {
   if (!j) return null;
   const boot = Array.isArray(j.boot) ? j.boot : null;
   // Live only once the agent is actually there: while a wake is still
@@ -140,6 +138,16 @@ export async function bridgeCallState(): Promise<{
   const settingUp = boot !== null && boot.length > 0 && boot.at(-1)?.[0] !== 'online';
   const room = typeof j.room === 'string' && j.room.length > 0;
   return { live: room && !settingUp, boot };
+}
+
+/** Raw /room JSON -> the room name, or null when no call. Pure. */
+export function roomFrom(j: BridgeRoomState | null): string | null {
+  const room = j?.room;
+  return typeof room === 'string' && room.length > 0 ? room : null;
+}
+
+export async function bridgeCallState(): Promise<CallState | null> {
+  return callStateFrom(await getJson<BridgeRoomState>('/room'));
 }
 
 export type BridgeCaptions = {
@@ -158,10 +166,15 @@ export type BridgeLiveCaption = { id: string; text: string; ts: number; done: bo
 
 /** Jarvis's in-progress line, grown word by word in step with his audio
  *  (the agent mirrors its synced transcription). Null when none/stale. */
-export async function bridgeLiveCaption(): Promise<BridgeLiveCaption | null> {
-  const j = await getJson<{ ok?: boolean; live?: BridgeLiveCaption | null }>('/caption/live');
+export function liveCaptionFrom(
+  j: { ok?: boolean; live?: BridgeLiveCaption | null } | null
+): BridgeLiveCaption | null {
   const live = j?.live;
   return live && typeof live.text === 'string' ? live : null;
+}
+
+export async function bridgeLiveCaption(): Promise<BridgeLiveCaption | null> {
+  return liveCaptionFrom(await getJson('/caption/live'));
 }
 
 export type ActivityKind = 'download' | 'update' | 'coding' | 'research' | 'build' | 'task';

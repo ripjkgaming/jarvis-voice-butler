@@ -2,11 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgent } from '@livekit/components-react';
-import { bridgeCallState } from '@/lib/bridge';
+import { useCallState } from '@/hooks/hud/use-room-state';
 import { isTauri, micStatus, setMicMuted } from '@/lib/tauri';
-
-/** How often the HUD asks the bridge whether a call is starting/live. */
-const CALL_POLL_MS = 400;
 
 /**
  * Maps the LiveKit agent state machine to the JARVIS status word.
@@ -44,29 +41,11 @@ export function agentStateToJarvis(agentState: string | undefined): JarvisState 
 
 export function useJarvisState() {
   const { state: agentState } = useAgent();
-  // Call presence without a session: poll the bridge (fail-soft). A live
-  // room, or the wake word having just fired, means Sir is talking to
-  // Jarvis. Fast poll: it is one tiny local file read, and "hey Jarvis"
-  // should go purple at once.
-  const [inCall, setInCall] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const call = await bridgeCallState();
-        if (!cancelled && call) setInCall(call.live);
-      } catch {
-        /* keep last state */
-      }
-    };
-    void poll();
-    const timer = setInterval(poll, CALL_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
+  // Call presence without a session: the shared /room poll (one request
+  // loop for every component using this hook; paused while hidden). A live
+  // room means Sir is talking to Jarvis; the last state holds if the bridge
+  // drops a beat.
+  const inCall = useCallState()?.live ?? false;
 
   const jarvis = useMemo(() => {
     const fromAgent = agentStateToJarvis(agentState);

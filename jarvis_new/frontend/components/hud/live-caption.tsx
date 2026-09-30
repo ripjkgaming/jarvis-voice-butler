@@ -1,18 +1,14 @@
 'use client';
 
-import { type ReactNode, useEffect, useState } from 'react';
-import {
-  type BridgeLiveCaption,
-  bridgeCaptions,
-  bridgeLiveCaption,
-  bridgeRoom,
-} from '@/lib/bridge';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import { useSaid } from '@/lib/hud-say';
 
 /** Words kept in the live line's DOM; older ones scroll off the top anyway. */
 const LIVE_WORDS = 60;
-/** Live-line poll while a call is up: fast enough to land each word as it's spoken. */
-const LIVE_POLL_MS = 100;
+/** Live-line poll while Jarvis is speaking vs. between lines. */
+const LIVE_FAST_MS = 100;
+const LIVE_IDLE_MS = 300;
 
 type LogLine = { ts: number; role: string; text: string };
 
@@ -25,60 +21,21 @@ type LogLine = { ts: number; role: string; text: string };
  */
 export function LiveCaption() {
   const said = useSaid();
-  const [inCall, setInCall] = useState(false);
-  const [logLine, setLogLine] = useState<LogLine | null>(null);
-  const [live, setLive] = useState<BridgeLiveCaption | null>(null);
-
-  // Slow lane: call presence + captions tail (Sir's lines, history).
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      const room = await bridgeRoom();
-      if (cancelled) return;
-      setInCall(!!room);
-      if (!room) {
-        setLogLine(null);
-        return;
-      }
-      const lines = await bridgeCaptions(3);
-      if (cancelled) return;
-      const last = lines?.at(-1);
-      // Fresh (2 min) lines only — stale greetings must not linger.
-      if (last && Date.now() / 1000 - last.ts < 120) setLogLine(last);
-    };
-    void poll();
-    const timer = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-
-  // Fast lane: Jarvis's live line, only while a call is up. Chained
-  // timeouts, never overlapping requests.
-  useEffect(() => {
-    if (!inCall) {
-      setLive(null);
-      return;
-    }
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      const next = await bridgeLiveCaption();
-      if (cancelled) return;
-      setLive((prev) =>
-        prev && next && prev.id === next.id && prev.text === next.text && prev.done === next.done
-          ? prev
-          : next
-      );
-      timer = setTimeout(tick, LIVE_POLL_MS);
-    };
-    void tick();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inCall]);
+  // Shared polls (lib/shared-poll): call presence, then the captions tail
+  // and Jarvis's word-synced live line only while a call is up.
+  const inCall = useRoom() !== null;
+  const captions = useCaptions(inCall);
+  // 100 ms while Jarvis is mid-sentence (each word lands as spoken);
+  // 300 ms once the line is finished, waiting for the next one.
+  const [speaking, setSpeaking] = useState(false);
+  const liveRaw = useLiveCaption(inCall, speaking ? LIVE_FAST_MS : LIVE_IDLE_MS);
+  useEffect(() => setSpeaking(!!liveRaw && !liveRaw.done), [liveRaw]);
+  const live = inCall ? liveRaw : null;
+  const logLine = useMemo<LogLine | null>(() => {
+    const last = captions.at(-1);
+    // Fresh (2 min) lines only: stale greetings must not linger.
+    return inCall && last && Date.now() / 1000 - last.ts < 120 ? last : null;
+  }, [captions, inCall]);
 
   // Live wins while Jarvis is speaking, and after he finishes until a
   // newer log line (Sir talking, the next turn) supersedes it.
