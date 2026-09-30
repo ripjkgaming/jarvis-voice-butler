@@ -33,6 +33,14 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never spend Sir's Pro usage from tests: headless Claude is off unless
     a test opts in (and stubs the runner)."""
     monkeypatch.setenv("JARVIS_CLAUDE", "0")
+    # Nor the OpenRouter key: WhatsApp's analyst/fallback stay off unless a
+    # test opts in with a fake chat function.
+    monkeypatch.setenv("JARVIS_WA_ANALYST", "0")
+    monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
+    monkeypatch.setenv("JARVIS_WA_VISION", "0")
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
+    # Sir's shipped exam timetable stays out of tests unless one opts in.
+    monkeypatch.setenv("JARVIS_EXAM_SCHEDULE", "/nonexistent/exams.json")
 
 
 @pytest.fixture(autouse=True)
@@ -76,3 +84,50 @@ def _no_real_dbus(monkeypatch: pytest.MonkeyPatch) -> None:
     # unless a test stubs _qdbus itself.
     monkeypatch.setattr(active_window, "_qdbus",
                          lambda argv, timeout=8.0: "")
+
+
+# --- live-model tests (IRONMAN_SPEC §8.1) ----------------------------------
+
+#: Modules that build the real Assistant/sessions. Building needs the keys
+#: to exist, not to work, so they get placeholders when none are set; the
+#: tests that truly call a model are marked live_llm and skipped by default.
+_MODEL_MODULES = (
+    "test_agent.py",
+    "test_handoff.py",
+    "test_handoff_desktop.py",
+    "test_handoff_task.py",
+    "test_routing_dryrun.py",
+)
+_PLACEHOLDER_KEYS = {
+    "GOOGLE_API_KEY": "test-placeholder",
+    "LIVEKIT_API_KEY": "test-placeholder",
+    "LIVEKIT_API_SECRET": "test-placeholder",
+    "LIVEKIT_URL": "ws://127.0.0.1:1",
+}
+
+
+def _live_llm_on() -> bool:
+    import os
+
+    return os.environ.get("JARVIS_LIVE_LLM", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def pytest_collection_modifyitems(config, items):
+    if _live_llm_on():
+        return
+    skip = pytest.mark.skip(reason="live model call: set JARVIS_LIVE_LLM=1 (and real keys) to run")
+    for item in items:
+        if "live_llm" in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _placeholder_model_keys(request, monkeypatch):
+    """Real keys win; placeholders only fill gaps, only for model modules."""
+    import os
+
+    if request.node.fspath.basename not in _MODEL_MODULES:
+        return
+    for name, value in _PLACEHOLDER_KEYS.items():
+        if not os.environ.get(name):
+            monkeypatch.setenv(name, value)

@@ -5,6 +5,7 @@ import { BootLog } from '@/components/hud/boot-log';
 import { CommandLog } from '@/components/hud/command-log';
 import { EdgePulse } from '@/components/hud/edge-pulse';
 import { ExecFeed } from '@/components/hud/exec-feed';
+import { HudPanels } from '@/components/hud/hud-panels';
 import { LiveCaption } from '@/components/hud/live-caption';
 import { NodeGraph } from '@/components/hud/node-graph';
 import { ParticleOrb } from '@/components/hud/particle-orb';
@@ -360,6 +361,7 @@ export function HudShell({ children }: Props) {
           <CommandLog />
         </section>
         <section className="hud__right" aria-label="Workflow and automation">
+          <HudPanels />
           <NodeGraph events={events} />
           <ExecFeed />
           <SysCore />

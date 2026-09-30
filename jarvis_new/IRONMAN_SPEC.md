@@ -2,7 +2,7 @@
 
 Source: `~/Ironman plan.md` (ideas). This document turns each idea into a buildable spec
 against what already exists in `src/`. Home/device control is deferred (out of scope).
-Status verified 2026-09-30.
+Status verified 2026-09-30. Build progress is tracked in `IRONMAN_PROGRESS.md`.
 
 ## 0. Baseline (what already exists)
 
@@ -123,7 +123,7 @@ Each phase ends with: `ruff format --check`, `ruff check`, full `pytest`, and a 
 ## 8. Known issues found during verification (2026-09-30)
 
 1. **Gemini API quota (HTTP 429)** fails 8 tests (`test_agent` grounding and 7 in `test_handoff_desktop` / `test_routing_dryrun`). 1610 other tests pass. Not code bugs. Fix: wait for quota reset, use a paid key, or mark these `@pytest.mark.live_llm` and skip by default.
-2. **Two Google identities:** Jarvis reads `ripjkgaming@gmail.com`; the Claude Gmail/Calendar connectors read `rajan.karthik@gmail.com`. Email→calendar must write to the account the user actually uses; add `JARVIS_CALENDAR_ACCOUNT` config.
+2. **One Google identity:** Jarvis uses `ripjkgaming@gmail.com` only. Calendar writes go to Jarvis's own Google login; `JARVIS_CALENDAR_ACCOUNT` selects which saved login (done).
 3. `~/.jarvis/google_token.json` (shared login) lacks Gmail scopes; Gmail works only via the separate gmail_connect token. Calendar scope is present.
 4. 4 old `error` entries in `mail_watch.state.json` (never retried). Add a bounded retry.
 5. Stray untracked `jarvis_new/:memory:.ses` should be gitignored.

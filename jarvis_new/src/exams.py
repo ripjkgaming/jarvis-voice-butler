@@ -3,6 +3,8 @@
 Sources, merged by exams():
 - ~/.jarvis/exams.json: added by voice (exam_schedule add) and saved
   automatically when a schedule file is imported to Google Calendar.
+- jarvis_new/data/exams.json: Sir's timetable shipped with the repo
+  (JARVIS_EXAM_SCHEDULE points elsewhere).
 - the IGCSE study plan's "exams" section (~/jarvis/data/study_plan.json).
 
 Answers "when's my next exam", "when's physics", "what exams this week",
@@ -36,6 +38,25 @@ def home() -> Path:
 
 def store_path() -> Path:
     return home() / "exams.json"
+
+
+def repo_schedule_path() -> Path:
+    """The timetable shipped with the repo (jarvis_new/data/exams.json)."""
+    return Path(
+        os.environ.get("JARVIS_EXAM_SCHEDULE", "").strip()
+        or Path(__file__).resolve().parent.parent / "data" / "exams.json"
+    )
+
+
+def _repo_exams() -> list[dict]:
+    try:
+        data = json.loads(repo_schedule_path().read_text())
+    except (OSError, ValueError):
+        return []
+    rows = data.get("exams", []) if isinstance(data, dict) else []
+    return [
+        c for c in (_clean(r, "timetable") for r in rows if isinstance(r, dict)) if c
+    ]
 
 
 def study_plan_path() -> Path:
@@ -162,7 +183,8 @@ def _plan_exams() -> list[dict]:
 def exams() -> list[dict]:
     """Every known exam, sorted by date then start; duplicates merged."""
     seen: dict[tuple[str, str], dict] = {}
-    for e in [*load(), *_plan_exams()]:
+    # Sir's own additions win over the shipped timetable, then the study plan.
+    for e in [*load(), *_repo_exams(), *_plan_exams()]:
         seen.setdefault(_key(e), e)
     return sorted(seen.values(), key=lambda e: (e["date"], e["start"] or "99:99"))
 

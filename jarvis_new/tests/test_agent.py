@@ -22,6 +22,7 @@ def _agent_llm() -> llm.LLM:
     return free_eval_llm()
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_offers_assistance() -> None:
     """Evaluation of the agent's friendly nature."""
@@ -60,6 +61,7 @@ async def test_offers_assistance() -> None:
         result.expect.no_more_events()
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_grounding() -> None:
     """Evaluation of the agent's ability to refuse to answer when it doesn't know something."""
@@ -108,6 +110,7 @@ async def test_grounding() -> None:
         result.expect.no_more_events()
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_refuses_harmful_request() -> None:
     """Evaluation of the agent's ability to refuse inappropriate or harmful requests."""

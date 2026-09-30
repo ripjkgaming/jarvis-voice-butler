@@ -59,6 +59,12 @@ from system.focus_tools import FocusTools
 from draft_tools import DraftTools
 from notify_tools import NotifyTools
 from system.exam_tools import ExamTools
+from system.memory_tools import MemoryTools
+from system.code_tools import CodeTools
+from system.look_tools import LookTools
+from system.panel_tools import PanelTools
+from system.task_tools import TaskTools, WorkshopTools
+from system.window_tools import WindowTools
 from system.inbox import InboxTools
 from system.recall_tools import RecallTools
 from system.osint import OsintTools
@@ -856,7 +862,7 @@ def _session_for_pipeline(
             # present, no realtime model), so endpointing stays local too.
             # Same adaptive interruptions + preemptive replies as realtime.
             turn_handling=TurnHandlingOptions(
-                interruption={"mode": "adaptive"},
+                interruption=barge_in("adaptive"),
                 preemptive_generation={"enabled": True},
             ),
             user_away_timeout=IDLE_HANGUP_SECONDS,
@@ -931,6 +937,43 @@ def _default_agent_llm():
 SLOW_TOOL_S = 5.0
 
 
+def _say_ack(tool: str, args: tuple, kwargs: dict) -> None:
+    """Say a cached "On it, Sir." before a tool expected to be slow (§4).
+
+    Finds the RunContext among the call's arguments; a session that cannot
+    speak a fixed line (realtime without TTS) just skips it. Never raises.
+    """
+    try:
+        import acks
+
+        line = acks.next_line(tool)
+        if not line:
+            return
+        ctx = kwargs.get("context")
+        if ctx is None:
+            ctx = next((a for a in args if hasattr(a, "session")), None)
+        session = getattr(ctx, "session", None)
+        if session is not None:
+            session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
+    except Exception:
+        pass
+
+
+def barge_in(mode: str) -> dict:
+    """Interruption options: Sir cuts Jarvis off after JARVIS_BARGE_IN_S
+    (default 0.3 s) of speech; a false interruption resumes the reply, so
+    nothing said is lost (IRONMAN_SPEC §4). Pure (env only)."""
+    try:
+        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.3"))
+    except ValueError:
+        secs = 0.3
+    return {
+        "mode": mode,
+        "min_duration": max(0.1, min(2.0, secs)),
+        "resume_false_interruption": True,
+    }
+
+
 def _wrap_tools_with_timing(tools: list) -> list:
     """Time every tool call and feed src/latency.py. Idempotent.
 
@@ -982,6 +1025,7 @@ def _wrap_tools_with_timing(tools: list) -> list:
                     pass
 
             slow_task = loop.create_task(_nudge()) if loop is not None else None
+            _say_ack(_tid, args, kwargs)
             TRACKER.call_started()
             try:
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
@@ -994,6 +1038,9 @@ def _wrap_tools_with_timing(tools: list) -> list:
                 try:
                     ms = (time.monotonic() - start) * 1000.0
                     TRACKER.call_finished(_tid, ms)
+                    import acks as _acks
+
+                    _acks.record(_tid, ms / 1000.0)
                     if log_action is not None:
                         log_action("latency", f"{_tid} {ms:.0f}ms")
                 except Exception:
@@ -1283,6 +1330,20 @@ class SystemAgent(Agent):
         )
 
 
+def _with_memory(instructions: str) -> str:
+    """Append Sir's remembered preferences + a 'last time' line (§2).
+
+    Local strings only (no model call); capped in memory.py. Never raises.
+    """
+    try:
+        import memory
+
+        block = memory.persona_block()
+    except Exception:
+        block = ""
+    return f"{instructions}\n\n# Memory\n{block}" if block else instructions
+
+
 class Assistant(Agent):
     def __init__(
         self,
@@ -1318,6 +1379,13 @@ class Assistant(Agent):
         self.workspace_tools = WorkspaceTools()
         self.recall_tools = RecallTools()
         self.exam_tools = ExamTools()
+        self.memory_tools = MemoryTools()
+        self.window_tools = WindowTools()
+        self.look_tools = LookTools()
+        self.code_tools = CodeTools()
+        self.task_tools = TaskTools()
+        self.panel_tools = PanelTools()
+        self.workshop_tools = WorkshopTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1335,7 +1403,7 @@ class Assistant(Agent):
             # 3. Add `from livekit.plugins import openai` to the top of this file
             # 4. Replace the llm argument with:
             #     llm=openai.realtime.RealtimeModel(voice="marin")
-            instructions=AGENT_INSTRUCTIONS,
+            instructions=_with_memory(AGENT_INSTRUCTIONS),
             tools=[
                 *self.browser_tools.tools,
                 *self._end_call_tool.tools,
@@ -1371,6 +1439,20 @@ class Assistant(Agent):
                 *self.recall_tools.tools,
                 # Exam schedule: next / find / add, fed by schedule imports.
                 *self.exam_tools.tools,
+                # Long-term memory: recall, last time, remember/forget.
+                *self.memory_tools.tools,
+                # Windows: list / focus / arrange / undo (reversible, logged).
+                *self.window_tools.tools,
+                # Vision on demand: the active window or one camera frame.
+                *self.look_tools.tools,
+                # Code: background test runs, failure explanations, gated PRs.
+                *self.code_tools.tools,
+                # Multi-step background tasks; acts pause for Sir's yes.
+                *self.task_tools.tools,
+                # HUD panels by voice: show mail / hide calendar.
+                *self.panel_tools.tools,
+                # Workshop: parallel read-only specialists, one merged status.
+                *self.workshop_tools.tools,
                 # One voice tool: notify Sir (spoken if present, toast otherwise).
                 *self.notify_tools.tools,
                 *[
@@ -1537,7 +1619,7 @@ async def my_agent(ctx: JobContext):
         # dials wss://agent-gateway.livekit.cloud (401 with no Cloud
         # credentials) and retries forever. Same Cloud dependency class
         # as the old TurnDetector and QUAIL enhancement.
-        interruption={"mode": "vad", "min_duration": interrupt_min_s()},
+        interruption=barge_in("vad"),
         # Silero already waits min_silence_duration (0.55 s) before it
         # reports end of speech; the framework's default 0.5 s endpointing
         # delay stacked on top of that, ~1 s of dead air before Gemini even
@@ -1608,6 +1690,12 @@ async def my_agent(ctx: JobContext):
             if _echo.is_echo(transcript):
                 return
             _turn_clock["last"] = time.monotonic()
+            # Proactive engine: Sir answered, so recent announcements
+            # were not ignored (IRONMAN_SPEC §1.2 learned penalty).
+            with contextlib.suppress(Exception):
+                from proactive import engine as _proactive_engine
+
+                _proactive_engine.note_user_turn()
 
     def _mark_tools(*_args, **_kwargs) -> None:
         _turn_clock["last"] = time.monotonic()

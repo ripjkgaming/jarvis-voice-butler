@@ -576,46 +576,58 @@ def test_state_path_follows_jarvis_home(monkeypatch, tmp_path) -> None:
     assert mail_watch_job.state_path() == tmp_path / "mail_watch.state.json"
 
 
-async def test_dated_mail_stores_suggestion_and_asks_out_loud(fakes, monkeypatch) -> None:
-    import event_suggest
-    import google_api
+@pytest.mark.asyncio
+async def test_event_suggestion_for_human_mail_only(fakes, monkeypatch) -> None:
+    import event_extractor
 
-    monkeypatch.setattr(google_api, "calendar_list", lambda *a, **k: [])
-    fakes["model_text"] = json.dumps(
-        [{"title": "Wedding", "date": "2099-10-03", "start": "18:00"}]
-    )
-    fakes["payloads"]["e1"] = _full(
-        "e1", "friend@mailbox.org", "Wedding", "Wedding is on Saturday 3 Oct at 6pm."
-    )
-    await mail_watch_job._handle_one("e1")
-    saved = event_suggest.load()
-    assert saved and saved["events"][0]["title"] == "Wedding"
-    asks = [kw for _t, kw in fakes.get("notifies", []) if kw.get("kind") == "calendar-suggest"]
-    assert len(asks) == 1 and asks[0]["speak_text"].endswith("calendar?")
-
-
-async def test_already_booked_event_is_not_suggested(fakes, monkeypatch) -> None:
-    import event_suggest
-    import google_api
-
+    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "1")
+    seen = []
     monkeypatch.setattr(
-        google_api,
-        "calendar_list",
-        lambda *a, **k: [{"summary": "Wedding", "start": {"date": "2099-10-03"}}],
+        event_extractor,
+        "suggest",
+        lambda parsed: seen.append(parsed["id"]) or "suggested",
     )
-    fakes["model_text"] = json.dumps([{"title": "Wedding", "date": "2099-10-03"}])
-    fakes["payloads"]["e2"] = _full(
-        "e2", "friend@mailbox.org", "Wedding", "Wedding on 3 Oct."
+    fakes["payloads"]["h1"] = _full(
+        "h1", "Bob <b@x.com>", "Dinner Friday 7pm?", "see you"
     )
-    await mail_watch_job._handle_one("e2")
-    assert event_suggest.load() is None
+    fakes["payloads"]["b1"] = _full(
+        "b1",
+        "News <news@x.com>",
+        "Webinar Tuesday",
+        "join",
+        extra_headers=(("List-Unsubscribe", "<x>"),),
+    )
+    await mail_watch_job._handle_one("h1")
+    await mail_watch_job._handle_one("b1")
+    assert seen == ["h1"]
 
 
-async def test_event_suggestions_kill_switch(fakes, monkeypatch) -> None:
-    import event_suggest
+def test_error_retry_is_bounded() -> None:
+    assert mail_watch_job.error_count("normal-logged") == 0
+    assert mail_watch_job.error_count("error") == 1
+    assert mail_watch_job.error_count("error:2") == 2
+    assert mail_watch_job.retry_due("error") and mail_watch_job.retry_due("error:2")
+    assert not mail_watch_job.retry_due("error:3")
+    assert not mail_watch_job.retry_due("skip")
 
-    monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
-    fakes["model_text"] = json.dumps([{"title": "Wedding", "date": "2099-10-03"}])
-    fakes["payloads"]["e3"] = _full("e3", "friend@mailbox.org", "Wedding", "3 Oct at 6pm")
-    await mail_watch_job._handle_one("e3")
-    assert event_suggest.load() is None
+
+@pytest.mark.asyncio
+async def test_main_retries_errored_mail(fakes, monkeypatch) -> None:
+    fakes["payloads"]["messages"] = {
+        "messages": [{"id": "e1"}, {"id": "ok1"}, {"id": "dead"}]
+    }
+    fakes["payloads"]["e1"] = _full("e1", "Bob <b@x.com>", "Hi", "hello")
+    mail_watch_job._save_state(
+        {"seen_map": {"e1": "error", "ok1": "skip", "dead": "error:3"}}
+    )
+    handled = []
+    real = mail_watch_job._handle_one
+
+    async def spy(msg_id, acks=None):
+        handled.append(msg_id)
+        return await real(msg_id, acks)
+
+    monkeypatch.setattr(mail_watch_job, "_handle_one", spy)
+    await mail_watch_job.main()
+    assert handled == ["e1"]
+    assert mail_watch_job._load_state()["seen_map"]["e1"].startswith("normal-logged")

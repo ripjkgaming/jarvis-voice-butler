@@ -105,6 +105,23 @@ async def _pass_on_reply(
         return " replied=error"
 
 
+MAX_ERROR_RETRIES = 3
+
+
+def error_count(outcome: str) -> int:
+    """'error' / 'error:2' -> how many times this message failed. Pure."""
+    text = str(outcome or "")
+    if not text.startswith("error"):
+        return 0
+    _, _, n = text.partition(":")
+    return int(n) if n.isdigit() else 1
+
+
+def retry_due(outcome: str) -> bool:
+    """A message that errored is retried, at most MAX_ERROR_RETRIES times. Pure."""
+    return 0 < error_count(outcome) < MAX_ERROR_RETRIES
+
+
 def state_path() -> Path:
     h = os.environ.get("JARVIS_HOME", "").strip()
     return (Path(h) if h else Path.home() / ".jarvis") / "mail_watch.state.json"
@@ -179,69 +196,6 @@ async def _ping_whatsapp(text: str) -> bool:
         return bool(result.get("ok"))
     except Exception:
         return False
-
-
-async def _maybe_suggest_event(parsed: dict, full: dict) -> None:
-    """Human mail that mentions a date: ask Sir out loud whether to book it. Never raises.
-
-    Stores the extracted events (event_suggest) and announces the question;
-    the silent-call announce keeps the call open, so his "yes" reaches
-    confirm_calendar_import. Nothing is booked here.
-    """
-    try:
-        import backend_model
-        import event_suggest
-        from system import log_action
-
-        text = f"{parsed.get('subject', '')}\n{parsed.get('body') or parsed.get('snippet', '')}"
-        if not event_suggest.enabled() or not event_suggest.has_date_cue(text):
-            return
-        if _run["events"] >= MAX_EVENT_CHECKS_PER_RUN:
-            return
-        _run["events"] += 1
-        events, warning = await asyncio.to_thread(
-            backend_model.extract_events_from_email, text
-        )
-        events = event_suggest.future_only(events)
-        if warning or not events:
-            log_action("mailwatch", f"event none id={parsed['id'][:16]} {warning or ''}"[:200])
-            return
-        try:
-            import google_api
-            from system.workspace_tools import _event_key
-
-            days = sorted(e["date"] for e in events)
-            existing = await asyncio.to_thread(
-                google_api.calendar_list, days[0] + "T00:00:00Z", days[-1] + "T23:59:59Z"
-            )
-            have = {
-                _event_key(
-                    str(i.get("summary", "")),
-                    str((i.get("start") or {}).get("date") or (i.get("start") or {}).get("dateTime") or "")[:10],
-                )
-                for i in existing
-            }
-            events = [e for e in events if _event_key(e["title"], e["date"]) not in have]
-        except Exception:
-            pass  # calendar unreachable: still worth asking
-        if not events:
-            log_action("mailwatch", f"event already-booked id={parsed['id'][:16]}")
-            return
-        event_suggest.save(parsed["id"], parsed["sender"], parsed["subject"], events)
-        _notify_send(
-            kind="calendar-suggest",
-            source="mail",
-            title="Jarvis - book this?",
-            text=f"{parsed['sender']}: {parsed['subject']}",
-            speak_text=event_suggest.speak_line(parsed["sender"], events),
-            fingerprint=f"cal:{parsed['id']}",
-        )
-        log_action("mailwatch", f"event suggested n={len(events)} id={parsed['id'][:16]}")
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            from system import log_action
-
-            log_action("mailwatch", f"event error: {exc}")
 
 
 async def _maybe_draft(parsed: dict, full: dict, verdict: dict) -> None:
@@ -358,6 +312,26 @@ def _draft_context(msg_id: str, thread_id: str, to: str) -> dict:
     return out
 
 
+async def _maybe_suggest_event(parsed: dict) -> None:
+    """Email -> 'shall I add it to your calendar?' (IRONMAN_SPEC §1.3).
+
+    Never raises; nothing touches the calendar until Sir says yes.
+    """
+    try:
+        import event_extractor
+        from system import log_action
+
+        if not event_extractor.enabled():
+            return
+        outcome = await asyncio.to_thread(event_extractor.suggest, parsed)
+        log_action("mailwatch", f"event {outcome} id={str(parsed.get('id'))[:16]}")
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("mailwatch", f"event error: {exc}")
+
+
 async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
     """Let Claude make the urgent call on human mail; keywords are the fallback.
 
@@ -420,14 +394,17 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
 
     if level == "skip":
         return "skip"
+    if verdict["human"]:
+        await _maybe_suggest_event(parsed)
     if level == "normal":
         suffix = ""
         scam = bool(verdict.get("scam"))
         if verdict["human"]:
             suffix = await _pass_on_reply(full, parsed, token, acks, scam=scam)
+            mail_log.record(
+                "received", id=msg_id, sender=sender, subject=subject, level=level
+            )
         if not scam:
-            if verdict["human"]:
-                await _maybe_suggest_event(parsed, full)
             await _maybe_draft(parsed, full, verdict)
         return "normal-logged" + suffix
 
@@ -505,8 +482,6 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
             text=f"{sender}: {subject}" + (" (acknowledged)" if acked else ""),
             speak_text=f"Sir, urgent mail from {who}: {subject}.{told}",
         )
-    if verdict["human"]:
-        await _maybe_suggest_event(parsed, full)
     await _maybe_draft(parsed, full, verdict)
     return outcome
 
@@ -539,7 +514,8 @@ async def main() -> None:
     fresh = [
         str(m.get("id", ""))
         for m in (listed.get("messages", []) or [])
-        if m.get("id") and m.get("id") not in seen_map
+        if m.get("id")
+        and (m.get("id") not in seen_map or retry_due(seen_map[m.get("id")]))
     ]
     if not fresh:
         return
@@ -552,7 +528,8 @@ async def main() -> None:
 
             with __import__("contextlib").suppress(Exception):
                 _log("mailwatch", f"{msg_id[:16]} error: {exc}")
-            outcome = "error"
+            outcome = f"error:{error_count(seen_map.get(msg_id, '')) + 1}"
+        seen_map.pop(msg_id, None)  # re-insert at the end so trimming keeps it
         seen_map[msg_id] = outcome
         trimmed = dict(list(seen_map.items())[-500:])
         _save_state({**state, "seen": [], "seen_map": trimmed, "acks": acks})

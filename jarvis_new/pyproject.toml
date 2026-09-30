@@ -55,6 +55,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "live_llm: needs a real Gemini/LiveKit model call; skipped unless JARVIS_LIVE_LLM=1",
+]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]

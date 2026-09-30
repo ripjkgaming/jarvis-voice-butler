@@ -99,6 +99,7 @@ def describe_mail(entries: list[dict], now: float, n: int = 5) -> str:
         "drafted": "drafted a reply to",
         "flagged": "flagged as urgent",
         "discarded": "discarded the draft for",
+        "received": "saw mail from",
     }
     lines = []
     for e in entries[:n]:

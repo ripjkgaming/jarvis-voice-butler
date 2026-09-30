@@ -760,6 +760,12 @@ SIDECAR_THREADS = (
     ("wa_autoreply", "JARVIS_WA_WATCH"),
     # Exam reminders: the evening before and the morning of each exam.
     ("exams", "JARVIS_EXAM_REMIND"),
+    # Proactive engine: calendar/mail/jobs/disk/deadline signals, one policy.
+    ("proactive.engine", "JARVIS_PROACTIVE_ENGINE"),
+    # Long-term memory: summarise each session into the vault when it ends.
+    ("memory", "JARVIS_MEMORY"),
+    # Background tasks: resume any a restart interrupted.
+    ("agent_tasks", "JARVIS_TASKS"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
 )
@@ -3150,6 +3156,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "live": read_live_caption()})
         elif route == "/activity":
             self._send(200, {"ok": True, "items": read_activity()})
+        elif route == "/panels":
+            # Voice-driven HUD panels (src/hud_panels.py, IRONMAN_SPEC §6).
+            import hud_panels
+
+            self._send(200, hud_panels.payload())
         elif route == "/camera/latest":
             latest = _phone_cam_dir() / "latest.jpg"
             try:
