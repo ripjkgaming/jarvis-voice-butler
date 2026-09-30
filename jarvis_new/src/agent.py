@@ -63,7 +63,7 @@ from system.memory_tools import MemoryTools
 from system.code_tools import CodeTools
 from system.look_tools import LookTools
 from system.panel_tools import PanelTools
-from system.task_tools import TaskTools
+from system.task_tools import TaskTools, WorkshopTools
 from system.window_tools import WindowTools
 from system.inbox import InboxTools
 from system.recall_tools import RecallTools
@@ -1354,6 +1354,7 @@ class Assistant(Agent):
         self.code_tools = CodeTools()
         self.task_tools = TaskTools()
         self.panel_tools = PanelTools()
+        self.workshop_tools = WorkshopTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
@@ -1419,6 +1420,8 @@ class Assistant(Agent):
                 *self.task_tools.tools,
                 # HUD panels by voice: show mail / hide calendar.
                 *self.panel_tools.tools,
+                # Workshop: parallel read-only specialists, one merged status.
+                *self.workshop_tools.tools,
                 # One voice tool: notify Sir (spoken if present, toast otherwise).
                 *self.notify_tools.tools,
                 *[

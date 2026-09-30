@@ -105,3 +105,45 @@ class TaskTools:
             return {"say": "There's no running task to cancel, Sir."}
         log_action("task", f"cancelled {task['id']}")
         return {"say": f"Cancelled '{task['title']}'."}
+
+
+class WorkshopTools:
+    @property
+    def tools(self) -> list:
+        return [self.start_workshop, self.workshop_status]
+
+    @function_tool()
+    async def start_workshop(
+        self, context: RunContext, goal: str, roles: str = ""
+    ) -> dict[str, str]:
+        """Put specialists on a goal at once ("get the team on adding a
+        calendar panel", "workshop the physics revision plan"): research
+        (web), code (reads the Jarvis repo) and ops (plan and risks) work in
+        parallel, read-only; you speak one merged status when they finish.
+
+        Args:
+            goal: The goal in Sir's words.
+            roles: Optional subset, e.g. "research, ops"; empty = all three.
+        """
+        _guard()
+        import workshop
+
+        if len((goal or "").strip()) < 8:
+            raise ToolError("What should the workshop work on, Sir?")
+        chosen = workshop.pick_roles(roles)
+        workshop.start(goal.strip(), chosen)
+        log_action("workshop", f"start {','.join(chosen)}")
+        return {"say": f"The {', '.join(chosen)} team is on it, Sir. I'll report back."}
+
+    @function_tool()
+    async def workshop_status(self, context: RunContext) -> dict[str, str]:
+        """What the last workshop found (or that it is still working)."""
+        _guard()
+        import workshop
+
+        ws = workshop.latest()
+        if ws is None:
+            return {"say": "No workshop has run yet, Sir."}
+        if ws["status"] == "running":
+            return {"say": f"Still working on '{ws['goal'][:60]}', Sir."}
+        return {"say": ws.get("spoken") or f"The workshop failed: {ws.get('error')}"}
