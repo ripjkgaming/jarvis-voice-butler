@@ -11,6 +11,7 @@ Rate limited to one ack per ACK_GAP_S. JARVIS_ACKS=0 turns them off.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import json
 import os
@@ -48,7 +49,10 @@ KNOWN_SLOW = frozenset(
         "look_at_screen",
     }
 )
-_state = {"last": 0.0, "i": 0, "ema": None}
+#: Durations are persisted at most this often; record() runs on the event
+#: loop after every tool call, so a disk write each time was pure latency.
+SAVE_EVERY_S = 30.0
+_state = {"last": 0.0, "i": 0, "ema": None, "saved": 0.0, "dirty": False}
 _lock = threading.Lock()
 
 
@@ -86,9 +90,27 @@ def record(tool: str, seconds: float) -> None:
             if old is None
             else (1 - EMA_ALPHA) * float(old) + EMA_ALPHA * seconds
         )
-        with contextlib.suppress(OSError):
-            _path().parent.mkdir(parents=True, exist_ok=True)
-            _path().write_text(json.dumps(ema))
+        _state["dirty"] = True
+        if time.monotonic() - _state["saved"] >= SAVE_EVERY_S:
+            _flush_locked()
+
+
+def _flush_locked() -> None:
+    _state["saved"] = time.monotonic()
+    _state["dirty"] = False
+    with contextlib.suppress(OSError):
+        _path().parent.mkdir(parents=True, exist_ok=True)
+        _path().write_text(json.dumps(_state["ema"]))
+
+
+def flush() -> None:
+    """Persist any unsaved durations now (also runs at interpreter exit)."""
+    with _lock:
+        if _state["dirty"] and _state["ema"] is not None:
+            _flush_locked()
+
+
+atexit.register(flush)
 
 
 def expected_slow(tool: str) -> bool:
@@ -116,4 +138,4 @@ def next_line(tool: str, now: float | None = None) -> str | None:
 def reset() -> None:
     """Forget in-memory state (tests)."""
     with _lock:
-        _state.update(last=0.0, i=0, ema=None)
+        _state.update(last=0.0, i=0, ema=None, saved=0.0, dirty=False)

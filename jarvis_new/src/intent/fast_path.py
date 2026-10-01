@@ -184,16 +184,21 @@ def _complete(tool: str, params: dict) -> dict | None:
     return None
 
 
-def match(text: str, resolve=None) -> tuple[str, dict, str] | None:
-    """(tool, args, source) for an instant command, or None for Gemini."""
+def _gate(text: str) -> tuple[str, tuple[str, dict, str] | None] | None:
+    """Cheap pure pre-check shared by match/match_async.
+
+    None -> not an instant candidate (hand the turn to Gemini); otherwise
+    (clean_text, grammar_hit_or_None)."""
     if not enabled():
         return None
     t = clean(text)
     if not t or len(t.split()) > MAX_WORDS or _COMPOUND.search(t):
         return None
     hit = grammar(t)
-    if hit is not None:
-        return hit[0], hit[1], "grammar"
+    return t, (None if hit is None else (hit[0], hit[1], "grammar"))
+
+
+def _from_resolver(t: str, resolve) -> tuple[str, dict, str] | None:
     try:
         if resolve is None:
             from intent.resolver import resolve_intent as resolve
@@ -206,6 +211,30 @@ def match(text: str, resolve=None) -> tuple[str, dict, str] | None:
     if args is None:
         return None
     return result.action, args, "needle"
+
+
+def match(text: str, resolve=None) -> tuple[str, dict, str] | None:
+    """(tool, args, source) for an instant command, or None for Gemini."""
+    gated = _gate(text)
+    if gated is None:
+        return None
+    t, hit = gated
+    return hit if hit is not None else _from_resolver(t, resolve)
+
+
+async def match_async(text: str, resolve=None) -> tuple[str, dict, str] | None:
+    """match() that never blocks the event loop.
+
+    The grammar answers inline (microseconds). The resolver (fuzzy matching
+    plus the Needle worker, which can wait up to seconds on a pipe) runs in a
+    thread so audio/VAD callbacks keep flowing during that wait."""
+    gated = _gate(text)
+    if gated is None:
+        return None
+    t, hit = gated
+    if hit is not None:
+        return hit
+    return await asyncio.to_thread(_from_resolver, t, resolve)
 
 
 # --- one execution per request ---

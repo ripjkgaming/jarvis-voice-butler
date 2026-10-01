@@ -176,3 +176,28 @@ async def test_execute_reports_tool_error() -> None:
 
     ok, say = await fast_path.execute(FakeTools(), "set_volume", {"action": "down"})
     assert ok is False and "didn't move" in say
+
+
+def test_match_async_agrees_with_match_and_offloads_resolver():
+    import asyncio
+    import threading
+
+    from intent import fast_path
+
+    seen = {}
+
+    class R:
+        should_act = True
+        action = "tell_time"
+        params = {}
+
+    def resolve(t):
+        seen["thread"] = threading.current_thread()
+        return R()
+
+    assert asyncio.run(fast_path.match_async("turn it down")) == fast_path.match(
+        "turn it down"
+    )
+    hit = asyncio.run(fast_path.match_async("got the time on you", resolve))
+    assert hit == ("tell_time", {}, "needle")
+    assert seen["thread"] is not threading.main_thread()

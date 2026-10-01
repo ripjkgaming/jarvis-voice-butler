@@ -243,9 +243,7 @@ _KEYWORD_ROUTES: tuple[tuple[frozenset[str], str], ...] = (
     # Read vs write split: "read the chat" looks things up, "message
     # mum" composes. Without the split, every whatsapp noun misroutes.
     (
-        frozenset(
-            {"read", "show", "list", "recent", "latest", "newest", "unread"}
-        ),
+        frozenset({"read", "show", "list", "recent", "latest", "newest", "unread"}),
         "whatsapp_read",
     ),
     # Bare "send" excluded from this set: "send a birthday card" is
@@ -450,9 +448,22 @@ def _spoken_domain(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+_SEED_TABLE: dict[str, dict] | None = None
+
+
+def _alias_table(aliases: dict[str, dict] | None) -> dict[str, dict]:
+    """Normalized alias table; the seed-only table is built once, not per turn."""
+    global _SEED_TABLE
+    if aliases:
+        return {normalize(k): v for k, v in {**SEED_ALIASES, **aliases}.items()}
+    if _SEED_TABLE is None:
+        _SEED_TABLE = {normalize(k): v for k, v in SEED_ALIASES.items()}
+    return _SEED_TABLE
+
+
 def resolve_intent(text: str, aliases: dict[str, dict] | None = None) -> IntentResult:
     """Resolve informal phrasing to action+params with confidence. Pure."""
-    table = {normalize(k): v for k, v in {**SEED_ALIASES, **(aliases or {})}.items()}
+    table = _alias_table(aliases)
     clean = normalize(text)
     if not clean:
         return IntentResult(

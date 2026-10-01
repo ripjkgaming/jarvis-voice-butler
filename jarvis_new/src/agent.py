@@ -1029,10 +1029,11 @@ def _wrap_tools_with_timing(tools: list) -> list:
             except RuntimeError:
                 loop = None
 
-            async def _nudge() -> None:
+            def _nudge() -> None:
                 # P3: tools past SLOW_TOOL_S get a progress caption so a
-                # long page load reads as working, not dead air.
-                await asyncio.sleep(SLOW_TOOL_S)
+                # long page load reads as working, not dead air. A bare
+                # timer, not a task: most tools finish first and never pay
+                # for a coroutine.
                 try:
                     from hud_events import caption as _cap
 
@@ -1045,7 +1046,9 @@ def _wrap_tools_with_timing(tools: list) -> list:
                 except Exception:
                     pass
 
-            slow_task = loop.create_task(_nudge()) if loop is not None else None
+            slow_task = (
+                loop.call_later(SLOW_TOOL_S, _nudge) if loop is not None else None
+            )
             _say_ack(_tid, args, kwargs)
             TRACKER.call_started()
             try:
@@ -1522,7 +1525,7 @@ class Assistant(Agent):
                 text = new_message.text_content or ""
             except Exception:
                 text = ""
-            hit = fast_path.match(text)
+            hit = await fast_path.match_async(text)
             if hit is None:
                 return
             tool, args, source = hit
@@ -1788,7 +1791,9 @@ async def my_agent(ctx: JobContext):
 
     def _guard_tools(event) -> None:
         for call, out in event.zipped():
-            _cg.GUARD.note_tool(getattr(call, "name", ""), not getattr(out, "is_error", False))
+            _cg.GUARD.note_tool(
+                getattr(call, "name", ""), not getattr(out, "is_error", False)
+            )
 
     def _guard_item(event) -> None:
         item = getattr(event, "item", None)
