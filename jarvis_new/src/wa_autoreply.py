@@ -285,9 +285,11 @@ def blocklist() -> set[str]:
                 names.add(line.strip().lower())
     # Never mimic Sir back at Muse: the delegation thread is Jarvis's own.
     with contextlib.suppress(Exception):
+        from system.muse import enabled as muse_enabled
         from system.muse import muse_chat
 
-        names.add(muse_chat().lower())
+        if muse_enabled():
+            names.add(muse_chat().lower())
     return names
 
 

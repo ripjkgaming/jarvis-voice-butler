@@ -25,6 +25,16 @@ _MUSE_EMAIL_FILE = Path.home() / ".jarvis" / "muse_email.txt"
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def enabled() -> bool:
+    """Is Muse set up? Opt-in: nothing Muse-related exists until Sir
+    configures it (an address, a chat name, or JARVIS_MUSE=1)."""
+    if os.environ.get("JARVIS_MUSE", "").strip().lower() in ("1", "true", "on", "yes"):
+        return True
+    if (os.environ.get("JARVIS_MUSE_CHAT") or "").strip():
+        return True
+    return bool(muse_email())
+
+
 def muse_email() -> str:
     """Muse's email address, or "" if Sir hasn't set one yet."""
     val = (os.environ.get("JARVIS_MUSE_EMAIL") or "").strip()

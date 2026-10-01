@@ -16,6 +16,7 @@ from system.muse_tools import MuseTools
 @pytest.fixture(autouse=True)
 def _local(monkeypatch):
     monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setenv("JARVIS_MUSE", "1")  # configured; see the opt-in tests below
     monkeypatch.delenv("JARVIS_MUSE_EMAIL", raising=False)
     monkeypatch.delenv("JARVIS_MUSE_CHAT", raising=False)
 
@@ -151,4 +152,29 @@ async def test_send_failure_surfaces_and_clears(monkeypatch) -> None:
         await MuseTools.confirm_muse_send(tools, None)  # type: ignore[arg-type]
     # After a failed send the queue is cleared, not stuck.
     with pytest.raises(ToolError):
+        await MuseTools.confirm_muse_send(tools, None)  # type: ignore[arg-type]
+
+
+def test_muse_is_opt_in(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("JARVIS_MUSE", raising=False)
+    monkeypatch.setattr(muse, "_MUSE_EMAIL_FILE", tmp_path / "none.txt")
+    assert muse.enabled() is False
+    # Not set up: no tools offered, and the chat isn't special-cased.
+    assert MuseTools().tools == []
+    import wa_autoreply
+
+    assert "muse" not in wa_autoreply.blocklist()
+    monkeypatch.setenv("JARVIS_MUSE_EMAIL", "muse@meta.com")
+    assert muse.enabled() is True
+    assert len(MuseTools().tools) == 2
+
+
+@pytest.mark.asyncio
+async def test_tools_refuse_when_not_set_up(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("JARVIS_MUSE", raising=False)
+    monkeypatch.setattr(muse, "_MUSE_EMAIL_FILE", tmp_path / "none.txt")
+    tools = MuseTools()
+    with pytest.raises(ToolError, match="isn't set up"):
+        await MuseTools.delegate_to_muse(tools, None, task="x")  # type: ignore[arg-type]
+    with pytest.raises(ToolError, match="isn't set up"):
         await MuseTools.confirm_muse_send(tools, None)  # type: ignore[arg-type]

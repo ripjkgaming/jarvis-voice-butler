@@ -52,6 +52,10 @@ class MuseTools:
 
     @property
     def tools(self) -> list:
+        # Opt-in: until Muse is configured the tools are not offered at all,
+        # so Jarvis never mentions or depends on it.
+        if not muse.enabled():
+            return []
         return [self.delegate_to_muse, self.confirm_muse_send]
 
     @function_tool()
@@ -72,6 +76,8 @@ class MuseTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        if not muse.enabled():
+            raise ToolError("Muse isn't set up, Sir.")
         clean = muse.clean_task(task)
         if not clean:
             raise ToolError("What should I ask Muse to do, Sir?")
@@ -102,6 +108,8 @@ class MuseTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        if not muse.enabled():
+            raise ToolError("Muse isn't set up, Sir.")
         if self._pending is None:
             raise ToolError(
                 "Nothing is queued for Muse, Sir. Tell me the task first and "
