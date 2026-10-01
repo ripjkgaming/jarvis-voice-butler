@@ -101,6 +101,47 @@ pub fn exit(app: &AppHandle) {
     // geometry or presentation.
 }
 
+/// Recover only an actual legacy orb when explicitly opening suit diagnostics.
+/// This does not re-enable the disabled automatic Brave enter/exit behavior.
+pub fn restore_for_suit(app: &AppHandle) {
+    if crate::school::is_school() {
+        return;
+    }
+    let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) else {
+        return;
+    };
+    if win.title().ok().as_deref() != Some(ORB_TITLE) {
+        return;
+    }
+    let _ = win.set_title(crate::school::HUD_TITLE);
+    let _ = win.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize {
+        width: 960.0,
+        height: 540.0,
+    })));
+    let _ = win.set_focusable(true);
+    let _ = win.set_always_on_top(false);
+    let _ = win.set_decorations(true);
+    let _ = win.set_skip_taskbar(false);
+    let path = crate::overlay::geometry_path(&crate::env_cfg::jarvis_home());
+    if let Some(geom) = crate::overlay::load_geometry(&path) {
+        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+            x: geom.x,
+            y: geom.y,
+        }));
+        let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: geom.width,
+            height: geom.height,
+        }));
+    }
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        // The old rule only matches ORB_TITLE, which we already replaced.
+        // Do not rewrite the shared KWin rule list outside school's lifecycle
+        // gate: a concurrent school entry may have just installed its rule.
+        crate::school::heal_normal_mode(Some(&handle));
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,2363 @@
+[
+  {
+    "state": "cold_load",
+    "reduced": false,
+    "pending_raf_after_probe": 1,
+    "raf_callbacks_including_probe": 7,
+    "elapsed_ms": 655.9,
+    "TaskDuration": 464.13,
+    "ScriptDuration": 168.13,
+    "LayoutDuration": 58.47,
+    "RecalcStyleDuration": 66.04,
+    "LayoutCount": 7,
+    "RecalcStyleCount": 29,
+    "heap_delta_bytes": 5797296,
+    "sampled_alloc_bytes_including_collected": 7191856,
+    "bridge_requests": 7,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 371
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 131
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 36
+      },
+      {
+        "fn": "tL",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 82726,
+        "hits": 27
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 25
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 23
+      },
+      {
+        "fn": "w",
+        "url": "617-317d08cd919125b6.js",
+        "line": 0,
+        "column": 89531,
+        "hits": 12
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 10
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 9
+      },
+      {
+        "fn": "resize",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 29524,
+        "hits": 7
+      },
+      {
+        "fn": "x",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 28004,
+        "hits": 7
+      },
+      {
+        "fn": "oq",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 79862,
+        "hits": 4
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 53,
+        "duration_ms": 5.7
+      },
+      "RasterTask": {
+        "count": 119,
+        "duration_ms": 144.57
+      },
+      "Layout": {
+        "count": 7,
+        "duration_ms": 63.81
+      },
+      "UpdateLayoutTree": {
+        "count": 27,
+        "duration_ms": 63.69
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 3,
+        "duration_ms": 10.78
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 9.9
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "normal",
+    "reduced": false,
+    "frames": 170,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 49.9,
+    "gaps_over_34ms": 1,
+    "estimated_dropped_60hz": 9,
+    "pending_raf_after_probe": 1,
+    "raf_callbacks_including_probe": 345,
+    "elapsed_ms": 3052.1,
+    "TaskDuration": 1117.53,
+    "ScriptDuration": 174.33,
+    "LayoutDuration": 1.03,
+    "RecalcStyleDuration": 50.71,
+    "LayoutCount": 3,
+    "RecalcStyleCount": 174,
+    "heap_delta_bytes": -1570684,
+    "sampled_alloc_bytes_including_collected": 1343808,
+    "bridge_requests": 28,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3339
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1522
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 222
+      },
+      {
+        "fn": "v",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 28102,
+        "hits": 32
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 23
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 12
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 8
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "clearRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 7,
+        "column": 31,
+        "hits": 3
+      },
+      {
+        "fn": "en",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 26411,
+        "hits": 2
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 2
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 6,
+        "duration_ms": 0.36
+      },
+      "RasterTask": {
+        "count": 6,
+        "duration_ms": 0.84
+      },
+      "Layout": {
+        "count": 3,
+        "duration_ms": 0.99
+      },
+      "UpdateLayoutTree": {
+        "count": 176,
+        "duration_ms": 51.46
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 1,
+        "duration_ms": 0.42
+      },
+      "MajorGC": {
+        "count": 3,
+        "duration_ms": 13.45
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "entry_cold",
+    "reduced": false,
+    "frames": 270,
+    "median_ms": 16.7,
+    "p95_ms": 50,
+    "max_ms": 100,
+    "gaps_over_34ms": 16,
+    "estimated_dropped_60hz": 58,
+    "pending_raf_after_probe": 2,
+    "raf_callbacks_including_probe": 832,
+    "elapsed_ms": 5685.4,
+    "TaskDuration": 2982.68,
+    "ScriptDuration": 336.11,
+    "LayoutDuration": 42.92,
+    "RecalcStyleDuration": 105.02,
+    "LayoutCount": 13,
+    "RecalcStyleCount": 53,
+    "heap_delta_bytes": 869636,
+    "sampled_alloc_bytes_including_collected": 15757640,
+    "bridge_requests": 31,
+    "native_fake_calls": 4,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4439
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3845
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 56
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 43
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 40
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 38
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 10196,
+        "hits": 36
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 11941,
+        "hits": 24
+      },
+      {
+        "fn": "fillText",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 22
+      },
+      {
+        "fn": "V",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 8377,
+        "hits": 21
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 19
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 19
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 84,
+        "duration_ms": 40.12
+      },
+      "RasterTask": {
+        "count": 146,
+        "duration_ms": 216.02
+      },
+      "Layout": {
+        "count": 13,
+        "duration_ms": 72.19
+      },
+      "UpdateLayoutTree": {
+        "count": 52,
+        "duration_ms": 76.34
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 17,
+        "duration_ms": 10.82
+      },
+      "MajorGC": {
+        "count": 2,
+        "duration_ms": 15.6
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 269,
+      "fontMs": 48.3,
+      "textCalls": 1939,
+      "textMs": 17.8
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "school",
+    "reduced": false,
+    "frames": 179,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 2,
+    "raf_callbacks_including_probe": 544,
+    "elapsed_ms": 3039.8,
+    "TaskDuration": 587.25,
+    "ScriptDuration": 164.77,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 43.64,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 182,
+    "heap_delta_bytes": -539848,
+    "sampled_alloc_bytes_including_collected": 5047316,
+    "bridge_requests": 18,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4301
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 696
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 115
+      },
+      {
+        "fn": "w",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 48633,
+        "hits": 84
+      },
+      {
+        "fn": "v",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 28102,
+        "hits": 22
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 14
+      },
+      {
+        "fn": "_",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 48939,
+        "hits": 12
+      },
+      {
+        "fn": "b",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 49790,
+        "hits": 9
+      },
+      {
+        "fn": "clearRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "stroke",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "RasterTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "Layout": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "UpdateLayoutTree": {
+        "count": 185,
+        "duration_ms": 44.37
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 4,
+        "duration_ms": 1.78
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 14.74
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0.0,
+      "textCalls": 0,
+      "textMs": 0.0
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_cold",
+    "reduced": false,
+    "frames": 165,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 33.3,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 3,
+    "pending_raf_after_probe": 1,
+    "raf_callbacks_including_probe": 574,
+    "elapsed_ms": 2872.3,
+    "TaskDuration": 1331.64,
+    "ScriptDuration": 143.04,
+    "LayoutDuration": 8.05,
+    "RecalcStyleDuration": 62.49,
+    "LayoutCount": 10,
+    "RecalcStyleCount": 87,
+    "heap_delta_bytes": -179888,
+    "sampled_alloc_bytes_including_collected": 4164104,
+    "bridge_requests": 23,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2689
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1891
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 77
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 50
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 17
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 19462,
+        "hits": 16
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 13
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 20828,
+        "hits": 10
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 9
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 19949,
+        "hits": 8
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 8
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 127,
+        "duration_ms": 27.17
+      },
+      "RasterTask": {
+        "count": 955,
+        "duration_ms": 1051.84
+      },
+      "Layout": {
+        "count": 10,
+        "duration_ms": 10.27
+      },
+      "UpdateLayoutTree": {
+        "count": 86,
+        "duration_ms": 60.83
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 2,
+        "duration_ms": 1.34
+      },
+      "MajorGC": {
+        "count": 2,
+        "duration_ms": 10.35
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 206,
+      "fontMs": 47.8,
+      "textCalls": 80,
+      "textMs": 2.7
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "entry_warm",
+    "reduced": false,
+    "frames": 275,
+    "median_ms": 16.7,
+    "p95_ms": 33.4,
+    "max_ms": 133.3,
+    "gaps_over_34ms": 11,
+    "estimated_dropped_60hz": 63,
+    "pending_raf_after_probe": 2,
+    "raf_callbacks_including_probe": 851,
+    "elapsed_ms": 5736.1,
+    "TaskDuration": 2378.7,
+    "ScriptDuration": 263.53,
+    "LayoutDuration": 11.32,
+    "RecalcStyleDuration": 114.84,
+    "LayoutCount": 10,
+    "RecalcStyleCount": 56,
+    "heap_delta_bytes": 415680,
+    "sampled_alloc_bytes_including_collected": 28313056,
+    "bridge_requests": 31,
+    "native_fake_calls": 4,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5533
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3141
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 57
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 11941,
+        "hits": 43
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 31
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 10196,
+        "hits": 30
+      },
+      {
+        "fn": "w",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 48633,
+        "hits": 29
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 25
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 24
+      },
+      {
+        "fn": "u",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 10931,
+        "hits": 15
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 10609,
+        "hits": 11
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 11
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 82,
+        "duration_ms": 14.31
+      },
+      "RasterTask": {
+        "count": 154,
+        "duration_ms": 132.94
+      },
+      "Layout": {
+        "count": 10,
+        "duration_ms": 15.71
+      },
+      "UpdateLayoutTree": {
+        "count": 66,
+        "duration_ms": 117.45
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 18,
+        "duration_ms": 14.95
+      },
+      "MajorGC": {
+        "count": 2,
+        "duration_ms": 14.41
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 274,
+      "fontMs": 44.7,
+      "textCalls": 1840,
+      "textMs": 3.0
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_warm",
+    "reduced": false,
+    "frames": 165,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 33.4,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 4,
+    "pending_raf_after_probe": 1,
+    "raf_callbacks_including_probe": 575,
+    "elapsed_ms": 2891.1,
+    "TaskDuration": 1238.19,
+    "ScriptDuration": 120.8,
+    "LayoutDuration": 6.69,
+    "RecalcStyleDuration": 58.21,
+    "LayoutCount": 10,
+    "RecalcStyleCount": 87,
+    "heap_delta_bytes": -437388,
+    "sampled_alloc_bytes_including_collected": 6360324,
+    "bridge_requests": 23,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2893
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1757
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 75
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 41
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 16
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 13
+      },
+      {
+        "fn": "w",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 48633,
+        "hits": 11
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 19462,
+        "hits": 11
+      },
+      {
+        "fn": "v",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 28102,
+        "hits": 8
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 123,
+        "duration_ms": 23.64
+      },
+      "RasterTask": {
+        "count": 932,
+        "duration_ms": 829.49
+      },
+      "Layout": {
+        "count": 10,
+        "duration_ms": 8.87
+      },
+      "UpdateLayoutTree": {
+        "count": 86,
+        "duration_ms": 56.37
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 3,
+        "duration_ms": 2.0
+      },
+      "MajorGC": {
+        "count": 2,
+        "duration_ms": 14.41
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 205,
+      "fontMs": 45.0,
+      "textCalls": 80,
+      "textMs": 1.1
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "hidden",
+    "reduced": false,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 0,
+    "elapsed_ms": 2028.9,
+    "TaskDuration": 21.77,
+    "ScriptDuration": 0.02,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 156,
+    "sampled_alloc_bytes_including_collected": 32784,
+    "bridge_requests": 0,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3512
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "(root)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 0
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "RasterTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "Layout": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "UpdateLayoutTree": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 5.47
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0.0,
+      "textCalls": 0,
+      "textMs": 0.0
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "cold_load",
+    "reduced": true,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 0,
+    "elapsed_ms": 481.7,
+    "TaskDuration": 359.69,
+    "ScriptDuration": 130.4,
+    "LayoutDuration": 64.51,
+    "RecalcStyleDuration": 43.07,
+    "LayoutCount": 7,
+    "RecalcStyleCount": 19,
+    "heap_delta_bytes": 5526096,
+    "sampled_alloc_bytes_including_collected": 7126700,
+    "bridge_requests": 6,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 303
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 171
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 34
+      },
+      {
+        "fn": "tL",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 82726,
+        "hits": 31
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 17
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 8
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 8
+      },
+      {
+        "fn": "w",
+        "url": "617-317d08cd919125b6.js",
+        "line": 0,
+        "column": 89531,
+        "hits": 8
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 7
+      },
+      {
+        "fn": "oq",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 79862,
+        "hits": 6
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 5
+      },
+      {
+        "fn": "resize",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 29524,
+        "hits": 4
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 45,
+        "duration_ms": 2.9
+      },
+      "RasterTask": {
+        "count": 117,
+        "duration_ms": 128.83
+      },
+      "Layout": {
+        "count": 7,
+        "duration_ms": 69.24
+      },
+      "UpdateLayoutTree": {
+        "count": 9,
+        "duration_ms": 38.24
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 3,
+        "duration_ms": 3.59
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 5.72
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "normal",
+    "reduced": true,
+    "frames": 179,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 180,
+    "elapsed_ms": 3030.8,
+    "TaskDuration": 122.33,
+    "ScriptDuration": 16.26,
+    "LayoutDuration": 1.58,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 4,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 147096,
+    "sampled_alloc_bytes_including_collected": 229572,
+    "bridge_requests": 21,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5100
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 141
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 10
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 7,
+        "column": 31,
+        "hits": 4
+      },
+      {
+        "fn": "setTimeout",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 3
+      },
+      {
+        "fn": "window.requestAnimationFrame",
+        "url": "",
+        "line": 6,
+        "column": 39,
+        "hits": 3
+      },
+      {
+        "fn": "json",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "ug",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 97875,
+        "hits": 1
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 8,
+        "duration_ms": 0.78
+      },
+      "RasterTask": {
+        "count": 8,
+        "duration_ms": 1.99
+      },
+      "Layout": {
+        "count": 4,
+        "duration_ms": 1.51
+      },
+      "UpdateLayoutTree": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 7.38
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        900
+      ]
+    ]
+  },
+  {
+    "state": "entry_cold",
+    "reduced": true,
+    "frames": 6,
+    "median_ms": 16.7,
+    "p95_ms": 33.3,
+    "max_ms": 33.4,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 2,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 15,
+    "elapsed_ms": 169.0,
+    "TaskDuration": 139.27,
+    "ScriptDuration": 57.35,
+    "LayoutDuration": 7.01,
+    "RecalcStyleDuration": 12.21,
+    "LayoutCount": 8,
+    "RecalcStyleCount": 8,
+    "heap_delta_bytes": 425284,
+    "sampled_alloc_bytes_including_collected": 1081900,
+    "bridge_requests": 3,
+    "native_fake_calls": 1,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 63
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 43
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 24
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 13
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 11
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "o1",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 88799,
+        "hits": 3
+      },
+      {
+        "fn": "cloneNode",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 2
+      },
+      {
+        "fn": "resize",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 29524,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 7,
+        "column": 31,
+        "hits": 2
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 2
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 5,
+        "duration_ms": 0.83
+      },
+      "RasterTask": {
+        "count": 13,
+        "duration_ms": 16.89
+      },
+      "Layout": {
+        "count": 8,
+        "duration_ms": 6.85
+      },
+      "UpdateLayoutTree": {
+        "count": 8,
+        "duration_ms": 12.24
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 1,
+        "duration_ms": 0.91
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 21.47
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 3,
+      "fontMs": 7.3,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "school",
+    "reduced": true,
+    "frames": 180,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 181,
+    "elapsed_ms": 3043.3,
+    "TaskDuration": 149.23,
+    "ScriptDuration": 19.03,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 158236,
+    "sampled_alloc_bytes_including_collected": 229952,
+    "bridge_requests": 15,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4999
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 173
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 11
+      },
+      {
+        "fn": "u",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 621,
+        "hits": 4
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 7,
+        "column": 31,
+        "hits": 3
+      },
+      {
+        "fn": "eA",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 44662,
+        "hits": 3
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 1
+      },
+      {
+        "fn": "iK",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 131323,
+        "hits": 1
+      },
+      {
+        "fn": "eZ",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 54657,
+        "hits": 1
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "RasterTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "Layout": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "UpdateLayoutTree": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 8.65
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0.0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_cold",
+    "reduced": true,
+    "frames": 5,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 16,
+    "elapsed_ms": 155.4,
+    "TaskDuration": 130.91,
+    "ScriptDuration": 31.74,
+    "LayoutDuration": 8.17,
+    "RecalcStyleDuration": 19.39,
+    "LayoutCount": 7,
+    "RecalcStyleCount": 9,
+    "heap_delta_bytes": 898780,
+    "sampled_alloc_bytes_including_collected": 1147652,
+    "bridge_requests": 5,
+    "native_fake_calls": 2,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 149
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 32
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 9
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "setAttribute",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "o1",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 88799,
+        "hits": 2
+      },
+      {
+        "fn": "n",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 61425,
+        "hits": 2
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 19462,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 0,
+        "column": 0,
+        "hits": 2
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 19,
+        "duration_ms": 3.81
+      },
+      "RasterTask": {
+        "count": 82,
+        "duration_ms": 144.26
+      },
+      "Layout": {
+        "count": 8,
+        "duration_ms": 13.99
+      },
+      "UpdateLayoutTree": {
+        "count": 8,
+        "duration_ms": 24.34
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 1,
+        "duration_ms": 2.19
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 11.39
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 5,
+      "fontMs": 5.6,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1280,
+        720
+      ]
+    ]
+  },
+  {
+    "state": "entry_warm",
+    "reduced": true,
+    "frames": 3,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 9,
+    "elapsed_ms": 98.2,
+    "TaskDuration": 79.55,
+    "ScriptDuration": 22.38,
+    "LayoutDuration": 2.85,
+    "RecalcStyleDuration": 11.55,
+    "LayoutCount": 6,
+    "RecalcStyleCount": 6,
+    "heap_delta_bytes": 224480,
+    "sampled_alloc_bytes_including_collected": 1114860,
+    "bridge_requests": 2,
+    "native_fake_calls": 1,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 42
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 30
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 12
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 8
+      },
+      {
+        "fn": "getBoundingClientRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "cloneNode",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "evaluate",
+        "url": "",
+        "line": 304,
+        "column": 10,
+        "hits": 2
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "dispatchEvent",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "setTimeout",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 93582,
+        "hits": 1
+      },
+      {
+        "fn": "rl",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 31417,
+        "hits": 1
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 2,
+        "duration_ms": 0.43
+      },
+      "RasterTask": {
+        "count": 13,
+        "duration_ms": 4.43
+      },
+      "Layout": {
+        "count": 6,
+        "duration_ms": 2.76
+      },
+      "UpdateLayoutTree": {
+        "count": 6,
+        "duration_ms": 11.57
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 1,
+        "duration_ms": 0.55
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 5.21
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 2,
+      "fontMs": 6.9,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1600,
+        64
+      ],
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_warm",
+    "reduced": true,
+    "frames": 4,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 13,
+    "elapsed_ms": 160.0,
+    "TaskDuration": 126.68,
+    "ScriptDuration": 27.8,
+    "LayoutDuration": 6.66,
+    "RecalcStyleDuration": 17.71,
+    "LayoutCount": 7,
+    "RecalcStyleCount": 9,
+    "heap_delta_bytes": 1146592,
+    "sampled_alloc_bytes_including_collected": 1409976,
+    "bridge_requests": 7,
+    "native_fake_calls": 2,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 140
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 29
+      },
+      {
+        "fn": "set font",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 9
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 90249,
+        "hits": 3
+      },
+      {
+        "fn": "w",
+        "url": "821-3ef8b9d5f4c835a5.js",
+        "line": 0,
+        "column": 97998,
+        "hits": 2
+      },
+      {
+        "fn": "tP",
+        "url": "page-6e830bb493e693fb.js",
+        "line": 0,
+        "column": 85517,
+        "hits": 2
+      },
+      {
+        "fn": "sd",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 147697,
+        "hits": 2
+      },
+      {
+        "fn": "drawImage",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 19,
+        "duration_ms": 4.52
+      },
+      "RasterTask": {
+        "count": 82,
+        "duration_ms": 108.25
+      },
+      "Layout": {
+        "count": 8,
+        "duration_ms": 15.58
+      },
+      "UpdateLayoutTree": {
+        "count": 8,
+        "duration_ms": 24.69
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 1,
+        "duration_ms": 4.6
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 8.87
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 4,
+      "fontMs": 5.2,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1280,
+        720
+      ]
+    ]
+  },
+  {
+    "state": "hidden",
+    "reduced": true,
+    "pending_raf_after_probe": 0,
+    "raf_callbacks_including_probe": 0,
+    "elapsed_ms": 2041.3,
+    "TaskDuration": 28.4,
+    "ScriptDuration": 0.03,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 188,
+    "sampled_alloc_bytes_including_collected": 0,
+    "bridge_requests": 0,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3484
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "(root)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 0
+      }
+    ],
+    "trace_work": {
+      "Paint": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "RasterTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "Layout": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "UpdateLayoutTree": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "CompositeLayers": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "GPUTask": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MinorGC": {
+        "count": 0,
+        "duration_ms": 0.0
+      },
+      "MajorGC": {
+        "count": 1,
+        "duration_ms": 6.36
+      }
+    },
+    "canvas_costs": {
+      "fontWrites": 0,
+      "fontMs": 0.0,
+      "textCalls": 0,
+      "textMs": 0
+    },
+    "canvas": [
+      [
+        1280,
+        720
+      ]
+    ]
+  }
+]

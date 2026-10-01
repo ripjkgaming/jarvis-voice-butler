@@ -1,6 +1,5 @@
 import localFont from 'next/font/local';
 import { ThemeProvider } from '@/components/app/theme-provider';
-import { ThemeToggle } from '@/components/app/theme-toggle';
 import { cn } from '@/lib/shadcn/utils';
 import { getDefaultConfig, getStyles } from '@/lib/utils';
 import '@/styles/globals.css';
@@ -32,6 +31,31 @@ const commitMono = localFont({
   ],
 });
 
+// STARK OS type (design/STARK_OS.md): Rajdhani labels, Orbitron wordmark,
+// Share Tech Mono read-outs. Vendored, so the offline shell never fetches.
+const rajdhani = localFont({
+  display: 'swap',
+  variable: '--font-rajdhani',
+  src: [
+    { path: '../fonts/Rajdhani-Regular.ttf', weight: '400', style: 'normal' },
+    { path: '../fonts/Rajdhani-Medium.ttf', weight: '500', style: 'normal' },
+    { path: '../fonts/Rajdhani-SemiBold.ttf', weight: '600', style: 'normal' },
+    { path: '../fonts/Rajdhani-Bold.ttf', weight: '700', style: 'normal' },
+  ],
+});
+
+const orbitron = localFont({
+  display: 'swap',
+  variable: '--font-orbitron',
+  src: [{ path: '../fonts/Orbitron-Variable.ttf', weight: '400 900', style: 'normal' }],
+});
+
+const shareTechMono = localFont({
+  display: 'swap',
+  variable: '--font-share-tech-mono',
+  src: [{ path: '../fonts/ShareTechMono-Regular.ttf', weight: '400', style: 'normal' }],
+});
+
 interface RootLayoutProps {
   children: React.ReactNode;
 }
@@ -45,7 +69,13 @@ export default function RootLayout({ children }: RootLayoutProps) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn(commitMono.variable, 'scroll-smooth font-sans antialiased')}
+      className={cn(
+        commitMono.variable,
+        rajdhani.variable,
+        orbitron.variable,
+        shareTechMono.variable,
+        'scroll-smooth font-sans antialiased'
+      )}
     >
       <head>
         {styles && <style>{styles}</style>}
@@ -55,14 +85,11 @@ export default function RootLayout({ children }: RootLayoutProps) {
       <body className="overflow-x-hidden">
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="dark"
+          forcedTheme="dark"
           disableTransitionOnChange
         >
           {children}
-          <div className="group fixed bottom-0 left-1/2 z-50 mb-2 -translate-x-1/2">
-            <ThemeToggle className="translate-y-20 transition-transform delay-150 duration-300 group-hover:translate-y-0" />
-          </div>
         </ThemeProvider>
       </body>
     </html>

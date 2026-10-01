@@ -8,8 +8,8 @@ KMS
 .venv
 .venv-wake
 # Tauri/Rust build outputs (gigabytes; reproducible via scripts/build-app.sh).
-# NOTE: shell/ui/ (the built Next.js export, ~18MB) IS committed on purpose:
-# build-app.sh does not rebuild the frontend, so a fresh clone needs it.
+# NOTE: shell/ui/ (the built Next.js export) IS committed on purpose:
+# direct native builds embed it; build-app.sh refreshes it from the frontend.
 shell/src-tauri/target/
 # Android localOnly: SDK path, Gradle caches, build outputs (APK is built
 # on demand via phone/ README; the shipped APK lives outside the repo).

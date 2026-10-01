@@ -1,0 +1,81 @@
+/* STARK OS; canonical tokens, native GTK widget semantics. */
+@import url("resource:///org/gtk/libgtk/theme/Default/gtk-dark.css");
+@define-color stark_ink #03101a;
+@define-color stark_deep #061826;
+@define-color stark_raise #0b2436;
+@define-color stark_cyan #5fe3ff;
+@define-color stark_cyan_hot #d8f8ff;
+@define-color stark_cyan_dim #2a8fb0;
+@define-color stark_select #12546a;
+@define-color stark_text #d9f4ff;
+@define-color stark_text_dim #7fa6b8;
+@define-color stark_text_faint #46677a;
+@define-color stark_amber #ffb347;
+@define-color stark_red #ff4d5e;
+@define-color stark_green #6dffb3;
+@define-color stark_line_solid #16414f;
+@define-color stark_line_strong_solid #2b7f95;
+@define-color theme_bg_color @stark_deep;
+@define-color theme_fg_color @stark_text;
+@define-color theme_base_color @stark_ink;
+@define-color theme_text_color @stark_text;
+@define-color theme_selected_bg_color @stark_select;
+@define-color theme_selected_fg_color @stark_cyan_hot;
+@define-color insensitive_fg_color @stark_text_dim;
+@define-color borders @stark_line_solid;
+@define-color warning_color @stark_amber;
+@define-color error_color @stark_red;
+@define-color success_color @stark_green;
+* { text-shadow: none; -gtk-icon-shadow: none; }
+window, dialog, .background { background-color: @stark_deep; color: @stark_text; }
+headerbar, menubar, toolbar, .toolbar, .titlebar {
+  background-image: none; background-color: @stark_deep; color: @stark_cyan_hot;
+  border-color: @stark_line_solid; box-shadow: none;
+}
+headerbar .title { font-weight: 600; }
+button, combobox button, spinbutton button {
+  background-image: none; background-color: @stark_raise; color: @stark_text;
+  border: 1px solid @stark_line_solid; border-radius: 2px; box-shadow: none;
+}
+button:hover { background-color: @stark_select; border-color: @stark_line_strong_solid; }
+button:active, button:checked, button.suggested-action {
+  background-color: @stark_select; color: @stark_cyan_hot; border-color: @stark_cyan_dim;
+}
+button.destructive-action { color: @stark_red; }
+button.destructive-action:hover { border-color: @stark_red; }
+entry, spinbutton, textview, textview text, treeview, .view, list, listview, gridview {
+  background-color: @stark_ink; color: @stark_text;
+}
+entry, spinbutton { border: 1px solid @stark_line_solid; border-radius: 2px; box-shadow: none; }
+*:focus { outline: 1px solid @stark_cyan; outline-offset: -2px; }
+entry:focus { border-color: @stark_cyan; }
+selection, *:selected, row:selected, treeview:selected {
+  background-color: @stark_select; color: @stark_cyan_hot;
+}
+row:hover { background-color: @stark_raise; }
+menu, popover, popover > contents, .menu {
+  background-color: @stark_deep; color: @stark_text;
+  border: 1px solid @stark_line_strong_solid; border-radius: 2px;
+}
+menuitem:hover, modelbutton:hover { background-color: @stark_select; color: @stark_cyan_hot; }
+tooltip, tooltip.background { background-color: @stark_deep; color: @stark_text;
+  border: 1px solid @stark_line_strong_solid; border-radius: 2px; }
+tooltip label { color: @stark_text; }
+notebook > header { background-color: @stark_deep; border-color: @stark_line_solid; }
+notebook > header tab { color: @stark_text_dim; }
+notebook > header tab:checked { color: @stark_cyan_hot; box-shadow: inset 0 -2px @stark_cyan; }
+separator { background-color: @stark_line_solid; min-width: 1px; min-height: 1px; }
+scrollbar, scrollbar trough { background-color: @stark_ink; }
+scrollbar slider { background-color: @stark_cyan_dim; border: none; min-width: 6px; min-height: 6px; }
+scrollbar slider:hover { background-color: @stark_cyan; }
+scale trough, progressbar trough, levelbar trough { background-color: @stark_ink; border-color: @stark_line_solid; }
+scale highlight, progressbar progress, levelbar block.filled { background-color: @stark_cyan; border-color: @stark_cyan; }
+scale slider { background-color: @stark_cyan_hot; background-image: none; border-color: @stark_cyan; }
+check, radio, switch { background-color: @stark_raise; border-color: @stark_cyan_dim; }
+check:checked, radio:checked, switch:checked { background-color: @stark_select; color: @stark_cyan_hot; }
+switch slider { background-image: none; background-color: @stark_cyan_hot; }
+link, button.link, label link { color: @stark_cyan; }
+.dim-label, *:disabled { color: @stark_text_dim; }
+.error { color: @stark_red; }
+.warning { color: @stark_amber; }
+.success { color: @stark_green; }

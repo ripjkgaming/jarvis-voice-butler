@@ -112,3 +112,128 @@ async def test_direct_pipeline_builds_offline_session(monkeypatch) -> None:
     session = _session_for_pipeline(TurnHandlingOptions())
     assert session._opts.user_away_timeout == IDLE_HANGUP_SECONDS
     assert session._stt is not None and session._stt.provider == "faster-whisper-local"
+
+
+async def test_lazy_decode_stays_off_event_loop_and_preserves_recognition(monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    main_thread = threading.get_ident()
+    calls = []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            calls.append((threading.get_ident(), audio.copy(), kwargs))
+
+            def segments():
+                assert threading.get_ident() != main_thread, (
+                    "lazy decode blocked event loop"
+                )
+                yield SimpleNamespace(text=" hello ", avg_logprob=-0.2)
+                yield SimpleNamespace(text="world", avg_logprob=-0.4)
+
+            return segments(), None
+
+    stt = FasterWhisperSTT(model_size="base")
+    monkeypatch.setattr(stt, "_load", lambda: Model())
+    pcm = np.arange(8000, dtype=np.int16)
+    result = await stt.recognize([_frame(pcm, 16000)], language="en")
+    assert result.alternatives[0].text == "hello world"
+    assert result.alternatives[0].confidence == pytest.approx(np.exp(-0.3))
+    assert calls[0][0] != main_thread
+    assert calls[0][2] == {"language": "en", "beam_size": 1, "vad_filter": False}
+    assert np.array_equal(calls[0][1], pcm.astype(np.float32) / 32768.0)
+
+
+async def test_cancelled_decode_does_not_race_next_model_use(monkeypatch):
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            calls.append("transcribe")
+
+            def segments():
+                entered.set()
+                assert release.wait(2), "test did not release decoder"
+                yield SimpleNamespace(text="done", avg_logprob=0.0)
+
+            return segments(), None
+
+    stt = FasterWhisperSTT(model_size="base")
+    monkeypatch.setattr(stt, "_load", lambda: Model())
+    frame = _frame(np.zeros(8000, dtype=np.int16), 16000)
+    first = asyncio.create_task(stt.recognize([frame]))
+    second = None
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        second = asyncio.create_task(stt.recognize([frame]))
+        await asyncio.sleep(0.02)
+        assert calls == ["transcribe"]
+        release.set()
+        result = await asyncio.wait_for(second, 1)
+        assert result.alternatives[0].text == "done"
+        assert len(calls) == 2
+    finally:
+        release.set()
+        if not first.done():
+            await first
+        if second is not None and not second.done():
+            await second
+
+
+async def test_cancelled_queued_decode_is_skipped_before_next_turn(monkeypatch):
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            index = round(float(audio[0]) * 32768)
+            calls.append(index)
+
+            def segments():
+                if index == 1:
+                    entered.set()
+                    assert release.wait(2)
+                yield SimpleNamespace(text=str(index), avg_logprob=0.0)
+
+            return segments(), None
+
+    stt = FasterWhisperSTT(model_size="base")
+    monkeypatch.setattr(stt, "_load", lambda: Model())
+
+    async def recognize(index):
+        return await stt.recognize([_frame(np.full(8000, index, np.int16), 16000)])
+
+    first = asyncio.create_task(recognize(1))
+    pending = []
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        second = asyncio.create_task(recognize(2))
+        pending.append(second)
+        await asyncio.sleep(0.02)  # executor worker can be waiting for first decode
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await second
+        third = asyncio.create_task(recognize(3))
+        pending.append(third)
+        release.set()
+        await first
+        assert (await third).alternatives[0].text == "3"
+        assert calls == [1, 3], (
+            "cancelled queued utterance must not delay the next turn"
+        )
+    finally:
+        release.set()
+        await asyncio.gather(first, *pending, return_exceptions=True)

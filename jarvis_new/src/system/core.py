@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import contextvars
 import datetime
 import difflib
 import json
@@ -32,6 +33,7 @@ import shlex
 import shutil
 import time
 import urllib.parse
+from collections.abc import Callable
 from pathlib import Path
 
 from livekit.agents import RunContext, function_tool
@@ -336,7 +338,9 @@ def _window_ids_from_wmctrl(out: str) -> set[str]:
     return ids
 
 
-async def _maximize_new_windows(before: set[str]) -> None:
+async def _maximize_new_windows(
+    before: set[str], env: dict[str, str] | None = None
+) -> None:
     """Maximize windows that appeared after the `before` snapshot.
 
     Fail-soft by design: a missing wmctrl, no display, or zero new
@@ -344,7 +348,7 @@ async def _maximize_new_windows(before: set[str]) -> None:
     """
     try:
         await asyncio.sleep(1.5)
-        rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
+        rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0, env=env)
         if rc != 0:
             return
         for wid in sorted(_window_ids_from_wmctrl(out) - before):
@@ -356,6 +360,7 @@ async def _maximize_new_windows(before: set[str]) -> None:
                 "-b",
                 "add,maximized_vert,maximized_horz",
                 timeout=5.0,
+                env=env,
             )
     except Exception:
         pass
@@ -377,6 +382,118 @@ async def _return_to(title: str) -> None:
                 await asyncio.to_thread(window_ctl.restore, title)
     except Exception:
         pass
+
+
+def _source(context) -> str:
+    """Who is calling: the instant fast path (no RunContext) or Gemini."""
+    return "fast" if context is None else "model"
+
+
+async def _guarded_thread_action(
+    tool: str,
+    args: dict,
+    source: str,
+    work: Callable[[], tuple[bool, str]],
+    fallback: str,
+) -> dict[str, str]:
+    """Keep a desktop worker's claim until it ends, even if its caller leaves."""
+    import action_guard
+
+    lease = object()
+    duplicate = action_guard.claim(tool, args, source, lease=lease)
+    if duplicate is not None:
+        return action_guard.duplicate_reply(duplicate, fallback)
+
+    def run() -> dict[str, str]:
+        try:
+            ok, say = work()
+        except BaseException:
+            action_guard.settle(tool, args, source, False, lease=lease)
+            raise
+        # Settle in the worker itself: cancelling an asyncio await cannot stop
+        # the underlying thread, including during event-loop shutdown.
+        action_guard.settle(tool, args, source, ok, say, lease=lease)
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
+
+    try:
+        # Submit before the first await so cancellation cannot strand a claim
+        # before a background task starts. Preserve to_thread's request context.
+        worker = asyncio.get_running_loop().run_in_executor(
+            None, contextvars.copy_context().run, run
+        )
+    except BaseException:
+        action_guard.settle(tool, args, source, False, lease=lease)
+        raise
+
+    def finished(future: asyncio.Future) -> None:
+        if future.cancelled():
+            # Executor shutdown can discard queued work before it ever starts.
+            action_guard.settle(tool, args, source, False, lease=lease)
+        else:
+            # A cancelled caller cannot retrieve a later worker exception.
+            future.exception()
+
+    worker.add_done_callback(finished)
+    # wait() does not forward caller cancellation to its futures. Unlike
+    # shield(), it also leaves reporting of an abandoned failure to our
+    # completion callback (Python 3.14 logs shielded exceptions separately).
+    await asyncio.wait({worker})
+    return worker.result()
+
+
+def _sandbox_launch(argv: list[str], display: str) -> tuple[list[str], dict[str, str]]:
+    """Scope a launch to the test display, including browser singleton state."""
+    from system.desktop import sandbox_env
+
+    argv = list(argv)
+    browser_names = {
+        "brave",
+        "brave-browser",
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "chrome",
+    }
+    if (
+        Path(argv[0]).name == "xdg-open"
+        and len(argv) == 2
+        and argv[1].startswith(("https://", "http://"))
+    ):
+        browser = next(
+            (
+                found
+                for name in ("brave-browser", "brave", "chromium", "google-chrome")
+                if (found := shutil.which(name))
+            ),
+            None,
+        )
+        if browser is None:
+            raise OSError("No browser is available for the isolated desktop.")
+        argv[0] = browser
+    if Path(argv[0]).name in browser_names:
+        home = Path(os.environ.get("JARVIS_HOME") or Path.home() / ".jarvis")
+        profile = home / "sandbox" / display.removeprefix(":") / "browser"
+        # An existing desktop profile would forward the launch to its live
+        # process regardless of DISPLAY. Always use the sandbox's own profile.
+        cleaned = [argv[0]]
+        skip = False
+        for arg in argv[1:]:
+            if skip:
+                skip = False
+                continue
+            if arg in ("--user-data-dir", "--ozone-platform"):
+                skip = True
+            elif not arg.startswith(("--user-data-dir=", "--ozone-platform=")):
+                cleaned.append(arg)
+        argv = [
+            cleaned[0],
+            f"--user-data-dir={profile}",
+            "--ozone-platform=x11",
+            *cleaned[1:],
+        ]
+    return argv, sandbox_env(display)
 
 
 class SystemTools:
@@ -600,26 +717,24 @@ class SystemTools:
         from system.school_tools import loud_guard
 
         loud_guard("set_volume", {"action": action, "level": level})
-        from intent import fast_path
         from system import audio_ctl
 
-        # Verified: wpctl first (PipeWire), read back after; a change that
-        # didn't happen is reported as a failure, never as "done". once():
-        # the voice fast path and Gemini never both apply the same request.
-        ok, say, dup = await fast_path.once(
-            "set_volume",
-            {"action": action, "level": level},
-            "fast" if context is None else "llm",
-            lambda: asyncio.to_thread(audio_ctl.volume, action, level),
-        )
-        if not dup:
+        # Verify the volume change and return the real read-back.
+        def change_volume() -> tuple[bool, str]:
+            ok, say = audio_ctl.volume(action, level)
             log_action(
                 "volume",
                 f"{action} {level if action in ('set', 'level') else ''} ok={ok}",
             )
-        if not ok:
-            raise ToolError(say)
-        return {"say": say}
+            return ok, say
+
+        return await _guarded_thread_action(
+            "set_volume",
+            {"action": action, "level": level},
+            _source(context),
+            change_volume,
+            "Done, Sir.",
+        )
 
     @function_tool()
     async def media_control(
@@ -642,20 +757,20 @@ class SystemTools:
         if action in ("play", "pause", "play-pause", "next", "previous", "stop"):
             # The playing player, verified (playerctl alone hits whichever
             # player it lists first, often not the one playing).
-            from intent import fast_path
             from system import audio_ctl
 
-            ok, say, dup = await fast_path.once(
+            def change_media() -> tuple[bool, str]:
+                ok, say = audio_ctl.media(action)
+                log_action("media", f"{action} ok={ok}")
+                return ok, say
+
+            return await _guarded_thread_action(
                 "media_control",
                 {"action": action},
-                "fast" if context is None else "llm",
-                lambda: asyncio.to_thread(audio_ctl.media, action),
+                _source(context),
+                change_media,
+                "Done, Sir.",
             )
-            if not dup:
-                log_action("media", f"{action} ok={ok}")
-            if not ok:
-                raise ToolError(say)
-            return {"say": say}
         if action == "seek":
             v = value.strip()
             m = re.fullmatch(r"(\d+):(\d+)", v)
@@ -749,59 +864,93 @@ class SystemTools:
         from system.school_tools import loud_guard
 
         loud_guard("play_media", {"query": query})
-        previous = "" if show else await asyncio.to_thread(window_ctl.active_title)
         query = (query or "").strip()[:200]
-        if query:
-            # Autoplay: resolve the top hit to a watch URL so playback
-            # starts on its own; fall back to the results page.
-            url = (
-                "https://www.youtube.com/results?search_query="
-                + urllib.parse.quote_plus(query)
-            )
-            ytdlp = shutil.which("yt-dlp")
-            if ytdlp:
-                search = None
-                try:
-                    search = await asyncio.create_subprocess_exec(
-                        ytdlp,
-                        "--get-id",
-                        "--flat-playlist",
-                        f"ytsearch1:{query}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    out, _ = await asyncio.wait_for(search.communicate(), 12)
-                    vid = out.decode().strip().splitlines()
-                    if vid and re.fullmatch(r"[\w-]{11}", vid[0]):
-                        url = f"https://www.youtube.com/watch?v={vid[0]}"
-                except (OSError, asyncio.TimeoutError):
-                    if search is not None:
-                        with contextlib.suppress(ProcessLookupError):
-                            search.kill()
-            say = f"Playing {query} on YouTube."
-        else:
-            url = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
-            say = "Playing your playlist on YouTube."
-        brave = shutil.which("brave-browser") or shutil.which("brave")
-        if brave is None:
-            raise ToolError("Brave is not installed on this system.")
+        import action_guard
+
+        # One window per request: the voice fast path may already have
+        # opened this exact request from the transcript (realtime Gemini
+        # hears the same audio and calls us too).
+        dup = action_guard.claim("play_media", {"query": query}, _source(context))
+        if dup is not None:
+            return action_guard.duplicate_reply(dup, "Playing it now, Sir.")
         try:
-            proc = await asyncio.create_subprocess_exec(
-                brave,
-                "--new-window",
-                url,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
+            from system.desktop import sandbox_display
+
+            display = sandbox_display()
+            previous = (
+                ""
+                if show or display
+                else await asyncio.to_thread(window_ctl.active_title)
             )
-        except FileNotFoundError:
-            raise ToolError("I could not launch Brave.") from None
-        log_action("play", url)
-        if previous:
-            _bg = asyncio.create_task(_return_to(previous))
-            self._tasks.add(_bg)
-            _bg.add_done_callback(self._tasks.discard)
-        return {"say": say, "pid": str(proc.pid or 0)}
+            if query:
+                # Autoplay: resolve the top hit to a watch URL so playback
+                # starts on its own; fall back to the results page.
+                url = (
+                    "https://www.youtube.com/results?search_query="
+                    + urllib.parse.quote_plus(query)
+                )
+                ytdlp = shutil.which("yt-dlp")
+                if ytdlp:
+                    search = None
+                    try:
+                        search = await asyncio.create_subprocess_exec(
+                            ytdlp,
+                            "--get-id",
+                            "--flat-playlist",
+                            f"ytsearch1:{query}",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        out, _ = await asyncio.wait_for(search.communicate(), 12)
+                        vid = out.decode().strip().splitlines()
+                        if vid and re.fullmatch(r"[\w-]{11}", vid[0]):
+                            url = f"https://www.youtube.com/watch?v={vid[0]}"
+                    except (OSError, asyncio.TimeoutError):
+                        pass  # Fall back to YouTube's results page.
+                    finally:
+                        # Cancellation used to leave yt-dlp running after an
+                        # interrupted request; timeout killed it without reaping.
+                        if (
+                            search is not None
+                            and getattr(search, "returncode", 0) is None
+                        ):
+                            with contextlib.suppress(ProcessLookupError):
+                                search.kill()
+                            with contextlib.suppress(OSError, asyncio.TimeoutError):
+                                await asyncio.wait_for(search.wait(), 2)
+                say = f"Playing {query} on YouTube."
+            else:
+                url = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+                say = "Playing your playlist on YouTube."
+            brave = shutil.which("brave-browser") or shutil.which("brave")
+            if brave is None:
+                raise ToolError("Brave is not installed on this system.")
+            argv = [brave, "--new-window", url]
+            launch_env = None
+            if display:
+                argv, launch_env = _sandbox_launch(argv, display)
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    env=launch_env,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except FileNotFoundError:
+                raise ToolError("I could not launch Brave.") from None
+            log_action("play", url)
+            action_guard.settle(
+                "play_media", {"query": query}, _source(context), True, say
+            )
+            if previous:
+                _bg = asyncio.create_task(_return_to(previous))
+                self._tasks.add(_bg)
+                _bg.add_done_callback(self._tasks.discard)
+            return {"say": say, "pid": str(proc.pid or 0)}
+        except BaseException:
+            action_guard.settle("play_media", {"query": query}, _source(context), False)
+            raise
 
     @function_tool()
     async def launch_gods_eye(self, context: RunContext) -> dict[str, str]:
@@ -1306,95 +1455,119 @@ class SystemTools:
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")
         url = (url or "").strip()[:500]
-        say = f"Opening {app}."
-        pri = None
-        if not url:
-            # Sir's priority apps (Sober, Resolve, Dolphin, Claude-in-Konsole,
-            # Konsole, Brave) win before any other resolution.
-            from system.launcher import priority_app
+        import action_guard
 
-            with contextlib.suppress(Exception):
-                pri = priority_app(app)
-        target = None if pri is not None else _resolve_app(app)
-        if target is not None and Path(target).name == "env":
-            # .desktop Exec "env VAR=... /opt/app/bin/app" resolved to bare
-            # `env` (does nothing): let the launcher use the full argv.
-            target = None
-        if pri is not None and not pri.argv:
-            # Single-instance app already up (Sober/Resolve): no duplicate.
-            return {"say": pri.say or f"{pri.target} is already running, Sir."}
-        if pri is not None:
-            argv = list(pri.argv)
-            target = pri.target
-            say = pri.say or say
-        elif target is not None:
-            argv = (
-                ["flatpak", "run", target.split("flatpak:", 1)[1]]
-                if target.startswith("flatpak:")
-                else [target]
-            )
-            if url:
+        # "open YouTube": the fast path may already have launched it from
+        # the transcript; never open the same thing twice.
+        guard_args = {"app": app, "url": url}
+        dup = action_guard.claim("open_app", guard_args, _source(context))
+        if dup is not None:
+            return action_guard.duplicate_reply(dup, f"Opening {app}.")
+        try:
+            from system.desktop import sandbox_display
+
+            display = sandbox_display()
+            say = f"Opening {app}."
+            pri = None
+            if not url:
+                # Sir's priority apps (Sober, Resolve, Dolphin, Claude-in-Konsole,
+                # Konsole, Brave) win before any other resolution.
+                from system.launcher import priority_app
+
+                with contextlib.suppress(Exception):
+                    pri = (
+                        priority_app(app, running=lambda _: False)
+                        if display
+                        else priority_app(app)
+                    )
+            target = None if pri is not None else _resolve_app(app)
+            if target is not None and Path(target).name == "env":
+                # .desktop Exec "env VAR=... /opt/app/bin/app" resolved to bare
+                # `env` (does nothing): let the launcher use the full argv.
+                target = None
+            if pri is not None and not pri.argv:
+                # Single-instance app already up (Sober/Resolve): no duplicate.
+                say = pri.say or f"{pri.target} is already running, Sir."
+                action_guard.settle("open_app", guard_args, _source(context), True, say)
+                return {"say": say}
+            if pri is not None:
+                argv = list(pri.argv)
+                target = pri.target
+                say = pri.say or say
+            elif target is not None:
+                argv = (
+                    ["flatpak", "run", target.split("flatpak:", 1)[1]]
+                    if target.startswith("flatpak:")
+                    else [target]
+                )
+                if url:
+                    if not re.match(r"^https?://[A-Za-z0-9]", url):
+                        raise ToolError("That URL is not safe to open.")
+                    argv.append(url)
+            elif url:
+                # No app resolved but Sir named a URL: open it in the browser.
                 if not re.match(r"^https?://[A-Za-z0-9]", url):
                     raise ToolError("That URL is not safe to open.")
-                argv.append(url)
-        elif url:
-            # No app resolved but Sir named a URL: open it in the browser.
-            if not re.match(r"^https?://[A-Za-z0-9]", url):
-                raise ToolError("That URL is not safe to open.")
-            argv = ["xdg-open", url]
-            target = url
-        else:
-            # Universal launcher: match installed apps, then sites Sir has
-            # actually visited, then the web -- so "open <anything>" always
-            # does something sensible instead of dead-ending on KCalc or a
-            # "not found". A dominant hit is instant; ambiguity is arbitrated
-            # by the local router model.
-            from system.launcher import resolve_launch
-
-            try:
-                known = __import__("tools").KNOWN_SITES
-            except Exception:
-                known = None
-            decision = resolve_launch(app, known_sites=known)
-            if decision.kind == "app" and decision.argv:
-                argv = decision.argv
-                target = decision.target
+                argv = ["xdg-open", url]
+                target = url
             else:
-                argv = ["xdg-open", decision.target]
-                target = decision.target
-            say = decision.say or say
-        from system.launcher import blocked_say, is_blocked
+                # Universal launcher: match installed apps, then sites Sir has
+                # actually visited, then the web -- so "open <anything>" always
+                # does something sensible instead of dead-ending on KCalc or a
+                # "not found". A dominant hit is instant; ambiguity is arbitrated
+                # by the local router model.
+                from system.launcher import resolve_launch
 
-        if blocked := is_blocked(app, url, target, *argv):
-            raise ToolError(blocked_say(blocked))
-        try:
-            rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
-            before = _window_ids_from_wmctrl(out) if rc == 0 else set()
-        except Exception:
-            before = set()
-        # Sandbox mode: launch onto the nested test display, never the
-        # real session (see system.desktop.sandbox_display).
-        from system.desktop import sandbox_display, sandbox_env
+                try:
+                    known = __import__("tools").KNOWN_SITES
+                except Exception:
+                    known = None
+                decision = resolve_launch(app, known_sites=known)
+                if decision.kind == "app" and decision.argv:
+                    argv = decision.argv
+                    target = decision.target
+                else:
+                    argv = ["xdg-open", decision.target]
+                    target = decision.target
+                say = decision.say or say
+            from system.launcher import blocked_say, is_blocked
 
-        _sandbox = sandbox_display()
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
-                **({"env": sandbox_env(_sandbox)} if _sandbox else {}),
+            if blocked := is_blocked(app, url, target, *argv):
+                raise ToolError(blocked_say(blocked))
+            launch_env = None
+            if display:
+                argv, launch_env = _sandbox_launch(argv, display)
+            try:
+                rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0, env=launch_env)
+                before = _window_ids_from_wmctrl(out) if rc == 0 else set()
+            except Exception:
+                before = set()
+            # Sandbox mode: launch onto the nested test display, never the
+            # real session (see system.desktop.sandbox_display).
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                    env=launch_env,
+                )
+            except FileNotFoundError:
+                raise ToolError(f"I could not launch {app}.") from None
+            # Maximize what just opened without delaying the reply: the
+            # follow-up snapshots wmctrl itself and no-ops when Sir already
+            # placed the window or nothing new appeared.
+            _max_task = asyncio.create_task(
+                _maximize_new_windows(before, env=launch_env)
             )
-        except FileNotFoundError:
-            raise ToolError(f"I could not launch {app}.") from None
-        # Maximize what just opened without delaying the reply: the
-        # follow-up snapshots wmctrl itself and no-ops when Sir already
-        # placed the window or nothing new appeared.
-        _max_task = asyncio.create_task(_maximize_new_windows(before))
-        self._tasks.add(_max_task)
-        _max_task.add_done_callback(self._tasks.discard)
-        log_action("launch", target)
-        return {"say": say, "pid": str(proc.pid or 0)}
+            self._tasks.add(_max_task)
+            _max_task.add_done_callback(self._tasks.discard)
+            log_action("launch", target)
+            action_guard.settle("open_app", guard_args, _source(context), True, say)
+            return {"say": say, "pid": str(proc.pid or 0)}
+        except BaseException:
+            action_guard.settle("open_app", guard_args, _source(context), False)
+            raise
 
     @function_tool()
     async def close_app(self, context: RunContext, name: str) -> dict[str, str]:
@@ -1412,11 +1585,16 @@ class SystemTools:
             raise ToolError(str(exc)) from exc
         from system.closer import close_target
 
-        out = await asyncio.to_thread(close_target, (name or "")[:80])
-        if not out.get("ok"):
-            raise ToolError(out.get("say") or "I could not close that.")
-        log_action("close", f"{out.get('closed')} {name[:60]}")
-        return {"say": out["say"]}
+        def close() -> tuple[bool, str]:
+            out = close_target((name or "")[:80])
+            ok = bool(out.get("ok"))
+            if ok:
+                log_action("close", f"{out.get('closed')} {name[:60]}")
+            return ok, out.get("say") or "I could not close that."
+
+        return await _guarded_thread_action(
+            "close_app", {"name": name}, _source(context), close, "Closed."
+        )
 
     @function_tool()
     async def window_action(

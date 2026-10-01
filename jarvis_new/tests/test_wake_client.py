@@ -156,6 +156,7 @@ async def test_summon_stays_out_when_call_active(
         return True
 
     monkeypatch.setattr(wake_client, "active_call_exists", _busy)
+    monkeypatch.setattr(wake_client, "summon_overlay", lambda: None)
     client = WakeClient()
     # Must return before touching livekit.rtc (unavailable/blocked here).
     await client._summon_session()
@@ -167,9 +168,31 @@ def test_shell_talk_candidates_end_with_talk() -> None:
     assert len(shell_talk_candidates()) >= 1
 
 
-def test_summon_overlay_never_raises() -> None:
-    # Fire-and-forget daemon thread; must not raise even with no shell.
+def test_summon_overlay_never_raises(monkeypatch) -> None:
+    import subprocess
+
+    import wake_client
+
+    # Exercise the failure path synchronously; never dispatch `talk` to
+    # the user's real single-instance shell, even from a headless test.
+    attempts = []
+
+    class InlineThread:
+        def __init__(self, *, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    def missing(argv, **kwargs):
+        attempts.append(argv)
+        raise FileNotFoundError("synthetic missing shell")
+
+    monkeypatch.setattr(wake_client.threading, "Thread", InlineThread)
+    monkeypatch.setattr(wake_client, "shell_talk_candidates", lambda: [["fake", "talk"]])
+    monkeypatch.setattr(subprocess, "run", missing)
     summon_overlay()
+    assert attempts == [["fake", "talk"]]
 
 
 async def test_summon_joins_without_deferral(
@@ -192,6 +215,9 @@ async def test_summon_joins_without_deferral(
 
         async def connect(self, *args, **kwargs):
             raise _ReachedConnectError("reached-connect")
+
+        async def disconnect(self):
+            pass
 
     calls = {"n": 0}
 
@@ -524,3 +550,17 @@ def test_hud_stage_writes_the_setup_log(monkeypatch: pytest.MonkeyPatch, tmp_pat
     mark_hud_waking()  # a new wake starts a fresh log
     log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
     assert [s for s, _ in log] == ["wake"]
+
+
+def test_cleared_hud_log_cannot_leak_into_next_ptt(monkeypatch, tmp_path):
+    import json
+
+    from wake_client import hud_stage
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mark_hud_waking()
+    hud_stage("online")
+    clear_hud_waking()
+    hud_stage("check")  # PTT begins at the call guard, without a hotword.
+    log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
+    assert [s for s, _ in log] == ["check"]

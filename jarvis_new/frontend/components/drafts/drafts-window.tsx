@@ -8,6 +8,7 @@
  *  voice, and the screen only reflects the drafts on file. When the last
  *  draft is sent or discarded the window asks the bridge to hide it. */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSurfaceVisibility } from '@/hooks/hud/use-surface-visibility';
 import { type ReplyDraft, closeIfEmpty, listDrafts } from '@/lib/drafts';
 import styles from './drafts-window.module.css';
 
@@ -41,8 +42,10 @@ function age(created: ReplyDraft['created'], now: number): string {
 }
 
 export function DraftsWindow() {
+  useSurfaceVisibility();
   const [drafts, setDrafts] = useState<ReplyDraft[] | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  // Static export and the first browser render must share a stable clock.
+  const [now, setNow] = useState(0);
   const had = useRef(false);
 
   useEffect(() => {
@@ -99,7 +102,9 @@ export function DraftsWindow() {
         </div>
         <div className={styles.clock}>
           {offline ? <em className={styles.offline}>BRIDGE OFFLINE</em> : null}
-          {new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {now
+            ? new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '--:--'}
         </div>
       </header>
 
@@ -148,7 +153,7 @@ export function DraftsWindow() {
                   {current.summary}
                 </p>
               ) : null}
-              <div className={styles.body}>
+              <div className={styles.body} role="region" aria-label="Draft reply text">
                 <span className={styles.bodyTag}>MY REPLY</span>
                 {current.body}
               </div>
@@ -162,7 +167,7 @@ export function DraftsWindow() {
         </section>
       </main>
 
-      <footer className={styles.phrases} aria-hidden>
+      <footer className={styles.phrases}>
         <span className={styles.say}>SAY</span>
         {PHRASES.map((p) => (
           <em key={p}>{p}</em>

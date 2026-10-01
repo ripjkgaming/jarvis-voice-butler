@@ -1,156 +1,30 @@
 'use client';
 
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
-import { BootLog } from '@/components/hud/boot-log';
-import { CommandLog } from '@/components/hud/command-log';
-import { EdgePulse } from '@/components/hud/edge-pulse';
-import { ExecFeed } from '@/components/hud/exec-feed';
-import { HudPanels } from '@/components/hud/hud-panels';
-import { LiveCaption } from '@/components/hud/live-caption';
-import { NodeGraph } from '@/components/hud/node-graph';
-import { ParticleOrb } from '@/components/hud/particle-orb';
-import { RadarSweep } from '@/components/hud/radar-sweep';
-import { ResearchStrip } from '@/components/hud/research-strip';
+import dynamic from 'next/dynamic';
 import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
 import { SchoolStrip } from '@/components/hud/school-strip';
 import { SchoolTransition, useSchoolTransition } from '@/components/hud/school-transition';
-import { StarkDials } from '@/components/hud/stark-dials';
-import { StateBanner } from '@/components/hud/state-banner';
-import { SysCore } from '@/components/hud/sys-core';
-import { SystemStatus } from '@/components/hud/system-status';
-import { VoiceDock } from '@/components/hud/voice-dock';
+import { StarkHud } from '@/components/stark/stark-hud';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
-import { useHudEvents } from '@/hooks/hud/use-hud-events';
 import {
   JARVIS_COLORS,
   MUTED_COLOR,
   useJarvisState,
   useMicMuted,
 } from '@/hooks/hud/use-jarvis-state';
-import { type BridgeSys } from '@/lib/bridge';
+import { useSuitDiagnostics } from '@/hooks/hud/use-suit-diagnostics';
+import { useVoiceLink } from '@/hooks/hud/use-voice-link';
+import { useWindowGeometry } from '@/hooks/hud/use-window-geometry';
 import { hideOverlay } from '@/lib/tauri';
 
 type Props = {
   children: ReactNode;
 };
 
-type TickSeg = { text: string; warn?: boolean };
+const SuitDiagnostics = dynamic(() => import('@/components/suit/suit-diagnostics'), { ssr: false });
 
-/** Live ticker segments from bridge /sys. Null = no data yet (caller shows SYNCING…). */
-function tickerSegments(sys: BridgeSys | null): TickSeg[] | null {
-  if (!sys) return null;
-  const phone = sys.phone ?? null;
-  const onTailnet = sys.phone_tailnet?.online === true;
-  const lp = sys.laptop_power ?? null;
-
-  const suit: TickSeg = phone
-    ? {
-        text: `SUIT POWER ${Math.round(phone.battery)}%${
-          phone.charging ? (phone.battery >= 100 ? ' ⚡ FULL' : ' ⚡ CHARGING') : ''
-        }`,
-        warn: !phone.charging && phone.battery < 20,
-      }
-    : onTailnet
-      ? { text: 'SUIT POWER — APP IDLE' }
-      : { text: 'SUIT POWER — NO PHONE LINK', warn: true };
-
-  let reactor: TickSeg;
-  if (!lp) {
-    reactor = { text: 'ARC REACTOR —' };
-  } else if (typeof lp.battery !== 'number') {
-    reactor = { text: lp.ac ? 'ARC REACTOR · AC' : 'ARC REACTOR —' };
-  } else {
-    const watts =
-      typeof lp.watts === 'number' && lp.watts > 0
-        ? ` · ${Math.round(lp.watts)} W`
-        : lp.ac
-          ? ' · AC'
-          : '';
-    reactor = { text: `ARC REACTOR ${Math.round(lp.battery)}%${watts}` };
-  }
-
-  const uplink: TickSeg = phone
-    ? { text: `PHONE LINKED ${Math.round(phone.age_s)}S AGO` }
-    : onTailnet
-      ? { text: 'PHONE ON TAILNET' }
-      : { text: 'PHONE OFFLINE', warn: true };
-
-  const grid: TickSeg = { text: sys.call_live ? 'VOICE CALL LIVE' : 'VOICE STANDBY' };
-
-  const temp = typeof sys.cpu_temp_c === 'number' ? sys.cpu_temp_c : null;
-  const core: TickSeg =
-    temp === null
-      ? { text: 'CORE TEMP —' }
-      : { text: `CORE TEMP ${Math.round(temp)}°C`, warn: temp >= 85 };
-
-  return [reactor, suit, uplink, grid, core];
-}
-
-/** Footer status derived from bridge /sys. Never invents numbers. */
-function footStatus(sys: BridgeSys | null): { text: string; warn: boolean } {
-  if (!sys) return { text: 'SYNCING…', warn: false };
-  const issues: string[] = [];
-  const phone = sys.phone ?? null;
-  if (!phone && sys.phone_tailnet?.online !== true) issues.push('PHONE OFFLINE');
-  const temp = typeof sys.cpu_temp_c === 'number' ? sys.cpu_temp_c : null;
-  if (temp !== null && temp >= 85) issues.push(`CORE ${Math.round(temp)}°C`);
-  const lp = sys.laptop_power ?? null;
-  const batt = typeof lp?.battery === 'number' ? (lp.battery as number) : null;
-  const onAc = lp?.ac === true;
-  const battOk = (batt !== null && batt >= 20) || onAc;
-  if (!battOk) issues.push(batt !== null ? `SUIT ${Math.round(batt)}%` : 'SUIT —');
-  if (issues.length === 0) return { text: 'ALL SYSTEMS NOMINAL', warn: false };
-  return { text: issues.join(' · '), warn: true };
-}
-
-/** Rolling telemetry ticker driven by bridge /sys. Same .im-ticker styling. */
-function HudTicker({ sys }: { sys: BridgeSys | null }) {
-  const segs = tickerSegments(sys) ?? [{ text: 'SYNCING…' }];
-  return (
-    <div className="im-ticker" aria-hidden="true">
-      <div className="im-ticker__track">
-        {[0, 1].map((copy) => (
-          <span key={copy}>
-            {segs.map((s, i) => (
-              <span
-                key={i}
-                style={{
-                  paddingRight: 0,
-                  color: s.warn ? 'var(--im-amber)' : undefined,
-                }}
-              >
-                {s.text}
-                {'\u00A0\u00A0◆\u00A0\u00A0'}
-              </span>
-            ))}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Footer-right status derived from bridge /sys (amber when degraded). */
-function HudFootRight({ sys }: { sys: BridgeSys | null }) {
-  const foot = footStatus(sys);
-  return (
-    <span
-      className="stark-foot__right"
-      style={foot.warn ? { color: 'var(--im-amber)' } : undefined}
-    >
-      {foot.text}
-    </span>
-  );
-}
-
-/**
- * Voice-first JARVIS shell. Solo collapses to orb + banner + voice dock
- * + caption + activity log; dual mode adds workflow and system instruments.
- *
- * Hands-free keys: `M` toggles the mic, `D` flips dual/solo, `Esc` hides.
- * NumpadEnter summons the voice session from VoiceDock.
- */
 /** Pause every CSS animation while the window is hidden/minimised. */
 function useHiddenPause(): void {
   useEffect(() => {
@@ -180,19 +54,28 @@ const SIGNAL_TRUST_MS = 12000;
  *  mode is the source of truth. */
 function useSchoolView(mode: string | undefined): { bar: boolean; leaving: boolean } {
   const [signal, setSignal] = useState<{ phase: string; at: number } | null>(null);
-  const [tall, setTall] = useState(true);
+  const { width, height } = useWindowGeometry();
+  const tall = height >= HUD_MIN_H;
+  // Once docked, a menu can grow to >= HUD_MIN_H without changing face.
+  const [docked, setDocked] = useState(false);
   useEffect(() => {
-    const onSignal = (e: Event) =>
-      setSignal({ phase: String((e as CustomEvent).detail), at: Date.now() });
-    const check = () => setTall(window.innerHeight >= HUD_MIN_H);
-    check();
+    if (height <= 140 && width >= 120) setDocked(true);
+  }, [width, height]);
+  useEffect(() => {
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const onSignal = (e: Event) => {
+      const phase = String((e as CustomEvent).detail);
+      setSignal({ phase, at: Date.now() });
+      // Clear stale dock geometry, including a hidden/orb return whose
+      // shell restore did not emit an expand signal.
+      setDocked(false);
+      clearTimeout(expiry);
+      expiry = setTimeout(() => setSignal(null), SIGNAL_TRUST_MS);
+    };
     window.addEventListener('jarvis-school', onSignal);
-    window.addEventListener('resize', check);
-    const timer = setInterval(check, 150); // WebKitGTK resize events lag
     return () => {
       window.removeEventListener('jarvis-school', onSignal);
-      window.removeEventListener('resize', check);
-      clearInterval(timer);
+      clearTimeout(expiry);
     };
   }, []);
 
@@ -211,38 +94,31 @@ function useSchoolView(mode: string | undefined): { bar: boolean; leaving: boole
 
   useEffect(() => {
     document.documentElement.classList.toggle('hud-unfolding', unfolding);
+    return () => document.documentElement.classList.remove('hud-unfolding');
   }, [unfolding]);
 
-  return { bar: (school && !tall) || leaving, leaving };
+  return { bar: (school && (!tall || docked)) || leaving, leaving };
 }
 
 /** True while the shell has shrunk the window to the Brave taskbar orb
  *  (shell/src-tauri/src/orb.rs). Size-based, so it flips the instant the
  *  window resizes instead of waiting for the next bridge poll. */
 function useTinyWindow(): boolean {
-  const [tiny, setTiny] = useState(false);
-  useEffect(() => {
-    const check = () => setTiny(window.innerWidth < 120 && window.innerHeight < 120);
-    check();
-    window.addEventListener('resize', check);
-    // WebKitGTK fires no resize when the shell shrinks the window while it
-    // is hidden (orb.rs resizes, then shows): poll as a backstop.
-    const timer = setInterval(check, 1000);
-    return () => {
-      window.removeEventListener('resize', check);
-      clearInterval(timer);
-    };
-  }, []);
-  return tiny;
+  const { width, height } = useWindowGeometry();
+  return width < 120 && height < 120;
 }
 
 /** The Brave taskbar orb: a small glowing dot in Jarvis's state colour.
  *  (The particle orb is drawn for the full HUD; at 40 px only a corner of
  *  its ring showed.) Greys out when muted, pulses faster while he talks. */
-function TaskbarOrb() {
-  const { color: stateColor, jarvis } = useJarvisState();
-  const { muted } = useMicMuted();
-  const color = muted === true ? MUTED_COLOR : stateColor;
+function TaskbarOrb({
+  jarvis,
+  muted,
+}: {
+  jarvis: ReturnType<typeof useJarvisState>['jarvis'];
+  muted: boolean | null;
+}) {
+  const color = muted === true ? MUTED_COLOR : JARVIS_COLORS[jarvis];
   return (
     <div className="hud hud--orb" data-state={jarvis}>
       <span
@@ -258,9 +134,9 @@ function TaskbarOrb() {
 export function HudShell({ children }: Props) {
   useHiddenPause();
   const { isSolo, toggle: toggleMode } = useDisplayMode();
-  const { events } = useHudEvents();
   const { jarvis } = useJarvisState();
   const { muted, toggle: toggleMute } = useMicMuted();
+  const link = useVoiceLink(muted);
   const sys = useBridgeSysSnapshot();
   const tiny = useTinyWindow();
   const school = useSchoolView(sys?.mode);
@@ -273,10 +149,26 @@ export function HudShell({ children }: Props) {
     barInset: retInset,
     done: retDone,
   } = useSchoolReturn();
+  const suit = useSuitDiagnostics(
+    sys?.suit_diagnostics,
+    school.bar,
+    tx !== null || ret !== null,
+    sys?.mode
+  );
+  const { open: suitOpen, close: closeSuit } = suit;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (suitOpen) {
+        // Also handle the short lazy-module load before the dialog installs
+        // its own focus trap. Escape must never hide the whole shell here.
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeSuit();
+        }
+        return;
+      }
       const t = e.target as HTMLElement | null;
       const typing =
         !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -295,89 +187,19 @@ export function HudShell({ children }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleMode, toggleMute]);
+  }, [toggleMode, toggleMute, suitOpen, closeSuit]);
 
   const returning = ret !== null;
   const pooling = tx !== null && barH !== null;
-  const hudView = isSolo ? (
-    <div className="hud hud--solo" data-state={jarvis}>
-      <div className="hud-ambient" aria-hidden="true" />
-      <div className="im-boot" aria-hidden="true" />
-      <EdgePulse events={events} solo />
-      <div className="hud-solo__orb">
-        <ParticleOrb />
-        <BootLog />
-      </div>
-      <StateBanner compact />
-      <ResearchStrip sys={sys} compact />
-      <VoiceDock active={jarvis !== 'idle'} />
-      <LiveCaption />
-      <CommandLog fullscreen />
+  // STARK OS HUD (components/stark): one layout for dual and solo.
+  const hudView = (
+    <StarkHud sys={sys} solo={isSolo} jarvis={jarvis} muted={muted} link={link}>
       {children}
-    </div>
-  ) : (
-    <div className="hud hud--dual" data-state={jarvis}>
-      <div className="hud-ambient" aria-hidden="true" />
-      <div className="im-boot" aria-hidden="true" />
-      <EdgePulse events={events} />
-      <RadarSweep events={events} />
-      <header className="hud__header" data-tauri-drag-region>
-        <div className="hud__brand">
-          <span className="hud__brand-mark" aria-hidden="true">
-            J
-          </span>
-          <span className="hud__brand-copy">
-            <strong>J.A.R.V.I.S.</strong>
-            <small>PERSONAL INTELLIGENCE</small>
-          </span>
-        </div>
-        <span className="hud__header-interactive" onMouseDown={(e) => e.stopPropagation()}>
-          <SystemStatus />
-        </span>
-        <StarkDials />
-        <button
-          type="button"
-          className="hud-hidebtn"
-          title="Hide overlay — Super+J brings it back (or press Esc)"
-          aria-label="Hide overlay. Super+J brings it back."
-          aria-keyshortcuts="Escape"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => void hideOverlay()}
-        >
-          <span aria-hidden="true">✕</span> HIDE
-        </button>
-      </header>
-      <StateBanner />
-      <HudTicker sys={sys} />
-      <ResearchStrip sys={sys} />
-      <div className="hud__grid">
-        <section className="hud__left" aria-label="Core interaction">
-          <div className="hud__orb-wrap">
-            <ParticleOrb />
-            <BootLog />
-          </div>
-          <VoiceDock active={jarvis !== 'idle'} />
-          <LiveCaption />
-          <CommandLog />
-        </section>
-        <section className="hud__right" aria-label="Workflow and automation">
-          <HudPanels />
-          <NodeGraph events={events} />
-          <ExecFeed />
-          <SysCore />
-        </section>
-      </div>
-      <footer className="stark-foot" aria-hidden="true">
-        <span className="stark-foot__brand">CODENAME // LOCKE</span>
-        <span className="stark-foot__mid">DESKTOP COMMAND // LOCAL GRID</span>
-        <HudFootRight sys={sys} />
-      </footer>
-      {children}
-    </div>
+    </StarkHud>
   );
 
   if (!tx && !returning && !school.bar && tiny) {
-    return <TaskbarOrb />;
+    return <TaskbarOrb jarvis={jarvis} muted={muted} />;
   }
 
   // One stable shape for every face: [transition overlay, bar | HUD]. The
@@ -423,11 +245,21 @@ export function HudShell({ children }: Props) {
               : undefined
           }
         >
-          <SchoolStrip sys={sys} jarvis={jarvis} muted={muted} leaving={school.leaving} />
+          <SchoolStrip
+            sys={sys}
+            jarvis={jarvis}
+            muted={muted}
+            link={link}
+            leaving={school.leaving}
+            diagnosticsOpen={suit.open}
+          />
         </div>
       ) : hudOn ? (
         hudView
       ) : null}
+      {suit.open && (
+        <SuitDiagnostics onClose={suit.close} school={school.bar} barHeight={suit.barHeight} />
+      )}
     </>
   );
 }

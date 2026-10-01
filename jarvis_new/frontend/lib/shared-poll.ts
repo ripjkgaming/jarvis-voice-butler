@@ -45,7 +45,7 @@ function intervalFor(p: Poller): number {
 
 function schedule(p: Poller, delay: number): void {
   if (p.timer) clearTimeout(p.timer);
-  p.timer = p.subs.size > 0 ? setTimeout(() => void run(p), delay) : null;
+  p.timer = p.subs.size > 0 && !isHidden() ? setTimeout(() => void run(p), delay) : null;
 }
 
 async function run(p: Poller): Promise<void> {
@@ -78,9 +78,11 @@ function hookVisibility(): void {
   if (visibilityHooked || typeof document === 'undefined') return;
   visibilityHooked = true;
   document.addEventListener('visibilitychange', () => {
-    if (isHidden()) return;
     pollers.forEach((p) => {
-      if (p.subs.size > 0 && !p.inFlight) schedule(p, 0);
+      if (isHidden()) {
+        if (p.timer) clearTimeout(p.timer);
+        p.timer = null;
+      } else if (p.subs.size > 0 && !p.inFlight) schedule(p, 0);
     });
   });
 }
@@ -112,16 +114,15 @@ export function subscribePoll(path: string, ms: number, cb: (value: unknown) => 
 /** The latest JSON from a bridge path, shared across the HUD. null until
  *  the first answer; `enabled=false` unsubscribes (e.g. no call is up). */
 export function useSharedPoll<T>(path: string, ms: number, enabled = true): T | null {
-  const [value, setValue] = useState<T | null>(() => {
+  const [snapshot, setSnapshot] = useState<{ path: string; value: T | null }>(() => {
     const p = pollers.get(path);
-    return enabled && p ? (p.value as T | null) : null;
+    return { path, value: enabled && p ? (p.value as T | null) : null };
   });
   useEffect(() => {
-    if (!enabled) {
-      setValue(null);
-      return;
-    }
-    return subscribePoll(path, ms, (v) => setValue(v as T));
+    if (!enabled) return;
+    return subscribePoll(path, ms, (v) => setSnapshot({ path, value: v as T }));
   }, [path, ms, enabled]);
-  return value;
+  if (!enabled) return null;
+  // Never render the previous endpoint's data during the effect handoff.
+  return snapshot.path === path ? snapshot.value : ((pollers.get(path)?.value as T) ?? null);
 }

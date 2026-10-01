@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   type BridgeCaptions,
   type BridgeLiveCaption,
@@ -28,7 +28,16 @@ export function useRoomState(ms = ROOM_POLL_MS): BridgeRoomState | null {
 
 export function useCallState(): CallState | null {
   const raw = useRoomState();
-  return useMemo(() => callStateFrom(raw), [raw]);
+  const pending = useRef(false);
+  return useMemo(() => {
+    if (raw) {
+      const stage = raw.boot?.at(-1)?.[0];
+      if (stage === 'online' || (!raw.room && !raw.waking && !stage)) pending.current = false;
+      else if (stage || raw.waking) pending.current = true;
+    }
+    const call = callStateFrom(raw);
+    return call && pending.current ? { ...call, live: false } : call;
+  }, [raw]);
 }
 
 export function useRoom(ms = ROOM_POLL_MS): string | null {

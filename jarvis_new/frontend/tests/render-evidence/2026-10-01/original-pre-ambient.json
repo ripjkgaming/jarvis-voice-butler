@@ -1,0 +1,1706 @@
+[
+  {
+    "state": "cold_load",
+    "reduced": false,
+    "elapsed_ms": 836.2,
+    "TaskDuration": 661.81,
+    "ScriptDuration": 128.88,
+    "LayoutDuration": 274.9,
+    "RecalcStyleDuration": 58.2,
+    "LayoutCount": 6,
+    "RecalcStyleCount": 25,
+    "heap_delta_bytes": 5293688,
+    "sampled_live_alloc_bytes": 4132900,
+    "bridge_requests": 5,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 696
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 210
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 31
+      },
+      {
+        "fn": "tk",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 74068,
+        "hits": 26
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 16
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 13
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 11
+      },
+      {
+        "fn": "w",
+        "url": "617-317d08cd919125b6.js",
+        "line": 0,
+        "column": 89531,
+        "hits": 10
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 8
+      },
+      {
+        "fn": "oq",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 79862,
+        "hits": 5
+      },
+      {
+        "fn": "query",
+        "url": "",
+        "line": 5597,
+        "column": 20,
+        "hits": 5
+      },
+      {
+        "fn": "InjectedScript",
+        "url": "",
+        "line": 6713,
+        "column": 13,
+        "hits": 4
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "normal",
+    "reduced": false,
+    "frames": 180,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 3030.0,
+    "TaskDuration": 195.45,
+    "ScriptDuration": 8.24,
+    "LayoutDuration": 0.68,
+    "RecalcStyleDuration": 36.07,
+    "LayoutCount": 3,
+    "RecalcStyleCount": 181,
+    "heap_delta_bytes": -54708,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 16,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4965
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 285
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 3
+      },
+      {
+        "fn": "tF",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 26918,
+        "hits": 1
+      },
+      {
+        "fn": "tk",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 74068,
+        "hits": 1
+      },
+      {
+        "fn": "ix",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 116870,
+        "hits": 1
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 92591,
+        "hits": 1
+      },
+      {
+        "fn": "json",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "cp",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 164567,
+        "hits": 1
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "entry_cold",
+    "reduced": false,
+    "frames": 290,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 33.4,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 7,
+    "elapsed_ms": 5024.0,
+    "TaskDuration": 2211.31,
+    "ScriptDuration": 209.9,
+    "LayoutDuration": 10.24,
+    "RecalcStyleDuration": 31.27,
+    "LayoutCount": 9,
+    "RecalcStyleCount": 72,
+    "heap_delta_bytes": 743300,
+    "sampled_live_alloc_bytes": 295416,
+    "bridge_requests": 23,
+    "native_fake_calls": 4,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4837
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3291
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 106
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 9438,
+        "hits": 68
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 7693,
+        "hits": 43
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 25
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 8106,
+        "hits": 20
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 17
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 16
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 8428,
+        "hits": 14
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 10
+      },
+      {
+        "fn": "F",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 4418,
+        "hits": 8
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "school",
+    "reduced": false,
+    "frames": 180,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 3036.5,
+    "TaskDuration": 440.2,
+    "ScriptDuration": 92.34,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 49.72,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 182,
+    "heap_delta_bytes": 441568,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 11,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4451
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 530
+      },
+      {
+        "fn": "_",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40058,
+        "hits": 93
+      },
+      {
+        "fn": "w",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40364,
+        "hits": 18
+      },
+      {
+        "fn": "stroke",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "k",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40948,
+        "hits": 6
+      },
+      {
+        "fn": "lineTo",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "b",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 41215,
+        "hits": 4
+      },
+      {
+        "fn": "_",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40058,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_cold",
+    "reduced": false,
+    "frames": 167,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 33.3,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 1,
+    "elapsed_ms": 2906.3,
+    "TaskDuration": 1060.63,
+    "ScriptDuration": 93.21,
+    "LayoutDuration": 4.29,
+    "RecalcStyleDuration": 92.99,
+    "LayoutCount": 8,
+    "RecalcStyleCount": 85,
+    "heap_delta_bytes": 1115760,
+    "sampled_live_alloc_bytes": 459208,
+    "bridge_requests": 15,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3219
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1469
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 62
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 14
+      },
+      {
+        "fn": "_",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40058,
+        "hits": 12
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 18325,
+        "hits": 12
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 16959,
+        "hits": 10
+      },
+      {
+        "fn": "h.scan",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 23349,
+        "hits": 9
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 8
+      },
+      {
+        "fn": "clearRect",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 17446,
+        "hits": 6
+      },
+      {
+        "fn": "fillText",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "entry_warm",
+    "reduced": false,
+    "frames": 285,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 33.4,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 11,
+    "elapsed_ms": 5007.4,
+    "TaskDuration": 2184.02,
+    "ScriptDuration": 180.5,
+    "LayoutDuration": 9.91,
+    "RecalcStyleDuration": 36.63,
+    "LayoutCount": 10,
+    "RecalcStyleCount": 66,
+    "heap_delta_bytes": 1586264,
+    "sampled_live_alloc_bytes": 99928,
+    "bridge_requests": 21,
+    "native_fake_calls": 4,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4894
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3320
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 70
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 9438,
+        "hits": 35
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 7693,
+        "hits": 28
+      },
+      {
+        "fn": "stroke",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 14
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 14
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 13
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 8106,
+        "hits": 11
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 8428,
+        "hits": 11
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 11
+      },
+      {
+        "fn": "_",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40058,
+        "hits": 10
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_warm",
+    "reduced": false,
+    "frames": 156,
+    "median_ms": 16.7,
+    "p95_ms": 33.3,
+    "max_ms": 50,
+    "gaps_over_34ms": 1,
+    "estimated_dropped_60hz": 13,
+    "elapsed_ms": 2872.8,
+    "TaskDuration": 1320.61,
+    "ScriptDuration": 82.56,
+    "LayoutDuration": 4.69,
+    "RecalcStyleDuration": 56.09,
+    "LayoutCount": 8,
+    "RecalcStyleCount": 77,
+    "heap_delta_bytes": 551692,
+    "sampled_live_alloc_bytes": 229692,
+    "bridge_requests": 16,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2611
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1948
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 79
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 16959,
+        "hits": 13
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 18325,
+        "hits": 10
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "f",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 16920,
+        "hits": 6
+      },
+      {
+        "fn": "_",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 40058,
+        "hits": 5
+      },
+      {
+        "fn": "setTransform",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "fillText",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 4
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "hidden",
+    "reduced": false,
+    "frames": 120,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 2033.4,
+    "TaskDuration": 58.1,
+    "ScriptDuration": 5.03,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 17556,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 0,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3403
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 58
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 3
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "serialize",
+        "url": "",
+        "line": 174,
+        "column": 18,
+        "hits": 1
+      },
+      {
+        "fn": "(root)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 0
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 0,
+        "column": 1,
+        "hits": 0
+      },
+      {
+        "fn": "evaluate",
+        "url": "",
+        "line": 304,
+        "column": 10,
+        "hits": 0
+      },
+      {
+        "fn": "_promiseAwareJsonValueNoThrow",
+        "url": "",
+        "line": 326,
+        "column": 31,
+        "hits": 0
+      },
+      {
+        "fn": "safeJson",
+        "url": "",
+        "line": 327,
+        "column": 21,
+        "hits": 0
+      },
+      {
+        "fn": "jsonValue",
+        "url": "",
+        "line": 321,
+        "column": 11,
+        "hits": 0
+      },
+      {
+        "fn": "serializeAsCallArgument",
+        "url": "",
+        "line": 171,
+        "column": 32,
+        "hits": 0
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "cold_load",
+    "reduced": true,
+    "elapsed_ms": 568.9,
+    "TaskDuration": 447.23,
+    "ScriptDuration": 171.69,
+    "LayoutDuration": 88.77,
+    "RecalcStyleDuration": 45.76,
+    "LayoutCount": 6,
+    "RecalcStyleCount": 18,
+    "heap_delta_bytes": 5272140,
+    "sampled_live_alloc_bytes": 4405564,
+    "bridge_requests": 5,
+    "native_fake_calls": 3,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 355
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 170
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 40
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 37
+      },
+      {
+        "fn": "tk",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 74068,
+        "hits": 24
+      },
+      {
+        "fn": "(garbage collector)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 16
+      },
+      {
+        "fn": "w",
+        "url": "617-317d08cd919125b6.js",
+        "line": 0,
+        "column": 89531,
+        "hits": 13
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 9
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 8
+      },
+      {
+        "fn": "oq",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 79862,
+        "hits": 6
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 5
+      },
+      {
+        "fn": "r",
+        "url": "webpack-98600391736d93ed.js",
+        "line": 0,
+        "column": 43,
+        "hits": 5
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "normal",
+    "reduced": true,
+    "frames": 181,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 3039.3,
+    "TaskDuration": 101.56,
+    "ScriptDuration": 12.98,
+    "LayoutDuration": 1.68,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 3,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 132368,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 16,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5111
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 101
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 6
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 92591,
+        "hits": 3
+      },
+      {
+        "fn": "tk",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 74068,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 1
+      },
+      {
+        "fn": "lv",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 41054,
+        "hits": 1
+      },
+      {
+        "fn": "nc",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 13386,
+        "hits": 1
+      },
+      {
+        "fn": "g",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 670,
+        "hits": 1
+      },
+      {
+        "fn": "setTimeout",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "entry_cold",
+    "reduced": true,
+    "frames": 2,
+    "median_ms": 16.7,
+    "p95_ms": 16.6,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 72.2,
+    "TaskDuration": 53.06,
+    "ScriptDuration": 18.02,
+    "LayoutDuration": 2.6,
+    "RecalcStyleDuration": 5.69,
+    "LayoutCount": 5,
+    "RecalcStyleCount": 5,
+    "heap_delta_bytes": 1054184,
+    "sampled_live_alloc_bytes": 330384,
+    "bridge_requests": 3,
+    "native_fake_calls": 1,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 32
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 22
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 10
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 3
+      },
+      {
+        "fn": "cloneNode",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "o1",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 88799,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 81956,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 37139,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 116953,
+        "hits": 2
+      },
+      {
+        "fn": "dispatchEvent",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "serialize",
+        "url": "",
+        "line": 174,
+        "column": 18,
+        "hits": 1
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "school",
+    "reduced": true,
+    "frames": 179,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 3024.3,
+    "TaskDuration": 65.47,
+    "ScriptDuration": 8.58,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 138888,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 13,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5172
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 73
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 7
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 632,
+        "hits": 2
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": 0,
+        "column": 1,
+        "hits": 1
+      },
+      {
+        "fn": "l5",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50878,
+        "hits": 1
+      },
+      {
+        "fn": "o1",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 88799,
+        "hits": 1
+      },
+      {
+        "fn": "setTimeout",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 92591,
+        "hits": 1
+      },
+      {
+        "fn": "(root)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 0
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_cold",
+    "reduced": true,
+    "frames": 1,
+    "median_ms": 16.7,
+    "p95_ms": 16.7,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 71.7,
+    "TaskDuration": 57.85,
+    "ScriptDuration": 14.1,
+    "LayoutDuration": 4.94,
+    "RecalcStyleDuration": 14.95,
+    "LayoutCount": 5,
+    "RecalcStyleCount": 8,
+    "heap_delta_bytes": 872260,
+    "sampled_live_alloc_bytes": 229728,
+    "bridge_requests": 4,
+    "native_fake_calls": 2,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 32
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 24
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 14
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 8
+      },
+      {
+        "fn": "sd",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 147697,
+        "hits": 2
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "eO",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 7831,
+        "hits": 1
+      },
+      {
+        "fn": "rr",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 31355,
+        "hits": 1
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 1
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 76940,
+        "hits": 1
+      },
+      {
+        "fn": "d",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 42509,
+        "hits": 1
+      },
+      {
+        "fn": "rt",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 31311,
+        "hits": 1
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "entry_warm",
+    "reduced": true,
+    "frames": 1,
+    "median_ms": 16.8,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 56.9,
+    "TaskDuration": 49.17,
+    "ScriptDuration": 13.4,
+    "LayoutDuration": 2.57,
+    "RecalcStyleDuration": 7.79,
+    "LayoutCount": 5,
+    "RecalcStyleCount": 5,
+    "heap_delta_bytes": 426888,
+    "sampled_live_alloc_bytes": 65580,
+    "bridge_requests": 1,
+    "native_fake_calls": 1,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 18
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 12
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 12
+      },
+      {
+        "fn": "",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 44965,
+        "hits": 3
+      },
+      {
+        "fn": "",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 84808,
+        "hits": 2
+      },
+      {
+        "fn": "clearTimeout",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "cloneNode",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "w",
+        "url": "821-3ef8b9d5f4c835a5.js",
+        "line": 0,
+        "column": 97998,
+        "hits": 1
+      },
+      {
+        "fn": "uf",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 96043,
+        "hits": 1
+      },
+      {
+        "fn": "eY",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 53639,
+        "hits": 1
+      },
+      {
+        "fn": "ix",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 116870,
+        "hits": 1
+      },
+      {
+        "fn": "sd",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 147697,
+        "hits": 1
+      }
+    ],
+    "canvas": [
+      [
+        764,
+        45
+      ]
+    ]
+  },
+  {
+    "state": "return_warm",
+    "reduced": true,
+    "frames": 2,
+    "median_ms": 16.7,
+    "p95_ms": 16.6,
+    "max_ms": 16.7,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 74.8,
+    "TaskDuration": 60.15,
+    "ScriptDuration": 12.83,
+    "LayoutDuration": 3.52,
+    "RecalcStyleDuration": 16.08,
+    "LayoutCount": 5,
+    "RecalcStyleCount": 8,
+    "heap_delta_bytes": 701264,
+    "sampled_live_alloc_bytes": 229624,
+    "bridge_requests": 5,
+    "native_fake_calls": 2,
+    "hot_samples": [
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 28
+      },
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 24
+      },
+      {
+        "fn": "n",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 52767,
+        "hits": 13
+      },
+      {
+        "fn": "V",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 5874,
+        "hits": 9
+      },
+      {
+        "fn": "sd",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 147697,
+        "hits": 3
+      },
+      {
+        "fn": "fetch",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 2
+      },
+      {
+        "fn": "tk",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 74068,
+        "hits": 2
+      },
+      {
+        "fn": "u",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 92591,
+        "hits": 1
+      },
+      {
+        "fn": "l9",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 50991,
+        "hits": 1
+      },
+      {
+        "fn": "tL",
+        "url": "page-2ca68a4267c5f67e.js",
+        "line": 0,
+        "column": 81089,
+        "hits": 1
+      },
+      {
+        "fn": "",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 44965,
+        "hits": 1
+      },
+      {
+        "fn": "",
+        "url": "e1749d0d-0e6be9f6f7fa45f8.js",
+        "line": 0,
+        "column": 44965,
+        "hits": 1
+      }
+    ],
+    "canvas": []
+  },
+  {
+    "state": "hidden",
+    "reduced": true,
+    "frames": 120,
+    "median_ms": 16.7,
+    "p95_ms": 16.8,
+    "max_ms": 16.8,
+    "gaps_over_34ms": 0,
+    "estimated_dropped_60hz": 0,
+    "elapsed_ms": 2038.6,
+    "TaskDuration": 56.97,
+    "ScriptDuration": 3.92,
+    "LayoutDuration": 0.0,
+    "RecalcStyleDuration": 0.0,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "heap_delta_bytes": 17348,
+    "sampled_live_alloc_bytes": 0,
+    "bridge_requests": 0,
+    "native_fake_calls": 0,
+    "hot_samples": [
+      {
+        "fn": "(idle)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 3471
+      },
+      {
+        "fn": "(program)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 40
+      },
+      {
+        "fn": "requestAnimationFrame",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 5
+      },
+      {
+        "fn": "frame",
+        "url": "",
+        "line": 6,
+        "column": 26,
+        "hits": 1
+      },
+      {
+        "fn": "",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 1
+      },
+      {
+        "fn": "(root)",
+        "url": "",
+        "line": -1,
+        "column": -1,
+        "hits": 0
+      }
+    ],
+    "canvas": []
+  }
+]

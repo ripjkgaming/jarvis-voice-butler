@@ -50,6 +50,7 @@ from prompts import AGENT_INSTRUCTIONS, RESEARCH_INSTRUCTIONS, SYSTEM_INSTRUCTIO
 from system.background import BackgroundTools
 from system.budget import record_session
 from system.budget import status as budget_status
+from system.computer_use import COMPUTER_USE_INSTRUCTIONS, ComputerUseTools
 from system.core import SystemTools
 from system.daily import DailyTools
 from system.desktop import DesktopTools
@@ -74,6 +75,7 @@ from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
 from system.quotes_tools import QuoteTools
 from system.school_tools import SchoolTools
+from system.suit_tools import SuitTools
 from system.vision_tools import VisionTools
 from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
@@ -1140,7 +1142,29 @@ def _end_call_tool() -> EndCallTool:
     )
 
 
-class ResearchAgent(Agent):
+class _SpecialistAgent(Agent):
+    """Own the stuck timer for exactly this specialist's active handoff."""
+
+    def _arm_watchdog(self) -> None:
+        previous = getattr(self, "_watchdog_task", None)
+        if previous is not None:
+            previous.cancel()
+        # Capture the session while attached: looking it up from call_soon
+        # can fail after a fast handoff has already detached this agent.
+        self._watchdog_task = asyncio.create_task(
+            _specialist_watchdog(self.session, time.monotonic())
+        )
+
+    async def on_exit(self) -> None:
+        task = getattr(self, "_watchdog_task", None)
+        self._watchdog_task = None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+class ResearchAgent(_SpecialistAgent):
     """Isolated deep-research specialist (separate browser, no shared login).
 
     Used only when the router decides a task needs a whole separate browser:
@@ -1166,14 +1190,15 @@ class ResearchAgent(Agent):
     # the handoff lands dead with no turn at all. Tool-first: speech
     # only as progress, like SystemAgent.on_enter.
     async def on_enter(self) -> None:
-        # generate_reply is unreliable on some Gemini Live models (it may
-        # refuse commentary turns): say a deterministic fallback instead
-        # of landing silent, then arm the stuck watchdog.
-        entered = time.monotonic()
+        task, self.task = self.task.strip(), ""
+        if not task:
+            return
+        # Arm before generation: a stalled reply must not delay its own timer.
+        self._arm_watchdog()
         try:
             await self.session.generate_reply(
                 instructions=(
-                    f"Your research topic, verbatim from Sir: {self.task!r}. Begin the "
+                    f"Your research topic, verbatim from Sir: {task!r}. Begin the "
                     "task instantly by calling the first tool. Chain tools "
                     "silently until done, then report results and "
                     "transfer_back_to_main. Anything you speak must be progress "
@@ -1183,12 +1208,6 @@ class ResearchAgent(Agent):
         except Exception:
             with __import__("contextlib").suppress(Exception):
                 await self.session.say("On it, Sir — researching now.")
-        with __import__("contextlib").suppress(Exception):
-            asyncio.get_running_loop().call_soon(
-                lambda: asyncio.get_running_loop().create_task(
-                    _specialist_watchdog(self.session, entered)
-                )
-            )
 
     @function_tool()
     async def transfer_back_to_main(self, context: RunContext):
@@ -1198,6 +1217,7 @@ class ResearchAgent(Agent):
         )
 
     async def aclose(self) -> None:
+        await self.on_exit()
         with __import__("contextlib").suppress(Exception):
             await self.research_browser.close()
 
@@ -1238,6 +1258,9 @@ RARE_SYSTEM_TOOL_IDS: frozenset[str] = frozenset(
         "desktop_type",
         "desktop_key",
         "desktop_scroll",
+        "computer_use",
+        "computer_use_status",
+        "computer_use_cancel",
     }
 )
 """Dangerous/rare laptop tools kept off the router.
@@ -1267,7 +1290,7 @@ ids so the chain open_app -> whatsapp_draft -> transfer_back_to_main
 completes behind one handoff."""
 
 
-class SystemAgent(Agent):
+class SystemAgent(_SpecialistAgent):
     """Local Linux PC-control specialist (safe core + devices + daily).
 
     Only runs usefully when JARVIS_LOCAL=1; every tool re-checks this so a
@@ -1295,6 +1318,7 @@ class SystemAgent(Agent):
         self.osint_tools = OsintTools()
         self.pentest_tools = PentestTools()
         self.desktop_tools = DesktopTools()
+        self.computer_use_tools = ComputerUseTools()
         groups = (
             self.system_tools.tools,
             self.device_tools.tools,
@@ -1305,6 +1329,7 @@ class SystemAgent(Agent):
             self.osint_tools.tools,
             self.pentest_tools.tools,
             self.desktop_tools.tools,
+            self.computer_use_tools.tools,
         )
         if only_ids is None:
             picked = [tool for group in groups for tool in group]
@@ -1312,7 +1337,7 @@ class SystemAgent(Agent):
             picked = [tool for group in groups for tool in group if tool.id in only_ids]
         super().__init__(
             llm=llm or _default_agent_llm(),
-            instructions=SYSTEM_INSTRUCTIONS,
+            instructions=SYSTEM_INSTRUCTIONS + COMPUTER_USE_INSTRUCTIONS,
             # end_call always rides along: after a handoff this agent owns
             # the call, so a direct "hang up" must work here too.
             tools=[*picked, *(extra_tools or []), *self._end_call_tool.tools],
@@ -1328,12 +1353,17 @@ class SystemAgent(Agent):
     # refuse commentary turns): never let it raise out of on_enter, or
     # the handoff lands dead with no turn at all.
     async def on_enter(self) -> None:
+        # Each handoff supplies a fresh task. Re-entry must not replay the
+        # last app launch or invent a task from a worked example.
+        task, self.task = self.task.strip(), ""
+        if not task:
+            return
         # Same deal as ResearchAgent: never land silent, arm the watchdog.
-        entered = time.monotonic()
+        self._arm_watchdog()
         try:
             await self.session.generate_reply(
                 instructions=(
-                    f"Your task, verbatim from Sir: {self.task!r}. Act on exactly "
+                    f"Your task, verbatim from Sir: {task!r}. Act on exactly "
                     "the app or site named there, never a substitute from your "
                     "examples. Do not greet or announce readiness: begin the task instantly by calling the first tool. "
                     "Chain tools silently until done, then report results and "
@@ -1344,12 +1374,6 @@ class SystemAgent(Agent):
         except Exception:
             with __import__("contextlib").suppress(Exception):
                 await self.session.say("On it, Sir.")
-        with __import__("contextlib").suppress(Exception):
-            asyncio.get_running_loop().call_soon(
-                lambda: asyncio.get_running_loop().create_task(
-                    _specialist_watchdog(self.session, entered)
-                )
-            )
 
     @function_tool()
     async def transfer_back_to_main(self, context: RunContext):
@@ -1425,6 +1449,7 @@ class Assistant(Agent):
             system=self.system_tools, inbox=self.inbox_tools, browser=self.browser_tools
         )
         self.school_tools = SchoolTools()
+        self.suit_tools = SuitTools()
         self.files_tools = FilesTools()
         self.alternatives_tools = AlternativesTools()
         self.focus_tools = FocusTools()
@@ -1461,6 +1486,7 @@ class Assistant(Agent):
             *self.quote_tools.tools,
             # School mode switch + loud-action confirmation.
             *self.school_tools.tools,
+            *self.suit_tools.tools,
             # Find / open / describe / tidy Sir's files (second brain).
             *self.files_tools.tools,
             # "Find me a cheaper alternative to X" -> research project.
@@ -2049,6 +2075,10 @@ async def my_agent(ctx: JobContext):
                         with __import__("contextlib").suppress(Exception):
                             session.clear_user_turn()
                         _mark_active()
+                        if _payload.get("duplicate"):
+                            # Gemini already ran it from the audio and is
+                            # answering itself: a second line is noise.
+                            return
                         _reply = str(_payload.get("reply") or "Done, Sir.")
                         try:
                             await session.say(_reply)
@@ -2166,23 +2196,13 @@ async def my_agent(ctx: JobContext):
         finally:
             _hangup_watching["active"] = False
 
-    # Where a reply's wait goes: local end-of-turn wait (EOU) vs Gemini's
-    # time to first token and how much context it had to read.
-    @session.on("metrics_collected")
-    def _on_metrics(event) -> None:
-        with contextlib.suppress(Exception):
-            from system import log_action as _log
+    # Passive, content-free stage observations. Missing SDK timestamps stay
+    # unknown; Gemini's provider-generation ttft is not full voice latency.
+    with contextlib.suppress(Exception):
+        from latency import install_session_timing
+        from system import log_action as _log_timing
 
-            m = event.metrics
-            kind = getattr(m, "type", "")
-            if kind == "eou_metrics":
-                _log("latency", f"eou {m.end_of_utterance_delay:.2f}s")
-            elif kind == "realtime_model_metrics" and m.ttft >= 0:
-                _log(
-                    "latency",
-                    f"model ttft {m.ttft:.2f}s in={m.input_tokens} "
-                    f"cached={m.input_token_details.cached_tokens}",
-                )
+        install_session_timing(session, _log_timing)
 
     @session.on("user_state_changed")
     def _on_user_state_changed(event: UserStateChangedEvent) -> None:

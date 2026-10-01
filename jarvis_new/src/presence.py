@@ -103,10 +103,10 @@ def snapshot(dest: Path = SNAP_PATH, camera: int = 0) -> Path | None:
         import cv2
 
         cap = cv2.VideoCapture(camera)
-        if not cap.isOpened():
-            return None
         frame = None
         try:
+            if not cap.isOpened():
+                return None
             for _ in range(WARMUP_FRAMES):
                 ok, frame = cap.read()
                 if not ok:

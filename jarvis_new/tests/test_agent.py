@@ -1,5 +1,5 @@
-import types
 import textwrap
+import types
 
 import pytest
 from _free_llm import free_eval_llm, patient_run, throttle
@@ -283,7 +283,7 @@ def test_assistant_tool_ids_unique() -> None:
 def test_rare_tools_live_behind_narrow_handoff() -> None:
     """Dangerous/rare tools must NOT bloat the router context.
 
-    The rare ids (11 system + 12 pentest + 7 desktop) live only on the
+    The rare ids, including the three computer-use controls, live only on the
     filtered SystemAgent behind transfer_to_system_control; everything
     else stays direct. The specialist additionally carries its way home
     (transfer_back_to_main) and the hang-up (end_call).
@@ -292,7 +292,10 @@ def test_rare_tools_live_behind_narrow_handoff() -> None:
 
     assistant = Assistant(browser=None, llm=None)
     ids = [tool.id for tool in assistant.tools]
-    assert len(RARE_SYSTEM_TOOL_IDS) == 32
+    assert {"computer_use", "computer_use_status", "computer_use_cancel"} <= (
+        RARE_SYSTEM_TOOL_IDS
+    )
+    assert len(RARE_SYSTEM_TOOL_IDS) == 35
     for rare in RARE_SYSTEM_TOOL_IDS:
         assert rare not in ids
     assert "transfer_to_system_control" in ids

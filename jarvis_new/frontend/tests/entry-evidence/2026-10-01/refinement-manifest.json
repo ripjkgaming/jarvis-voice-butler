@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "before": {
+    "file": "school-entry-scene-before-refinement.ts.txt",
+    "sha256": "c4b5d3bc3cca1ac9467d36fde4aedea702b03909abf6acfd71353b6d63c61e77"
+  },
+  "after": {
+    "file": "../../../lib/school-entry-scene.ts",
+    "sha256": "cca9c609c3033e1e0d9a54df8b350b13e7edae11ab62a89dbc816eed7e64d31a"
+  },
+  "changes": [
+    "Reuse duplicate compression easing",
+    "Hoist descent frame invariants",
+    "Reuse sprite atlas until DPR changes"
+  ],
+  "evidence": {
+    "node": "renderer-node-coordinate-sink.jsonl",
+    "pixels": "pixel-parity-94-cases-stacked-timings-discarded.json",
+    "submission": "renderer-shared-canvas-abba.json"
+  },
+  "limitations": [
+    "Node timings measure pure renderer JavaScript with a coordinate sink, not Canvas rasterization or native FPS.",
+    "Pixel parity covers 94 real-canvas cases and 85248000 RGBA pixels; exact command parity covers 1344 cases.",
+    "Initial stacked-canvas timings are discarded; use only the later same-visible-canvas ABBA submission timings.",
+    "Canvas submission timings include JavaScript and enqueue/backpressure effects; they do not measure GPU completion or native desktop smoothness.",
+    "Unchanged aperture timing varies, so small timing differences must be treated as noisy."
+  ],
+  "reproduce": "From jarvis_new: uv run --no-sync python frontend/tests/school-entry-compare.py --before frontend/tests/entry-evidence/2026-10-01/school-entry-scene-before-refinement.ts.txt --output /tmp/jarvis-entry-comparison"
+}

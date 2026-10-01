@@ -1,0 +1,286 @@
+/* The voice link acquires around the existing reactor and resolves into it.
+   Continuous transform/opacity layers; no fake progress or blocking overlay. */
+.vlink-reticle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  color: #8aedff;
+  opacity: 1;
+  transition: opacity 260ms ease-out;
+  contain: layout style;
+}
+.vlink-reticle[data-phase='idle'],
+.vlink-reticle[data-phase='failed'],
+.vlink-reticle[data-phase='stalled'] {
+  opacity: 0;
+}
+.vlink-reticle > svg {
+  position: absolute;
+  inset: 0;
+  width: 68.1818%;
+  height: 100%;
+  margin-inline: auto;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+.vlink-reticle__orbit {
+  animation: vlink-orbit 5.8s linear infinite;
+}
+.vlink-reticle__counter {
+  animation: vlink-orbit 9s linear infinite reverse;
+  opacity: 0.62;
+}
+.vlink-reticle__ticks {
+  opacity: 0.45;
+}
+.vlink-reticle__packet {
+  fill: #d7faff;
+  stroke-width: 0;
+}
+.vlink-reticle__pulse {
+  animation: vlink-acquire 2.6s ease-out infinite;
+  opacity: 0.35;
+}
+.vlink-reticle .vlink-reticle__lock {
+  opacity: 0;
+  stroke-width: 3;
+}
+.vlink-reticle[data-phase='ready'] {
+  color: #b7ffd9;
+}
+.vlink-reticle[data-phase='ready'] .vlink-reticle__lock {
+  animation: vlink-lock 1.1s ease-out both;
+}
+.vlink-reticle[data-phase='ready'] .vlink-reticle__pulse {
+  animation: vlink-resolve 1.1s ease-out both;
+}
+.vlink-reticle[data-phase='ready'] .vlink-reticle__orbit,
+.vlink-reticle[data-phase='ready'] .vlink-reticle__counter {
+  opacity: 0.3;
+}
+.vlink-reticle[data-phase='idle'] *,
+.vlink-reticle[data-phase='failed'] *,
+.vlink-reticle[data-phase='stalled'] *,
+.vlink-reticle[data-visible='false'] * {
+  animation-play-state: paused !important;
+}
+
+.vlink-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 22px;
+  margin-top: 9px;
+  color: #a9efff;
+  font-family: var(--font-share-tech-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+.vlink-stages {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.vlink-stages li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7394a3;
+  white-space: nowrap;
+}
+.vlink-stages li + li::before {
+  content: '';
+  width: 16px;
+  height: 1px;
+  margin-right: 6px;
+  background: #5fe3ff35;
+}
+.vlink-stages li > i {
+  width: 4px;
+  height: 4px;
+  border: 1px solid #5fe3ff80;
+  transform: rotate(45deg);
+}
+.vlink-stages [data-stage='done'] {
+  color: #9fd9dd;
+}
+.vlink-stages [data-stage='done'] > i {
+  background: #8ee4ed;
+}
+.vlink-stages [data-stage='current'] {
+  color: #e1faff;
+}
+.vlink-stages [data-stage='current'] > i {
+  background: #d7faff;
+  box-shadow: 0 0 8px #5fe3ff80;
+  animation: vlink-breathe 1.6s ease-in-out infinite;
+}
+.vlink-signal {
+  position: relative;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 14px;
+  overflow: hidden;
+}
+.vlink-signal::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  width: 100%;
+  height: 1px;
+  background: #5fe3ff30;
+}
+.vlink-signal > i {
+  position: absolute;
+  top: 4px;
+  left: -5px;
+  width: 4px;
+  height: 4px;
+  background: #c2f7ff;
+  box-shadow: 0 0 7px #5fe3ff90;
+  animation: vlink-packet 1.8s cubic-bezier(0.2, 0.55, 0.6, 1) infinite;
+}
+.vlink-signal > i:nth-child(2) {
+  animation-delay: 0.3s;
+  opacity: 0.55;
+}
+.vlink-signal > i:nth-child(3) {
+  animation-delay: 0.6s;
+  opacity: 0.3;
+}
+.vlink-rail[data-phase='ready'] {
+  color: #b7ffd9;
+}
+.vlink-rail[data-phase='ready'] .vlink-signal > i {
+  animation: none;
+  left: 21px;
+  background: #b7ffd9;
+  transform: rotate(45deg);
+}
+.vlink-rail[data-phase='failed'],
+.vlink-rail[data-phase='stalled'] {
+  color: #f4c18a;
+}
+.vlink-rail[data-phase='failed'] .vlink-signal > i,
+.vlink-rail[data-phase='stalled'] .vlink-signal > i {
+  animation: none;
+  left: 21px;
+  background: currentColor;
+}
+.vlink-rail[data-compact='true'] {
+  justify-content: flex-start;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+}
+.vlink-copy {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 14px;
+}
+.vlink-copy b {
+  font-family: var(--font-rajdhani), sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+.vlink-copy > span {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: #87acba;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+@keyframes vlink-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes vlink-acquire {
+  0% {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.48;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+}
+@keyframes vlink-resolve {
+  from {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+@keyframes vlink-lock {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  22%,
+  72% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+}
+@keyframes vlink-breathe {
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes vlink-packet {
+  0% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(58px);
+  }
+}
+html.hud-hidden .vlink-reticle *,
+html.school-tx .vlink-reticle *,
+html.hud-hidden .vlink-rail *,
+html.school-tx .vlink-rail * {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vlink-reticle,
+  .vlink-reticle *,
+  .vlink-rail * {
+    animation: none !important;
+    transition: none !important;
+  }
+  .vlink-signal > i {
+    left: 21px;
+  }
+  .vlink-reticle[data-phase='ready'] .vlink-reticle__lock {
+    opacity: 0.8;
+  }
+}
+@media (max-width: 1200px) {
+  .vlink-copy > span {
+    display: none;
+  }
+}

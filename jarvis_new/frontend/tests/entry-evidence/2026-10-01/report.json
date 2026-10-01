@@ -1,0 +1,776 @@
+[
+  {
+    "performance_dpr": 1,
+    "cross_monitor": false,
+    "elapsed_ms": 4222,
+    "frames": {
+      "frames": 247,
+      "median_ms": 16.7,
+      "p95_ms": 16.8,
+      "max_ms": 33.4,
+      "gaps_over_34ms": 0,
+      "estimated_dropped_60hz": 6
+    },
+    "task_ms": 1286.75,
+    "script_ms": 146.61,
+    "layouts": 8,
+    "style_recalculations": 96,
+    "heap_delta_mb": -0.63,
+    "probe": {
+      "entryFrames": 243,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 251,
+          "draws": 17834,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 24.699999999254942
+        },
+        {
+          "phase": "geometry",
+          "at": 652.8000000007451
+        },
+        {
+          "phase": "aperture",
+          "at": 692.1999999992549
+        },
+        {
+          "phase": "compress",
+          "at": 1257.9000000022352
+        },
+        {
+          "phase": "geometry",
+          "at": 2090.900000002235
+        },
+        {
+          "phase": "descent",
+          "at": 2098.400000002235
+        },
+        {
+          "phase": "forge",
+          "at": 3056.800000000745
+        },
+        {
+          "phase": "reveal",
+          "at": 4174
+        },
+        {
+          "phase": "dock",
+          "at": 4807
+        },
+        {
+          "phase": null,
+          "at": 4839.199999999255
+        }
+      ]
+    },
+    "moves": []
+  },
+  {
+    "performance_dpr": 2,
+    "cross_monitor": false,
+    "elapsed_ms": 4294,
+    "frames": {
+      "frames": 236,
+      "median_ms": 16.7,
+      "p95_ms": 33.3,
+      "max_ms": 50.1,
+      "gaps_over_34ms": 1,
+      "estimated_dropped_60hz": 20
+    },
+    "task_ms": 2546.98,
+    "script_ms": 132.2,
+    "layouts": 9,
+    "style_recalculations": 93,
+    "heap_delta_mb": -0.58,
+    "probe": {
+      "entryFrames": 230,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 238,
+          "draws": 16122,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 11.099999997764826
+        },
+        {
+          "phase": "geometry",
+          "at": 533.5
+        },
+        {
+          "phase": "aperture",
+          "at": 625
+        },
+        {
+          "phase": "compress",
+          "at": 1196.5
+        },
+        {
+          "phase": "geometry",
+          "at": 2025.3999999985099
+        },
+        {
+          "phase": "descent",
+          "at": 2035.5999999977648
+        },
+        {
+          "phase": "forge",
+          "at": 2991
+        },
+        {
+          "phase": "reveal",
+          "at": 4107.89999999851
+        },
+        {
+          "phase": "dock",
+          "at": 4741.099999997765
+        },
+        {
+          "phase": null,
+          "at": 4768.599999997765
+        }
+      ]
+    },
+    "moves": []
+  },
+  {
+    "performance_dpr": 1,
+    "cross_monitor": true,
+    "elapsed_ms": 6576,
+    "frames": {
+      "frames": 389,
+      "median_ms": 16.7,
+      "p95_ms": 16.7,
+      "max_ms": 33.4,
+      "gaps_over_34ms": 0,
+      "estimated_dropped_60hz": 3
+    },
+    "task_ms": 1508.77,
+    "script_ms": 167.35,
+    "layouts": 13,
+    "style_recalculations": 101,
+    "heap_delta_mb": 0.19,
+    "probe": {
+      "entryFrames": 326,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 337,
+          "draws": 20849,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 11.200000002980232
+        },
+        {
+          "phase": "geometry",
+          "at": 385.9000000022352
+        },
+        {
+          "phase": "aperture",
+          "at": 433.30000000074506
+        },
+        {
+          "phase": "compress",
+          "at": 995
+        },
+        {
+          "phase": "geometry",
+          "at": 1829.6000000014901
+        },
+        {
+          "phase": "transfer-out",
+          "at": 1848.2000000029802
+        },
+        {
+          "phase": "geometry",
+          "at": 2477.800000000745
+        },
+        {
+          "phase": "transfer-in",
+          "at": 3471.300000000745
+        },
+        {
+          "phase": "descent",
+          "at": 4177.800000000745
+        },
+        {
+          "phase": "forge",
+          "at": 5144.10000000149
+        },
+        {
+          "phase": "reveal",
+          "at": 6261.300000000745
+        },
+        {
+          "phase": "dock",
+          "at": 6894.70000000298
+        },
+        {
+          "phase": null,
+          "at": 6910.70000000298
+        }
+      ]
+    },
+    "moves": [
+      {
+        "stage": "primary",
+        "painted_before_move": false
+      }
+    ]
+  },
+  {
+    "lifecycle": "offscreen stops and resumes",
+    "final": {
+      "entryFrames": 222,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 230,
+          "draws": 15429,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 12
+        },
+        {
+          "phase": "geometry",
+          "at": 474.30000000074506
+        },
+        {
+          "phase": "aperture",
+          "at": 508.30000000074506
+        },
+        {
+          "phase": "compress",
+          "at": 1424
+        },
+        {
+          "phase": "geometry",
+          "at": 2458.5
+        },
+        {
+          "phase": "descent",
+          "at": 2498.300000000745
+        },
+        {
+          "phase": "forge",
+          "at": 3436.60000000149
+        },
+        {
+          "phase": "reveal",
+          "at": 4553.60000000149
+        },
+        {
+          "phase": "dock",
+          "at": 5186.60000000149
+        },
+        {
+          "phase": null,
+          "at": 5206.10000000149
+        }
+      ]
+    }
+  },
+  {
+    "lifecycle": "hidden finishes safely with no remaining RAF",
+    "final": {
+      "entryFrames": 3,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 5,
+          "draws": 100,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 16.5
+        },
+        {
+          "phase": "geometry",
+          "at": 452.19999999925494
+        },
+        {
+          "phase": "aperture",
+          "at": 491.9000000022352
+        },
+        {
+          "phase": "dock",
+          "at": 545
+        },
+        {
+          "phase": null,
+          "at": 554.3000000007451
+        }
+      ]
+    }
+  },
+  {
+    "reversal_at": "compress",
+    "stages": [
+      "measure",
+      "unframe",
+      "measure",
+      "unframe",
+      "cover",
+      "measure",
+      "dock"
+    ],
+    "probe": {
+      "entryFrames": 261,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 44,
+          "draws": 5634,
+          "connected": false,
+          "running": "false"
+        },
+        {
+          "id": 2,
+          "clears": 227,
+          "draws": 14669,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 11.800000000745058
+        },
+        {
+          "phase": "geometry",
+          "at": 467.1000000014901
+        },
+        {
+          "phase": "aperture",
+          "at": 533.7000000029802
+        },
+        {
+          "phase": "compress",
+          "at": 1117.2000000029802
+        },
+        {
+          "phase": null,
+          "at": 1301.4000000022352
+        },
+        {
+          "phase": "geometry",
+          "at": 1741.800000000745
+        },
+        {
+          "phase": "aperture",
+          "at": 1772.9000000022352
+        },
+        {
+          "phase": "compress",
+          "at": 2387
+        },
+        {
+          "phase": "geometry",
+          "at": 3249.900000002235
+        },
+        {
+          "phase": "descent",
+          "at": 3257.900000002235
+        },
+        {
+          "phase": "forge",
+          "at": 4215.70000000298
+        },
+        {
+          "phase": "reveal",
+          "at": 5333.20000000298
+        },
+        {
+          "phase": "dock",
+          "at": 5965.800000000745
+        },
+        {
+          "phase": null,
+          "at": 5985.70000000298
+        }
+      ]
+    }
+  },
+  {
+    "reversal_at": "forge",
+    "stages": [
+      "measure",
+      "unframe",
+      "cover",
+      "measure",
+      "measure",
+      "unframe",
+      "cover",
+      "measure",
+      "dock"
+    ],
+    "probe": {
+      "entryFrames": 381,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 167,
+          "draws": 13727,
+          "connected": false,
+          "running": "false"
+        },
+        {
+          "id": 2,
+          "clears": 227,
+          "draws": 14676,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 10.900000002235174
+        },
+        {
+          "phase": "geometry",
+          "at": 346.20000000298023
+        },
+        {
+          "phase": "aperture",
+          "at": 376.1000000014901
+        },
+        {
+          "phase": "compress",
+          "at": 943.6000000014901
+        },
+        {
+          "phase": "geometry",
+          "at": 1777.1000000014901
+        },
+        {
+          "phase": "descent",
+          "at": 1786.2000000029802
+        },
+        {
+          "phase": "forge",
+          "at": 2743
+        },
+        {
+          "phase": null,
+          "at": 3151.5
+        },
+        {
+          "phase": "geometry",
+          "at": 3587
+        },
+        {
+          "phase": "aperture",
+          "at": 3614.10000000149
+        },
+        {
+          "phase": "compress",
+          "at": 4216.20000000298
+        },
+        {
+          "phase": "geometry",
+          "at": 5043.300000000745
+        },
+        {
+          "phase": "descent",
+          "at": 5049.20000000298
+        },
+        {
+          "phase": "forge",
+          "at": 6009.400000002235
+        },
+        {
+          "phase": "reveal",
+          "at": 7109.900000002235
+        },
+        {
+          "phase": "dock",
+          "at": 7743.10000000149
+        },
+        {
+          "phase": null,
+          "at": 7780.70000000298
+        }
+      ]
+    }
+  },
+  {
+    "return_reentry": "return -> arrive",
+    "stages": [
+      "measure",
+      "dock",
+      "cover-at",
+      "measure",
+      "measure",
+      "primary",
+      "measure",
+      "dock"
+    ],
+    "probe": {
+      "entryFrames": 255,
+      "pendingEntry": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "clears": 1,
+          "draws": 0,
+          "connected": false,
+          "running": "false"
+        },
+        {
+          "id": 2,
+          "clears": 9,
+          "draws": 0,
+          "connected": false,
+          "running": null
+        },
+        {
+          "id": 3,
+          "clears": 255,
+          "draws": 18319,
+          "connected": false,
+          "running": "false"
+        }
+      ],
+      "phases": [
+        {
+          "phase": null,
+          "at": 14.300000000745058
+        },
+        {
+          "phase": "geometry",
+          "at": 429.1000000014901
+        },
+        {
+          "phase": "dock",
+          "at": 439.30000000074506
+        },
+        {
+          "phase": null,
+          "at": 469.5
+        },
+        {
+          "phase": "geometry",
+          "at": 646.1000000014901
+        },
+        {
+          "phase": "aperture",
+          "at": 676.1000000014901
+        },
+        {
+          "phase": "compress",
+          "at": 1246.4000000022352
+        },
+        {
+          "phase": "descent",
+          "at": 2078.60000000149
+        },
+        {
+          "phase": "forge",
+          "at": 3045
+        },
+        {
+          "phase": "reveal",
+          "at": 4162
+        },
+        {
+          "phase": "dock",
+          "at": 4795.10000000149
+        },
+        {
+          "phase": null,
+          "at": 4811.900000002235
+        }
+      ]
+    }
+  },
+  {
+    "reduced_motion": "direct dock without animation RAF"
+  },
+  {
+    "delayed_dock": "revealed bar stays visible until native dock",
+    "clip_paths": [
+      "inset(0px 0%)",
+      "inset(0px 0%)"
+    ]
+  },
+  {
+    "video": "normal-to-school.webm",
+    "stages": [
+      "measure",
+      "unframe",
+      "cover",
+      "measure",
+      "dock"
+    ],
+    "paused": false
+  },
+  {
+    "capture_dpr": 1,
+    "samples": [
+      {
+        "phase": "aperture",
+        "width": 1600,
+        "height": 900,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 1,
+        "visiblePixels": 4062,
+        "peakAlpha": 172,
+        "snapshots": 1,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "compress",
+        "width": 1600,
+        "height": 900,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 1,
+        "visiblePixels": 21562,
+        "peakAlpha": 255,
+        "snapshots": 1,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "descent",
+        "width": 1600,
+        "height": 900,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 1,
+        "visiblePixels": 4184,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "forge",
+        "width": 1600,
+        "height": 900,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 1,
+        "visiblePixels": 104283,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "reveal",
+        "width": 1600,
+        "height": 900,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 1,
+        "visiblePixels": 104246,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none",
+        "after_capture_phase": "reveal"
+      }
+    ],
+    "still_frames_paused": true
+  },
+  {
+    "capture_dpr": 2,
+    "samples": [
+      {
+        "phase": "aperture",
+        "width": 3200,
+        "height": 1800,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 2,
+        "visiblePixels": 13543,
+        "peakAlpha": 189,
+        "snapshots": 1,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "compress",
+        "width": 3200,
+        "height": 1800,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 2,
+        "visiblePixels": 97236,
+        "peakAlpha": 255,
+        "snapshots": 1,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "descent",
+        "width": 3200,
+        "height": 1800,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 2,
+        "visiblePixels": 17844,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "forge",
+        "width": 3200,
+        "height": 1800,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 2,
+        "visiblePixels": 414533,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none"
+      },
+      {
+        "phase": "reveal",
+        "width": 3200,
+        "height": 1800,
+        "cssWidth": 1600,
+        "cssHeight": 900,
+        "dpr": 2,
+        "visiblePixels": 413892,
+        "peakAlpha": 255,
+        "snapshots": 0,
+        "pointerEvents": "none",
+        "after_capture_phase": "reveal"
+      }
+    ],
+    "still_frames_paused": true
+  }
+]

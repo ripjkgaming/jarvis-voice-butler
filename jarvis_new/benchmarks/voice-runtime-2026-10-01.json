@@ -1,0 +1,717 @@
+{
+  "date": "2026-10-01",
+  "timezone": "Asia/Singapore",
+  "scope": "Isolated offline backend comparison; no real mic/speaker/cloud model calls; running Jarvis not restarted.",
+  "environment": {
+    "python": "3.14.6",
+    "logical_cpus": 12,
+    "livekit_agents": "1.8.2",
+    "faster_whisper": "1.2.1",
+    "sounddevice": "0.5.5"
+  },
+  "configured_pipeline": {
+    "pipeline": "realtime",
+    "voice_model_chain": [
+      "gemini-3.8-live",
+      "gemini-3.1-flash-live-preview",
+      "gemini-2.5-flash-native-audio-latest"
+    ],
+    "voice": "Enceladus",
+    "silero_min_silence_s": 0.55,
+    "endpoint_min_delay_s": 0.15,
+    "interruption_min_duration_s": 0.3,
+    "resume_false_interruption": true,
+    "overrides_found": false,
+    "source": "allowlisted process environment + project dotenv and source defaults; parent bridge status also confirmed realtime"
+  },
+  "stage_baseline": {
+    "cold_start": "Latest prewarmed job process initialization logs: 0.10s and 0.11s. This excludes wake-to-room, model connection, dispatch and first response. No full cold-call baseline.",
+    "wake_detection": "80ms openWakeWord frames; normal threshold0.5. No annotated physical wake-onset measurement available; frames/threshold unchanged.",
+    "endpointing_stt": "Configured Silero0.55s silence and endpoint min0.15s are settings, not measured additive delay. 271/271 historical EOU values were0; installed SDK maps missing timing to0. Realtime recognition is fused, not separately timed.",
+    "routing_handoffs": "60 historical transfer-tool durations had p50=0ms, nearest-index p95=4ms; timestamps rounded to integer milliseconds. This excludes SDK/network/model handoff completion.",
+    "model_first_token": "235 historical provider metrics, 130 rounded to0. Provider generation timestamp can begin at first server content, so these do not measure total model waiting time.",
+    "tools": "Existing per-tool monotonic durations retained. Heterogeneous tool durations are not pooled into a misleading general voice-latency percentile.",
+    "tts_first_audio": "Realtime model produces Enceladus audio directly; no separate STT/LLM/TTS boundary available. SDK provider-generation\u2192first-audio is a partial interval.",
+    "playback_buffering": "Controlled fake-speaker measurements below cover blocking event-loop effect, not physical DAC latency. Device settings, rates, PCM and per-frame backpressure preserved.",
+    "end_to_end": "No fresh live spoken exchange verified on refreshed runtime. Existing tests and healthy control services do not establish microphone\u2192model\u2192audible response."
+  },
+  "quality": {
+    "playback_pcm_identical": true,
+    "cold_transcripts_identical": true,
+    "warm_transcripts_identical": false,
+    "warm_wer_before": 0.0,
+    "warm_wer_after": 0.0,
+    "models_audio_thresholds_prompts_unchanged": true,
+    "warm_exact_transcript_matches": 18,
+    "warm_transcript_samples": 20,
+    "all_normalized_words_match_fixture_references": true
+  },
+  "limitations": [
+    "Single serial before/after run; STT walltime changes may include CPU/cache/scheduling effects. Responsiveness improvement is supported by worker-thread regressions.",
+    "5 cold STT samples use new model instances and warm OS cache, not5 fresh machine/process starts. First sample includes cold imports.",
+    "20 warm STT samples=10 cached generated fixtures repeated twice, not representative real-world accent/noise accuracy evaluation.",
+    "Playback10 trials simulate30ms start and20 buffered10ms writes; native hardware latency and physical interruption behavior remain unverified.",
+    "p95 uses nearest rank; with5 cold samples p95 is the maximum.",
+    "Changes require a future authorized normal runtime refresh to take effect; no restart performed in this task.",
+    "Final STT walltime p95 was slightly higher than baseline (cold+222ms, warm+39ms); no total transcription or end-to-end speedup is claimed. Primary improvement is event-loop responsiveness. Playback controlled walltime+5.4ms and fresh first-write median+0.52ms.",
+    "Final exact warm transcript hashes match in 18/20 samples; all samples still have zero digit-normalized WER against the same fixture references. Exact output-string determinism is not claimed.",
+    "Call-level fake-RTC tests now verify failed/ended playback disconnects, closes mic/source peers, preserves mute, and returns to listening; repeated cancellation also cleans up. Actual hardware-unplug fault recovery and physical barge-in are still unverified.",
+    "The full suite exposed a pre-existing intentional-SIGSEGV fixture that triggered system crash collection despite headless settings. That test-only isolation gap was then fixed and its3focused checks passed; these were test worker failures, not Jarvis runtime crashes."
+  ],
+  "reproduce": "uv run python scripts/voice_runtime_benchmark.py --label candidate --stt --output /tmp/voice-runtime-candidate.json (serialize heavy work; existing cached weights/fixtures required)",
+  "before": {
+    "label": "before",
+    "playback": {
+      "kind": "controlled fake speaker; 30ms open + 20 x 10ms writes; buffered frames",
+      "pcm_sha256": "1ef79ccbe2f65ee0fd42be34e18f6638db2a3e002d9e6ac0092deaa98d6b5630",
+      "rows": [
+        {
+          "cold_first_write_s": 0.030395206002140185,
+          "warm_write_interval_s": 0.010154518000490498,
+          "wall_s": 0.23358176699912292,
+          "max_event_loop_lag_s": 0.23171921100260806
+        },
+        {
+          "cold_first_write_s": 0.03021417499985546,
+          "warm_write_interval_s": 0.010200545002589934,
+          "wall_s": 0.23429661000045598,
+          "max_event_loop_lag_s": 0.2323715440001688
+        },
+        {
+          "cold_first_write_s": 0.03022870499989949,
+          "warm_write_interval_s": 0.010212529999989783,
+          "wall_s": 0.23441861600076663,
+          "max_event_loop_lag_s": 0.2325423810002103
+        },
+        {
+          "cold_first_write_s": 0.03024534699943615,
+          "warm_write_interval_s": 0.01021613999910187,
+          "wall_s": 0.23472809700251673,
+          "max_event_loop_lag_s": 0.23280811199988238
+        },
+        {
+          "cold_first_write_s": 0.030263820000982378,
+          "warm_write_interval_s": 0.01022075899891206,
+          "wall_s": 0.23466913000083878,
+          "max_event_loop_lag_s": 0.2327319120017346
+        },
+        {
+          "cold_first_write_s": 0.030280751001555473,
+          "warm_write_interval_s": 0.010206014001596486,
+          "wall_s": 0.23501216899967403,
+          "max_event_loop_lag_s": 0.2331355600003444
+        },
+        {
+          "cold_first_write_s": 0.030734637002751697,
+          "warm_write_interval_s": 0.010310415000276407,
+          "wall_s": 0.23866948800059617,
+          "max_event_loop_lag_s": 0.2367460820027627
+        },
+        {
+          "cold_first_write_s": 0.030443675997958053,
+          "warm_write_interval_s": 0.010240884999802802,
+          "wall_s": 0.2357555569979013,
+          "max_event_loop_lag_s": 0.2339195449971594
+        },
+        {
+          "cold_first_write_s": 0.030333345999679295,
+          "warm_write_interval_s": 0.010260268001729855,
+          "wall_s": 0.23568011700263014,
+          "max_event_loop_lag_s": 0.23378793099659378
+        },
+        {
+          "cold_first_write_s": 0.030344524002430262,
+          "warm_write_interval_s": 0.010292578001099173,
+          "wall_s": 0.2366111270021065,
+          "max_event_loop_lag_s": 0.23474431199833634
+        }
+      ],
+      "summary": {
+        "cold_first_write_s": {
+          "n": 10,
+          "p50_ms": 30.307048500617384,
+          "p95_ms": 30.734637002751697
+        },
+        "warm_write_interval_s": {
+          "n": 10,
+          "p50_ms": 10.218449499006965,
+          "p95_ms": 10.310415000276407
+        },
+        "wall_s": {
+          "n": 10,
+          "p50_ms": 234.87013300109538,
+          "p95_ms": 238.66948800059617
+        },
+        "max_event_loop_lag_s": {
+          "n": 10,
+          "p50_ms": 232.9718360001134,
+          "p95_ms": 236.7460820027627
+        }
+      }
+    },
+    "stt": {
+      "configuration": "base/cpu/int8/beam_size=1/vad_filter=False",
+      "cold_kind": "new model instance (OS cache warm); first sample also includes cold Python imports",
+      "cold": [
+        {
+          "fixture": 1,
+          "wall_s": 1.8052404619993467,
+          "max_event_loop_lag_s": 1.1077411629998533,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.566761537000275,
+          "max_event_loop_lag_s": 1.1076793730030186,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.6011186899995664,
+          "max_event_loop_lag_s": 1.1786258399992657,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.678240941997501,
+          "max_event_loop_lag_s": 1.2501199469993007,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.7857651279991842,
+          "max_event_loop_lag_s": 1.3123429579977237,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        }
+      ],
+      "warm": [
+        {
+          "fixture": 0,
+          "wall_s": 1.0178836909981328,
+          "max_event_loop_lag_s": 1.0160027050009812,
+          "wer": 0.0,
+          "transcript_sha256": "2eb64daa887997b7902ec3f98683e513ded2344f0230ac911d380a8c2e808ca4"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.096399908001331,
+          "max_event_loop_lag_s": 1.09173465599856,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 2,
+          "wall_s": 1.081808414997795,
+          "max_event_loop_lag_s": 1.0751448519990372,
+          "wer": 0.0,
+          "transcript_sha256": "1f3e65746ee3a6e0f2993310af548e6db27d940a8a2e275aebb7b3fdb2863c0a"
+        },
+        {
+          "fixture": 3,
+          "wall_s": 1.0953507549966162,
+          "max_event_loop_lag_s": 1.0780546579994261,
+          "wer": 0.0,
+          "transcript_sha256": "8d292996605953be0d2bd18a1c616074efdc2ec652581f5c999bcc969987a9cc"
+        },
+        {
+          "fixture": 4,
+          "wall_s": 0.9484385569994629,
+          "max_event_loop_lag_s": 0.9323446290004067,
+          "wer": 0.0,
+          "transcript_sha256": "35492ff1fe06c8f93b73487cdb3076c3945df4f8c430c98e1f21b38803cfab02"
+        },
+        {
+          "fixture": 5,
+          "wall_s": 0.8970288689997687,
+          "max_event_loop_lag_s": 0.8925115269998496,
+          "wer": 0.0,
+          "transcript_sha256": "3f7f14ded4b6f653bb4fc9fd5ac78058d4d08ff1d0d5b96cc389c67436afc39e"
+        },
+        {
+          "fixture": 6,
+          "wall_s": 1.1191171610007586,
+          "max_event_loop_lag_s": 1.1045323490001902,
+          "wer": 0.0,
+          "transcript_sha256": "b27ef74946fc08f4fb4714e14180a178e9a6623e4c1d8be0576e418fb38f1071"
+        },
+        {
+          "fixture": 7,
+          "wall_s": 1.1097243069998513,
+          "max_event_loop_lag_s": 1.102546960999869,
+          "wer": 0.0,
+          "transcript_sha256": "735902c7e0450cf7aaebc9759d0317ab5a4d95291612e749f1ac1601f9a5dd1b"
+        },
+        {
+          "fixture": 8,
+          "wall_s": 1.2428213370003505,
+          "max_event_loop_lag_s": 1.2244664499998617,
+          "wer": 0.0,
+          "transcript_sha256": "d9e5ec15e9e7383200a26cee6683eec0297c67b011f7add83d7f83bd75bea170"
+        },
+        {
+          "fixture": 9,
+          "wall_s": 1.0842438449981273,
+          "max_event_loop_lag_s": 1.0770622649983561,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 0,
+          "wall_s": 1.137416186997143,
+          "max_event_loop_lag_s": 1.1329121499988541,
+          "wer": 0.0,
+          "transcript_sha256": "2eb64daa887997b7902ec3f98683e513ded2344f0230ac911d380a8c2e808ca4"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.1440144000007422,
+          "max_event_loop_lag_s": 1.142078190001892,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 2,
+          "wall_s": 0.9762186709995149,
+          "max_event_loop_lag_s": 0.9743140050017682,
+          "wer": 0.0,
+          "transcript_sha256": "1f3e65746ee3a6e0f2993310af548e6db27d940a8a2e275aebb7b3fdb2863c0a"
+        },
+        {
+          "fixture": 3,
+          "wall_s": 1.0634855220014288,
+          "max_event_loop_lag_s": 1.056425218998309,
+          "wer": 0.0,
+          "transcript_sha256": "8d292996605953be0d2bd18a1c616074efdc2ec652581f5c999bcc969987a9cc"
+        },
+        {
+          "fixture": 4,
+          "wall_s": 1.0241562340015662,
+          "max_event_loop_lag_s": 1.0148226739988313,
+          "wer": 0.0,
+          "transcript_sha256": "35492ff1fe06c8f93b73487cdb3076c3945df4f8c430c98e1f21b38803cfab02"
+        },
+        {
+          "fixture": 5,
+          "wall_s": 0.8425043940005708,
+          "max_event_loop_lag_s": 0.8380677099998575,
+          "wer": 0.0,
+          "transcript_sha256": "3f7f14ded4b6f653bb4fc9fd5ac78058d4d08ff1d0d5b96cc389c67436afc39e"
+        },
+        {
+          "fixture": 6,
+          "wall_s": 0.9269088090004516,
+          "max_event_loop_lag_s": 0.9222876089992933,
+          "wer": 0.0,
+          "transcript_sha256": "b27ef74946fc08f4fb4714e14180a178e9a6623e4c1d8be0576e418fb38f1071"
+        },
+        {
+          "fixture": 7,
+          "wall_s": 1.1103405670000939,
+          "max_event_loop_lag_s": 1.098776527000562,
+          "wer": 0.0,
+          "transcript_sha256": "735902c7e0450cf7aaebc9759d0317ab5a4d95291612e749f1ac1601f9a5dd1b"
+        },
+        {
+          "fixture": 8,
+          "wall_s": 1.1357832069988945,
+          "max_event_loop_lag_s": 1.1170880850008398,
+          "wer": 0.0,
+          "transcript_sha256": "d9e5ec15e9e7383200a26cee6683eec0297c67b011f7add83d7f83bd75bea170"
+        },
+        {
+          "fixture": 9,
+          "wall_s": 1.1297209779986588,
+          "max_event_loop_lag_s": 1.1237288999986486,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        }
+      ],
+      "summary": {
+        "cold": {
+          "wall_s": {
+            "n": 5,
+            "p50_ms": 1678.240941997501,
+            "p95_ms": 1805.2404619993467
+          },
+          "max_event_loop_lag_s": {
+            "n": 5,
+            "p50_ms": 1178.6258399992657,
+            "p95_ms": 1312.3429579977237
+          }
+        },
+        "warm": {
+          "wall_s": {
+            "n": 20,
+            "p50_ms": 1089.7972999973717,
+            "p95_ms": 1144.0144000007422
+          },
+          "max_event_loop_lag_s": {
+            "n": 20,
+            "p50_ms": 1077.5584614988911,
+            "p95_ms": 1142.078190001892
+          }
+        }
+      },
+      "mean_warm_wer": 0.0
+    }
+  },
+  "after": {
+    "label": "after-final",
+    "playback": {
+      "kind": "controlled fake speaker; 30ms open + 20 x 10ms writes; buffered frames",
+      "pcm_sha256": "1ef79ccbe2f65ee0fd42be34e18f6638db2a3e002d9e6ac0092deaa98d6b5630",
+      "rows": [
+        {
+          "cold_first_write_s": 0.031981727999664145,
+          "warm_write_interval_s": 0.01045919500029413,
+          "wall_s": 0.24143452499993145,
+          "max_event_loop_lag_s": 0.0011358410014945548
+        },
+        {
+          "cold_first_write_s": 0.030918945001758402,
+          "warm_write_interval_s": 0.010482175999641186,
+          "wall_s": 0.24113223799940897,
+          "max_event_loop_lag_s": 0.001116700998361921
+        },
+        {
+          "cold_first_write_s": 0.031065418999787653,
+          "warm_write_interval_s": 0.010498861000087345,
+          "wall_s": 0.24150598499909393,
+          "max_event_loop_lag_s": 0.001180299998348346
+        },
+        {
+          "cold_first_write_s": 0.03065162699931534,
+          "warm_write_interval_s": 0.010463246999279363,
+          "wall_s": 0.24009354999725474,
+          "max_event_loop_lag_s": 0.00109663300140528
+        },
+        {
+          "cold_first_write_s": 0.03086421199986944,
+          "warm_write_interval_s": 0.010489448999578599,
+          "wall_s": 0.2404767219995847,
+          "max_event_loop_lag_s": 0.0010622009981016162
+        },
+        {
+          "cold_first_write_s": 0.030676103000587318,
+          "warm_write_interval_s": 0.010393958997156005,
+          "wall_s": 0.23927293899760116,
+          "max_event_loop_lag_s": 0.001089509998972062
+        },
+        {
+          "cold_first_write_s": 0.030782311001530616,
+          "warm_write_interval_s": 0.010545903001911938,
+          "wall_s": 0.24123906499880832,
+          "max_event_loop_lag_s": 0.0010963179997343104
+        },
+        {
+          "cold_first_write_s": 0.03115333399910014,
+          "warm_write_interval_s": 0.010454278002725914,
+          "wall_s": 0.2399109120015055,
+          "max_event_loop_lag_s": 0.001105867999693146
+        },
+        {
+          "cold_first_write_s": 0.030609363999246852,
+          "warm_write_interval_s": 0.010407947000203421,
+          "wall_s": 0.23948619299699203,
+          "max_event_loop_lag_s": 0.0011316570020862855
+        },
+        {
+          "cold_first_write_s": 0.03070775699961814,
+          "warm_write_interval_s": 0.010408617999928538,
+          "wall_s": 0.23977573800220853,
+          "max_event_loop_lag_s": 0.001127332998701604
+        }
+      ],
+      "summary": {
+        "cold_first_write_s": {
+          "n": 10,
+          "p50_ms": 30.823261500700028,
+          "p95_ms": 31.981727999664145
+        },
+        "warm_write_interval_s": {
+          "n": 10,
+          "p50_ms": 10.461220999786747,
+          "p95_ms": 10.545903001911938
+        },
+        "wall_s": {
+          "n": 10,
+          "p50_ms": 240.28513599841972,
+          "p95_ms": 241.50598499909393
+        },
+        "max_event_loop_lag_s": {
+          "n": 10,
+          "p50_ms": 1.1112844990275335,
+          "p95_ms": 1.180299998348346
+        }
+      }
+    },
+    "stt": {
+      "configuration": "base/cpu/int8/beam_size=1/vad_filter=False",
+      "cold_kind": "new model instance (OS cache warm); first sample also includes cold Python imports",
+      "cold": [
+        {
+          "fixture": 1,
+          "wall_s": 1.6918413229977887,
+          "max_event_loop_lag_s": 0.0687395399986126,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.3459909919984057,
+          "max_event_loop_lag_s": 0.06789674100259435,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.1438206049970177,
+          "max_event_loop_lag_s": 0.06913265200314345,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.3905776620013057,
+          "max_event_loop_lag_s": 0.067867897000222,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 2.0268985599977896,
+          "max_event_loop_lag_s": 0.13693239599929075,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        }
+      ],
+      "warm": [
+        {
+          "fixture": 0,
+          "wall_s": 0.987309552001534,
+          "max_event_loop_lag_s": 0.0015077659995295107,
+          "wer": 0.0,
+          "transcript_sha256": "488893005a18db9ac404c56054a30852b3486de5311ffec06d686f0c93f4c18a"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.004069069000252,
+          "max_event_loop_lag_s": 0.003534849999094149,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 2,
+          "wall_s": 1.0186341710032139,
+          "max_event_loop_lag_s": 0.0024925219990545883,
+          "wer": 0.0,
+          "transcript_sha256": "1f3e65746ee3a6e0f2993310af548e6db27d940a8a2e275aebb7b3fdb2863c0a"
+        },
+        {
+          "fixture": 3,
+          "wall_s": 1.062021513000218,
+          "max_event_loop_lag_s": 0.005154515998990973,
+          "wer": 0.0,
+          "transcript_sha256": "8d292996605953be0d2bd18a1c616074efdc2ec652581f5c999bcc969987a9cc"
+        },
+        {
+          "fixture": 4,
+          "wall_s": 0.9526794899975357,
+          "max_event_loop_lag_s": 0.01662577800056897,
+          "wer": 0.0,
+          "transcript_sha256": "35492ff1fe06c8f93b73487cdb3076c3945df4f8c430c98e1f21b38803cfab02"
+        },
+        {
+          "fixture": 5,
+          "wall_s": 0.8943285280001874,
+          "max_event_loop_lag_s": 0.0030826000006054528,
+          "wer": 0.0,
+          "transcript_sha256": "3f7f14ded4b6f653bb4fc9fd5ac78058d4d08ff1d0d5b96cc389c67436afc39e"
+        },
+        {
+          "fixture": 6,
+          "wall_s": 0.8804476850018546,
+          "max_event_loop_lag_s": 0.010733579998894129,
+          "wer": 0.0,
+          "transcript_sha256": "b27ef74946fc08f4fb4714e14180a178e9a6623e4c1d8be0576e418fb38f1071"
+        },
+        {
+          "fixture": 7,
+          "wall_s": 1.1329040419986995,
+          "max_event_loop_lag_s": 0.013744555999845033,
+          "wer": 0.0,
+          "transcript_sha256": "735902c7e0450cf7aaebc9759d0317ab5a4d95291612e749f1ac1601f9a5dd1b"
+        },
+        {
+          "fixture": 8,
+          "wall_s": 1.1825905329969828,
+          "max_event_loop_lag_s": 0.005514234999689506,
+          "wer": 0.0,
+          "transcript_sha256": "d9e5ec15e9e7383200a26cee6683eec0297c67b011f7add83d7f83bd75bea170"
+        },
+        {
+          "fixture": 9,
+          "wall_s": 1.2932686950007337,
+          "max_event_loop_lag_s": 0.005836492000933504,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 0,
+          "wall_s": 1.1790220009970653,
+          "max_event_loop_lag_s": 0.006585624000261305,
+          "wer": 0.0,
+          "transcript_sha256": "488893005a18db9ac404c56054a30852b3486de5311ffec06d686f0c93f4c18a"
+        },
+        {
+          "fixture": 1,
+          "wall_s": 1.1214427839986456,
+          "max_event_loop_lag_s": 0.009412985000788467,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        },
+        {
+          "fixture": 2,
+          "wall_s": 1.010940957999992,
+          "max_event_loop_lag_s": 0.004936886002222309,
+          "wer": 0.0,
+          "transcript_sha256": "1f3e65746ee3a6e0f2993310af548e6db27d940a8a2e275aebb7b3fdb2863c0a"
+        },
+        {
+          "fixture": 3,
+          "wall_s": 1.010676338999474,
+          "max_event_loop_lag_s": 0.0021143700000247918,
+          "wer": 0.0,
+          "transcript_sha256": "8d292996605953be0d2bd18a1c616074efdc2ec652581f5c999bcc969987a9cc"
+        },
+        {
+          "fixture": 4,
+          "wall_s": 0.9590739929990377,
+          "max_event_loop_lag_s": 0.005522628999140579,
+          "wer": 0.0,
+          "transcript_sha256": "35492ff1fe06c8f93b73487cdb3076c3945df4f8c430c98e1f21b38803cfab02"
+        },
+        {
+          "fixture": 5,
+          "wall_s": 0.5939604890008923,
+          "max_event_loop_lag_s": 0.0022709400004241615,
+          "wer": 0.0,
+          "transcript_sha256": "3f7f14ded4b6f653bb4fc9fd5ac78058d4d08ff1d0d5b96cc389c67436afc39e"
+        },
+        {
+          "fixture": 6,
+          "wall_s": 0.7723208960014745,
+          "max_event_loop_lag_s": 0.003498472000908805,
+          "wer": 0.0,
+          "transcript_sha256": "b27ef74946fc08f4fb4714e14180a178e9a6623e4c1d8be0576e418fb38f1071"
+        },
+        {
+          "fixture": 7,
+          "wall_s": 0.7531652479992772,
+          "max_event_loop_lag_s": 0.00566684200061718,
+          "wer": 0.0,
+          "transcript_sha256": "735902c7e0450cf7aaebc9759d0317ab5a4d95291612e749f1ac1601f9a5dd1b"
+        },
+        {
+          "fixture": 8,
+          "wall_s": 0.7829526620007528,
+          "max_event_loop_lag_s": 0.0019670760015724226,
+          "wer": 0.0,
+          "transcript_sha256": "d9e5ec15e9e7383200a26cee6683eec0297c67b011f7add83d7f83bd75bea170"
+        },
+        {
+          "fixture": 9,
+          "wall_s": 1.0043423290007922,
+          "max_event_loop_lag_s": 0.004704330000502523,
+          "wer": 0.0,
+          "transcript_sha256": "cd61bf0cc67fc2233111c91167e2abb3c652200bfe22059a166475d37366b7a8"
+        }
+      ],
+      "summary": {
+        "cold": {
+          "wall_s": {
+            "n": 5,
+            "p50_ms": 1390.5776620013057,
+            "p95_ms": 2026.8985599977896
+          },
+          "max_event_loop_lag_s": {
+            "n": 5,
+            "p50_ms": 68.7395399986126,
+            "p95_ms": 136.93239599929075
+          }
+        },
+        "warm": {
+          "wall_s": {
+            "n": 20,
+            "p50_ms": 1004.2056990005221,
+            "p95_ms": 1182.5905329969828
+          },
+          "max_event_loop_lag_s": {
+            "n": 20,
+            "p50_ms": 5.045701000606641,
+            "p95_ms": 13.744555999845034
+          }
+        }
+      },
+      "mean_warm_wer": 0.0
+    }
+  },
+  "measurement_definition": "Event-loop lag distribution is p50/p95 across per-trial MAXIMUM lateness of a2ms heartbeat, not a pooled percentile of all callbacks. Playback cold=first write on fresh speaker stream; STT cold=new model instance.",
+  "references": [
+    "https://docs.livekit.io/testing/observability/data/",
+    "https://docs.livekit.io/reference/python/livekit/rtc/audio_source.html",
+    "https://docs.livekit.io/agents/logic/workflows/",
+    "https://docs.livekit.io/testing/overview/"
+  ],
+  "validation": {
+    "targeted_backend_suite": {
+      "passed": 204,
+      "skipped_live_model": 5,
+      "seconds": 64.98
+    },
+    "integrated_full_suite": {
+      "passed": 2272,
+      "skipped_live_model": 10,
+      "warnings": 21,
+      "seconds": 246.32,
+      "exit_code": 0,
+      "log": "/tmp/jarvis-backend-latency/full-pytest.log",
+      "command": "uv run pytest -q --tb=short",
+      "environment": "Credential-bearing environment variables removed; PYTHON_DOTENV_DISABLED=1, JARVIS_LIVE_LLM=0, JARVIS_CLAUDE=0, JARVIS_REGRESSION_UPDATE=0, HF_HUB_OFFLINE=1; DISPLAY/WAYLAND_DISPLAY empty; session DBus path invalid. Existing per-test app/profile/home mocks retained."
+    },
+    "ruff": "passed for all11 newly owned Python files including recovery and Needle isolation tests; shared agent/wake source modified narrowly and syntax checked",
+    "independent_review": "two independent audio reviews green; follow-up recovery review green after repeated-cancel fix",
+    "call_recovery": "6 mocked RTC session cases, each regression reproduced before fixing; covers device error, ended track, quiet track, rewake/disconnect/cancel, repeated cancel. No hardware/model calls.",
+    "post_suite_test_isolation": {
+      "passed": 3,
+      "seconds": 0.37,
+      "scope": "Needle intentional-SIGSEGV tests plus harmless Linux PR_GET_DUMPABLE assertion; child-only PR_SET_DUMPABLE=0 suppresses system core/desktop handlers. Fail closed if setting fails. No production/global settings changed. Full suite not repeated for fixture-only isolation."
+    },
+    "focused_wake_audio_suite": {
+      "passed": 51,
+      "seconds": 0.76
+    }
+  },
+  "source_sha256": {
+    "src/agent.py": "6302e96d91e85127ff686c1a84e99e0f5dd12b69f517ef4744314eaff6af2dfa",
+    "src/audio_playback.py": "22d6460b9e395cb142df2fe96f2735299983b5998ea5a0d3a267a80fc4bbaab8",
+    "src/local_stt.py": "89867d7205a5defc7fd9692c2b4ef46658cd245da96621d26644d667ecba8df1",
+    "src/latency.py": "7220cc13f905cd08a2efbf65dee58b90eb11d36a70b7ebbe464cc54e03eb1c11",
+    "src/wake_client.py": "083928b0cfa67c53cbf005d0232bbbe764ab679ec695600843aa9fdf361b921e",
+    "scripts/voice_latency.py": "358330877ad450f8a742ce67bbed2fc9c910cc7430404b16b33886730c71b3a8",
+    "scripts/voice_runtime_benchmark.py": "3a4d510d2fef719b7e485ac5c6c95fdafd66495b5e444a119cbe256e13aede10",
+    "tests/test_audio_playback.py": "7acc8a82164fc8bf2cd5fd60626a9deab3147953585fbfa90fa8272c7074cba9",
+    "tests/test_local_stt.py": "833b6f0c67f6fb12ff96411a8bc12e1416c4a56e2cf8e447783c4d188620696d",
+    "tests/test_latency.py": "d149e6eb02e583fb0089f41a940bb3fecce905adf4983c256f838c287a4a98c6",
+    "tests/test_direct_perf.py": "96c803ba5d9622343fa45c6c70fc752c984403f252d591c214d24a77934d66cb",
+    "tests/test_voice_latency_probe.py": "537b5181c7a96004710446d87c7d5d70f38e9199ad91c9724a9b86b400371ebe",
+    "tests/test_wake_client.py": "46cbf5302dcc63e20b57a5efca68fee2f1148cfaae032a55ffda88184a912c08",
+    "tests/test_wake_recovery.py": "5059ad13127ff2b4cb0f91f4545274cfca220c24802bfd2d94839e5325235899",
+    "tests/test_needle_router.py": "f2661e9f09dbea0aa060315b326d4eea051f80a313e5f0a4d047691d49b4b517"
+  }
+}

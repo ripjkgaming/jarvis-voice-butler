@@ -50,6 +50,17 @@ async def run_cmd(
         return 127, "", f"command not found: {argv[0]}"
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.CancelledError:
+        # A cancelled tool must not leave its subprocess acting after the
+        # caller releases desktop ownership. Drain even repeated cancellation.
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        reaping = asyncio.create_task(proc.wait())
+        while not reaping.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(reaping)
+        reaping.result()
+        raise
     except asyncio.TimeoutError:
         with __import__("contextlib").suppress(Exception):
             proc.kill()

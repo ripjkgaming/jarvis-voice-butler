@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 from livekit.agents.llm import ToolError
@@ -38,10 +39,18 @@ def test_require_local_passes_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
     require_local()
 
 
-def test_resolve_user_path_confines_to_home() -> None:
-    assert _resolve_user_path("/home/ripjk/Documents") is not None
-    assert _resolve_user_path("~/Downloads") is not None
+def test_resolve_user_path_confines_to_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Keep this independent of the developer's home and collection-time
+    # JARVIS_HOME. A root outside /tmp exercises the home allowlist itself.
+    home = Path("/home/jarvis-qa-fixture").resolve()
+    monkeypatch.setattr("system.core.HOME_ROOT", home)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    assert _resolve_user_path(str(home)) == home
+    assert _resolve_user_path(str(home / "Documents")) == home / "Documents"
+    assert _resolve_user_path("~/Downloads") == home / "Downloads"
     assert _resolve_user_path("/tmp/jarvis-test") is not None
+    assert _resolve_user_path(str(home) + "-other/Documents") is None
+    assert _resolve_user_path(str(home / ".." / "someone-else")) is None
     assert _resolve_user_path("/etc/passwd") is None
     assert _resolve_user_path("/") is None
 
@@ -418,7 +427,8 @@ async def test_play_media_opens_system_youtube(monkeypatch) -> None:
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr(
-        "shutil.which", lambda n: None if n == "yt-dlp" else "/usr/bin/brave-browser"
+        "shutil.which",
+        lambda n: "/usr/bin/brave-browser" if n in {"brave-browser", "brave"} else None,
     )
     launched = {}
 
@@ -447,7 +457,10 @@ async def test_play_media_autoplays_top_hit(monkeypatch) -> None:
     from system.core import SystemTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr("shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda n: f"/usr/bin/{n}" if n in {"brave-browser", "brave", "yt-dlp"} else None,
+    )
     launched = {}
 
     class _Search:
@@ -477,7 +490,10 @@ async def test_play_media_empty_query_opens_playlist(monkeypatch) -> None:
     from system.core import SystemTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr("shutil.which", lambda n: "/usr/bin/brave-browser")
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda n: "/usr/bin/brave-browser" if n in {"brave-browser", "brave"} else None,
+    )
     launched = {}
 
     class _Proc:
@@ -589,7 +605,10 @@ async def test_open_app_rejects_unsafe_url(monkeypatch) -> None:
     from system.core import SystemTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr("shutil.which", lambda n: "/usr/bin/brave-browser")
+    monkeypatch.setattr(
+        "shutil.which",
+        lambda n: "/usr/bin/brave-browser" if n in {"brave-browser", "brave"} else None,
+    )
     tools = SystemTools()
     with pytest.raises(ToolError, match="not safe"):
         await SystemTools.open_app(tools, None, app="brave", url="file:///etc/passwd")  # type: ignore[arg-type]

@@ -25,12 +25,14 @@ import ctypes
 import os
 import re
 import struct
+import tempfile
 import time
 
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
 from system import LocalSystemError, log_action, require_local, run_cmd
+from system.computer_use_ownership import serialized_desktop_action
 
 GRID_MAX = 1000
 TYPE_MAX_CHARS = 500
@@ -235,12 +237,21 @@ def sandbox_display() -> str | None:
 
 def sandbox_env(display: str) -> dict[str, str]:
     """Child env pinned to the sandbox display (X11 only, no Wayland)."""
-    env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("WAYLAND_DISPLAY", "SESSION_MANAGER")
+    }
     env.update(
         DISPLAY=display,
         QT_QPA_PLATFORM="xcb",
         GDK_BACKEND="x11",
         XDG_SESSION_TYPE="x11",
+        # An ambient desktop bus can forward single-instance launches back
+        # to the real session, even with DISPLAY pinned to Xvfb. Only the
+        # harness's explicitly private bus may be used; otherwise fail closed.
+        DBUS_SESSION_BUS_ADDRESS=os.environ.get("JARVIS_SANDBOX_BUS_ADDRESS")
+        or "unix:path=/nonexistent/jarvis-sandbox-session-bus",
         # No portal in the sandbox: Qt's KDE theme otherwise blocks startup
         # ~25s on a D-Bus call to a portal that can't run there.
         QT_QPA_PLATFORMTHEME="generic",
@@ -538,17 +549,27 @@ class DesktopTools:
         display = sandbox_display()
         try:
             if display is not None:
-                path = f"/tmp/jarvis-sandbox-{int(time.time() * 1000)}.png"
-                rc, _, err = await run_cmd(
-                    "import",
-                    "-window",
-                    "root",
-                    path,
-                    timeout=15.0,
-                    env=sandbox_env(display),
+                fd, path = tempfile.mkstemp(
+                    prefix="jarvis-sandbox-",
+                    suffix=".png",
+                    dir=os.environ.get("TMPDIR") or None,
                 )
-                if rc != 0:
-                    raise ToolError(f"Sandbox screenshot failed: {err[:200]}.")
+                os.close(fd)
+                try:
+                    rc, _, err = await run_cmd(
+                        "import",
+                        "-window",
+                        "root",
+                        path,
+                        timeout=15.0,
+                        env=sandbox_env(display),
+                    )
+                    if rc != 0:
+                        raise ToolError(f"Sandbox screenshot failed: {err[:200]}.")
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        os.unlink(path)
+                    raise
                 shot = {"path": path}
             else:
                 shot = await SystemTools().take_os_screenshot(context, monitor=monitor)  # type: ignore[arg-type]
@@ -654,6 +675,7 @@ class DesktopTools:
         }
 
     @function_tool()
+    @serialized_desktop_action
     async def desktop_click(
         self, context: RunContext, x: int, y: int, button: str = "left"
     ) -> dict[str, object]:
@@ -697,6 +719,7 @@ class DesktopTools:
         }
 
     @function_tool()
+    @serialized_desktop_action
     async def desktop_type(self, context: RunContext, text: str) -> dict[str, object]:
         """Type text into the focused window (uinput US keyboard).
 
@@ -735,6 +758,7 @@ class DesktopTools:
         return {"typed": len(text), "say": f"Typed {len(text)} characters."}
 
     @function_tool()
+    @serialized_desktop_action
     async def desktop_key(self, context: RunContext, key: str) -> dict[str, object]:
         """Press one safe key (Return, Escape, Tab, arrows, F1-F12...).
 
@@ -778,6 +802,7 @@ class DesktopTools:
         return {"key": key, "say": f"Pressed {key}."}
 
     @function_tool()
+    @serialized_desktop_action
     async def desktop_scroll(
         self, context: RunContext, direction: str, times: int = 1
     ) -> dict[str, object]:

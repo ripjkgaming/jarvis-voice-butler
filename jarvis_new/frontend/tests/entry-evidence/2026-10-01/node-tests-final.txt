@@ -1,0 +1,310 @@
+TAP version 13
+# Subtest: multiple ambient surfaces share one frame and release it on last unsubscribe
+ok 1 - multiple ambient surfaces share one frame and release it on last unsubscribe
+  ---
+  duration_ms: 612.412346
+  type: 'test'
+  ...
+# Subtest: resume starts without catching up hidden time and compositor stalls stay bounded
+ok 2 - resume starts without catching up hidden time and compositor stalls stay bounded
+  ---
+  duration_ms: 213.433509
+  type: 'test'
+  ...
+# Subtest: unsubscribing the last surface inside its frame leaves no orphan loop
+ok 3 - unsubscribing the last surface inside its frame leaves no orphan loop
+  ---
+  duration_ms: 176.06484
+  type: 'test'
+  ...
+# Subtest: all variants preserve full device pixel resolution, including fractional DPR
+ok 4 - all variants preserve full device pixel resolution, including fractional DPR
+  ---
+  duration_ms: 243.293496
+  type: 'test'
+  ...
+# Subtest: steady animation reuses sprites and storage with no new gradients or layout reads
+ok 5 - steady animation reuses sprites and storage with no new gradients or layout reads
+  ---
+  duration_ms: 313.974556
+  type: 'test'
+  ...
+# Subtest: a long draw stall produces the same particle positions as one bounded frame
+ok 6 - a long draw stall produces the same particle positions as one bounded frame
+  ---
+  duration_ms: 144.37008
+  type: 'test'
+  ...
+# Subtest: frame rate does not change particle motion speed
+ok 7 - frame rate does not change particle motion speed
+  ---
+  duration_ms: 61.504245
+  type: 'test'
+  ...
+# Subtest: disposed and zero-size scenes draw nothing and release their backing pixels
+ok 8 - disposed and zero-size scenes draw nothing and release their backing pixels
+  ---
+  duration_ms: 16.546527
+  type: 'test'
+  ...
+# Subtest: a stalled frame advances at most 34 ms; negative deltas never rewind
+ok 9 - a stalled frame advances at most 34 ms; negative deltas never rewind
+  ---
+  duration_ms: 199.792616
+  type: 'test'
+  ...
+# Subtest: concurrent tweens update together before their frame is painted
+ok 10 - concurrent tweens update together before their frame is painted
+  ---
+  duration_ms: 58.491765
+  type: 'test'
+  ...
+# Subtest: settle waits for three actual frames, not its initial condition check
+ok 11 - settle waits for three actual frames, not its initial condition check
+  ---
+  duration_ms: 82.110339
+  type: 'test'
+  ...
+# Subtest: wait times out even when no animation frames arrive
+ok 12 - wait times out even when no animation frames arrive
+  ---
+  duration_ms: 31.470665
+  type: 'test'
+  ...
+# Subtest: a stalled tween finishes at its endpoint after its real-time safety cap
+ok 13 - a stalled tween finishes at its endpoint after its real-time safety cap
+  ---
+  duration_ms: 128.990716
+  type: 'test'
+  ...
+# Subtest: reversal disposal releases pending work and prevents further updates
+ok 14 - reversal disposal releases pending work and prevents further updates
+  ---
+  duration_ms: 223.225651
+  type: 'test'
+  ...
+# Subtest: stalled native discovery falls back after 1.5 s, then retries and caches authenticated discovery
+ok 15 - stalled native discovery falls back after 1.5 s, then retries and caches authenticated discovery
+  ---
+  duration_ms: 312.065542
+  type: 'test'
+  ...
+# Subtest: a rejected native lookup is shared by concurrent callers but does not poison the next lookup
+ok 16 - a rejected native lookup is shared by concurrent callers but does not poison the next lookup
+  ---
+  duration_ms: 88.707212
+  type: 'test'
+  ...
+# Subtest: system and geometry GETs abort at their separate deadlines and can retry
+ok 17 - system and geometry GETs abort at their separate deadlines and can retry
+  ---
+  duration_ms: 132.993967
+  type: 'test'
+  ...
+# Subtest: the GET deadline also covers a stalled response body
+ok 18 - the GET deadline also covers a stalled response body
+  ---
+  duration_ms: 45.340395
+  type: 'test'
+  ...
+# Subtest: a timed-out poll releases its in-flight latch, keeps the last value, and recovers
+ok 19 - a timed-out poll releases its in-flight latch, keeps the last value, and recovers
+  ---
+  duration_ms: 175.46671
+  type: 'test'
+  ...
+# Subtest: shared polls pause immediately while hidden and resume once without duplicate updates
+ok 20 - shared polls pause immediately while hidden and resume once without duplicate updates
+  ---
+  duration_ms: 36.62226
+  type: 'test'
+  ...
+# Subtest: hook path changes and disabled renders never expose the previous endpoint snapshot
+ok 21 - hook path changes and disabled renders never expose the previous endpoint snapshot
+  ---
+  duration_ms: 33.845595
+  type: 'test'
+  ...
+# Subtest: tracer command streams preserve both directions, long tails and landing boundaries
+ok 22 - tracer command streams preserve both directions, long tails and landing boundaries
+  ---
+  duration_ms: 153.439225
+  type: 'test'
+  ...
+# Subtest: pool command streams preserve fractional endpoints, insets, resizes and arrival easing
+ok 23 - pool command streams preserve fractional endpoints, insets, resizes and arrival easing
+  ---
+  duration_ms: 132.426111
+  type: 'test'
+  ...
+# Subtest: tracers allocate only when visible and reuse double-precision coordinates
+ok 24 - tracers allocate only when visible and reuse double-precision coordinates
+  ---
+  duration_ms: 6.268971
+  type: 'test'
+  ...
+# Subtest: tracer buffers reserve normal tail growth and expand only for a larger tail
+ok 25 - tracer buffers reserve normal tail growth and expand only for a larger tail
+  ---
+  duration_ms: 18.75309
+  type: 'test'
+  ...
+# Subtest: each tracer owns its scratch; drawing another tracer cannot overwrite it
+ok 26 - each tracer owns its scratch; drawing another tracer cannot overwrite it
+  ---
+  duration_ms: 4.076716
+  type: 'test'
+  ...
+# Subtest: pool buffers reserve normal spread and grow only for wider frames
+ok 27 - pool buffers reserve normal spread and grow only for wider frames
+  ---
+  duration_ms: 3.335696
+  type: 'test'
+  ...
+# Subtest: pool buffers also grow for an actual surface wider than the normal spread
+ok 28 - pool buffers also grow for an actual surface wider than the normal spread
+  ---
+  duration_ms: 9.205751
+  type: 'test'
+  ...
+# Subtest: pool fill and meniscus use exactly the same sampled coordinates
+ok 29 - pool fill and meniscus use exactly the same sampled coordinates
+  ---
+  duration_ms: 7.427221
+  type: 'test'
+  ...
+# Subtest: all phases reuse native-DPR sprites and seeded storage without frame-time gradients
+ok 30 - all phases reuse native-DPR sprites and seeded storage without frame-time gradients
+  ---
+  duration_ms: 1004.470964
+  type: 'test'
+  ...
+# Subtest: cross-monitor core leaves and receives through opposite facing edges in every direction
+ok 31 - cross-monitor core leaves and receives through opposite facing edges in every direction
+  ---
+  duration_ms: 387.208421
+  type: 'test'
+  ...
+# Subtest: native viewport resizes reuse the glow atlas until DPR changes
+ok 32 - native viewport resizes reuse the glow atlas until DPR changes
+  ---
+  duration_ms: 149.752287
+  type: 'test'
+  ...
+# Subtest: compression anchors reactor and descent lands precisely on target taskbar center
+ok 33 - compression anchors reactor and descent lands precisely on target taskbar center
+  ---
+  duration_ms: 148.073753
+  type: 'test'
+  ...
+# Subtest: blueprint matches exact inset/bar rectangle and completed reveal is entirely transparent
+ok 34 - blueprint matches exact inset/bar rectangle and completed reveal is entirely transparent
+  ---
+  duration_ms: 93.557773
+  type: 'test'
+  ...
+# Subtest: bounded progress is deterministic and disposal releases backing pixels
+ok 35 - bounded progress is deterministic and disposal releases backing pixels
+  ---
+  duration_ms: 87.463641
+  type: 'test'
+  ...
+# Subtest: equal-size monitor moves require a fresh nonce reporting the destination coordinates
+ok 36 - equal-size monitor moves require a fresh nonce reporting the destination coordinates
+  ---
+  duration_ms: 783.88377
+  type: 'test'
+  ...
+# Subtest: return acknowledgement requires the saved screen and a fully resized viewport
+ok 37 - return acknowledgement requires the saved screen and a fully resized viewport
+  ---
+  duration_ms: 189.962378
+  type: 'test'
+  ...
+# Subtest: a pending report keeps its nonce; a newer primary is taken from the fresh report
+ok 38 - a pending report keeps its nonce; a newer primary is taken from the fresh report
+  ---
+  duration_ms: 302.1667
+  type: 'test'
+  ...
+# Subtest: stalled native measurement is bounded and its late resolution cannot restart polling
+ok 39 - stalled native measurement is bounded and its late resolution cannot restart polling
+  ---
+  duration_ms: 120.145255
+  type: 'test'
+  ...
+# Subtest: stalled geometry response is bounded and a late valid report cannot acknowledge arrival
+ok 40 - stalled geometry response is bounded and a late valid report cannot acknowledge arrival
+  ---
+  duration_ms: 121.894389
+  type: 'test'
+  ...
+# Subtest: reversal cancels pending retries and never measures the destination afterward
+ok 41 - reversal cancels pending retries and never measures the destination afterward
+  ---
+  duration_ms: 68.772745
+  type: 'test'
+  ...
+# Subtest: unavailable geometry fails safely on its real-time deadline without extra measurements
+ok 42 - unavailable geometry fails safely on its real-time deadline without extra measurements
+  ---
+  duration_ms: 71.801403
+  type: 'test'
+  ...
+# Subtest: summon acknowledges immediately and HTTP acceptance alone is not ready
+ok 43 - summon acknowledges immediately and HTTP acceptance alone is not ready
+  ---
+  duration_ms: 9.460741
+  type: 'test'
+  ...
+# Subtest: actual stages advance without fabricated timed substeps
+ok 44 - actual stages advance without fabricated timed substeps
+  ---
+  duration_ms: 0.879598
+  type: 'test'
+  ...
+# Subtest: online is a short decoration and never delays readiness
+ok 45 - online is a short decoration and never delays readiness
+  ---
+  duration_ms: 0.516491
+  type: 'test'
+  ...
+# Subtest: an older room generation cannot acknowledge a new local request
+ok 46 - an older room generation cannot acknowledge a new local request
+  ---
+  duration_ms: 0.447372
+  type: 'test'
+  ...
+# Subtest: local rejection and missing acknowledgement have truthful distinct states
+ok 47 - local rejection and missing acknowledgement have truthful distinct states
+  ---
+  duration_ms: 0.333282
+  type: 'test'
+  ...
+# Subtest: no invented online state on an empty room or expired pending stage
+ok 48 - no invented online state on an empty room or expired pending stage
+  ---
+  duration_ms: 0.495325
+  type: 'test'
+  ...
+# Subtest: invalid timestamps and unrecognised boot stages never create progress
+ok 49 - invalid timestamps and unrecognised boot stages never create progress
+  ---
+  duration_ms: 0.373403
+  type: 'test'
+  ...
+# Subtest: legacy boot acknowledgement cannot dismiss a new wake generation
+ok 50 - legacy boot acknowledgement cannot dismiss a new wake generation
+  ---
+  duration_ms: 67.192434
+  type: 'test'
+  ...
+1..50
+# tests 50
+# suites 0
+# pass 50
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2820.202066

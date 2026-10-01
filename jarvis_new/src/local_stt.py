@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 
 import numpy as np
 from livekit.agents import stt, utils
@@ -100,6 +101,7 @@ class FasterWhisperSTT(stt.STT):
             "JARVIS_WHISPER_COMPUTE", "int8"
         )
         self._model = None
+        self._inference_lock = threading.Lock()
 
     @property
     def model(self) -> str:
@@ -126,6 +128,29 @@ class FasterWhisperSTT(stt.STT):
             )
         return self._model
 
+    def _transcribe(self, audio: np.ndarray, language: str, cancelled: threading.Event):
+        # faster-whisper returns a lazy generator: decoding happens during
+        # iteration, not just transcribe(). Keep BOTH on the worker. Serialize
+        # with the lazy load so cancellation/new turns cannot race model setup.
+        with self._inference_lock:
+            if cancelled.is_set():
+                return []  # an obsolete queued turn must not delay the next one
+            segments, _info = self._load().transcribe(
+                audio, language=language, beam_size=1, vad_filter=False
+            )
+            result = []
+            try:
+                while not cancelled.is_set():
+                    try:
+                        result.append(next(segments))
+                    except StopIteration:
+                        break
+            finally:
+                close = getattr(segments, "close", None)
+                if close is not None:
+                    close()
+            return result
+
     async def _recognize_impl(
         self,
         buffer: utils.AudioBuffer,
@@ -140,10 +165,12 @@ class FasterWhisperSTT(stt.STT):
                 alternatives=[stt.SpeechData(language="en", text="")],
             )
         lang = language if utils.is_given(language) else "en"
-        model = await asyncio.to_thread(self._load)
-        segments, _info = await asyncio.to_thread(
-            model.transcribe, audio, language=lang, beam_size=1, vad_filter=False
-        )
+        cancelled = threading.Event()
+        try:
+            segments = await asyncio.to_thread(self._transcribe, audio, lang, cancelled)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
         texts: list[str] = []
         logprobs: list[float] = []
         for seg in segments:

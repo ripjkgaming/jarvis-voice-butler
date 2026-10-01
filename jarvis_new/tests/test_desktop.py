@@ -539,3 +539,60 @@ def test_uinput_mouse_rejects_bad_button_and_missing_device(
     monkeypatch.setattr("os.open", _noent)
     with pytest.raises(desktop_module.DesktopError, match="uinput"):
         UInputMouse(1920, 1080)
+
+
+async def test_sandbox_screenshots_use_private_unique_paths(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from PIL import Image
+
+    _local(monkeypatch)
+    monkeypatch.setenv("JARVIS_DESKTOP_SANDBOX", ":91")
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(desktop_module.time, "time", lambda: 1234.0)
+    paths = []
+
+    async def fake_capture(*argv, **kwargs):
+        assert argv[:3] == ("import", "-window", "root")
+        path = Path(argv[3])
+        assert path.parent == tmp_path
+        paths.append(path)
+        Image.new("RGB", (100, 50)).save(path)
+        return 0, "", ""
+
+    monkeypatch.setattr(desktop_module, "run_cmd", fake_capture)
+    tools = DesktopTools()
+    first = await tools.desktop_screenshot(None)
+    second = await tools.desktop_screenshot(None)
+    assert first["path"] != second["path"]
+    assert (first["width"], first["height"]) == (100, 50)
+    assert len(paths) == 2
+
+
+async def test_failed_sandbox_capture_removes_empty_temp_file(monkeypatch, tmp_path):
+    _local(monkeypatch)
+    monkeypatch.setenv("JARVIS_DESKTOP_SANDBOX", ":91")
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+
+    async def failed_capture(*argv, **kwargs):
+        return 1, "", "fake capture failure"
+
+    monkeypatch.setattr(desktop_module, "run_cmd", failed_capture)
+    with pytest.raises(ToolError, match="fake capture failure"):
+        await DesktopTools().desktop_screenshot(None)
+    assert not list(tmp_path.glob("*.png"))
+
+
+@pytest.mark.parametrize("private_bus", ["", "unix:path=/tmp/private-test-bus"])
+def test_sandbox_env_never_uses_ambient_desktop_bus(monkeypatch, private_bus):
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/real/bus")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("SESSION_MANAGER", "real-session-manager")
+    monkeypatch.setenv("JARVIS_SANDBOX_BUS_ADDRESS", private_bus)
+    child = desktop_module.sandbox_env(":91")
+    assert child["DISPLAY"] == ":91"
+    assert child["DBUS_SESSION_BUS_ADDRESS"] == (
+        private_bus or "unix:path=/nonexistent/jarvis-sandbox-session-bus"
+    )
+    assert "WAYLAND_DISPLAY" not in child
+    assert "SESSION_MANAGER" not in child

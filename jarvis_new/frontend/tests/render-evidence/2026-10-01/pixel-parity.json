@@ -1,0 +1,12 @@
+[
+  {
+    "dpr": 1,
+    "comparisons": 251,
+    "failures": []
+  },
+  {
+    "dpr": 2,
+    "comparisons": 251,
+    "failures": []
+  }
+]

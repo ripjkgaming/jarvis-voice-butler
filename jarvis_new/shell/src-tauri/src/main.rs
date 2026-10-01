@@ -3,7 +3,7 @@
 //! The shell owns what the Python sidecars cannot do themselves: boot order
 //! with readiness gates ([`manager`]), the contract env ([`env_cfg`]),
 //! tray presence ([`tray`]), global summon ([`hotkey`]), single-instance
-//! CLI (`toggle|talk|mute|unmute|quit|diagnostics`), and autostart.
+//! CLI (`toggle|talk|suitshow|mute|unmute|quit|diagnostics`), and autostart.
 //! Product logic stays in Python/TS.
 
 mod commands;
@@ -53,6 +53,7 @@ fn main() {
                 "draftsshow" => tray::show_drafts(app),
                 "draftshide" => tray::hide_drafts(app),
                 "draftsstate" => print_window_state(app, "drafts"),
+                "suitshow" => tray::show_suit_overlay(app),
                 "state" => print_overlay_state(app),
                 "schoolon" => school::enter(app),
                 "schooloff" => school::exit(app),
@@ -86,7 +87,8 @@ fn main() {
             commands::mic_status,
             commands::talk,
             school::school_menu,
-            school::school_stage
+            school::school_stage,
+            school::suit_focus
         ])
         // No `capabilities/` dir in Phase 1: the placeholder UI makes zero
         // frontend→backend calls, and all plugin use below is Rust-side
@@ -94,6 +96,16 @@ fn main() {
         // `invoke('mint_token')` + capabilities together.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
+            // `suitshow` only targets an existing primary. The single-instance
+            // plugin forwards it and exits before this setup when one exists.
+            // If that instance disappeared, fail before starting any sidecars.
+            if std::env::args().nth(1).as_deref() == Some("suitshow") {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "suitshow requires the running Jarvis desktop shell",
+                )
+                .into());
+            }
             // Autostart default-ON with tray opt-out: enable once, then
             // leave the user's choice alone (marker file = asked already).
             let marker = env_cfg::jarvis_home().join(".autostart Asked");

@@ -1,0 +1,170 @@
+{
+  "method": "Headless Chromium real-canvas command submission; warmed ABBAAB; sampled JS allocations include collected objects; not presentation/GPU timing.",
+  "browser": "151.0.7922.34",
+  "summary": [
+    {
+      "renderer": "pool",
+      "frames": 480,
+      "before": {
+        "submission_ms": 40.3,
+        "sampled_js_alloc_bytes": 5053968
+      },
+      "after": {
+        "submission_ms": 21.2,
+        "sampled_js_alloc_bytes": 296032
+      }
+    },
+    {
+      "renderer": "tracer",
+      "frames": 480,
+      "before": {
+        "submission_ms": 54.5,
+        "sampled_js_alloc_bytes": 4655276
+      },
+      "after": {
+        "submission_ms": 45.4,
+        "sampled_js_alloc_bytes": 73924
+      }
+    },
+    {
+      "renderer": "scene",
+      "frames": 480,
+      "before": {
+        "submission_ms": 85.8,
+        "sampled_js_alloc_bytes": 4880724
+      },
+      "after": {
+        "submission_ms": 67.4,
+        "sampled_js_alloc_bytes": 423160
+      }
+    }
+  ],
+  "samples": [
+    {
+      "renderer": "pool",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 42.5,
+      "sampled_js_alloc_bytes": 5053968
+    },
+    {
+      "renderer": "pool",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 30.2,
+      "sampled_js_alloc_bytes": 8601948
+    },
+    {
+      "renderer": "pool",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 21.2,
+      "sampled_js_alloc_bytes": 296032
+    },
+    {
+      "renderer": "pool",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 36.9,
+      "sampled_js_alloc_bytes": 6284920
+    },
+    {
+      "renderer": "pool",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 40.3,
+      "sampled_js_alloc_bytes": 225916
+    },
+    {
+      "renderer": "pool",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 17.9,
+      "sampled_js_alloc_bytes": 271140
+    },
+    {
+      "renderer": "tracer",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 54.5,
+      "sampled_js_alloc_bytes": 4655276
+    },
+    {
+      "renderer": "tracer",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 45.4,
+      "sampled_js_alloc_bytes": 73924
+    },
+    {
+      "renderer": "tracer",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 44.8,
+      "sampled_js_alloc_bytes": 127272
+    },
+    {
+      "renderer": "tracer",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 47.9,
+      "sampled_js_alloc_bytes": 4595616
+    },
+    {
+      "renderer": "tracer",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 61.5,
+      "sampled_js_alloc_bytes": 4698032
+    },
+    {
+      "renderer": "tracer",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 46.3,
+      "sampled_js_alloc_bytes": 57484
+    },
+    {
+      "renderer": "scene",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 85.8,
+      "sampled_js_alloc_bytes": 4880724
+    },
+    {
+      "renderer": "scene",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 67.4,
+      "sampled_js_alloc_bytes": 525792
+    },
+    {
+      "renderer": "scene",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 66,
+      "sampled_js_alloc_bytes": 423160
+    },
+    {
+      "renderer": "scene",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 87,
+      "sampled_js_alloc_bytes": 4881540
+    },
+    {
+      "renderer": "scene",
+      "variant": "before",
+      "frames": 480,
+      "submission_ms": 77.9,
+      "sampled_js_alloc_bytes": 4780544
+    },
+    {
+      "renderer": "scene",
+      "variant": "after",
+      "frames": 480,
+      "submission_ms": 70.9,
+      "sampled_js_alloc_bytes": 390320
+    }
+  ]
+}

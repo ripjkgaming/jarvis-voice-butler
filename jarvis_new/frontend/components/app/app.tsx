@@ -6,7 +6,6 @@ import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
-import { JarvisBackground } from '@/components/app/jarvis-background';
 import { ViewController } from '@/components/app/view-controller';
 import { HudShell } from '@/components/hud/hud-shell';
 import { Toaster } from '@/components/ui/sonner';
@@ -77,7 +76,6 @@ export function App({ appConfig }: AppProps) {
     // the webview must never double-play the agent. Eyes here, ears there.
     <AgentSessionProvider session={session} muted>
       <AppSetup />
-      <JarvisBackground />
       <HudShell>
         <main className="contents">
           <ViewController />

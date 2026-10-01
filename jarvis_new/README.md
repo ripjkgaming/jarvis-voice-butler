@@ -4,6 +4,65 @@
 
 # LiveKit Agents Starter - Python
 
+## Jarvis Mail Link
+
+Mail Link lets an allowlisted owner email commands to a dedicated Jarvis
+mailbox and receive replies. The bridge hosts the listener. It stays idle
+until explicitly enabled with mailbox credentials and at least one owner;
+installing this code does not create an address or send mail.
+
+Once you have a dedicated Gmail account and its App Password, run:
+
+```console
+uv run python scripts/mail_link_setup.py
+```
+
+The interactive setup asks for the Jarvis address, hidden App Password,
+owner addresses, and an optional PIN. It tests IMAP and SMTP logins without
+sending a message, then enables Mail Link in `$JARVIS_HOME/keys.env`
+(default `~/.jarvis/keys.env`). The file is written atomically with mode
+`0600`; other settings are preserved. Restart the Jarvis bridge afterward.
+Use an owner address separate from the Jarvis mailbox.
+
+Send a message from an owner address with `status` as the subject. Other
+examples are `volume to 30`, `open youtube`, `screenshot`, and
+`task: research X and summarise`. Put commands on separate body lines,
+up to five commands per message. The subject is used only when the body
+has no commands. If you configured a PIN, include `PIN <your PIN>` on its
+own body line in every message, including confirmation replies.
+
+The listener polls every 30 seconds. It rejects messages from other
+senders, automatic/list mail, messages without aligned authentication
+from the configured receiving provider, messages older than two hours,
+and repeated Message-IDs. Commands containing `unlock`, `remote`, or
+`type` require a one-time `CONFIRM <code>` reply within ten minutes.
+The rolling limit is 30 accepted command lines per hour. Background task
+completion is emailed to the requesting owner; tasks awaiting local
+approval remain pending until approved locally.
+
+Set `JARVIS_MAIL_LINK=0` in the bridge environment or `keys.env` and restart
+the bridge to disable it. Environment values override `keys.env`.
+The relevant settings are `JARVIS_MAIL_ADDRESS`, `JARVIS_MAIL_PASSWORD`,
+`JARVIS_MAIL_OWNERS` (comma-separated), and `JARVIS_MAIL_PIN`. For another
+provider, configure `JARVIS_MAIL_IMAP_HOST`/`JARVIS_MAIL_IMAP_PORT`,
+`JARVIS_MAIL_SMTP_HOST`/`JARVIS_MAIL_SMTP_PORT`, and
+`JARVIS_MAIL_AUTHSERV`. Connections use implicit TLS (defaults: Gmail
+IMAP 993 and SMTP 465). The provider must prepend trustworthy
+Authentication-Results headers and remove forged copies naming itself;
+the receiver ID defaults to `mx.google.com`.
+
+Replay history, rate limits, pending confirmations, and task follow-ups
+are stored in `$JARVIS_HOME/mail_link.json`. Unreadable or corrupt state
+blocks commands; fix access or restore that file before restarting.
+Do not delete replay history just to retry a command. SMTP failures do
+not rerun completed commands or reset their rate budget. Authentication
+failures back off for ten minutes. Tests run entirely with fake mail and
+bridge connections:
+
+```console
+uv run pytest tests/test_mail_link.py
+```
+
 A complete starter project for building voice AI apps with [LiveKit Agents for Python](https://github.com/livekit/agents) and [LiveKit Cloud](https://cloud.livekit.io/).
 
 The starter project includes:
@@ -131,6 +190,16 @@ Get started quickly with our pre-built frontend starter apps, or add telephony s
 For advanced customization, see the [complete frontend guide](https://docs.livekit.io/frontends/).
 
 ## Tests and evals
+
+### Visual computer use
+
+Jarvis's system specialist can delegate bounded desktop navigation to a headless,
+authenticated Codex worker using `gpt-5.6-terra` by default, with status/cancel
+tools and no silent model fallback. See [computer-use setup and limits](docs/computer-use.md)
+for configuration, supported surfaces, safeguards and isolated test commands.
+Live model accuracy and latency have not been benchmarked.
+
+### Agent tests
 
 This project includes a complete suite of evals, based on the LiveKit Agents [testing & evaluation framework](https://docs.livekit.io/agents/start/testing/). To run them, use `pytest`.
 

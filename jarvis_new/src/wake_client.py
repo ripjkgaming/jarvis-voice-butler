@@ -262,6 +262,9 @@ def hud_stage(stage: str) -> None:
 
 def clear_hud_waking() -> None:
     """Drop the waking stamp (call up, over, or wake rejected). Fail-soft."""
+    # PTT and rewake begin at "check", without another hotword stamp.
+    # Do not carry a completed call's first timestamp into that generation.
+    _boot_log.clear()
     try:
         hud_room_path().with_name(HUD_WAKING_FILE).unlink(missing_ok=True)
     except OSError as exc:
@@ -896,47 +899,53 @@ class WakeClient:
         # Never layer a second Jarvis over an ongoing call (an earlier
         # summon that hasn't hung up yet). The HUD stays visible either
         # way: "hey Jarvis" always summons the UI.
-        hud_stage("check")
-        if await active_call_exists(self._creds):
-            logger.warning("already in a call; staying out")
+        try:
+            hud_stage("check")
+            if await active_call_exists(self._creds):
+                logger.warning("already in a call; staying out")
+                clear_hud_waking()
+                summon_overlay()
+                return False
+
+            # Consume one typed seed (text→voice trigger): delivered as the
+            # opening user turn once the agent joins, then forgotten. Taken
+            # here so a summon that never connects drops it instead of
+            # leaking it into a later, unrelated call.
+            with self._mic_lock:
+                seed_text = self._pending_text
+                self._pending_text = ""
+                announce_text = self._pending_announce
+                self._pending_announce = ""
+            if announce_text:
+                reason = "announce"
+
+            # The HUD joins this room receive-only (eyes on the call; the mic
+            # permission is denied in the webview, so the HUD never publishes).
+            # Publish the name only once WE are in — the watcher joins live
+            # rooms, never stale names.
+            room_name = summon_room_name()
+            hud_stage("auth")
+            jwt = mint_summon_token(
+                url=self._creds["LIVEKIT_URL"],
+                api_key=self._creds["LIVEKIT_API_KEY"],
+                api_secret=self._creds["LIVEKIT_API_SECRET"],
+                room=room_name,
+                agent_name=self._agent_name,
+                reason=reason,
+                announce=announce_text,
+            )
+            room = rtc.Room()
+        except BaseException:
+            # Cancellation before an RTC room exists must not leave the HUD
+            # presenting an abandoned call check/authentication as live work.
             clear_hud_waking()
-            summon_overlay()
-            return False
-
-        # Consume one typed seed (text→voice trigger): delivered as the
-        # opening user turn once the agent joins, then forgotten. Taken
-        # here so a summon that never connects drops it instead of
-        # leaking it into a later, unrelated call.
-        with self._mic_lock:
-            seed_text = self._pending_text
-            self._pending_text = ""
-            announce_text = self._pending_announce
-            self._pending_announce = ""
-        if announce_text:
-            reason = "announce"
-
-        # The HUD joins this room receive-only (eyes on the call; the mic
-        # permission is denied in the webview, so the HUD never publishes).
-        # Publish the name only once WE are in — the watcher joins live
-        # rooms, never stale names.
-        room_name = summon_room_name()
-        hud_stage("auth")
-        jwt = mint_summon_token(
-            url=self._creds["LIVEKIT_URL"],
-            api_key=self._creds["LIVEKIT_API_KEY"],
-            api_secret=self._creds["LIVEKIT_API_SECRET"],
-            room=room_name,
-            agent_name=self._agent_name,
-            reason=reason,
-            announce=announce_text,
-        )
-        room = rtc.Room()
+            raise
         disconnected = asyncio.Event()
         agent_audio: asyncio.Queue = asyncio.Queue()
         agent_ready = asyncio.Event()
 
         @room.on("disconnected")
-        def _on_disconnected() -> None:
+        def _on_disconnected(_reason=None) -> None:
             disconnected.set()
 
         @room.on("track_subscribed")
@@ -950,19 +959,19 @@ class WakeClient:
         self._last_agent_voice = time.monotonic()
         if mic_queue is None:
             self._listen_queue_live = False
-        hud_stage("connect")
+        call_tasks: set[asyncio.Task] = set()
+        source = None
         try:
-            await room.connect(self._creds["LIVEKIT_URL"], jwt)
-        except Exception:
-            self._listen_queue_live = True
-            self._rewake = None
-            if announce_text:
-                self._speak_fallback(announce_text)
-            raise
-        logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
-        publish_hud_room(room_name)
-        self._set_in_call(True)
-        try:
+            hud_stage("connect")
+            try:
+                await room.connect(self._creds["LIVEKIT_URL"], jwt)
+            except Exception:
+                if announce_text:
+                    self._speak_fallback(announce_text)
+                raise
+            logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
+            publish_hud_room(room_name)
+            self._set_in_call(True)
             # Publish the mic, stamped SOURCE_MICROPHONE. The default is
             # SOURCE_UNKNOWN, which AgentSession input streams reject
             # (accepted_sources={microphone}) — the agent heard silence on
@@ -979,19 +988,37 @@ class WakeClient:
                 if mic_queue is not None
                 else self._pump_mic(source)
             )
+            call_tasks.add(mic_task)
 
             # Wait for the agent, then relay its voice to the speakers.
             hud_stage("dispatch")
-            try:
-                track = await asyncio.wait_for(agent_audio.get(), AGENT_JOIN_TIMEOUT)
-            except TimeoutError:
-                logger.warning("no agent joined; leaving %s", room_name)
-                await self._cancel_task(mic_task)
+            track_ready = asyncio.create_task(agent_audio.get())
+            ended = asyncio.create_task(disconnected.wait())
+            call_tasks.update((track_ready, ended))
+            done, _ = await asyncio.wait(
+                {track_ready, ended, mic_task},
+                timeout=AGENT_JOIN_TIMEOUT,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if ended in done or mic_task in done or track_ready not in done:
+                logger.warning("agent join ended before audio; leaving %s", room_name)
                 if announce_text:
                     self._speak_fallback(announce_text)
-                return False
+                # The mic also exits normally after detecting a stale-call
+                # wake. Only that successful exit requests another session.
+                return (
+                    rewake.is_set()
+                    and not disconnected.is_set()
+                    and mic_task in done
+                    and not mic_task.cancelled()
+                    and mic_task.exception() is None
+                )
+            track = track_ready.result()
+            # "online" means the subscribed voice track exists, not that
+            # the remote model has started responding or audio is audible.
             hud_stage("online")
             play_task = asyncio.create_task(self._play_agent(track))
+            call_tasks.add(play_task)
             if seed_text:
                 # Text→voice: the typed opener becomes the first user
                 # turn over the standard chat topic, so the agent answers
@@ -1001,22 +1028,43 @@ class WakeClient:
                     logger.warning("seeded call with typed text")
                 except Exception as exc:
                     logger.warning("seed text send failed: %s", exc)
-            ended = asyncio.create_task(disconnected.wait())
             rewoken = asyncio.create_task(rewake.wait())
-            await asyncio.wait({ended, rewoken}, return_when=asyncio.FIRST_COMPLETED)
-            ended.cancel()
-            rewoken.cancel()
-            await self._cancel_task(play_task)
-            await self._cancel_task(mic_task)
+            call_tasks.add(rewoken)
+            done, _ = await asyncio.wait(
+                {ended, rewoken, play_task, mic_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if play_task in done:
+                # A closed track or failed speaker cannot deliver another
+                # answer. Leave instead of holding a silent call indefinitely.
+                # Quiet gaps/barge-in keep the track task alive and stay here.
+                logger.warning("agent playback ended; leaving call")
+                return False
+            if mic_task in done:
+                logger.warning("microphone ended; leaving call")
+                if mic_task.cancelled() or mic_task.exception() is not None:
+                    return False
             return rewake.is_set() and not disconnected.is_set()
         finally:
-            clear_hud_room()
-            clear_hud_waking()
-            self._set_in_call(False)
-            self._rewake = None
-            self._listen_queue_live = True
-            await room.disconnect()
-            logger.warning("session over, back to listening")
+            # Observe failures AND cancel peers on every exit path. A failed
+            # playback task must never prevent the microphone from closing.
+            try:
+                for task in call_tasks:
+                    task.cancel()
+                await asyncio.gather(*call_tasks, return_exceptions=True)
+            finally:
+                try:
+                    if source is not None:
+                        with contextlib.suppress(Exception):
+                            await source.aclose()
+                finally:
+                    clear_hud_room()
+                    clear_hud_waking()
+                    self._set_in_call(False)
+                    self._rewake = None
+                    self._listen_queue_live = True
+                    await room.disconnect()
+                    logger.warning("session over, back to listening")
 
     async def _pump_mic(self, source) -> None:
         """Forward live mic blocks to the room (porcupine keeps listening).
@@ -1134,12 +1182,13 @@ class WakeClient:
             await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
 
     async def _play_agent(self, track) -> None:
-        """Play the agent's voice on the laptop speakers."""
-        import sounddevice as sd
+        """Play frames in order while mic/call callbacks remain responsive."""
         from livekit.rtc import AudioStream
 
+        from audio_playback import AudioPlayback
+
         stream = AudioStream(track)
-        output = None
+        output = AudioPlayback()
         try:
             async for event in stream:
                 frame = event.frame
@@ -1148,25 +1197,19 @@ class WakeClient:
                     if hasattr(frame.data, "tobytes")
                     else bytes(frame.data)
                 )
-                if output is None or output.samplerate != frame.sample_rate:
-                    if output is not None:
-                        output.close()
-                    output = sd.OutputStream(
-                        samplerate=frame.sample_rate, channels=1, dtype="int16"
-                    )
-                    output.start()
                 samples = self._bytes_to_int16(pcm)
                 if samples.size and int(abs(samples).max()) > 500:
                     self._last_agent_voice = time.monotonic()
                 if _school_quiet():
                     samples = (samples.astype("float32") * _school_gain()).astype("int16")
-                output.write(samples)
+                await output.write(samples, frame.sample_rate)
         finally:
-            if output is not None:
+            try:
                 with contextlib.suppress(Exception):
-                    output.close()
-            with contextlib.suppress(Exception):
-                await stream.aclose()
+                    await output.aclose()
+            finally:
+                with contextlib.suppress(Exception):
+                    await stream.aclose()
 
 
 def _school_quiet() -> bool:

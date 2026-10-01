@@ -74,7 +74,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from urllib.parse import parse_qs, urlparse
 
 import school as _school
@@ -358,6 +358,17 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     lowered = _clean_voice_text(text)
     if not lowered:
         return None
+    import suit_diagnostics
+
+    suit_open = suit_diagnostics.parse_command(lowered)
+    if suit_open is not None:
+        return (
+            "set_suit_diagnostics",
+            {"open": suit_open},
+            suit_diagnostics.reply_for(suit_open),
+        )
+    if suit_diagnostics.mentions_suit(lowered):
+        return None
     expr = _spoken_math(text)
     if expr is not None:
         return ("do_math", {"expr": expr}, None)
@@ -466,6 +477,25 @@ def _youtube_url(query: str, fetch=None) -> str:
     return results
 
 
+def _spawn_desktop(argv) -> None:
+    """Launch with the same sandbox isolation as the agent's system tools."""
+    from system.desktop import sandbox_display
+
+    options = {}
+    display = sandbox_display()
+    if display:
+        from system.core import _sandbox_launch
+
+        argv, options["env"] = _sandbox_launch(list(argv), display)
+    subprocess.Popen(
+        argv,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **options,
+    )
+
+
 def _play_media(query: str) -> dict:
     """Open YouTube in Sir's Brave: first matching video, or the playlist."""
     query = (query or "").strip()[:200]
@@ -473,12 +503,7 @@ def _play_media(query: str) -> dict:
     brave = _which("brave-browser") or _which("brave")
     argv = [brave, "--new-window", url] if brave else ["xdg-open", url]
     try:
-        subprocess.Popen(
-            argv,
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        _spawn_desktop(argv)
     except OSError as exc:
         return _tool_result(False, error=str(exc)[:200])
     return _tool_result(True, query=query, url=url)
@@ -572,8 +597,10 @@ def read_hud_room(max_age_s: float = 15 * 60) -> str | None:
         return None
 
 
-#: A wake stamp older than this is a summon that never connected.
-HUD_WAKING_MAX_AGE_S = 15.0
+#: Each real setup stage refreshes this stamp. Keep the complete 25s agent
+#: join wait visible, with room for connection retries, while crashed writers
+#: still expire without a background heartbeat pretending they are alive.
+HUD_WAKING_MAX_AGE_S = 60.0
 
 
 def read_hud_waking(max_age_s: float = HUD_WAKING_MAX_AGE_S) -> bool:
@@ -611,7 +638,7 @@ def read_captions(limit: int = 20) -> list[dict]:
     try:
         home = _env("JARVIS_HOME").strip()
         base = Path(home) if home else Path.home() / ".jarvis"
-        lines = (base / "captions.log").read_text().splitlines()[-max(1, limit) :]
+        lines = _tail_log(base / "captions.log", max(1, limit))
     except OSError:
         return []
     out: list[dict] = []
@@ -750,6 +777,8 @@ def _brave_orb_loop(stop) -> None:
 SIDECAR_THREADS = (
     ("second_brain", "JARVIS_BRAIN"),
     ("telegram_bot", "JARVIS_TELEGRAM"),
+    # Explicit opt-in + credentials required by mail_link; otherwise idle.
+    ("mail_link", "JARVIS_MAIL_LINK"),
     # Lease-based shared webcam: idle (camera closed, LED off) until
     # presence/eyes/gestures ask for frames.
     ("camera_hub", "JARVIS_CAMERA_HUB"),
@@ -853,30 +882,34 @@ _PHONE_STALE_S = 10 * 60
 
 def record_phone_telemetry(body: dict) -> dict | None:
     """Validate + store a phone telemetry push. Returns the stored dict."""
+    global _PHONE_TELEMETRY
     battery = body.get("battery")
     if isinstance(battery, bool) or not isinstance(battery, (int, float)):
         return None
     if not 0 <= battery <= 100:
         return None
-    _PHONE_TELEMETRY.clear()
-    _PHONE_TELEMETRY.update(
-        battery=int(battery),
-        charging=body.get("charging") is True,
-        ts=time.time(),
-    )
-    return dict(_PHONE_TELEMETRY)
+    sample = {
+        "battery": int(battery),
+        "charging": body.get("charging") is True,
+        "ts": time.time(),
+    }
+    # Publish a complete sample atomically; an in-flight GET keeps reading
+    # its original sample instead of mixing two pushes or seeing an empty dict.
+    _PHONE_TELEMETRY = sample
+    return dict(sample)
 
 
 def _phone_stats(now: float | None = None) -> dict | None:
     """Phone battery + link age, or None when never seen / stale. Pure-ish."""
-    if not _PHONE_TELEMETRY:
+    sample = _PHONE_TELEMETRY
+    if not sample:
         return None
-    age = (now or time.time()) - _PHONE_TELEMETRY["ts"]
+    age = (time.time() if now is None else now) - sample["ts"]
     if age > _PHONE_STALE_S:
         return None
     return {
-        "battery": _PHONE_TELEMETRY["battery"],
-        "charging": _PHONE_TELEMETRY["charging"],
+        "battery": sample["battery"],
+        "charging": sample["charging"],
         "age_s": int(age),
     }
 
@@ -886,6 +919,35 @@ def _phone_stats(now: float | None = None) -> dict | None:
 # whether the phone is actually reachable. Cached; the HUD polls often.
 _TAILNET_CACHE: dict = {}
 _TAILNET_TTL_S = 15.0
+_TAILNET_LOCK = Lock()
+
+
+def _cached_sensor(cache, lock, ttl, probe, clock=None):
+    """Coalesce concurrent polls; cache failures as well as sensor values.
+
+    Each sensor has its own lock, so a slow network read does not block a
+    volume refresh. Start the TTL when the probe finishes: timing out must
+    not leave an already-expired result that immediately spawns more work.
+    """
+
+    def now():
+        try:
+            return (clock or time.monotonic)()
+        except Exception:
+            return time.monotonic()
+
+    with lock:
+        try:
+            if cache and 0 <= now() - cache["at"] < ttl:
+                return cache["value"]
+        except (KeyError, TypeError):
+            pass
+        try:
+            value = probe()
+        except Exception:
+            value = None
+        cache.update(at=now(), value=value)
+        return value
 
 
 def _phone_peer(status: dict) -> dict | None:
@@ -904,9 +966,12 @@ def _phone_peer(status: dict) -> dict | None:
 
 def _phone_tailnet() -> dict | None:
     """{"online", "name"} for the phone on the tailnet, None if unknown."""
-    now = time.monotonic()
-    if _TAILNET_CACHE and now - _TAILNET_CACHE["at"] < _TAILNET_TTL_S:
-        return _TAILNET_CACHE["value"]
+    return _cached_sensor(
+        _TAILNET_CACHE, _TAILNET_LOCK, _TAILNET_TTL_S, _read_phone_tailnet
+    )
+
+
+def _read_phone_tailnet() -> dict | None:
     value: dict | None = None
     try:
         out = subprocess.run(
@@ -924,7 +989,6 @@ def _phone_tailnet() -> dict | None:
             }
     except (OSError, subprocess.SubprocessError, ValueError):
         value = None
-    _TAILNET_CACHE.update(at=now, value=value)
     return value
 
 
@@ -1111,8 +1175,24 @@ def _parse_nmcli_wifi(out: str) -> tuple[str, int | None] | None:
 
 _NET_CACHE: dict = {}
 _NET_TTL_S = 5.0
+_NET_LOCK = Lock()
 _VOL_CACHE: dict = {}
 _VOL_TTL_S = 5.0
+_VOL_LOCK = Lock()
+
+
+def _invalidate_sensor_cache(action: str) -> None:
+    """Discard snapshots after a successful control without waiting on I/O.
+
+    Replace the cache so an already-running probe can only populate its old
+    snapshot. The next poll refreshes immediately; control replies never
+    wait for a slow telemetry subprocess to release its read lock.
+    """
+    global _VOL_CACHE, _NET_CACHE
+    if action in ("volume", "mute"):
+        _VOL_CACHE = {}
+    elif action == "wifi":
+        _NET_CACHE = {}
 
 
 def _net_status(run=None, clock=None) -> dict | None:
@@ -1123,16 +1203,12 @@ def _net_status(run=None, clock=None) -> dict | None:
     (monotonic clock). `run` defaults to subprocess.run so tests can
     inject a fake; `clock` defaults to time.monotonic. Never raises.
     """
-    now_fn = clock or time.monotonic
-    try:
-        now = now_fn()
-    except Exception:
-        now = time.monotonic()
-    try:
-        if _NET_CACHE and now - _NET_CACHE["at"] < _NET_TTL_S:
-            return _NET_CACHE["value"]
-    except (KeyError, TypeError):
-        pass
+    return _cached_sensor(
+        _NET_CACHE, _NET_LOCK, _NET_TTL_S, lambda: _read_net_status(run), clock
+    )
+
+
+def _read_net_status(run=None) -> dict | None:
     runner = run or subprocess.run
     value: dict | None = None
     try:
@@ -1172,7 +1248,6 @@ def _net_status(run=None, clock=None) -> dict | None:
         value = None
     except Exception:
         value = None
-    _NET_CACHE.update(at=now, value=value)
     return value
 
 
@@ -1194,16 +1269,12 @@ def _volume_status(run=None, clock=None) -> dict | None:
     Tries `wpctl get-volume`, falls back to pactl volume + mute.
     Results cached 5s. Injectable run/clock like _net_status. Never raises.
     """
-    now_fn = clock or time.monotonic
-    try:
-        now = now_fn()
-    except Exception:
-        now = time.monotonic()
-    try:
-        if _VOL_CACHE and now - _VOL_CACHE["at"] < _VOL_TTL_S:
-            return _VOL_CACHE["value"]
-    except (KeyError, TypeError):
-        pass
+    return _cached_sensor(
+        _VOL_CACHE, _VOL_LOCK, _VOL_TTL_S, lambda: _read_volume_status(run), clock
+    )
+
+
+def _read_volume_status(run=None) -> dict | None:
     runner = run or subprocess.run
     value: dict | None = None
     try:
@@ -1247,7 +1318,6 @@ def _volume_status(run=None, clock=None) -> dict | None:
             value = None
         except Exception:
             value = None
-    _VOL_CACHE.update(at=now, value=value)
     return value
 
 
@@ -1620,15 +1690,15 @@ def _tail_log(path: Path, limit: int) -> list[str]:
         with path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
             size = fh.tell()
-            step, buf = 4096, b""
-            while len(buf.splitlines()) <= limit and size > 0:
-                step = min(step, size)
+            chunks, newlines = [], 0
+            while newlines <= limit and size > 0:
+                step = min(4096, size)
                 size -= step
                 fh.seek(size)
-                buf = fh.read(step) + buf
-                if size == 0:
-                    break
-        lines = buf.decode(errors="replace").splitlines()
+                block = fh.read(step)
+                chunks.append(block)
+                newlines += block.count(b"\n")
+        lines = b"".join(reversed(chunks)).decode(errors="replace").splitlines()
     except (OSError, ValueError):
         return []
     return lines[-limit:]
@@ -1737,12 +1807,7 @@ def _launch_anything(name: str) -> dict:
             return _tool_result(False, error="unsafe url")
         argv = ["xdg-open", decision.target]
     try:
-        subprocess.Popen(
-            argv,
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        _spawn_desktop(argv)
     except OSError as exc:
         return _tool_result(False, error=str(exc)[:200])
     return _tool_result(True, app=decision.target, via=decision.reason)
@@ -1936,6 +2001,17 @@ def run_phone_tool(tool: str, args: dict) -> dict:
     """Execute one allowlisted phone-control tool. No shell, argv only."""
     if not isinstance(args, dict):
         args = {}
+    if tool == "set_suit_diagnostics":
+        import suit_diagnostics
+        from system import LocalSystemError
+
+        try:
+            result = suit_diagnostics.request_visibility(args.get("open"))
+        except (LocalSystemError, ValueError) as exc:
+            return _tool_result(False, error=str(exc))
+        return result or _tool_result(
+            False, error="The suit diagnostics panel didn't respond"
+        )
     if tool == "volume_get":
         rc, out, err = _run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], 5.0)
         _, mute_out, _ = _run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], 5.0)
@@ -2032,9 +2108,14 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         if blocked := is_blocked(name):
             return _tool_result(False, error=blocked_say(blocked))
         try:
+            from system.desktop import sandbox_display
             from system.launcher import priority_app
 
-            pri = priority_app(name)
+            pri = (
+                priority_app(name, running=lambda _: False)
+                if sandbox_display()
+                else priority_app(name)
+            )
         except Exception:
             pri = None
         if pri is not None and not pri.argv:
@@ -2042,12 +2123,7 @@ def run_phone_tool(tool: str, args: dict) -> dict:
             return _tool_result(True, app=pri.target, state="already running")
         if pri is not None and pri.argv:
             try:
-                subprocess.Popen(  # argv from Sir's priority table / .desktop
-                    pri.argv,
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                _spawn_desktop(pri.argv)
             except OSError as exc:
                 return _tool_result(False, error=str(exc)[:200])
             return _tool_result(True, app=pri.target)
@@ -2057,12 +2133,7 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         if _which(entry[0]) is None and entry[0] != "flatpak":
             return _tool_result(False, error=f"{entry[0]} not installed")
         try:
-            subprocess.Popen(  # argv from fixed map only, never user input
-                entry,
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            _spawn_desktop(entry)
         except OSError as exc:
             return _tool_result(False, error=str(exc)[:200])
         return _tool_result(True, app=name)
@@ -2551,20 +2622,35 @@ def handle_route(body: dict) -> tuple[int, dict]:
                 "reply": f"That's {shown}, Sir.",
                 "action": {"tool": "do_math", "ok": True},
             }
-        if tool == "type":
-            code, result = handle_type(args)
-        else:
-            result = _run_voice_action(tool, args)
-            result = result[1]
-            code = 200 if result.get("ok") else 500
+        import action_guard
+
+        # Gemini Live may already have run this same request from the
+        # audio it heard: then don't act twice, and stay quiet (it speaks).
+        dup = action_guard.claim(tool, args, "route")
+        if dup is not None:
+            return 200, {
+                "ok": True,
+                "reply": action_guard.duplicate_reply(dup, "Done, Sir.")["say"],
+                "duplicate": True,
+                "action": {"tool": tool, "ok": dup.get("ok")},
+            }
+        try:
+            code, result = _run_voice_action(tool, args)
+        except Exception as exc:
+            code, result = 500, {"ok": False, "error": str(exc)[:150] or "action failed"}
         if code == 200 and result.get("ok"):
             reply = (
                 ok_reply
                 if ok_reply is not None
                 else _dynamic_voice_reply(tool, args, result)
             )
+            if tool == "set_suit_diagnostics" and result.get("superseded"):
+                reply = result["say"]
         else:
             reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
+        action_guard.settle(
+            tool, args, "route", code == 200 and bool(result.get("ok")), reply
+        )
         action: dict = {"tool": tool, "ok": bool(result.get("ok"))}
         if not result.get("ok"):
             action["error"] = result.get("error")
@@ -2578,6 +2664,10 @@ def handle_route(body: dict) -> tuple[int, dict]:
     cmd = _match_voice_tool(clean)
     if cmd is not None:
         return done(*cmd)
+    import suit_diagnostics
+
+    if suit_diagnostics.mentions_suit(clean):
+        return 404, {"ok": False, "error": "no-route"}
     result = _resolve_intent(clean)
     if result is None:
         return 404, {"ok": False, "error": "no-route"}
@@ -2810,6 +2900,19 @@ class _Handler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == "/suit":
+            import suit_diagnostics
+
+            body = _read_json_body(self, 256)
+            if (
+                not isinstance(body, dict)
+                or set(body) != {"open"}
+                or type(body["open"]) is not bool
+            ):
+                self._send(400, {"ok": False, "error": 'body must be {"open": bool}'})
+                return
+            self._send(*suit_diagnostics.apply_visibility(body["open"]))
+            return
         if route == "/mode":
             body = _read_json_body(self, 256)
             want = (body or {}).get("mode") if isinstance(body, dict) else None
@@ -3037,11 +3140,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
             code, result = taskbar.handle_quick(body)
-            if code == 200 and result.get("ok") and body.get("action") in (
-                "volume",
-                "mute",
-            ):
-                _VOL_CACHE.clear()  # volume changed: drop the /sys read cache
+            if code == 200 and result.get("ok"):
+                _invalidate_sensor_cache(body.get("action"))
             self._send(code, result)
             return
         if route == "/power":
@@ -3082,7 +3182,12 @@ class _Handler(BaseHTTPRequestHandler):
                 200, {"ok": True, "actions": _tail_log(_actions_log_path(), limit)}
             )
         elif route == "/sys":
-            self._send(200, {"ok": True, **_sys_stats()})
+            import suit_diagnostics
+
+            self._send(
+                200,
+                {"ok": True, **_sys_stats(), "suit_diagnostics": suit_diagnostics.snapshot()},
+            )
         elif route == "/appicon":
             app = (qs.get("app") or [""])[0]
             if not isinstance(app, str) or not app.strip() or len(app) > 200:

@@ -25,13 +25,17 @@ def test_turn_records_tool_breakdown() -> None:
     assert "open_url 2.5s" in format_breakdown(s)
 
 
-def test_no_tools_blames_model() -> None:
+def test_no_tools_leaves_unmeasured_stages_unattributed() -> None:
     t = LatencyTracker()
     t.turn_begin(now=0.0)
     s = t.turn_end(now=6.0)
     assert s.calls == []
-    assert "no tools" in format_breakdown(s)
-    assert "model thinking" in format_spoken(s)
+    assert "no measured tool calls" in format_breakdown(s)
+    assert "unattributed" in format_breakdown(s)
+    assert "origin=final_transcript" in format_breakdown(s)
+    assert "no measured tool calls" in format_spoken(s)
+    assert "model thinking" not in format_spoken(s)
+    assert "all model" not in format_breakdown(s)
 
 
 def test_spoken_names_culprit_and_seconds() -> None:
@@ -269,3 +273,328 @@ def test_long_answer_that_started_fast_is_not_a_stall():
     t.record_tool_call("research", 9000.0)
     t.mark("speaking", now=SPEAK_THRESHOLD_S + 2)
     assert should_announce(t.turn_end(now=SPEAK_THRESHOLD_S + 8))
+
+
+def test_sdk_eou_zero_is_explicitly_ambiguous() -> None:
+    from latency import format_sdk_metrics
+
+    metric = SimpleNamespace(
+        type="eou_metrics",
+        end_of_utterance_delay=0.0,
+        transcription_delay=0.0,
+        on_user_turn_completed_delay=0.012,
+        transcript="private content must not be logged",
+    )
+    assert format_sdk_metrics(metric) == (
+        "sdk_eou end_of_utterance_s=unavailable_or_zero "
+        "transcription_s=unavailable_or_zero user_turn_callback_s=0.012000"
+    )
+
+
+def test_sdk_realtime_labels_provider_scope_and_preserves_small_values() -> None:
+    from latency import format_sdk_metrics
+
+    assert format_sdk_metrics(
+        SimpleNamespace(type="realtime_model_metrics", ttft=0.000001)
+    ) == (
+        "sdk_realtime provider_generation_to_first_audio_s=0.000001 "
+        "scope=provider_generation_not_user_e2e"
+    )
+    assert (
+        format_sdk_metrics(SimpleNamespace(type="realtime_model_metrics", ttft=-1))
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid", [None, True, "0.5", -0.1, float("nan"), float("inf")]
+)
+def test_sdk_metrics_skip_missing_or_invalid_values(invalid) -> None:
+    from latency import format_sdk_metrics
+
+    assert (
+        format_sdk_metrics(SimpleNamespace(type="realtime_model_metrics", ttft=invalid))
+        is None
+    )
+
+
+def test_sdk_metrics_never_serialize_unknown_fields() -> None:
+    from latency import format_sdk_metrics
+
+    class Metric:
+        type = "llm_metrics"
+        ttft = 0.75
+        request_id = "private request id"
+        transcript = "private content"
+
+        def __str__(self):
+            raise AssertionError("Do not serialize the metric")
+
+    assert format_sdk_metrics(Metric()) == "sdk_llm request_to_first_token_s=0.750000"
+    assert format_sdk_metrics(SimpleNamespace(type="private unknown type")) is None
+
+
+def test_sdk_stt_streamed_zero_duration_is_not_a_recognition_measurement() -> None:
+    from latency import format_sdk_metrics
+
+    assert (
+        format_sdk_metrics(
+            SimpleNamespace(
+                type="stt_metrics", streamed=True, duration=0.0, audio_duration=2.0
+            )
+        )
+        == "sdk_stt input_audio_s=2.000000"
+    )
+    assert (
+        format_sdk_metrics(
+            SimpleNamespace(
+                type="stt_metrics", streamed=False, duration=0.3, audio_duration=2.0
+            )
+        )
+        == "sdk_stt recognize_s=0.300000 input_audio_s=2.000000"
+    )
+    assert (
+        format_sdk_metrics(SimpleNamespace(type="tts_metrics", ttfb=0.12))
+        == "sdk_tts request_to_first_audio_s=0.120000"
+    )
+
+
+def test_message_metrics_preserve_missing_versus_real_zero_and_ignore_content() -> None:
+    from latency import format_message_metrics
+
+    assert format_message_metrics("assistant", {}) is None
+    assert (
+        format_message_metrics(
+            "assistant",
+            {
+                "playback_latency": 0.0,
+                "content": "private",
+                "started_speaking_at": 100.0,
+            },
+        )
+        == "sdk_turn role=assistant output_reported_playback_s=0.000000"
+    )
+    assert (
+        format_message_metrics(
+            "user",
+            {"end_of_turn_delay": 0.4, "transcription_delay": None, "e2e_latency": 8.0},
+        )
+        == "sdk_turn role=user end_of_turn_s=0.400000"
+    )
+    assert format_message_metrics("private role", {"e2e_latency": 8.0}) is None
+
+
+def test_voice_observer_records_only_first_response_from_detected_end() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    assert observer.user_state_changed("speaking", now=10.0) is None
+    assert observer.user_state_changed("speaking", now=11.0) is None
+    assert observer.user_state_changed("listening", now=12.0) is None
+    assert observer.user_state_changed("listening", now=13.0) is None
+    assert observer.agent_state_changed("thinking", now=13.5) is None
+    assert observer.agent_state_changed("speaking", now=14.0) == (
+        "voice_observed user_speaking_state_s=2.000000 "
+        "vad_end_to_agent_speaking_s=2.000000 scope=state_events_not_acoustic_e2e"
+    )
+    assert observer.agent_state_changed("speaking", now=15.0) is None
+    observer.agent_state_changed("listening", now=16.0)
+    assert observer.agent_state_changed("speaking", now=17.0) is None
+
+
+def test_voice_observer_ignores_greeting_and_missing_endpoint() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    assert observer.agent_state_changed("speaking", now=1.0) is None
+    assert observer.user_state_changed("listening", now=2.0) is None
+    assert observer.agent_state_changed("speaking", now=3.0) is None
+
+
+def test_voice_observer_flags_early_reply_without_fabricating_zero_latency() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    observer.user_state_changed("speaking", now=10.0)
+    assert observer.agent_state_changed("speaking", now=11.0) is None
+    assert observer.user_state_changed("listening", now=12.0) == (
+        "voice_observed user_speaking_state_s=2.000000 "
+        "agent_speaking_before_vad_end=true scope=state_events_not_acoustic_e2e"
+    )
+    assert observer.agent_state_changed("speaking", now=15.0) is None
+
+
+def test_voice_observer_new_user_speech_discards_previous_wait() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    observer.user_state_changed("speaking", now=10.0)
+    observer.user_state_changed("listening", now=12.0)
+    observer.user_state_changed("speaking", now=15.0)
+    observer.user_state_changed("listening", now=16.0)
+    line = observer.agent_state_changed("speaking", now=17.0)
+    assert "user_speaking_state_s=1.000000" in line
+    assert "vad_end_to_agent_speaking_s=1.000000" in line
+
+
+def test_voice_observer_away_discards_pending_response() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    observer.user_state_changed("speaking", now=10.0)
+    observer.user_state_changed("listening", now=12.0)
+    observer.user_state_changed("away", now=13.0)
+    assert observer.agent_state_changed("speaking", now=14.0) is None
+    observer.agent_state_changed("listening", now=14.5)
+    observer.user_state_changed("speaking", now=15.0)
+    observer.user_state_changed("listening", now=16.0)
+    assert observer.agent_state_changed("speaking", now=17.0) is not None
+
+
+def test_voice_observer_does_not_label_continuing_old_audio_as_a_new_reply() -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    observer.agent_state_changed("speaking", now=1.0)
+    observer.user_state_changed("speaking", now=2.0)
+    observer.user_state_changed("listening", now=3.0)
+    assert observer.agent_state_changed("speaking", now=4.0) is None
+    observer.agent_state_changed("listening", now=5.0)
+    assert "vad_end_to_agent_speaking_s=3.000000" in observer.agent_state_changed(
+        "speaking", now=6.0
+    )
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -1.0, True, "private"])
+def test_voice_observer_invalid_or_out_of_order_marks_do_not_invent_latency(
+    invalid,
+) -> None:
+    from latency import VoiceLatencyObserver
+
+    observer = VoiceLatencyObserver()
+    observer.user_state_changed("speaking", now=10.0)
+    assert observer.user_state_changed("listening", now=invalid) is None
+    assert observer.user_state_changed("listening", now=9.0) is None
+    assert observer.agent_state_changed("speaking", now=invalid) is None
+    assert observer.agent_state_changed("speaking", now=9.0) is None
+    observer.user_state_changed("listening", now=12.0)
+    assert "vad_end_to_agent_speaking_s=2.000000" in observer.agent_state_changed(
+        "speaking", now=14.0
+    )
+
+
+class TimingSession:
+    def __init__(self):
+        self.handlers = {}
+
+    def on(self, event, callback):
+        self.handlers[event] = callback
+
+    def emit(self, event, payload):
+        if handler := self.handlers.get(event):
+            handler(payload)
+
+
+def test_install_session_timing_logs_numeric_events_without_reading_content(
+    monkeypatch,
+):
+    import latency
+
+    clock = iter([10.0, 12.0, 14.0])
+    monkeypatch.setattr(latency.time, "monotonic", lambda: next(clock))
+    logs = []
+    session = TimingSession()
+    latency.install_session_timing(
+        session, lambda kind, line: logs.append((kind, line))
+    )
+    assert set(session.handlers) == {
+        "metrics_collected",
+        "conversation_item_added",
+        "user_state_changed",
+        "agent_state_changed",
+    }
+
+    class PrivateItem:
+        role = "assistant"
+
+        def __init__(self):
+            self.metrics = {"playback_latency": 0.01}
+
+        @property
+        def text_content(self):
+            raise AssertionError("Telemetry must not read conversation content")
+
+    session.emit(
+        "metrics_collected",
+        SimpleNamespace(
+            metrics=SimpleNamespace(
+                type="realtime_model_metrics",
+                ttft=0.001,
+            )
+        ),
+    )
+    session.emit("user_state_changed", SimpleNamespace(new_state="speaking"))
+    session.emit("user_state_changed", SimpleNamespace(new_state="listening"))
+    session.emit("agent_state_changed", SimpleNamespace(new_state="speaking"))
+    # A provider's late final transcript cannot reset the observation or
+    # cause the observer to inspect/store its transcript content.
+    session.emit("user_input_transcribed", SimpleNamespace(is_final=True))
+    session.emit("conversation_item_added", SimpleNamespace(item=PrivateItem()))
+    assert logs == [
+        (
+            "latency",
+            "sdk_realtime provider_generation_to_first_audio_s=0.001000 "
+            "scope=provider_generation_not_user_e2e",
+        ),
+        (
+            "latency",
+            "voice_observed user_speaking_state_s=2.000000 "
+            "vad_end_to_agent_speaking_s=2.000000 scope=state_events_not_acoustic_e2e",
+        ),
+        ("latency", "sdk_turn role=assistant output_reported_playback_s=0.010000"),
+    ]
+
+
+def test_install_session_timing_isolates_sessions_and_swallows_telemetry_errors(
+    monkeypatch,
+):
+    import latency
+
+    now = [10.0]
+    monkeypatch.setattr(latency.time, "monotonic", lambda: now[0])
+    first, second = TimingSession(), TimingSession()
+    logs = []
+    latency.install_session_timing(first, lambda kind, line: logs.append(line))
+    latency.install_session_timing(second, lambda kind, line: logs.append(line))
+    first.emit("user_state_changed", SimpleNamespace(new_state="speaking"))
+    now[0] = 12.0
+    first.emit("user_state_changed", SimpleNamespace(new_state="listening"))
+    now[0] = 13.0
+    second.emit("agent_state_changed", SimpleNamespace(new_state="speaking"))
+    assert not logs
+    first.emit("agent_state_changed", SimpleNamespace(new_state="speaking"))
+    assert len(logs) == 1
+
+    def failing_log(_kind, _line):
+        raise RuntimeError("log unavailable")
+
+    failing = TimingSession()
+    latency.install_session_timing(failing, failing_log)
+    failing.emit(
+        "metrics_collected",
+        SimpleNamespace(
+            metrics=SimpleNamespace(
+                type="realtime_model_metrics",
+                ttft=0.1,
+            )
+        ),
+    )
+    for event in failing.handlers:
+        failing.emit(event, None)
+
+    class BrokenMetric:
+        @property
+        def type(self):
+            raise RuntimeError("bad telemetry")
+
+    failing.emit("metrics_collected", SimpleNamespace(metrics=BrokenMetric()))

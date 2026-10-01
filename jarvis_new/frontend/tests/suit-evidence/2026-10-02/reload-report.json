@@ -1,0 +1,37 @@
+{
+  "school_reload": "passed",
+  "state": {
+    "height": 64,
+    "suit": false,
+    "bar": true,
+    "hud": false
+  },
+  "native_calls": [
+    [
+      "mic_status",
+      {}
+    ],
+    [
+      "suit_focus",
+      {
+        "active": false,
+        "lease": null
+      }
+    ],
+    [
+      "app_config",
+      {}
+    ],
+    [
+      "bridge_info",
+      {}
+    ],
+    [
+      "school_menu",
+      {
+        "extra": 0
+      }
+    ]
+  ],
+  "errors": []
+}

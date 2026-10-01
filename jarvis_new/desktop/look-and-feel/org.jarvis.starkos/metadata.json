@@ -1,0 +1,16 @@
+{
+  "KPlugin": {
+    "Id": "org.jarvis.starkos",
+    "Name": "Stark OS",
+    "Description": "The Jarvis HUD look for the whole desktop: deep ink, cyan hairlines, chamfers and corner brackets",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [
+      {
+        "Name": "Jarvis"
+      }
+    ]
+  },
+  "KPackageStructure": "Plasma/LookAndFeel",
+  "X-Plasma-APIVersion": "2"
+}

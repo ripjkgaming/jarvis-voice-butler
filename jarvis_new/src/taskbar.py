@@ -80,6 +80,25 @@ _APPS_TTL_S = 60.0
 _launchers_cache: dict = {}
 _apps_cache: dict = {}
 
+# These direct executables support isolated display/session-bus launches.
+# Other desktop entries keep their normal launcher outside a sandbox; inside
+# one, wrappers and unknown singleton protocols must fail without falling back
+# to the user's live session.
+_SANDBOX_DIRECT_APPS = frozenset(
+    {
+        "kcalc",
+        "gnome-calculator",
+        "dolphin",
+        "konsole",
+        "brave",
+        "brave-browser",
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "chrome",
+    }
+)
+
 
 def _default_run(argv, **kw):
     return subprocess.run(argv, **kw)
@@ -482,7 +501,20 @@ def launch_desktop(desktop: str, dirs=None, which=None, popen=None) -> bool:
         path = find_desktop(valid, dirs=dirs)
         if path is None:
             return False
-        argv = launch_argv(valid, path, which=which)
+        from system.desktop import sandbox_display
+
+        display = sandbox_display()
+        options = {}
+        if display:
+            from system.core import _sandbox_launch
+            from system.launcher import _parse_desktop
+
+            entry = _parse_desktop(path.read_text(), which=which or shutil.which)
+            if entry is None or Path(entry.argv[0]).name not in _SANDBOX_DIRECT_APPS:
+                return False
+            argv, options["env"] = _sandbox_launch(entry.argv, display)
+        else:
+            argv = launch_argv(valid, path, which=which)
         if not argv:
             return False
         spawn = popen or subprocess.Popen
@@ -491,6 +523,7 @@ def launch_desktop(desktop: str, dirs=None, which=None, popen=None) -> bool:
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **options,
         )
         return True
     except Exception:

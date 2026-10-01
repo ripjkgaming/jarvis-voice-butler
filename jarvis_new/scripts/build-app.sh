@@ -19,6 +19,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHELL_DIR="$(cd "$SCRIPT_DIR/../shell" && pwd)"
+FRONTEND_DIR="$(cd "$SCRIPT_DIR/../frontend" && pwd)"
 
 if [[ "${1:-}" == "--check" ]]; then
   echo "== build deps =="
@@ -35,6 +36,10 @@ if [[ "${1:-}" == "--check" ]]; then
     && echo "  OK  tauri-cli" || echo "  --  tauri-cli (cargo install tauri-cli)"
   exit 0
 fi
+
+echo "== STARK HUD production assets =="
+cd "$FRONTEND_DIR"
+pnpm build || { echo "ERROR: HUD build failed" >&2; exit 1; }
 
 echo "== tauri build (rpm + appimage) =="
 cd "$SHELL_DIR/src-tauri"

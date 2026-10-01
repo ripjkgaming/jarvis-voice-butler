@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="470" height="36" viewBox="0 0 470 36">
+<defs></defs>
+<g id="normal" transform="translate(0,0)"><rect x="0" y="0" width="32" height="32" fill="#000000" fill-opacity="0.001"/><circle cx="16.0" cy="16.0" r="15.0" fill="#061826" stroke="#7fa6b8" stroke-width="1" opacity="1.0"/></g>
+<g id="pressed" transform="translate(38,0)"><rect x="0" y="0" width="32" height="32" fill="#000000" fill-opacity="0.001"/><circle cx="16.0" cy="16.0" r="15.0" fill="#12546a" stroke="#d8f8ff" stroke-width="1" opacity="1.0"/></g>
+<g id="hover" transform="translate(76,0)"><rect x="0" y="0" width="32" height="32" fill="#000000" fill-opacity="0.001"/><circle cx="16.0" cy="16.0" r="15.0" fill="#0b2436" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="focus" transform="translate(114,0)"><rect x="0" y="0" width="32" height="32" fill="#000000" fill-opacity="0.001"/><circle cx="16.0" cy="16.0" r="15.0" fill="#061826" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="24-24-normal" transform="translate(152,0)"><rect x="0" y="0" width="24" height="24" fill="#000000" fill-opacity="0.001"/><circle cx="12.0" cy="12.0" r="11.0" fill="#061826" stroke="#7fa6b8" stroke-width="1" opacity="1.0"/></g>
+<g id="24-24-pressed" transform="translate(182,0)"><rect x="0" y="0" width="24" height="24" fill="#000000" fill-opacity="0.001"/><circle cx="12.0" cy="12.0" r="11.0" fill="#12546a" stroke="#d8f8ff" stroke-width="1" opacity="1.0"/></g>
+<g id="24-24-hover" transform="translate(212,0)"><rect x="0" y="0" width="24" height="24" fill="#000000" fill-opacity="0.001"/><circle cx="12.0" cy="12.0" r="11.0" fill="#0b2436" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="24-24-focus" transform="translate(242,0)"><rect x="0" y="0" width="24" height="24" fill="#000000" fill-opacity="0.001"/><circle cx="12.0" cy="12.0" r="11.0" fill="#061826" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="22-22-normal" transform="translate(272,0)"><rect x="0" y="0" width="22" height="22" fill="#000000" fill-opacity="0.001"/><circle cx="11.0" cy="11.0" r="10.0" fill="#061826" stroke="#7fa6b8" stroke-width="1" opacity="1.0"/></g>
+<g id="22-22-pressed" transform="translate(300,0)"><rect x="0" y="0" width="22" height="22" fill="#000000" fill-opacity="0.001"/><circle cx="11.0" cy="11.0" r="10.0" fill="#12546a" stroke="#d8f8ff" stroke-width="1" opacity="1.0"/></g>
+<g id="22-22-hover" transform="translate(328,0)"><rect x="0" y="0" width="22" height="22" fill="#000000" fill-opacity="0.001"/><circle cx="11.0" cy="11.0" r="10.0" fill="#0b2436" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="22-22-focus" transform="translate(356,0)"><rect x="0" y="0" width="22" height="22" fill="#000000" fill-opacity="0.001"/><circle cx="11.0" cy="11.0" r="10.0" fill="#061826" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="16-16-normal" transform="translate(384,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8.0" cy="8.0" r="7.0" fill="#061826" stroke="#7fa6b8" stroke-width="1" opacity="1.0"/></g>
+<g id="16-16-pressed" transform="translate(406,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8.0" cy="8.0" r="7.0" fill="#12546a" stroke="#d8f8ff" stroke-width="1" opacity="1.0"/></g>
+<g id="16-16-hover" transform="translate(428,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8.0" cy="8.0" r="7.0" fill="#0b2436" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="16-16-focus" transform="translate(450,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8.0" cy="8.0" r="7.0" fill="#061826" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+</svg>

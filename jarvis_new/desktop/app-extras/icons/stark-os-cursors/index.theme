@@ -1,0 +1,4 @@
+[Icon Theme]
+Name=STARK OS Cursors
+Comment=High contrast static instrument pointers
+Inherits=breeze_cursors

@@ -1,14 +1,14 @@
 """Sandboxed computer-use skill test: the agent's real desktop tools, driven
-against a nested Xephyr display with a private D-Bus -- never the real
+against a headless Xvfb display with a private D-Bus -- never the real
 session.
 
 Isolation:
-- Display: Xephyr :99 (its own X server; xdotool/XTEST input only reaches it).
+- Display: private Xvfb server (no window on the real desktop).
 - Input: JARVIS_DESKTOP_SANDBOX forces the xdotool backend; this script also
   poisons UInputMouse so any path that would open the global /dev/uinput
   device fails loudly instead of touching the real desktop.
 - D-Bus: a private dbus-daemon with a scrubbed env, so single-instance KDE
-  apps and auto-started portals stay on :99, never the real desktop.
+  apps and auto-started portals stay on the private display, never the real desktop.
 
 Usage (from jarvis_new/):
     uv run python scripts/sandbox_computer_use.py
@@ -17,10 +17,14 @@ Usage (from jarvis_new/):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import select
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -53,10 +57,13 @@ def _xdo(*args: str) -> str:
     ).stdout.strip()
 
 
-def _wait_window(name: str, timeout: float = 20.0) -> str | None:
+def _wait_window(app_class: str, timeout: float = 20.0) -> str | None:
     end = time.time() + timeout
     while time.time() < end:
-        wid = _xdo("search", "--name", f"^{name}$")
+        # Qt also creates hidden helper windows with the app's title. Their
+        # geometry/focus is unrelated to the visible calculator. Match the
+        # mapped application class before sending input to its real window.
+        wid = _xdo("search", "--onlyvisible", "--class", f"^{app_class}$")
         if wid:
             return wid.splitlines()[0]
         time.sleep(0.5)
@@ -69,56 +76,162 @@ async def _ocr(tools, ctx=None) -> str:
     shot = await tools.desktop_screenshot(ctx)
     big = shot["path"].replace(".png", "-big.png")
     await run_cmd("magick", shot["path"], "-colorspace", "Gray", "-resize", "200%", big)
-    _, out, _ = await run_cmd("tesseract", big, "stdout", "--psm", "11", timeout=30.0)
+    _, out, _ = await run_cmd("tesseract", big, "stdout", "--psm", "6", timeout=30.0)
     return out
 
 
+def _stop_process(proc: subprocess.Popen) -> None:
+    """Stop only a process group created by this harness, then reap its leader."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGTERM)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(timeout=3)
+    # The leader can exit while activated children stay alive. Sweep the
+    # owned group even when wait() has already reaped its leader.
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(timeout=3)
+    if proc.stdout is not None:
+        proc.stdout.close()
+
+
+@contextlib.contextmanager
+def _sandbox_session():
+    """Clean up partial setup as well as normal runs; restore caller env."""
+    global DISPLAY
+    previous_display = DISPLAY
+    previous_env = os.environ.copy()
+    try:
+        with tempfile.TemporaryDirectory(prefix="jarvis-desktop-check-") as root:
+            home = Path(root)
+            for name in ("config", "cache", "data", "runtime", "state", "tmp"):
+                (home / name).mkdir(mode=0o700)
+            for key in (
+                "DISPLAY",
+                "JARVIS_DESKTOP_SANDBOX",
+                "WAYLAND_DISPLAY",
+                "DBUS_SESSION_BUS_ADDRESS",
+                "JARVIS_SANDBOX_BUS_ADDRESS",
+                "SESSION_MANAGER",
+            ):
+                os.environ.pop(key, None)
+            os.environ.update(
+                QT_QPA_PLATFORM="xcb",
+                GDK_BACKEND="x11",
+                XDG_SESSION_TYPE="x11",
+                QT_QPA_PLATFORMTHEME="generic",
+                QT_NO_XDG_DESKTOP_PORTAL="1",
+                GTK_USE_PORTAL="0",
+                XDG_CONFIG_HOME=str(home / "config"),
+                XDG_CACHE_HOME=str(home / "cache"),
+                XDG_DATA_HOME=str(home / "data"),
+                XDG_RUNTIME_DIR=str(home / "runtime"),
+                XDG_STATE_HOME=str(home / "state"),
+                TMPDIR=str(home / "tmp"),
+                JARVIS_LOCAL="1",
+                JARVIS_HOME=str(home / "state"),
+                JARVIS_ACTIONS_LOG=str(home / "state" / "actions.log"),
+            )
+            with contextlib.ExitStack() as cleanup:
+                display_server = subprocess.Popen(
+                    [
+                        "Xvfb",
+                        "-displayfd",
+                        "1",
+                        "-screen",
+                        "0",
+                        f"{SIZE}x24",
+                        "-nolisten",
+                        "tcp",
+                        "-ac",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    start_new_session=True,
+                )
+                cleanup.callback(_stop_process, display_server)
+                # Xvfb allocates and reports its own display atomically. A
+                # probe-then-start race could attach two parallel checks to
+                # the same display before one failed server finishes exiting.
+                if not select.select([display_server.stdout], [], [], 15)[0]:
+                    raise RuntimeError("Xvfb startup timed out")
+                number = display_server.stdout.readline().strip()
+                if not number.isdigit() or not 0 <= int(number) <= 999:
+                    raise RuntimeError("Xvfb did not report a usable private display")
+                DISPLAY = f":{int(number)}"
+                os.environ.update(DISPLAY=DISPLAY, JARVIS_DESKTOP_SANDBOX=DISPLAY)
+                geo = subprocess.run(
+                    ["xdotool", "getdisplaygeometry"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if (
+                    display_server.poll() is not None
+                    or geo.returncode != 0
+                    or geo.stdout.strip().replace(" ", "x") != SIZE
+                ):
+                    raise RuntimeError(f"Xvfb {DISPLAY} did not serve {SIZE}")
+                bus = subprocess.Popen(
+                    ["dbus-daemon", "--session", "--nofork", "--print-address=1"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    start_new_session=True,
+                )
+                cleanup.callback(_stop_process, bus)
+                # readline on a failed daemon used to block setup forever.
+                if not select.select([bus.stdout], [], [], 5)[0]:
+                    raise RuntimeError("private D-Bus startup timed out")
+                address = bus.stdout.readline().strip()
+                if not address.startswith("unix:"):
+                    raise RuntimeError(
+                        "private D-Bus did not provide a session address"
+                    )
+                os.environ["DBUS_SESSION_BUS_ADDRESS"] = address
+                os.environ["JARVIS_SANDBOX_BUS_ADDRESS"] = address
+                import system
+                import system.desktop as desktop
+
+                cleanup.callback(setattr, system, "LOG_PATH", system.LOG_PATH)
+                cleanup.callback(setattr, desktop, "UInputMouse", desktop.UInputMouse)
+                system.LOG_PATH = home / "state" / "actions.log"
+                _poison_uinput()
+                yield
+    finally:
+        os.environ.clear()
+        os.environ.update(previous_env)
+        DISPLAY = previous_display
+
+
 async def main() -> int:
-    for tool in ("Xephyr", "xdotool", "import", "tesseract"):
+    for tool in (
+        "Xvfb",
+        "xdotool",
+        "import",
+        "magick",
+        "tesseract",
+        "dbus-daemon",
+        "kcalc",
+    ):
         if shutil.which(tool) is None:
             print(f"missing dependency: {tool}")
             return 2
+    try:
+        with _sandbox_session():
+            print(
+                f"Sandbox: headless Xvfb {DISPLAY}, private D-Bus and state", flush=True
+            )
+            return await _run_checks()
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f"sandbox setup failed: {exc}")
+        return 2
 
-    xephyr = subprocess.Popen(
-        [
-            "Xephyr",
-            DISPLAY,
-            "-screen",
-            SIZE,
-            "-ac",
-            "-br",
-            "-noreset",
-            "-title",
-            "JARVIS SANDBOX",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    time.sleep(1.5)
-    # Private session bus with a scrubbed env: anything it auto-starts
-    # (portals, ksecretd) lands on :99, never the real Wayland session,
-    # and has no fd on our stdout. Killed with its whole group at the end.
-    os.environ.pop("WAYLAND_DISPLAY", None)
-    os.environ.update(DISPLAY=DISPLAY, QT_QPA_PLATFORM="xcb", XDG_SESSION_TYPE="x11")
-    bus = subprocess.Popen(
-        ["dbus-daemon", "--session", "--nofork", "--print-address=1"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        start_new_session=True,
-    )
-    os.environ["DBUS_SESSION_BUS_ADDRESS"] = bus.stdout.readline().strip()
-    os.environ["JARVIS_LOCAL"] = "1"
-    os.environ["JARVIS_DESKTOP_SANDBOX"] = DISPLAY
-    os.environ["JARVIS_HOME"] = str(Path("/tmp/jarvis-sandbox-home"))
-    _poison_uinput()
-    # Keep test actions out of Sir's real ~/.jarvis/actions.log (the HUD
-    # activity feed reads it).
-    import system
 
-    system.LOG_PATH = Path("/tmp/jarvis-sandbox-home/actions.log")
-
+async def _run_checks() -> int:
     from livekit.agents.llm import ToolError
 
     from system.core import SystemTools
@@ -126,6 +239,7 @@ async def main() -> int:
 
     system_tools, desk = SystemTools(), DesktopTools()
     results: list[tuple[str, bool, str]] = []
+    app_pids: set[int] = set()
 
     async def check(name: str, coro) -> object:
         print(f"... {name}", flush=True)
@@ -162,8 +276,9 @@ async def main() -> int:
 
         # 3. Universal launcher inside the sandbox: "calculator" -> KCalc.
         async def launch():
-            await system_tools.open_app(None, app="calculator")
-            assert _wait_window("KCalc"), "KCalc window never appeared on :99"
+            opened = await system_tools.open_app(None, app="calculator")
+            app_pids.add(int(opened["pid"]))
+            assert _wait_window("KCalc"), f"KCalc window never appeared on {DISPLAY}"
 
         await check("open_app calculator -> KCalc window", launch())
 
@@ -186,8 +301,14 @@ async def main() -> int:
             await desk.desktop_type(None, "25*4")
             await desk.confirm_desktop_action(None, summary="press Return")
             await desk.desktop_key(None, "Return")
-            await asyncio.sleep(0.8)
-            text = await _ocr(desk)
+            # KCalc's paint may lag under load; wait for the visible result.
+            deadline = time.monotonic() + 15
+            text = ""
+            while time.monotonic() < deadline:
+                text = await _ocr(desk)
+                if "100" in text:
+                    break
+                await asyncio.sleep(0.3)
             assert "100" in text, f"expected 100 on screen, OCR saw: {text[:200]!r}"
 
         await check("click -> type 25*4 -> Return -> OCR reads 100", calc_chain())
@@ -219,16 +340,19 @@ async def main() -> int:
 
         await check("unsafe key refused", bad_key())
     finally:
-        for wid in _xdo("search", "--name", ".").split():
-            pid = _xdo("getwindowpid", wid)
-            if pid.isdigit():
-                subprocess.run(["kill", pid], check=False)
-        # Everything the private bus activated shares its session group.
-        with __import__("contextlib").suppress(ProcessLookupError):
-            os.killpg(bus.pid, 15)
-        xephyr.terminate()
-        with __import__("contextlib").suppress(Exception):
-            xephyr.wait(timeout=5)
+        # Only launch results identify owned processes. Window properties are
+        # untrusted and must never choose which user process gets signaled.
+        for pid in app_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pid, signal.SIGTERM)
+        tasks = list(system_tools._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.sleep(0.1)
+        for pid in app_pids:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pid, signal.SIGKILL)
 
     width = max(len(n) for n, _, _ in results)
     for name, ok, detail in results:

@@ -1,0 +1,58 @@
+{
+  "native_qt6_renderings": 512,
+  "new_icon_renderings": 256,
+  "geometry_preservation_checks": 256,
+  "named_icons": 161,
+  "unique_designs": 64,
+  "SVG_files": 483,
+  "semantic_colors_preserved": true,
+  "deterministic_regeneration": true,
+  "luminance_on_dark_background": {
+    "128": {
+      "before_mean_luminance": 0.0973,
+      "after_mean_luminance": 0.2566,
+      "mean_brightness_factor": 2.64,
+      "minimum_design_factor": 0.7
+    },
+    "64": {
+      "before_mean_luminance": 0.0756,
+      "after_mean_luminance": 0.2332,
+      "mean_brightness_factor": 3.08,
+      "minimum_design_factor": 0.81
+    },
+    "22": {
+      "before_mean_luminance": 0.1736,
+      "after_mean_luminance": 0.2939,
+      "mean_brightness_factor": 1.69,
+      "minimum_design_factor": 1.06
+    },
+    "16": {
+      "before_mean_luminance": 0.1419,
+      "after_mean_luminance": 0.2653,
+      "mean_brightness_factor": 1.87,
+      "minimum_design_factor": 1.06
+    }
+  },
+  "whole_canvas_luminance_on_identical_dark_background": {
+    "128": {
+      "mean_brightness_factor": 2.98,
+      "minimum_design_factor": 1.13,
+      "minimum_design": "power"
+    },
+    "64": {
+      "mean_brightness_factor": 3.43,
+      "minimum_design_factor": 1.11,
+      "minimum_design": "power"
+    },
+    "22": {
+      "mean_brightness_factor": 1.74,
+      "minimum_design_factor": 1.06,
+      "minimum_design": "close"
+    },
+    "16": {
+      "mean_brightness_factor": 1.92,
+      "minimum_design_factor": 1.05,
+      "minimum_design": "close"
+    }
+  }
+}

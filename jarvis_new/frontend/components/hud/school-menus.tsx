@@ -1,6 +1,7 @@
 'use client';
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { ICON_MISS_TTL_MS, bridgeAppIcon, bridgeGet, bridgeLaunch, bridgePost } from '@/lib/bridge';
 
 /** School taskbar menus. They open upward out of the bar: the shell grows
@@ -25,7 +26,7 @@ type Quick = {
 
 /* ------------------------------ shared ------------------------------ */
 
-export function AppIcon({ app, label }: { app: string; label: string }) {
+export const AppIcon = memo(function AppIcon({ app, label }: { app: string; label: string }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -45,16 +46,18 @@ export function AppIcon({ app, label }: { app: string; label: string }) {
   }, [app]);
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" draggable={false} />
+    <img src={src} alt="" draggable={false} decoding="async" loading="lazy" />
   ) : (
     <span className="sbar-app__glyph">{(label || app || '?').slice(0, 1).toUpperCase()}</span>
   );
-}
+});
 
 function MenuHead({ title, meta }: { title: string; meta?: string }) {
   return (
     <header className="smenu__head">
-      <b>{title}</b>
+      <b>
+        <span aria-hidden="true">◢</span> {title}
+      </b>
       {meta ? <i>{meta}</i> : null}
     </header>
   );
@@ -137,9 +140,11 @@ let appsCache: App[] | null = null;
 function LauncherMenu({
   pinned,
   onClose,
+  ambientActive,
 }: {
   pinned: { desktop: string; name: string }[];
   onClose: () => void;
+  ambientActive: boolean;
 }) {
   const [apps, setApps] = useState<App[] | null>(appsCache);
   const [cat, setCat] = useState('all');
@@ -167,15 +172,17 @@ function LauncherMenu({
 
   return (
     <div className="smenu smenu--launcher" role="menu" aria-label="Apps">
+      <AmbientParticles variant="menu" active={ambientActive} className="smenu__ambient" />
       <MenuHead title="APPLICATIONS" meta={apps ? `${shown.length} APPS` : 'LOADING'} />
       {pinned.length ? (
-        <div className="smenu__pinned">
+        <div className="smenu__pinned" aria-label="Pinned applications">
           {pinned.map((p) => (
             <button
               key={p.desktop}
               type="button"
               className="smenu__pin"
               title={p.name}
+              aria-label={p.name}
               onClick={() => launch(p.desktop)}
             >
               <AppIcon app={p.desktop} label={p.name} />
@@ -184,9 +191,15 @@ function LauncherMenu({
         </div>
       ) : null}
       <div className="smenu__body">
-        <nav className="smenu__cats">
+        <nav className="smenu__cats" aria-label="Application categories">
           {CATEGORIES.map((c) => (
-            <button key={c.key} type="button" data-on={cat === c.key} onClick={() => setCat(c.key)}>
+            <button
+              key={c.key}
+              type="button"
+              data-on={cat === c.key}
+              aria-pressed={cat === c.key}
+              onClick={() => setCat(c.key)}
+            >
               {c.label}
             </button>
           ))}
@@ -233,6 +246,7 @@ function Toggle({
       type="button"
       className="smenu__toggle"
       data-on={on === true}
+      aria-pressed={on === true}
       disabled={on === null}
       onClick={onClick}
     >
@@ -282,6 +296,7 @@ function Slider({
       </span>
       <input
         type="range"
+        aria-label={label}
         min={1}
         max={max}
         value={value}
@@ -292,34 +307,61 @@ function Slider({
   );
 }
 
-function QuickMenu() {
+function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
   const [q, setQ] = useState<Quick | null>(null);
   // Local slider values win over polling while Sir is dragging.
   const [vol, setVol] = useState<number | null>(null);
   const [bri, setBri] = useState<number | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pending = useRef<Record<string, Record<string, unknown>>>({});
+  const lastEdit = useRef<Record<string, number>>({});
 
   useEffect(() => {
     let live = true;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
+      clearTimeout(timer);
+      if (!live || document.hidden || inFlight) return;
+      inFlight = true;
       const j = await bridgeGet<Quick & { ok?: boolean }>('/quick');
-      if (live && j) setQ(j);
+      inFlight = false;
+      if (!live) return;
+      if (j) {
+        setQ(j);
+        // Release the drag override once a later poll can confirm the value.
+        if (Date.now() - (lastEdit.current.volume ?? 0) > 1500) setVol(null);
+        if (Date.now() - (lastEdit.current.brightness ?? 0) > 1500) setBri(null);
+      }
+      if (!document.hidden) timer = setTimeout(poll, 3000);
     };
     void poll();
-    const t = setInterval(poll, 3000);
+    document.addEventListener('visibilitychange', poll);
     return () => {
       live = false;
-      clearInterval(t);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', poll);
+      // Preserve the final slider value even if the menu closes before debounce.
+      Object.values(timers.current).forEach(clearTimeout);
+      Object.values(pending.current).forEach((body) => void bridgePost('/quick', body));
+      timers.current = {};
+      pending.current = {};
     };
   }, []);
 
   const send = (body: Record<string, unknown>, then?: (q: Quick) => Quick) => {
-    if (then && q) setQ(then(q));
+    if (then) setQ((current) => (current ? then(current) : current));
     void bridgePost('/quick', body);
   };
   const debounced = (key: string, body: Record<string, unknown>) => {
+    lastEdit.current[key] = Date.now();
+    pending.current[key] = body;
     clearTimeout(timers.current[key]);
-    timers.current[key] = setTimeout(() => void bridgePost('/quick', body), 140);
+    timers.current[key] = setTimeout(() => {
+      delete pending.current[key];
+      delete timers.current[key];
+      void bridgePost('/quick', body);
+    }, 100);
   };
 
   const wifi = q?.wifi ?? null;
@@ -329,6 +371,7 @@ function QuickMenu() {
 
   return (
     <div className="smenu smenu--quick" role="menu" aria-label="Quick settings">
+      <AmbientParticles variant="menu" active={ambientActive} className="smenu__ambient" />
       <MenuHead title="QUICK SETTINGS" meta={q ? 'LIVE' : 'LOADING'} />
       <div className="smenu__toggles">
         <Toggle
@@ -398,7 +441,7 @@ function QuickMenu() {
 
 /* ------------------------------ calendar ------------------------------ */
 
-function CalendarMenu() {
+function CalendarMenu({ ambientActive }: { ambientActive: boolean }) {
   const today = new Date();
   const [offset, setOffset] = useState(0);
   const first = new Date(today.getFullYear(), today.getMonth() + offset, 1);
@@ -408,6 +451,7 @@ function CalendarMenu() {
   const isToday = (d: number) => offset === 0 && d === today.getDate();
   return (
     <div className="smenu smenu--calendar" role="menu" aria-label="Calendar">
+      <AmbientParticles variant="menu" active={ambientActive} className="smenu__ambient" />
       <header className="smenu__head">
         <b>
           {first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase()}
@@ -459,11 +503,13 @@ export function MenuLayer({
   closing,
   pinned,
   onClose,
+  active = true,
 }: {
   menu: MenuKind;
   closing: boolean;
   pinned: { desktop: string; name: string }[];
   onClose: () => void;
+  active?: boolean;
 }) {
   useEffect(() => {
     // Only once the pointer has been in the window: a menu opened by voice
@@ -471,6 +517,7 @@ export function MenuLayer({
     let t: ReturnType<typeof setTimeout> | undefined;
     let visited = false;
     const leave = () => {
+      clearTimeout(t);
       if (visited) t = setTimeout(onClose, 1400);
     };
     const enter = () => {
@@ -494,13 +541,16 @@ export function MenuLayer({
       className="smenu-layer"
       data-menu={menu}
       data-closing={closing}
+      aria-hidden={closing}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {menu === 'launcher' ? <LauncherMenu pinned={pinned} onClose={onClose} /> : null}
-      {menu === 'quick' ? <QuickMenu /> : null}
-      {menu === 'calendar' ? <CalendarMenu /> : null}
+      {menu === 'launcher' ? (
+        <LauncherMenu pinned={pinned} onClose={onClose} ambientActive={active && !closing} />
+      ) : null}
+      {menu === 'quick' ? <QuickMenu ambientActive={active && !closing} /> : null}
+      {menu === 'calendar' ? <CalendarMenu ambientActive={active && !closing} /> : null}
     </div>
   );
 }

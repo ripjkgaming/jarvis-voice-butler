@@ -1,0 +1,17 @@
+{
+  "after-dpr1.png": "6f663905e6e6c8b35a0225e8d9243650c52734a99f960c2e91d0d986f3df2e85",
+  "after-dpr2.png": "81c3fbf2089f92ea2a84da29d9572867cbddd31741ff4d5307df38abbce4b50e",
+  "before-dpr1.png": "6f663905e6e6c8b35a0225e8d9243650c52734a99f960c2e91d0d986f3df2e85",
+  "before-dpr2.png": "81c3fbf2089f92ea2a84da29d9572867cbddd31741ff4d5307df38abbce4b50e",
+  "canvas-microbenchmark.json": "46f1f0bd53bd78d4fb059aabd86eb75587c322f4ae7a3c94845f59b6642b9fef",
+  "entry-final.png": "12e95fe8ca5116c1038074175e0c02e79d29f2ce1a214493d03fcc2c35ee4132",
+  "environment.json": "9b8da8fe2fb1c232a003cbb8631dac98a726190aeee4b3d7081650a1302cf547",
+  "hud-final.png": "b8d7366e81fd85eb7fc4f85732551572cd4458719093b8f27cc1369dd99c3720",
+  "original-pre-ambient.json": "8d8fd957e969da5f950abb53cafa08e04e7b18d269b530e5b06c22bad46d6477",
+  "pixel-parity.json": "5c838b2ca570e907f4a95f8b36dca1fdcaf6b7075fb5df4bea93494603564241",
+  "school-smoke.jsonl": "b62c53a8294528e598020ddfac134ec873d8ee650f9b7507f0305fe644e11347",
+  "ui-buffers.json": "54f63274a14a1bfa9e802ff7e0325069bae78aa6253040510ee73ff5877fa6d6",
+  "ui-control.json": "7021c150a4edf7aeb01d78158d79ba85afef621f949a65e06fe08ff369b1fbf6",
+  "source:school-transition.tsx": "c1246b4b67e3d6e4371c402df13e7f7307ffad52c0b9b97b04e58abe197735e0",
+  "export:index.html": "ad8f5cde9e7d54f0284533d8325695c71ef5f462d908d13a1b9d207da96522f9"
+}

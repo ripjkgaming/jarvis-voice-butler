@@ -314,10 +314,7 @@ pub fn build_specs(
                 "http.server".into(),
                 ui_port().to_string(),
                 "--directory".into(),
-                repo.join("shell")
-                    .join("ui")
-                    .to_string_lossy()
-                    .into_owned(),
+                repo.join("shell").join("ui").to_string_lossy().into_owned(),
             ],
             ready: ReadyCheck::TcpPort(ui_port()),
             ready_timeout_s: 15,
@@ -351,13 +348,29 @@ async fn wait_ready(spec: &SidecarSpec, child: &mut Child) -> bool {
         if child.try_wait().ok().flatten().is_some() {
             return false; // exited before becoming ready
         }
-        if check_ready(&spec.ready) {
+        // Socket probes can block for seconds when a service accepts but
+        // stops answering. Keep the async runtime free to observe shutdown.
+        let readiness = spec.ready.clone();
+        if tokio::task::spawn_blocking(move || check_ready(&readiness))
+            .await
+            .unwrap_or(false)
+        {
             return true;
         }
         if tokio::time::Instant::now() >= deadline {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Observe an already-requested stop as well as one arriving during a
+/// readiness gate or restart delay. A dropped sender also ends supervision.
+async fn wait_shutdown(shutdown: &mut watch::Receiver<bool>) {
+    while !*shutdown.borrow() {
+        if shutdown.changed().await.is_err() {
+            break;
+        }
     }
 }
 
@@ -399,72 +412,80 @@ pub async fn supervise(
         let _ = tx.send(health::combine_status(&alive, bridge.as_ref()));
     };
 
-    for i in 0..procs.len() {
-        if *shutdown.borrow() {
-            break;
-        }
-        // Sequential gates: later sidecars need earlier ones up.
-        let ok = start_and_gate(&mut procs[i], &env, &log_dir).await;
-        if !ok {
-            procs[i].3 = BACKOFF_SECS.len() as u8; // gate failed: mark down
-            let reason = format!("{} failed to start", procs[i].0.name);
-            mark_down(&mut procs[i].2, reason);
-        }
-        announce(&procs, &state_tx);
-    }
-
-    // Watchdog: restart unexpected exits on the backoff ladder.
-    loop {
-        tokio::select! {
-            _ = shutdown.changed() => {
-                if *shutdown.borrow() {
-                    break;
-                }
-            }
-            _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-        }
-        let mut changed = false;
-        for entry in procs.iter_mut() {
-            let (spec, child, state, restarts, last_ok) = entry;
-            if budget_refresh_due(state, *restarts, *last_ok, BUDGET_REFRESH_S) {
-                *restarts = 0;
-                *last_ok = Some(tokio::time::Instant::now());
-            }
-            let exited = match child {
-                Some(c) => c.try_wait().ok().flatten().is_some(),
-                None => !matches!(state, SidecarState::Down(_)),
+    'supervision: {
+        for i in 0..procs.len() {
+            // Sequential gates: later sidecars need earlier ones up.
+            let ok = tokio::select! {
+                biased;
+                _ = wait_shutdown(&mut shutdown) => break 'supervision,
+                ready = start_and_gate(&mut procs[i], &env, &log_dir) => ready,
             };
-            if !exited {
-                continue;
+            if !ok {
+                procs[i].3 = BACKOFF_SECS.len() as u8; // gate failed: mark down
+                let reason = format!("{} failed to start", procs[i].0.name);
+                mark_down(&mut procs[i].2, reason);
             }
-            *child = None;
-            if (*restarts as usize) < BACKOFF_SECS.len() {
-                let delay = BACKOFF_SECS[*restarts as usize];
-                *restarts += 1;
-                *state = SidecarState::Restarting(*restarts);
-                // Wait out this rung of the ladder, then respawn inline so
-                // start order stays sequential and observable.
-                tokio::time::sleep(Duration::from_secs(delay)).await;
-                let ok = start_and_gate(entry, &env, &log_dir).await;
-                if ok {
-                    entry.2 = SidecarState::Ready;
-                } else if (entry.3 as usize) >= BACKOFF_SECS.len() {
-                    let reason = format!("{} restart budget spent", entry.0.name);
-                    mark_down(&mut entry.2, reason);
-                }
-                changed = true;
-            } else {
-                let reason = format!("{} down", spec.name);
-                mark_down(state, reason);
-                changed = true;
-            }
-        }
-        if changed {
             announce(&procs, &state_tx);
         }
+
+        // Watchdog: restart unexpected exits on the backoff ladder.
+        loop {
+            tokio::select! {
+                biased;
+                _ = wait_shutdown(&mut shutdown) => break,
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            }
+            let mut changed = false;
+            for entry in procs.iter_mut() {
+                let (spec, child, state, restarts, last_ok) = entry;
+                if budget_refresh_due(state, *restarts, *last_ok, BUDGET_REFRESH_S) {
+                    *restarts = 0;
+                    *last_ok = Some(tokio::time::Instant::now());
+                }
+                let exited = match child {
+                    Some(c) => c.try_wait().ok().flatten().is_some(),
+                    None => !matches!(state, SidecarState::Down(_)),
+                };
+                if !exited {
+                    continue;
+                }
+                *child = None;
+                if (*restarts as usize) < BACKOFF_SECS.len() {
+                    let delay = BACKOFF_SECS[*restarts as usize];
+                    *restarts += 1;
+                    *state = SidecarState::Restarting(*restarts);
+                    // Wait out this rung of the ladder, then respawn inline so
+                    // start order stays sequential and observable.
+                    tokio::select! {
+                        biased;
+                        _ = wait_shutdown(&mut shutdown) => break 'supervision,
+                        _ = tokio::time::sleep(Duration::from_secs(delay)) => {}
+                    }
+                    let ok = tokio::select! {
+                        biased;
+                        _ = wait_shutdown(&mut shutdown) => break 'supervision,
+                        ready = start_and_gate(entry, &env, &log_dir) => ready,
+                    };
+                    if ok {
+                        entry.2 = SidecarState::Ready;
+                    } else if (entry.3 as usize) >= BACKOFF_SECS.len() {
+                        let reason = format!("{} restart budget spent", entry.0.name);
+                        mark_down(&mut entry.2, reason);
+                    }
+                    changed = true;
+                } else {
+                    let reason = format!("{} down", spec.name);
+                    mark_down(state, reason);
+                    changed = true;
+                }
+            }
+            if changed {
+                announce(&procs, &state_tx);
+            }
+        }
     }
 
-    // Shutdown: kill the whole tree, then wait (no orphans).
+    // Shutdown: stop and reap each service process owned by this supervisor.
     for (spec, child, _, _, _) in procs.iter_mut() {
         if let Some(c) = child {
             let _ = c.start_kill();
@@ -502,11 +523,19 @@ async fn start_and_gate(
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args)
         .envs(env)
+        // Cancelling a readiness gate (or dropping the supervisor on app
+        // exit) must not leave a half-started service running in the background.
+        .kill_on_drop(true)
         .stdout(stdout_cfg)
         .stderr(stderr_cfg);
     match cmd.spawn() {
         Ok(mut c) => {
             let ready = wait_ready(spec, &mut c).await;
+            if !ready {
+                let _ = c.kill().await;
+                *child = None;
+                return false;
+            }
             *child = Some(c);
             if ready {
                 *state = SidecarState::Ready;
@@ -531,6 +560,167 @@ fn progs_bridge_port(env: &HashMap<String, String>) -> u16 {
 mod tests {
     use super::*;
     use crate::env_cfg::SidecarPrograms;
+
+    fn isolated_test_dir(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "jarvis-manager-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn unready_spec(program: &str, args: Vec<String>) -> SidecarSpec {
+        SidecarSpec {
+            name: "test-only",
+            program: PathBuf::from(program),
+            args,
+            ready: ReadyCheck::TcpPort(0),
+            ready_timeout_s: 30,
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_interrupts_an_unready_service() {
+        let logs = isolated_test_dir("shutdown-gate");
+        let spec = unready_spec("/bin/sleep", vec!["30".into()]);
+        let (state_tx, _state_rx) = watch::channel(ShellState::Starting);
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let mut manager = tokio::spawn(supervise(
+            vec![spec],
+            HashMap::new(),
+            logs.clone(),
+            state_tx,
+            stop_rx,
+        ));
+        // Startup is intentionally waiting on a port that can never be ready.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        stop_tx.send(true).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(1), &mut manager).await;
+        if result.is_err() {
+            manager.abort();
+            let _ = manager.await;
+        }
+        std::fs::remove_dir_all(logs).unwrap();
+        assert!(
+            result.is_ok(),
+            "shutdown waited for the 30-second readiness timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn slow_health_probe_does_not_block_the_async_runtime() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(250));
+            let _ = socket.write_all(b"HTTP/1.0 200 OK\r\n\r\n{\"ok\":true}");
+        });
+        let logs = isolated_test_dir("slow-health");
+        let mut spec = unready_spec("/bin/sleep", vec!["30".into()]);
+        spec.ready = ReadyCheck::HttpOk {
+            port,
+            path: "/health".into(),
+        };
+        let mut entry = (spec, None, SidecarState::Starting, 0, None);
+        let env = HashMap::new();
+        let mut startup = Box::pin(start_and_gate(&mut entry, &env, &logs));
+        let timer_ran = tokio::select! {
+            biased;
+            _ = &mut startup => false,
+            _ = tokio::time::sleep(Duration::from_millis(50)) => true,
+        };
+        drop(startup);
+        if let Some(child) = &mut entry.1 {
+            let _ = child.kill().await;
+        }
+        server.join().unwrap();
+        std::fs::remove_dir_all(logs).unwrap();
+        assert!(timer_ran, "socket read blocked the runtime's timer");
+    }
+
+    #[tokio::test]
+    async fn failed_readiness_reaps_the_owned_child() {
+        let logs = isolated_test_dir("failed-gate");
+        let mut spec = unready_spec("/bin/sleep", vec!["30".into()]);
+        spec.ready_timeout_s = 0;
+        let mut entry = (spec, None, SidecarState::Starting, 0, None);
+        assert!(!start_and_gate(&mut entry, &HashMap::new(), &logs).await);
+        let retained = entry.1.is_some();
+        // Also clean up when running against the buggy implementation.
+        if let Some(child) = &mut entry.1 {
+            let _ = child.kill().await;
+        }
+        std::fs::remove_dir_all(logs).unwrap();
+        assert!(
+            !retained,
+            "a failed readiness check left a live child retained"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn cancelling_startup_does_not_orphan_the_child() {
+        let logs = isolated_test_dir("cancel-gate");
+        let pid_file = logs.join("child.pid");
+        let spec = unready_spec(
+            "/bin/sh",
+            vec![
+                "-c".into(),
+                "echo $$ > \"$1\"; exec sleep 30".into(),
+                "test-child".into(),
+                pid_file.to_string_lossy().into_owned(),
+            ],
+        );
+        let mut entry = (spec, None, SidecarState::Starting, 0, None);
+        let env = HashMap::new();
+        let mut startup = Box::pin(start_and_gate(&mut entry, &env, &logs));
+        tokio::select! {
+            _ = &mut startup => panic!("unready child unexpectedly finished startup"),
+            _ = async {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+                while !pid_file.is_file() && tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            } => {}
+        }
+        drop(startup);
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let running = || {
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
+                .ok()
+                .is_some_and(|stat| {
+                    !stat
+                        .rsplit_once(')')
+                        .unwrap()
+                        .1
+                        .trim_start()
+                        .starts_with('Z')
+                })
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while running() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let orphaned = running();
+        if orphaned {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status();
+        }
+        std::fs::remove_dir_all(logs).unwrap();
+        assert!(!orphaned, "cancelled startup left its child running");
+    }
 
     fn fake_progs() -> SidecarPrograms {
         SidecarPrograms {

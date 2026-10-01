@@ -2,6 +2,14 @@
 @import 'tw-animate-css';
 @source "../node_modules/streamdown/dist/index.js";
 
+/* Keep the HUD mounted for voice/state continuity while its opaque diagnostics
+   surface covers it. Decorative motion resumes immediately on dismissal. */
+.suit-open .hud *,
+.suit-open .hud *::before,
+.suit-open .hud *::after {
+  animation-play-state: paused !important;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -5052,7 +5060,7 @@ html.school-tx body {
   background: transparent !important;
   overflow: hidden;
 }
-html.school-tx .jarvis-background:not(.stx-half .jarvis-background),
+html.school-tx .jarvis-background:not(.stx-snapshot .jarvis-background),
 html.school-tx body > div > .group.fixed,
 html.school-tx body > .group.fixed {
   display: none !important;
@@ -5069,35 +5077,26 @@ html.school-tx body > .group.fixed {
   width: 100vw;
   height: 100vh;
 }
-/* The frozen HUD halves squeeze into their own sides. */
-.stx-half {
+/* Reactor compression uses one frozen full-resolution surface. */
+.stx-snapshot {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  will-change: transform, filter;
+  will-change: transform, opacity;
+  contain: layout style;
 }
-.stx-half--left {
-  clip-path: inset(0 50% 0 0);
-  transform-origin: 0 50%;
-}
-.stx-half--right {
-  clip-path: inset(0 0 0 50%);
-  transform-origin: 100% 50%;
-}
-/* Copies restart every CSS animation: jump each to its end and hold it,
-   so one-shot effects (the boot flash, entrances) show as finished and
-   loops freeze mid-motion. */
-.stx-half *,
-.stx-half *::before,
-.stx-half *::after {
-  animation-delay: -60s !important;
+.stx-snapshot *,
+.stx-snapshot *::before,
+.stx-snapshot *::after {
   animation-play-state: paused !important;
   transition: none !important;
 }
-/* The boot flash is long gone on the live HUD; a copy would replay it. */
-.stx-half .im-boot {
-  display: none !important;
+.stx-snapshot .im-boot { display: none !important; }
+html.school-entry .stx-bar[data-pooling='true'] .sbar-root {
+  animation: none;
+  clip-path: inset(0 var(--school-entry-reveal, 50%) 0);
 }
+
 /* The bar surfaces out of the pool (no clip-open of its own), and never
    replays that opening once it has arrived this way. */
 .stx-bar {
@@ -5544,5 +5543,74 @@ html.stx-scan .jarvis-background {
   .hud-boot__mark {
     animation: none;
     border-right-color: var(--boot-accent);
+  }
+}
+
+/* STARK OS companion surfaces. The scoped components/stark design is untouched. */
+.sbar,
+.smenu {
+  --line: rgba(95, 227, 255, 0.18);
+  --line-strong: rgba(95, 227, 255, 0.42);
+  --text: #d9f4ff;
+  --subtle: #7fa6b8;
+  font-family: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
+  font-weight: 500;
+  color-scheme: dark;
+}
+.sbar-line,
+.sbar-line b,
+.smenu__app span,
+.smenu__big b {
+  font-family: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
+}
+.sbar-clock b,
+.sbar-tile b,
+.sbar-job > b,
+.sbar-boot,
+.smenu__slider-head i,
+.smenu__cal {
+  font-family: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sbar button:focus-visible,
+.smenu button:focus-visible,
+.smenu input:focus-visible {
+  outline: 2px solid #5fe3ff;
+  outline-offset: -2px;
+}
+.smenu {
+  background: radial-gradient(ellipse at 50% 100%, rgba(10, 42, 68, 0.7), transparent 70%), #061826;
+}
+.toaster {
+  --popover: #061826;
+  --popover-foreground: #d9f4ff;
+  --border: rgba(95, 227, 255, 0.42);
+  --radius: 0;
+  font-family: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
+}
+.toaster [data-sonner-toast] {
+  font-family: inherit;
+  border-left: 2px solid #5fe3ff;
+}
+.toaster [data-type='error'] {
+  border-left-color: #ff4d5e;
+}
+.toaster [data-type='warning'] {
+  border-left-color: #ffb347;
+}
+.toaster [data-type='success'] {
+  border-left-color: #6dffb3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .smenu,
+  .smenu *,
+  .smenu *::before,
+  .smenu *::after,
+  .toaster *,
+  .toaster *::before,
+  .toaster *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1,0 +1,27 @@
+# STARK OS GTK2: native engine, canonical palette.
+gtk-font-name = "Rajdhani Medium 11"
+style "stark-default" {
+  bg[NORMAL] = "#061826"
+  fg[NORMAL] = "#d9f4ff"
+  base[NORMAL] = "#03101a"
+  text[NORMAL] = "#d9f4ff"
+  bg[ACTIVE] = "#061826"
+  fg[ACTIVE] = "#d9f4ff"
+  base[ACTIVE] = "#03101a"
+  text[ACTIVE] = "#d9f4ff"
+  bg[PRELIGHT] = "#0b2436"
+  fg[PRELIGHT] = "#d9f4ff"
+  base[PRELIGHT] = "#03101a"
+  text[PRELIGHT] = "#d9f4ff"
+  bg[SELECTED] = "#12546a"
+  fg[SELECTED] = "#d8f8ff"
+  base[SELECTED] = "#12546a"
+  text[SELECTED] = "#d8f8ff"
+  bg[INSENSITIVE] = "#061826"
+  fg[INSENSITIVE] = "#7fa6b8"
+  base[INSENSITIVE] = "#03101a"
+  text[INSENSITIVE] = "#7fa6b8"
+  xthickness = 1
+  ythickness = 1
+}
+class "*" style "stark-default"

@@ -1,0 +1,538 @@
+{
+  "export_root": "/mnt/data/jarvis-voice-butler/jarvis_new/frontend/out",
+  "export_sha256": {
+    "projects.html": "bd78954108acc45ee943a8bf25526df1fb2521933b6f746c96de7cf941a1e708",
+    "drafts.html": "85660e6bf29af5754ae1f8dd4e29935e9f62ac0e74cbec88096c1f124e34af42",
+    "404.html": "07a20f1fa997462d9e31399932d271c9dc299628d3bd900dec573eb399ed8578"
+  },
+  "network": {
+    "mocked_reads": 20,
+    "blocked": [],
+    "writes": [],
+    "websockets": []
+  },
+  "cases": [
+    {
+      "name": "projects-1440x900-normal",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Project index",
+            "x": 18,
+            "y": 85.5,
+            "width": 421.1875,
+            "height": 775.5,
+            "scrollWidth": 420,
+            "clientWidth": 419
+          },
+          {
+            "name": "Project sheet",
+            "x": 457.1875,
+            "y": 85.5,
+            "width": 964.8125,
+            "height": 775.5,
+            "scrollWidth": 964,
+            "clientWidth": 963
+          }
+        ],
+        "fontsReady": true,
+        "animations": 7,
+        "longContentScroll": [
+          {
+            "height": 498,
+            "content": 5717,
+            "top": 5219
+          }
+        ],
+        "endMarker": {
+          "x": 507.1875,
+          "y": 747.25,
+          "width": 218,
+          "height": 19
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "projects-1440x900-reduced",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Project index",
+            "x": 18,
+            "y": 85.5,
+            "width": 421.1875,
+            "height": 775.5,
+            "scrollWidth": 420,
+            "clientWidth": 419
+          },
+          {
+            "name": "Project sheet",
+            "x": 457.1875,
+            "y": 85.5,
+            "width": 964.8125,
+            "height": 775.5,
+            "scrollWidth": 964,
+            "clientWidth": 963
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 498,
+            "content": 5717,
+            "top": 5219
+          }
+        ],
+        "endMarker": {
+          "x": 507.1875,
+          "y": 747.25,
+          "width": 218,
+          "height": 19
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "projects-640x900-reduced",
+      "metrics": {
+        "viewport": [
+          640,
+          900
+        ],
+        "document": [
+          640,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Project index",
+            "x": 8,
+            "y": 102.5,
+            "width": 624,
+            "height": 229.9375,
+            "scrollWidth": 623,
+            "clientWidth": 622
+          },
+          {
+            "name": "Project sheet",
+            "x": 8,
+            "y": 340.4375,
+            "width": 624,
+            "height": 528.5625,
+            "scrollWidth": 623,
+            "clientWidth": 622
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 223,
+            "content": 6295,
+            "top": 6072
+          }
+        ],
+        "endMarker": {
+          "x": 38,
+          "y": 778.6875,
+          "width": 218,
+          "height": 19
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "projects-390x844-reduced",
+      "metrics": {
+        "viewport": [
+          390,
+          844
+        ],
+        "document": [
+          390,
+          844
+        ],
+        "sections": [
+          {
+            "name": "Project index",
+            "x": 8,
+            "y": 134.5,
+            "width": 374.609375,
+            "height": 203.546875,
+            "scrollWidth": 374,
+            "clientWidth": 373
+          },
+          {
+            "name": "Project sheet",
+            "x": 8,
+            "y": 346.046875,
+            "width": 374.609375,
+            "height": 466.953125,
+            "scrollWidth": 374,
+            "clientWidth": 373
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 134,
+            "content": 7519,
+            "top": 7385
+          }
+        ],
+        "endMarker": {
+          "x": 38,
+          "y": 722.796875,
+          "width": 218,
+          "height": 19
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "drafts-1440x900-normal",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Draft index",
+            "x": 18,
+            "y": 85.5,
+            "width": 449.265625,
+            "height": 756,
+            "scrollWidth": 447,
+            "clientWidth": 447
+          },
+          {
+            "name": "Reply draft",
+            "x": 485.265625,
+            "y": 85.5,
+            "width": 936.734375,
+            "height": 756,
+            "scrollWidth": 935,
+            "clientWidth": 935
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 722,
+            "content": 722,
+            "top": 0
+          },
+          {
+            "height": 496,
+            "content": 1212,
+            "top": 716
+          }
+        ],
+        "endMarker": {
+          "x": 535.265625,
+          "y": 775.125,
+          "width": 236,
+          "height": 23
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "drafts-1440x900-reduced",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Draft index",
+            "x": 18,
+            "y": 85.5,
+            "width": 449.265625,
+            "height": 756,
+            "scrollWidth": 447,
+            "clientWidth": 447
+          },
+          {
+            "name": "Reply draft",
+            "x": 485.265625,
+            "y": 85.5,
+            "width": 936.734375,
+            "height": 756,
+            "scrollWidth": 935,
+            "clientWidth": 935
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 722,
+            "content": 722,
+            "top": 0
+          },
+          {
+            "height": 496,
+            "content": 1212,
+            "top": 716
+          }
+        ],
+        "endMarker": {
+          "x": 535.265625,
+          "y": 775.125,
+          "width": 236,
+          "height": 23
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "drafts-640x900-reduced",
+      "metrics": {
+        "viewport": [
+          640,
+          900
+        ],
+        "document": [
+          640,
+          900
+        ],
+        "sections": [
+          {
+            "name": "Draft index",
+            "x": 8,
+            "y": 73.5,
+            "width": 624,
+            "height": 232.796875,
+            "scrollWidth": 622,
+            "clientWidth": 622
+          },
+          {
+            "name": "Reply draft",
+            "x": 8,
+            "y": 314.296875,
+            "width": 624,
+            "height": 535.203125,
+            "scrollWidth": 622,
+            "clientWidth": 622
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 501,
+            "content": 501,
+            "top": 0
+          },
+          {
+            "height": 253,
+            "content": 1569,
+            "top": 1316
+          }
+        ],
+        "endMarker": {
+          "x": 58,
+          "y": 782.671875,
+          "width": 236,
+          "height": 23
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "drafts-390x844-reduced",
+      "metrics": {
+        "viewport": [
+          390,
+          844
+        ],
+        "document": [
+          390,
+          844
+        ],
+        "sections": [
+          {
+            "name": "Draft index",
+            "x": 8,
+            "y": 105.5,
+            "width": 374,
+            "height": 197.25,
+            "scrollWidth": 372,
+            "clientWidth": 372
+          },
+          {
+            "name": "Reply draft",
+            "x": 8,
+            "y": 310.75,
+            "width": 374,
+            "height": 452.25,
+            "scrollWidth": 372,
+            "clientWidth": 372
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0,
+        "longContentScroll": [
+          {
+            "height": 418,
+            "content": 418,
+            "top": 0
+          },
+          {
+            "height": 156,
+            "content": 2629,
+            "top": 2473
+          }
+        ],
+        "endMarker": {
+          "x": 36,
+          "y": 708.875,
+          "width": 236,
+          "height": 23
+        }
+      },
+      "errors": []
+    },
+    {
+      "name": "404-1440x900-normal",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": null,
+            "x": 380,
+            "y": 195.734375,
+            "width": 680,
+            "height": 525.34375,
+            "scrollWidth": 678,
+            "clientWidth": 678
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0
+      },
+      "errors": []
+    },
+    {
+      "name": "404-1440x900-reduced",
+      "metrics": {
+        "viewport": [
+          1440,
+          900
+        ],
+        "document": [
+          1440,
+          900
+        ],
+        "sections": [
+          {
+            "name": null,
+            "x": 380,
+            "y": 195.734375,
+            "width": 680,
+            "height": 525.34375,
+            "scrollWidth": 678,
+            "clientWidth": 678
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0
+      },
+      "errors": []
+    },
+    {
+      "name": "404-640x900-reduced",
+      "metrics": {
+        "viewport": [
+          640,
+          900
+        ],
+        "document": [
+          640,
+          900
+        ],
+        "sections": [
+          {
+            "name": null,
+            "x": 25.59375,
+            "y": 211.734375,
+            "width": 588.8125,
+            "height": 493.34375,
+            "scrollWidth": 587,
+            "clientWidth": 587
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0
+      },
+      "errors": []
+    },
+    {
+      "name": "404-390x844-reduced",
+      "metrics": {
+        "viewport": [
+          390,
+          844
+        ],
+        "document": [
+          390,
+          844
+        ],
+        "sections": [
+          {
+            "name": null,
+            "x": 16,
+            "y": 197.328125,
+            "width": 358,
+            "height": 493.34375,
+            "scrollWidth": 356,
+            "clientWidth": 356
+          }
+        ],
+        "fontsReady": true,
+        "animations": 0
+      },
+      "errors": []
+    }
+  ],
+  "failures": [],
+  "passed": true
+}

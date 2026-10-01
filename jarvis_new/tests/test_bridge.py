@@ -405,6 +405,29 @@ def test_room_serves_the_boot_log(monkeypatch, tmp_path):
         server.server_close()
 
 
+def test_pending_boot_remains_visible_through_agent_join_timeout(monkeypatch, tmp_path):
+    import json
+    import os
+    import time
+
+    from wake_client import AGENT_JOIN_TIMEOUT
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    age = AGENT_JOIN_TIMEOUT - 1
+    then = time.time() - age
+    log = [["connect", then - 5], ["dispatch", then]]
+    path = tmp_path / "hud_waking"
+    path.write_text(json.dumps({"log": log}))
+    os.utime(path, (then, then))
+    assert bridge.read_hud_waking() is True
+    assert bridge.read_hud_boot() == log
+    # A crashed writer still expires; no background freshness heartbeat.
+    stale = time.time() - bridge.HUD_WAKING_MAX_AGE_S - 1
+    os.utime(path, (stale, stale))
+    assert bridge.read_hud_waking() is False
+    assert bridge.read_hud_boot() is None
+
+
 def test_room_rejects_stale_file(monkeypatch, tmp_path):
     import time
 

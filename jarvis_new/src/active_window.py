@@ -166,7 +166,10 @@ def script_path() -> Path:
 def kdotool_path() -> str | None:
     """kdotool binary, or None when not installed. Never raises."""
     try:
-        return shutil.which("kdotool")
+        candidate = shutil.which("kdotool")
+        # Do not turn a bad resolver result into a desktop launch. In
+        # particular, a browser treats "getactivewindow" as a URL.
+        return candidate if candidate and Path(candidate).name == "kdotool" else None
     except Exception:
         return None
 

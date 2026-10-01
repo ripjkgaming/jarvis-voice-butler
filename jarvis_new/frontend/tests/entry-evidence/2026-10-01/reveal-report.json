@@ -1,0 +1,31 @@
+{
+  "reveal_curve": [
+    {
+      "phase": "reveal",
+      "clip": "inset(0px 8.00087%)",
+      "rootPercent": 8.000871046624841,
+      "pooling": "true",
+      "schoolEntry": true,
+      "elapsed": 306.5999999977648
+    },
+    {
+      "phase": "reveal",
+      "clip": "inset(0px 1.0289%)",
+      "rootPercent": 1.0289045137373665,
+      "pooling": "true",
+      "schoolEntry": true,
+      "elapsed": 465.0999999977648
+    }
+  ],
+  "descent_background": {
+    "html": "rgba(0, 0, 0, 0)",
+    "body": "rgba(0, 0, 0, 0)",
+    "stack": [
+      {
+        "tag": "HTML",
+        "class": "__variable_b9b7d3 __variable_bbddf1 __variable_47c032 __variable_0cfa0a scroll-smooth font-sans antialiased dark school-",
+        "background": "rgba(0, 0, 0, 0)"
+      }
+    ]
+  }
+}

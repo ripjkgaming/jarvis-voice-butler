@@ -7,6 +7,7 @@
  *  loopback. Outside Tauri (plain-browser dev) it falls back to
  *  unauthenticated 127.0.0.1:4317. Every call is fail-soft (null/[]).
  */
+import type { SuitCommand } from '@/lib/suit-diagnostics';
 import { bridgeInfo, isTauri } from '@/lib/tauri';
 
 const FALLBACK_URL = `http://127.0.0.1:${process.env.NEXT_PUBLIC_BRIDGE_PORT ?? 4317}`;
@@ -14,19 +15,44 @@ const FALLBACK_URL = `http://127.0.0.1:${process.env.NEXT_PUBLIC_BRIDGE_PORT ?? 
 type BridgeEndpoint = { url: string; token?: string | null };
 let endpoint: Promise<BridgeEndpoint> | null = null;
 
+async function discoverEndpoint(): Promise<BridgeEndpoint> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      bridgeInfo(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('bridge discovery timed out')), 1500);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function getEndpoint(): Promise<BridgeEndpoint> {
   if (!endpoint) {
-    endpoint = isTauri()
-      ? bridgeInfo().catch(() => ({ url: FALLBACK_URL }))
+    const lookup: Promise<BridgeEndpoint> = isTauri()
+      ? discoverEndpoint().catch(() => {
+          // A transient native IPC failure must not pin the unauthenticated
+          // fallback for the rest of the webview's lifetime.
+          if (endpoint === lookup) endpoint = null;
+          return { url: FALLBACK_URL };
+        })
       : Promise.resolve({ url: FALLBACK_URL });
+    endpoint = lookup;
   }
   return endpoint;
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
+  const controller = new AbortController();
+  // A hung GET must release the shared poller's inFlight latch. Geometry
+  // has a tighter budget because a transition is waiting on its nonce.
+  const timeout = setTimeout(() => controller.abort(), path === '/school/geom' ? 1000 : 5000);
   try {
     const { url, token } = await getEndpoint();
     const res = await fetch(`${url}${path}`, {
+      signal: controller.signal,
       cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
@@ -34,10 +60,13 @@ async function getJson<T>(path: string): Promise<T | null> {
     return (await res.json()) as T;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 export type BridgeSys = {
+  suit_diagnostics?: SuitCommand;
   ok?: boolean;
   load_1_5_15?: string[];
   cpu_count?: number;
@@ -135,7 +164,8 @@ export function callStateFrom(j: BridgeRoomState | null): CallState | null {
   // Live only once the agent is actually there: while a wake is still
   // setting up (boot log not yet "online") the HUD stays idle and shows
   // the link log instead of glowing purple at an empty room.
-  const settingUp = boot !== null && boot.length > 0 && boot.at(-1)?.[0] !== 'online';
+  const settingUp =
+    (j.waking === true || (boot !== null && boot.length > 0)) && boot?.at(-1)?.[0] !== 'online';
   const room = typeof j.room === 'string' && j.room.length > 0;
   return { live: room && !settingUp, boot };
 }

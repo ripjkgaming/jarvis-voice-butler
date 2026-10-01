@@ -3,7 +3,9 @@
 import json
 import types
 
-import active_window as AW
+import pytest
+
+import active_window as AW  # noqa: N812
 
 
 def _reset():
@@ -56,6 +58,42 @@ def test_kdotool_active_no_binary(monkeypatch):
     _reset()
     monkeypatch.setattr(AW, "kdotool_path", lambda: None)
     assert AW.kdotool_active() is None
+
+
+@pytest.mark.parametrize("other", ["brave-browser", "brave", "claude", "jarvis-shell"])
+def test_active_window_rejects_unrelated_resolved_command(monkeypatch, other):
+    """A broad executable mock must never turn focus polling into a GUI launch."""
+    from system import window_ctl
+
+    _reset()
+    monkeypatch.setattr(AW.shutil, "which", lambda name: f"/usr/bin/{other}")
+    calls = []
+
+    def capture(argv, **kwargs):
+        calls.append(argv)
+        return types.SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(AW, "_run", capture)
+    assert window_ctl.active_title() == ""
+    assert calls == []
+
+
+def test_kdotool_path_accepts_installed_command(monkeypatch):
+    monkeypatch.setattr(AW.shutil, "which", lambda name: "/opt/tools/kdotool")
+    assert AW.kdotool_path() == "/opt/tools/kdotool"
+
+
+def test_default_focus_test_isolation_never_spawns(monkeypatch):
+    """The shared test fixture also blocks the non-D-Bus polling fallback."""
+    calls = []
+
+    def capture(argv, **kwargs):
+        calls.append(argv)
+        return types.SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(AW.subprocess, "run", capture)
+    assert AW.kdotool_active(binpath="/usr/bin/kdotool") is None
+    assert calls == []
 
 
 def test_kdotool_active_empty_id(monkeypatch):

@@ -1,0 +1,11 @@
+{
+  "browser": "151.0.7922.34",
+  "headless": true,
+  "viewport": {
+    "width": 1600,
+    "height": 900
+  },
+  "device_scale_factor": 1,
+  "webgl_renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "note": "WebGL renderer identifies this headless browser environment; trace GPU-task durations are not physical GPU execution time."
+}

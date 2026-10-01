@@ -1,0 +1,595 @@
+/* STARK OS school console. Shared geometry remains in globals.css; this
+   scoped skin carries the same blueprint glass, type and cuts as the HUD. */
+.sbar-stark {
+  --school-cyan: #5fe3ff;
+  --school-hot: #d8f8ff;
+  --school-line: rgb(95 227 255 / 18%);
+  --school-line-strong: rgb(95 227 255 / 42%);
+  --school-label: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
+  --school-mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  --school-cut: polygon(
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%,
+    0 10px
+  );
+  --school-cut-small: polygon(
+    4px 0,
+    100% 0,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    0 100%,
+    0 4px
+  );
+}
+
+.sbar-stark .sbar {
+  --h: var(--sbar-h, var(--sbar-measured-h, 48px));
+  --line: var(--school-line);
+  --line-strong: var(--school-line-strong);
+  --text: #d9f4ff;
+  --subtle: #7fa6b8;
+  gap: clamp(8px, calc(var(--h) * 0.28), 20px);
+  padding-inline: max(10px, calc(var(--h) * 0.22));
+  background:
+    radial-gradient(ellipse 55% 250% at 50% 110%, rgb(10 42 68 / 75%), transparent 75%),
+    repeating-linear-gradient(90deg, rgb(95 227 255 / 4%) 0 1px, transparent 1px 40px),
+    linear-gradient(180deg, #061826, #03101a 70%, #010509);
+  box-shadow:
+    inset 0 1px var(--school-line),
+    inset 0 -1px rgb(95 227 255 / 10%);
+  font-family: var(--school-label);
+  transition: --sbar-accent 240ms ease-out;
+  animation: school-bar-in 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  isolation: isolate;
+}
+
+.sbar-stark .sbar::before {
+  background: linear-gradient(90deg, transparent, var(--school-cyan) 25% 75%, transparent);
+}
+
+.sbar-stark .sbar[data-leaving='true'] {
+  animation: school-bar-out 360ms cubic-bezier(0.4, 0, 0.7, 1) both;
+}
+
+.sbar-stark .sbar > section {
+  position: relative;
+  z-index: 1;
+  animation: school-rise 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Ambient motes stay behind readable content and inside the bar itself,
+   even when the native window grows upward to make room for a menu. */
+.sbar-stark .sbar-ambient,
+.sbar-stark .smenu__ambient {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.sbar-stark .sbar-left {
+  gap: 7px;
+  animation-delay: 80ms !important;
+}
+.sbar-stark .sbar-apps {
+  animation-delay: 120ms !important;
+}
+.sbar-stark .sbar-mid {
+  animation-delay: 160ms !important;
+}
+.sbar-stark .sbar-right {
+  animation-delay: 200ms !important;
+}
+
+.sbar-stark .sbar-id {
+  min-width: 118px;
+  gap: clamp(1px, calc(var(--h) * 0.025), 3px);
+}
+.sbar-stark .sbar-id__name {
+  font-family: var(--font-orbitron), 'Orbitron', var(--school-label);
+  font-size: clamp(10px, calc(var(--h) * 0.23), 14px);
+  letter-spacing: 0.16em;
+  color: var(--school-hot);
+  text-shadow: 0 0 8px rgb(95 227 255 / 32%);
+}
+.sbar-stark .sbar-id__mode {
+  color: var(--subtle);
+  font-size: clamp(7px, calc(var(--h) * 0.15), 9px);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+.sbar-stark .sbar-id__state {
+  font-size: clamp(8px, calc(var(--h) * 0.17), 10px);
+  letter-spacing: 0.18em;
+  animation: school-rise 240ms ease-out both;
+}
+.sbar-stark .sbar-core__ring {
+  animation-duration: 28s;
+}
+.sbar-stark .sbar-core__ring--inner {
+  animation-duration: 20s;
+}
+.sbar-stark .sbar[data-state='thinking'] .sbar-core__ring {
+  animation-duration: 20s;
+}
+.sbar-stark .sbar-start:hover .sbar-core__ring,
+.sbar-stark .sbar-start[data-open='true'] .sbar-core__ring {
+  animation-duration: 20s;
+}
+.sbar-stark .sbar-core__halo,
+.sbar-stark .sbar-core__dot {
+  animation-name: school-breathe;
+}
+.sbar-stark .sbar-scan {
+  background: linear-gradient(90deg, transparent, var(--school-cyan), transparent);
+  filter: none;
+}
+.sbar-stark .sbar-sweep {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.sbar-stark .sbar-apps {
+  max-width: 32vw;
+  gap: 4px;
+  padding-inline: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sbar-stark .sbar-app {
+  flex: none;
+  height: calc(var(--h) * 0.8);
+  width: calc(var(--h) * 0.88);
+  border-radius: 0;
+  clip-path: var(--school-cut-small);
+  animation-name: school-rise;
+  animation-duration: 320ms;
+  animation-delay: calc(120ms + min(var(--i, 0), 8) * 40ms);
+}
+.sbar-stark .sbar-app[data-active='true'] {
+  border-color: var(--school-line-strong);
+  background: linear-gradient(180deg, rgb(95 227 255 / 3%), rgb(95 227 255 / 12%));
+}
+.sbar-stark .sbar-app__glyph {
+  border-radius: 0;
+  color: var(--school-hot);
+  font-family: var(--school-mono);
+}
+.sbar-stark .sbar-app__pips i {
+  border-radius: 0;
+}
+.sbar-stark .sbar-app__pips i[data-on='true'] {
+  background: var(--school-cyan);
+  box-shadow: 0 0 4px rgb(95 227 255 / 45%);
+}
+.sbar-stark .sbar-app[data-launching='true'] img,
+.sbar-stark .sbar-app[data-launching='true'] .sbar-app__glyph {
+  animation: school-launch 1.2s ease-in-out infinite;
+}
+
+.sbar-stark .sbar-mid {
+  gap: 10px;
+  padding-inline: 12px;
+}
+.sbar-stark .sbar-line {
+  font-family: var(--school-label);
+  font-size: clamp(12px, calc(var(--h) * 0.3), 15px);
+}
+.sbar-stark .sbar-line,
+.sbar-stark .sbar-trace,
+.sbar-stark .sbar-boot__label {
+  animation: school-rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.sbar-stark .sbar-line b {
+  font-family: var(--school-label);
+  letter-spacing: 0.18em;
+}
+.sbar-stark .sbar-bars {
+  position: absolute;
+  left: 5px;
+  width: 20px;
+  transform: scaleX(0.65);
+  transition:
+    transform 240ms ease-out,
+    opacity 240ms ease-out;
+}
+.sbar-stark .sbar-mid {
+  position: relative;
+}
+.sbar-stark .sbar[data-state='listening'] .sbar-bars,
+.sbar-stark .sbar[data-state='speaking'] .sbar-bars {
+  width: 20px;
+  transform: scaleX(1);
+}
+.sbar-stark .sbar[data-state='listening'] .sbar-stream,
+.sbar-stark .sbar[data-state='speaking'] .sbar-stream {
+  margin-left: 20px;
+}
+.sbar-stark .sbar-bars i {
+  animation-play-state: paused;
+}
+.sbar-stark .sbar[data-state='listening'] .sbar-bars i,
+.sbar-stark .sbar[data-state='speaking'] .sbar-bars i {
+  animation-play-state: running;
+}
+.sbar-stark .sbar-job {
+  max-width: min(180px, 16vw);
+  clip-path: var(--school-cut-small);
+  animation-name: school-rise;
+}
+.sbar-stark .sbar-job > b,
+.sbar-stark .sbar-tile b,
+.sbar-stark .sbar-clock b,
+.sbar-stark .sbar-boot {
+  font-family: var(--school-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.sbar-stark .sbar-tile {
+  padding-inline: clamp(7px, calc(var(--h) * 0.18), 12px);
+  gap: 6px;
+}
+.sbar-stark .sbar-tile:first-child {
+  border-left: 0;
+}
+.sbar-stark .sbar-tile__body i {
+  font-size: clamp(8px, calc(var(--h) * 0.18), 10px);
+  letter-spacing: 0.16em;
+}
+.sbar-stark .sbar-tile__body b {
+  max-width: 11ch;
+  color: var(--school-hot);
+}
+.sbar-stark .sbar-tile__gauge span {
+  width: 100%;
+  transform-origin: left;
+  transition: transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sbar-stark .sbar-tile[data-tone='hot'] .sbar-tile__body b {
+  animation: none;
+  color: #ff4d5e;
+}
+.sbar-stark .sbar-clock {
+  padding-left: 14px;
+  flex: none;
+}
+.sbar-stark .sbar-clock b {
+  color: var(--school-hot);
+  font-size: clamp(15px, calc(var(--h) * 0.4), 22px);
+  font-weight: 400;
+}
+.sbar-stark .sbar-clock i {
+  font-family: var(--school-label);
+  font-size: clamp(8px, calc(var(--h) * 0.18), 10px);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+.sbar-stark .sbar-clock__colon {
+  color: var(--school-cyan);
+  animation: none;
+}
+
+/* Menus keep the architectural cyan while voice state colours remain on
+   the live core and trace. Static chamfers avoid per-frame mask painting. */
+.sbar-stark .smenu {
+  isolation: isolate;
+  --sbar-accent: var(--school-cyan);
+  --line: var(--school-line);
+  --text: #d9f4ff;
+  --subtle: #7fa6b8;
+  border-color: var(--school-line-strong);
+  border-radius: 0;
+  clip-path: var(--school-cut);
+  background:
+    radial-gradient(ellipse 100% 100% at 50% 100%, rgb(10 42 68 / 65%), transparent 75%),
+    repeating-linear-gradient(0deg, rgb(95 227 255 / 3%) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgb(95 227 255 / 3%) 0 1px, transparent 1px 40px), #061826;
+  box-shadow: inset 0 0 32px rgb(1 5 9 / 35%);
+  font-family: var(--school-label);
+  animation: school-menu-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.sbar-stark .smenu > :not(.smenu__ambient) {
+  position: relative;
+  z-index: 1;
+}
+.sbar-stark .smenu::before,
+.sbar-stark .smenu::after {
+  width: 12px;
+  height: 12px;
+  border-width: 1px;
+  opacity: 0.85;
+  z-index: 1;
+}
+.sbar-stark .smenu::after {
+  top: auto;
+  right: 5px;
+  bottom: 5px;
+  border: solid var(--school-cyan);
+  border-width: 0 1px 1px 0;
+}
+.sbar-stark .smenu-layer[data-closing='true'] {
+  pointer-events: none;
+}
+.sbar-stark .smenu-layer[data-closing='true'] .smenu {
+  animation: school-menu-out 170ms ease-in both;
+}
+.sbar-stark .smenu__head {
+  align-items: center;
+  padding: 15px 18px 12px;
+  background: rgb(1 5 9 / 22%);
+}
+.sbar-stark .smenu__head b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+  text-shadow: none;
+}
+.sbar-stark .smenu__head b span {
+  color: var(--school-cyan);
+  font-size: 10px;
+}
+.sbar-stark .smenu__head i {
+  font-family: var(--school-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.sbar-stark .smenu__cats {
+  background: rgb(1 5 9 / 18%);
+}
+.sbar-stark .smenu__cats button {
+  padding-block: 8px;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.sbar-stark .smenu__cats button[data-on='true'] {
+  color: var(--school-hot);
+  background: rgb(18 84 106 / 48%);
+}
+.sbar-stark .smenu__pin,
+.sbar-stark .smenu__app,
+.sbar-stark .smenu__toggle,
+.sbar-stark .smenu__pbtn,
+.sbar-stark .smenu__nav button,
+.sbar-stark .smenu__slider-head button {
+  border-radius: 0;
+  clip-path: var(--school-cut-small);
+}
+.sbar-stark .smenu__pinned {
+  gap: 8px;
+  background: rgb(3 16 26 / 55%);
+  overflow-x: auto;
+}
+.sbar-stark .smenu__pin {
+  flex: none;
+  background: rgb(95 227 255 / 4%);
+}
+.sbar-stark .smenu__app {
+  min-height: 82px;
+  animation-name: school-rise;
+  animation-duration: 280ms;
+  animation-delay: calc(min(var(--i, 0), 8) * 40ms);
+}
+.sbar-stark .smenu__app > span:last-child {
+  font-family: var(--school-label);
+  font-size: 12px;
+  line-height: 1.2;
+}
+.sbar-stark .smenu__app:hover {
+  background: #0b2436;
+}
+.sbar-stark .smenu__power {
+  background: rgb(1 5 9 / 40%);
+}
+.sbar-stark .smenu__pbtn {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.sbar-stark .smenu__pbtn[data-armed='true'] {
+  color: #ff8c98;
+  border-color: #ff4d5e;
+  animation: none;
+}
+.sbar-stark .smenu__toggle {
+  min-width: 0;
+  padding: 12px 10px;
+}
+.sbar-stark .smenu__toggle b {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+}
+.sbar-stark .smenu__toggle i {
+  font-size: 11px;
+}
+.sbar-stark .smenu__toggle[data-on='true'] {
+  background: rgb(18 84 106 / 40%);
+}
+.sbar-stark .smenu__slider-head b {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+.sbar-stark .smenu__slider-head i {
+  font-family: var(--school-mono);
+  color: var(--school-hot);
+  font-size: 13px;
+}
+.sbar-stark .smenu__slider input::-webkit-slider-thumb {
+  border-width: 1px;
+  border-radius: 0;
+  width: 12px;
+  height: 14px;
+  background: #0b2436;
+}
+.sbar-stark .smenu__big b {
+  color: var(--school-hot);
+  font-family: var(--school-label);
+  font-weight: 600;
+  font-size: 28px;
+}
+.sbar-stark .smenu__big i {
+  font-family: var(--school-mono);
+}
+.sbar-stark .smenu__cal {
+  font-family: var(--school-mono);
+}
+.sbar-stark .smenu__cal span {
+  border-radius: 0;
+}
+.sbar-stark .smenu__cal span[data-today='true'] {
+  background: #12546a;
+  color: var(--school-hot);
+  clip-path: var(--school-cut-small);
+}
+.sbar-stark button:focus-visible,
+.sbar-stark input:focus-visible {
+  outline: 1px solid var(--school-cyan);
+  outline-offset: -3px;
+}
+
+@keyframes school-rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes school-menu-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes school-menu-out {
+  to {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+@keyframes school-bar-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes school-bar-out {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  65% {
+    transform: scale(1, 0.035);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(0.01, 0.035);
+    opacity: 0;
+  }
+}
+@keyframes school-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes school-launch {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .sbar-stark .sbar {
+    gap: 8px;
+  }
+  .sbar-stark .sbar-id {
+    min-width: 104px;
+  }
+  .sbar-stark .sbar-apps {
+    max-width: 24vw;
+    padding-inline: 4px;
+  }
+  .sbar-stark .sbar-mid {
+    padding-inline: 8px;
+  }
+  .sbar-stark .sbar-right {
+    max-width: 50vw;
+    min-width: 0;
+  }
+  .sbar-stark .sbar-tray {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sbar-stark .sbar-tile {
+    flex: none;
+    padding-inline: 7px;
+  }
+}
+@media (max-width: 520px) {
+  .sbar-stark .smenu-layer .smenu {
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+  .sbar-stark .smenu__body {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+  .sbar-stark .smenu__grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  }
+  .sbar-stark .smenu__cats button {
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+  .sbar-stark .smenu__pbtn {
+    gap: 4px;
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sbar-stark *,
+  .sbar-stark *::before,
+  .sbar-stark *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+html.hud-hidden .sbar-stark *,
+html.hud-hidden .sbar-stark *::before,
+html.hud-hidden .sbar-stark *::after {
+  animation-play-state: paused !important;
+}
+
+.sbar-stark .sbar[data-voice-phase='request'] .sbar-core__halo,
+.sbar-stark .sbar[data-voice-phase='relay'] .sbar-core__halo,
+.sbar-stark .sbar[data-voice-phase='agent'] .sbar-core__halo {
+  animation: vlink-breathe 1.6s ease-in-out infinite;
+}

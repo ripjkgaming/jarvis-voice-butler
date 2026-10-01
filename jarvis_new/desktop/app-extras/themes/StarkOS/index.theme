@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=STARK OS
+Comment=Jarvis cyan instrument glass
+
+[X-GNOME-Metatheme]
+GtkTheme=StarkOS
+IconTheme=stark-os
+CursorTheme=stark-os-cursors

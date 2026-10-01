@@ -1,0 +1,314 @@
+[
+  {
+    "school": false,
+    "width": 1600,
+    "dpr": 1,
+    "canvas_pixels": {
+      "width": 930,
+      "height": 492,
+      "cssWidth": 930,
+      "cssHeight": 492.453125,
+      "dpr": 1
+    },
+    "layout_width": {
+      "left": 40,
+      "right": 1560,
+      "viewport": 1600,
+      "bodyScroll": 1600,
+      "mainScroll": 1518,
+      "mainWidth": 1518
+    },
+    "idle_probe": {
+      "executed": 1,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 5,
+          "connected": true,
+          "width": 930,
+          "height": 492
+        }
+      ]
+    },
+    "scripts_before_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/161-b89be853d241ed4c.js",
+      "http://127.0.0.1:32835/_next/static/chunks/27d49de1-82e88ec4ced207db.js",
+      "http://127.0.0.1:32835/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/error-bbf966510936d715.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/layout-fcbb9e7d8b2fd25d.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/page-875391c18c2b3660.js",
+      "http://127.0.0.1:32835/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+      "http://127.0.0.1:32835/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/webpack-f6f7f134d4e3fc92.js"
+    ],
+    "lazy_scripts_on_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/1be152e0.d95311ea12fd74e0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/674.7be24f92c17b9c49.js",
+      "http://127.0.0.1:32835/_next/static/chunks/7f2e7b14.65f046c2f06d0975.js",
+      "http://127.0.0.1:32835/_next/static/chunks/917.0f0ab1f89ebf6f1a.js"
+    ],
+    "external_scene_assets": [],
+    "native_focus_events": [
+      {
+        "active": false,
+        "lease": null,
+        "held": null
+      }
+    ],
+    "initial_meters": "post-flight",
+    "focus_keyboard_presets_escape": "passed",
+    "closed_probe": {
+      "executed": 18,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 22,
+          "connected": false,
+          "width": 930,
+          "height": 492
+        }
+      ]
+    }
+  },
+  {
+    "school": true,
+    "width": 1600,
+    "dpr": 1,
+    "canvas_pixels": {
+      "width": 960,
+      "height": 394,
+      "cssWidth": 960,
+      "cssHeight": 393.734375,
+      "dpr": 1
+    },
+    "layout_width": {
+      "left": 40,
+      "right": 1560,
+      "viewport": 1600,
+      "bodyScroll": 1600,
+      "mainScroll": 1518,
+      "mainWidth": 1518
+    },
+    "idle_probe": {
+      "executed": 1,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 5,
+          "connected": true,
+          "width": 960,
+          "height": 394
+        }
+      ]
+    },
+    "scripts_before_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/161-b89be853d241ed4c.js",
+      "http://127.0.0.1:32835/_next/static/chunks/27d49de1-82e88ec4ced207db.js",
+      "http://127.0.0.1:32835/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/error-bbf966510936d715.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/layout-fcbb9e7d8b2fd25d.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/page-875391c18c2b3660.js",
+      "http://127.0.0.1:32835/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+      "http://127.0.0.1:32835/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/webpack-f6f7f134d4e3fc92.js"
+    ],
+    "lazy_scripts_on_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/1be152e0.d95311ea12fd74e0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/674.7be24f92c17b9c49.js",
+      "http://127.0.0.1:32835/_next/static/chunks/7f2e7b14.65f046c2f06d0975.js",
+      "http://127.0.0.1:32835/_next/static/chunks/917.0f0ab1f89ebf6f1a.js"
+    ],
+    "external_scene_assets": [],
+    "native_focus_events": [
+      {
+        "active": false,
+        "lease": null,
+        "held": null
+      },
+      {
+        "active": true,
+        "lease": null,
+        "held": 123
+      },
+      {
+        "active": false,
+        "lease": 123,
+        "held": null
+      },
+      {
+        "active": true,
+        "lease": null,
+        "held": 124
+      },
+      {
+        "active": false,
+        "lease": 124,
+        "held": null
+      }
+    ],
+    "initial_meters": "post-flight",
+    "focus_keyboard_presets_escape": "passed",
+    "closed_probe": {
+      "executed": 19,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 23,
+          "connected": false,
+          "width": 960,
+          "height": 394
+        }
+      ]
+    }
+  },
+  {
+    "school": false,
+    "width": 520,
+    "dpr": 1,
+    "canvas_pixels": {
+      "width": 486,
+      "height": 307,
+      "cssWidth": 486,
+      "cssHeight": 306.8125,
+      "dpr": 1
+    },
+    "layout_width": {
+      "left": 6,
+      "right": 514,
+      "viewport": 520,
+      "bodyScroll": 520,
+      "mainScroll": 506,
+      "mainWidth": 506
+    },
+    "idle_probe": {
+      "executed": 1,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 5,
+          "connected": true,
+          "width": 486,
+          "height": 307
+        }
+      ]
+    },
+    "scripts_before_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/161-b89be853d241ed4c.js",
+      "http://127.0.0.1:32835/_next/static/chunks/27d49de1-82e88ec4ced207db.js",
+      "http://127.0.0.1:32835/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/error-bbf966510936d715.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/layout-fcbb9e7d8b2fd25d.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/page-875391c18c2b3660.js",
+      "http://127.0.0.1:32835/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+      "http://127.0.0.1:32835/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/webpack-f6f7f134d4e3fc92.js"
+    ],
+    "lazy_scripts_on_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/1be152e0.d95311ea12fd74e0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/674.7be24f92c17b9c49.js",
+      "http://127.0.0.1:32835/_next/static/chunks/7f2e7b14.65f046c2f06d0975.js",
+      "http://127.0.0.1:32835/_next/static/chunks/917.0f0ab1f89ebf6f1a.js"
+    ],
+    "external_scene_assets": [],
+    "native_focus_events": [
+      {
+        "active": false,
+        "lease": null,
+        "held": null
+      }
+    ],
+    "initial_meters": "post-flight",
+    "focus_keyboard_presets_escape": "passed",
+    "closed_probe": {
+      "executed": 14,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 18,
+          "connected": false,
+          "width": 486,
+          "height": 307
+        }
+      ]
+    }
+  },
+  {
+    "school": false,
+    "width": 1600,
+    "dpr": 2,
+    "canvas_pixels": {
+      "width": 1860,
+      "height": 984,
+      "cssWidth": 930,
+      "cssHeight": 492.453125,
+      "dpr": 2
+    },
+    "layout_width": {
+      "left": 40,
+      "right": 1560,
+      "viewport": 1600,
+      "bodyScroll": 1600,
+      "mainScroll": 1518,
+      "mainWidth": 1518
+    },
+    "idle_probe": {
+      "executed": 1,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 5,
+          "connected": true,
+          "width": 1860,
+          "height": 984
+        }
+      ]
+    },
+    "scripts_before_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/161-b89be853d241ed4c.js",
+      "http://127.0.0.1:32835/_next/static/chunks/27d49de1-82e88ec4ced207db.js",
+      "http://127.0.0.1:32835/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/error-bbf966510936d715.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/layout-fcbb9e7d8b2fd25d.js",
+      "http://127.0.0.1:32835/_next/static/chunks/app/page-875391c18c2b3660.js",
+      "http://127.0.0.1:32835/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+      "http://127.0.0.1:32835/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/webpack-f6f7f134d4e3fc92.js"
+    ],
+    "lazy_scripts_on_open": [
+      "http://127.0.0.1:32835/_next/static/chunks/1be152e0.d95311ea12fd74e0.js",
+      "http://127.0.0.1:32835/_next/static/chunks/674.7be24f92c17b9c49.js",
+      "http://127.0.0.1:32835/_next/static/chunks/7f2e7b14.65f046c2f06d0975.js",
+      "http://127.0.0.1:32835/_next/static/chunks/917.0f0ab1f89ebf6f1a.js"
+    ],
+    "external_scene_assets": [],
+    "native_focus_events": [
+      {
+        "active": false,
+        "lease": null,
+        "held": null
+      }
+    ],
+    "initial_meters": "post-flight",
+    "focus_keyboard_presets_escape": "passed",
+    "closed_probe": {
+      "executed": 16,
+      "pending": 0,
+      "canvases": [
+        {
+          "id": 1,
+          "renders": 20,
+          "connected": false,
+          "width": 1860,
+          "height": 984
+        }
+      ]
+    }
+  }
+]

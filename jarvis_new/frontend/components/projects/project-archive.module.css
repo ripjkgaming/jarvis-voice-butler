@@ -2,19 +2,19 @@
    hairline cyan schematics, amber for work in progress. */
 
 .root {
-  --pa-ink: #02080d;
-  --pa-panel: rgba(5, 20, 31, 0.86);
-  --pa-panel-2: rgba(8, 30, 45, 0.72);
-  --pa-line: rgba(84, 246, 255, 0.16);
-  --pa-line-2: rgba(84, 246, 255, 0.34);
-  --pa-cyan: #54f6ff;
-  --pa-hot: #d9fbff;
-  --pa-text: #cfe7f0;
-  --pa-sub: #6f93a1;
-  --pa-amber: #ffb547;
-  --pa-red: #ff6a5c;
-  --pa-mono: var(--font-commit-mono), ui-monospace, monospace;
-  --pa-sans: 'Inter', 'Segoe UI', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
+  --pa-ink: #03101a;
+  --pa-panel: rgba(6, 24, 38, 0.96);
+  --pa-panel-2: rgba(11, 36, 54, 0.92);
+  --pa-line: rgba(95, 227, 255, 0.16);
+  --pa-line-2: rgba(95, 227, 255, 0.34);
+  --pa-cyan: #5fe3ff;
+  --pa-hot: #d8f8ff;
+  --pa-text: #d9f4ff;
+  --pa-sub: #7fa6b8;
+  --pa-amber: #ffb347;
+  --pa-red: #ff4d5e;
+  --pa-mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  --pa-sans: var(--font-rajdhani), 'Rajdhani', ui-sans-serif, system-ui, sans-serif;
 
   position: fixed;
   inset: 0;
@@ -23,10 +23,12 @@
   gap: 14px;
   padding: 14px 18px 10px;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(24, 90, 120, 0.22), transparent 70%),
+    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(10, 42, 68, 0.7), transparent 70%),
     var(--pa-ink);
   color: var(--pa-text);
-  font-family: var(--pa-mono);
+  font-family: var(--pa-sans);
+  font-weight: 500;
+  color-scheme: dark;
   overflow: hidden;
   cursor: none;
   user-select: none;
@@ -37,10 +39,10 @@
   inset: 0;
   pointer-events: none;
   background-image:
-    repeating-linear-gradient(0deg, rgba(84, 246, 255, 0.035) 0 1px, transparent 1px 16px),
-    repeating-linear-gradient(90deg, rgba(84, 246, 255, 0.035) 0 1px, transparent 1px 16px),
-    repeating-linear-gradient(0deg, rgba(84, 246, 255, 0.06) 0 1px, transparent 1px 80px),
-    repeating-linear-gradient(90deg, rgba(84, 246, 255, 0.06) 0 1px, transparent 1px 80px);
+    repeating-linear-gradient(0deg, rgba(95, 227, 255, 0.035) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(95, 227, 255, 0.035) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(0deg, rgba(95, 227, 255, 0.06) 0 1px, transparent 1px 200px),
+    repeating-linear-gradient(90deg, rgba(95, 227, 255, 0.06) 0 1px, transparent 1px 200px);
   mask-image: radial-gradient(ellipse 95% 90% at 50% 45%, #000 55%, transparent 100%);
 }
 
@@ -55,7 +57,7 @@
   border: 1px solid var(--pa-line);
   border-bottom-color: var(--pa-line-2);
   background: linear-gradient(180deg, rgba(6, 28, 42, 0.9), rgba(2, 10, 16, 0.6));
-  box-shadow: 0 1px 22px rgba(84, 246, 255, 0.08);
+  box-shadow: 0 1px 22px rgba(95, 227, 255, 0.08);
 }
 .brand {
   display: flex;
@@ -67,7 +69,7 @@
   color: var(--pa-hot);
   letter-spacing: 0.26em;
   font-size: 15px;
-  text-shadow: 0 0 12px rgba(84, 246, 255, 0.6);
+  text-shadow: 0 0 12px rgba(95, 227, 255, 0.6);
 }
 .brand small {
   display: block;
@@ -90,7 +92,7 @@
   transform-origin: 60px 60px;
 }
 .reticleSpin .reticleArm {
-  animation: pa-sweep 2.4s linear infinite;
+  animation: pa-sweep 30s linear infinite;
 }
 @keyframes pa-sweep {
   to {
@@ -125,7 +127,7 @@
   font-size: 10px;
   letter-spacing: 0.2em;
   color: var(--pa-red);
-  border: 1px solid rgba(255, 106, 92, 0.5);
+  border: 1px solid rgba(255, 77, 94, 0.5);
   padding: 2px 8px;
 }
 
@@ -243,8 +245,8 @@
 }
 .rowOn {
   border-color: var(--pa-cyan);
-  background: linear-gradient(90deg, rgba(84, 246, 255, 0.14), rgba(8, 30, 45, 0.72) 70%);
-  box-shadow: inset 3px 0 0 var(--pa-cyan);
+  background: linear-gradient(90deg, rgba(95, 227, 255, 0.14), rgba(11, 36, 54, 0.92) 70%);
+  box-shadow: inset 2px 0 0 var(--pa-cyan);
 }
 .rowNum {
   color: var(--pa-cyan);
@@ -297,16 +299,16 @@
 }
 .st_running {
   color: var(--pa-amber);
-  border-color: rgba(255, 181, 71, 0.55);
-  animation: pa-pulse 1.6s ease-in-out infinite;
+  border-color: rgba(255, 179, 71, 0.55);
+  animation: none;
 }
 .st_done {
   color: var(--pa-cyan);
-  border-color: rgba(84, 246, 255, 0.45);
+  border-color: rgba(95, 227, 255, 0.45);
 }
 .st_failed {
   color: var(--pa-red);
-  border-color: rgba(255, 106, 92, 0.5);
+  border-color: rgba(255, 77, 94, 0.5);
 }
 .st_cancelled {
   color: var(--pa-sub);
@@ -345,7 +347,7 @@
 .micHot {
   background: var(--pa-amber);
   box-shadow: 0 0 10px var(--pa-amber);
-  animation: pa-pulse 0.9s ease-in-out infinite;
+  animation: none;
 }
 .heard {
   list-style: none;
@@ -392,7 +394,7 @@
   z-index: 2;
   padding: 3px 8px;
   background: rgba(2, 10, 16, 0.92);
-  border: 1px solid rgba(255, 181, 71, 0.45);
+  border: 1px solid rgba(255, 179, 71, 0.45);
   font-size: 10px;
   letter-spacing: 0.22em;
   color: var(--pa-amber);
@@ -486,7 +488,7 @@
   position: relative;
   padding: 12px 14px 12px 16px;
   border-left: 2px solid var(--pa-cyan);
-  background: linear-gradient(90deg, rgba(84, 246, 255, 0.08), transparent 80%);
+  background: linear-gradient(90deg, rgba(95, 227, 255, 0.08), transparent 80%);
 }
 .summary span {
   font-size: 9.5px;
@@ -502,7 +504,7 @@
 }
 .failure {
   padding: 10px 12px;
-  border: 1px solid rgba(255, 106, 92, 0.45);
+  border: 1px solid rgba(255, 77, 94, 0.45);
   color: var(--pa-red);
   font-size: 12px;
 }
@@ -550,7 +552,7 @@
   padding: 0 14px;
   color: var(--pa-red);
   background: transparent;
-  border: 1px solid rgba(255, 106, 92, 0.5);
+  border: 1px solid rgba(255, 77, 94, 0.5);
 }
 
 /* ---------- document viewer ---------- */
@@ -584,7 +586,7 @@
 }
 .scrollOn {
   color: var(--pa-amber);
-  border-color: rgba(255, 181, 71, 0.55);
+  border-color: rgba(255, 179, 71, 0.55);
 }
 .viewerBody {
   flex: 1;
@@ -604,7 +606,7 @@
   border-left: 1px solid var(--pa-line);
   background: repeating-linear-gradient(
     180deg,
-    rgba(84, 246, 255, 0.28) 0 1px,
+    rgba(95, 227, 255, 0.28) 0 1px,
     transparent 1px 12px
   );
   background-size: 6px 100%;
@@ -618,7 +620,7 @@
   height: 3px;
   margin-top: -1px;
   background: var(--pa-amber);
-  box-shadow: 0 0 8px rgba(255, 181, 71, 0.8);
+  box-shadow: 0 0 8px rgba(255, 179, 71, 0.8);
 }
 .log,
 .liveLog {
@@ -698,7 +700,7 @@
   font-family: var(--pa-mono);
   font-size: 0.88em;
   padding: 1px 5px;
-  background: rgba(84, 246, 255, 0.08);
+  background: rgba(95, 227, 255, 0.08);
   border: 1px solid var(--pa-line);
 }
 .md pre {
@@ -712,7 +714,7 @@
 .md a {
   color: var(--pa-cyan);
   text-decoration: underline;
-  text-decoration-color: rgba(84, 246, 255, 0.35);
+  text-decoration-color: rgba(95, 227, 255, 0.35);
   text-underline-offset: 3px;
   overflow-wrap: anywhere;
 }
@@ -757,7 +759,7 @@
 .bar {
   padding: 12px 14px 12px 16px;
   border-left: 2px solid var(--pa-amber);
-  background: linear-gradient(90deg, rgba(255, 181, 71, 0.08), transparent 80%);
+  background: linear-gradient(90deg, rgba(255, 179, 71, 0.08), transparent 80%);
 }
 .barCompact {
   gap: 4px;
@@ -784,23 +786,19 @@
   display: block;
   height: 6px;
   overflow: hidden;
-  border: 1px solid rgba(255, 181, 71, 0.4);
-  background: repeating-linear-gradient(
-    90deg,
-    rgba(255, 181, 71, 0.07) 0 6px,
-    transparent 6px 8px
-  );
+  border: 1px solid rgba(255, 179, 71, 0.4);
+  background: repeating-linear-gradient(90deg, rgba(255, 179, 71, 0.07) 0 6px, transparent 6px 8px);
 }
 .barCompact .barTrack {
   height: 3px;
-  border-color: rgba(255, 181, 71, 0.28);
+  border-color: rgba(255, 179, 71, 0.28);
 }
 .barFill {
   position: absolute;
   inset: 0 auto 0 0;
   display: block;
-  background: linear-gradient(90deg, rgba(255, 181, 71, 0.55), var(--pa-amber));
-  box-shadow: 0 0 10px rgba(255, 181, 71, 0.55);
+  background: linear-gradient(90deg, rgba(255, 179, 71, 0.55), var(--pa-amber));
+  box-shadow: 0 0 10px rgba(255, 179, 71, 0.55);
   transition: width 0.9s ease-out;
 }
 .barFill::after {
@@ -841,13 +839,13 @@
   border: 1px solid var(--pa-red);
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 106, 92, 0.12) 0 10px,
-    rgba(255, 106, 92, 0.04) 10px 20px
+    rgba(255, 77, 94, 0.12) 0 10px,
+    rgba(255, 77, 94, 0.04) 10px 20px
   );
   color: var(--pa-red);
   font-size: 11px;
   letter-spacing: 0.24em;
-  animation: pa-pulse 1.2s ease-in-out infinite;
+  animation: none;
 }
 .deleteBanner span {
   color: var(--pa-hot);
@@ -861,5 +859,61 @@
   }
   .barFill {
     transition: none;
+  }
+}
+
+/* STARK OS extension: numeric readouts stay mono; labels share the HUD face. */
+.stats b,
+.clock,
+.rowNum {
+  font-family: var(--pa-mono);
+}
+.brand strong {
+  font-family: var(--pa-sans);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+.root ::selection {
+  background: #12546a;
+  color: #d8f8ff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (max-width: 800px) {
+  .root {
+    gap: 8px;
+    padding: 8px;
+  }
+  .header {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .monitors {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 30%) minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
+.monitor::before,
+.monitor::after {
+  width: 12px;
+  height: 12px;
+  border-width: 1px;
+  opacity: 0.85;
+}
+@media (max-width: 800px) {
+  .console {
+    display: none;
+  }
+  .sheet {
+    padding: 12px 14px 36px;
   }
 }

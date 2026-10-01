@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="86" height="20" viewBox="0 0 86 20">
+<defs></defs>
+<g id="down-arrow" transform="translate(0,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><polyline points="3 5 8 10 13 5" fill="none" stroke="#5fe3ff" stroke-width="1.5"/></g>
+<g id="up-arrow" transform="translate(22,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><polyline points="3 11 8 6 13 11" fill="none" stroke="#5fe3ff" stroke-width="1.5"/></g>
+<g id="left-arrow" transform="translate(44,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><polyline points="10 3 5 8 10 13" fill="none" stroke="#5fe3ff" stroke-width="1.5"/></g>
+<g id="right-arrow" transform="translate(66,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><polyline points="6 3 11 8 6 13" fill="none" stroke="#5fe3ff" stroke-width="1.5"/></g>
+</svg>

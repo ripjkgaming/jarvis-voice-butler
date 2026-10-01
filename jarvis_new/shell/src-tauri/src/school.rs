@@ -30,6 +30,264 @@ const RULE_ID: &str = "jarvis-school-strip";
 
 static SCHOOL: AtomicBool = AtomicBool::new(false);
 
+/// Serialize mode/generation changes with their native effects. Atomic
+/// checks alone leave a gap in which an old cleanup can delete a new rule
+/// or move a newly entered strip. Window work under this gate must run on
+/// the main thread: a background Tauri getter waits for that same thread.
+#[derive(Default)]
+struct LifecycleGate(std::sync::Mutex<()>);
+
+impl LifecycleGate {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(()))
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn run_if(&self, current: impl FnOnce() -> bool, effect: impl FnOnce()) -> bool {
+        let _lock = self.lock();
+        if !current() {
+            return false;
+        }
+        effect();
+        true
+    }
+
+    fn run_for_mode(
+        &self,
+        school: &AtomicBool,
+        generation: &AtomicU64,
+        expected_school: bool,
+        expected_gen: u64,
+        effect: impl FnOnce(),
+    ) -> bool {
+        self.run_if(
+            || school.load(Ordering::SeqCst) == expected_school
+                && generation.load(Ordering::SeqCst) == expected_gen,
+            effect,
+        )
+    }
+
+    fn start_one_shot(
+        &self,
+        name: &str,
+        current: impl FnOnce() -> bool,
+        start: impl FnOnce(&str) -> bool,
+    ) -> Option<OneShotScript> {
+        let _lock = self.lock();
+        if !current() {
+            return None;
+        }
+        let serial = ONE_SHOT_SERIAL.fetch_add(1, Ordering::Relaxed);
+        let name = format!("{name}_{}_{serial}", std::process::id());
+        let loaded = start(&name);
+        Some(OneShotScript { name, loaded })
+    }
+}
+
+static LIFECYCLE: LifecycleGate = LifecycleGate::new();
+static ONE_SHOT_SERIAL: AtomicU64 = AtomicU64::new(0);
+
+/// A one-shot owns its script and temporary file, even while a newer
+/// invocation with the same purpose is running. Retention and cleanup
+/// happen after start_one_shot releases the lifecycle gate.
+struct OneShotScript {
+    name: String,
+    loaded: bool,
+}
+
+impl OneShotScript {
+    fn finish_with(self, retain: impl FnOnce(), cleanup: impl FnOnce(&str)) {
+        if self.loaded {
+            retain();
+        }
+        cleanup(&self.name);
+    }
+
+    fn finish(self) {
+        self.finish_with(
+            || std::thread::sleep(std::time::Duration::from_millis(300)),
+            |name| {
+                unload_kwin_named(name);
+                let _ = std::fs::remove_file(std::env::temp_dir().join(format!("{name}.js")));
+            },
+        );
+    }
+}
+
+fn current_mode(school: bool, gen: u64) -> bool {
+    is_school() == school && TX_GEN.load(Ordering::SeqCst) == gen
+}
+
+fn run_in_mode(school: bool, gen: u64, effect: impl FnOnce()) -> bool {
+    LIFECYCLE.run_for_mode(&SCHOOL, &TX_GEN, school, gen, effect)
+}
+
+/// Public entry points also arrive on the single-instance D-Bus worker.
+/// Wry runs this inline when already on main; workers wait without holding
+/// the gate. Take the gate on main, preserving synchronous completion.
+fn on_main_sync<T: Send + 'static>(
+    app: &AppHandle,
+    action: impl FnOnce(&AppHandle) -> T + Send + 'static,
+) -> Option<T> {
+    let handle = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    // A timed-out call must not start later when a stalled event loop wakes.
+    let claimed = std::sync::Arc::new(AtomicBool::new(false));
+    let on_main_claimed = claimed.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let _lifecycle = LIFECYCLE.lock();
+        if !on_main_claimed.swap(true, Ordering::SeqCst) {
+            let _ = tx.send(action(&handle));
+        }
+    }) {
+        eprintln!("jarvis: school main-thread dispatch failed ({error})");
+        return None;
+    }
+    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        Ok(value) => Some(value),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            let started = claimed.swap(true, Ordering::SeqCst);
+            eprintln!("jarvis: school main-thread call timed out (started={started})");
+            None
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+    }
+}
+
+#[derive(Default)]
+struct SuitFocusState {
+    epoch: u64,
+    next_lease: u64,
+    active: Option<(u64, u64)>, // transition generation, modal lease
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SuitFocusChange {
+    Unchanged,
+    Enable(u64),
+    Disable,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SchoolApplyPlan {
+    preserve_geometry: bool,
+    focusable: bool,
+    menu_extra: u32,
+}
+
+impl SuitFocusState {
+    fn prepare_apply(&mut self, generation: u64, transitioning: bool, menu_extra: u32) -> SchoolApplyPlan {
+        let focusable = self.active.map(|(gen, _)| gen) == Some(generation);
+        if !transitioning {
+            if !focusable && self.active.is_some() {
+                self.reset();
+            }
+            return SchoolApplyPlan { preserve_geometry: focusable || menu_extra > 0, focusable, menu_extra };
+        }
+        self.reset();
+        SchoolApplyPlan { preserve_geometry: false, focusable: false, menu_extra: 0 }
+    }
+
+    fn reset(&mut self) -> SuitFocusChange {
+        self.epoch += 1;
+        if self.active.take().is_some() {
+            SuitFocusChange::Disable
+        } else {
+            SuitFocusChange::Unchanged
+        }
+    }
+
+    fn request(
+        &mut self,
+        active: bool,
+        lease: Option<u64>,
+        generation: u64,
+        epoch: u64,
+        eligible: bool,
+    ) -> SuitFocusChange {
+        if !active {
+            return if lease.is_none() || self.active == lease.map(|lease| (generation, lease)) {
+                self.reset()
+            } else {
+                SuitFocusChange::Unchanged
+            };
+        }
+        if !eligible || epoch != self.epoch {
+            return SuitFocusChange::Unchanged;
+        }
+        self.next_lease += 1;
+        self.active = Some((generation, self.next_lease));
+        SuitFocusChange::Enable(self.next_lease)
+    }
+}
+
+static SUIT_FOCUS: std::sync::Mutex<SuitFocusState> = std::sync::Mutex::new(SuitFocusState {
+    epoch: 0,
+    next_lease: 0,
+    active: None,
+});
+
+/// Only the focus keys change; the exact-title rule keeps all its docking,
+/// stacking and taskbar behavior while diagnostics temporarily takes keys.
+fn suit_focus_rule_entries(active: bool) -> [(&'static str, &'static str); 2] {
+    [("acceptfocus", if active { "true" } else { "false" }), ("acceptfocusrule", "2")]
+}
+
+fn set_suit_focus_locked(app: &AppHandle, active: bool) -> Result<(), String> {
+    install_rule(RULE_ID, &suit_focus_rule_entries(active));
+    if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
+        win.set_focusable(active).map_err(|error| error.to_string())?;
+        if active {
+            win.set_focus().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// All lifecycle/transition paths revoke modal focus before changing the
+/// strip. Never make the normal HUD unfocusable when clearing an old lease.
+fn reset_suit_focus_locked(app: &AppHandle) {
+    let change = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner()).reset();
+    if change == SuitFocusChange::Disable && is_school() {
+        let _ = set_suit_focus_locked(app, false);
+    }
+}
+
+/// Acquire keyboard access for a docked school diagnostics modal. A close
+/// needs its returned lease; false/None is a page-reload reset, which the
+/// frontend awaits before opening a new modal. Late acquisition replies
+/// must still be closed if the modal unmounted while awaiting them.
+#[tauri::command]
+pub fn suit_focus(app: AppHandle, active: bool, lease: Option<u64>) -> Result<Option<u64>, String> {
+    let gen = TX_GEN.load(Ordering::SeqCst);
+    let epoch = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner()).epoch;
+    on_main_sync(&app, move |app| {
+        let eligible = current_mode(true, gen) && !in_transition()
+            && !crate::orb::is_orb() && overlay_visible(app);
+        let change = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner())
+            .request(active, lease, gen, epoch, eligible);
+        match change {
+            SuitFocusChange::Enable(lease) => {
+                if let Err(error) = set_suit_focus_locked(app, true) {
+                    reset_suit_focus_locked(app);
+                    return Err(error);
+                }
+                Ok(Some(lease))
+            }
+            SuitFocusChange::Disable => {
+                if is_school() {
+                    set_suit_focus_locked(app, false)?;
+                }
+                Ok(None)
+            }
+            SuitFocusChange::Unchanged => Ok(None),
+        }
+    }).unwrap_or_else(|| Err("suit focus main-thread dispatch failed or timed out".into()))
+}
+
 pub fn is_school() -> bool {
     SCHOOL.load(Ordering::SeqCst)
 }
@@ -78,16 +336,16 @@ macro_rules! inset_js {
 /// peek above the bar), so the tallest bottom dock on the same output wins.
 /// Also `inset`/`barH`: see [`inset_js`].
 const PANEL_TOP_JS: &str = concat!(
-    "const full = workspace.clientArea(KWin.FullScreenArea, w);\n\
-    const a = workspace.clientArea(KWin.MaximizeArea, w);\n\
+    "const full = workspace.clientArea(KWin.FullScreenArea, target, workspace.currentDesktop);\n\
+    const a = workspace.clientArea(KWin.MaximizeArea, target, workspace.currentDesktop);\n\
     let top = a.y + a.height;\n\
     for (const d of workspace.windowList()) {\n\
-      if (!d.dock || d.output !== w.output) continue;\n\
+      if (!d.dock || d.output !== target) continue;\n\
       const g = d.frameGeometry;\n\
       if (g.y > full.y + full.height / 2 && g.y < top) top = g.y;\n\
     }\n\
     const panel = (full.y + full.height) - top;\n\
-    const jkOut = w.output;\n",
+    const jkOut = target;\n",
     inset_js!()
 );
 
@@ -152,27 +410,44 @@ pub fn parse_primary_output(json: &str) -> Option<String> {
     })
 }
 
+/// Read KWin's live primary on every placement, including primary changes
+/// while the keeper stays loaded. The kscreen connector is a compatibility
+/// fallback for older KWin; the active window and pointer are irrelevant.
+const PRIMARY_OUTPUT_JS: &str = "function jkPrimary() {\n\
+    const screens = workspace.screens;\n\
+    const order = workspace.screenOrder || [];\n\
+    for (const o of order) if (screens.includes(o)) return o;\n\
+    return screens.find(o => o.name === JK_PRIMARY) || screens[0];\n\
+}\n";
+
+fn primary_script(primary: Option<&str>) -> String {
+    let name = serde_json::to_string(primary.unwrap_or("")).expect("JSON string");
+    format!("const JK_PRIMARY = {name};\n{PRIMARY_OUTPUT_JS}")
+}
+
 /// KWin script that docks the strip (school) or puts the HUD back.
 /// Matches our overlay by exact caption "Jarvis" on a jarvis-shell window.
-/// The strip docks onto `primary` (connector name) when KWin knows it,
-/// else onto the screen Sir is working on.
+/// The strip docks onto the live primary; `primary` is a connector hint
+/// for KWin versions without screenOrder.
 pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary: Option<&str>) -> String {
     let body = if school {
         format!(
-            "const target = workspace.screens.find(o => o.name === \"{primary}\") || workspace.activeScreen;\n\
-             if (target && w.output !== target) workspace.sendClientToScreen(w, target);\n\
+            "const target = jkPrimary();\n\
+             if (!target) continue;\n\
+             if (w.output !== target) workspace.sendClientToScreen(w, target);\n\
              {top_js}\
-             const s = w.frameGeometry;\n\
              w.noBorder = true;\n\
              if (panel >= 24) {{\n\
                w.frameGeometry = {{x: full.x + inset, y: top + inset, width: full.width - 2 * inset, height: barH}};\n\
              }} else {{\n\
-               w.frameGeometry = {{x: a.x + a.width - s.width - {m}, y: a.y + a.height - s.height - {m}, width: s.width, height: s.height}};\n\
+               const width = Math.min({width}, Math.max(1, a.width - 2 * {m}));\n\
+               w.frameGeometry = {{x: a.x + a.width - width - {m}, y: a.y + a.height - {height} - {m}, width: width, height: {height}}};\n\
              }}\n\
              w.keepAbove = true; w.skipTaskbar = true; w.skipPager = true; w.skipSwitcher = true; w.onAllDesktops = true;",
             m = STRIP_MARGIN,
             top_js = PANEL_TOP_JS,
-            primary = primary.unwrap_or("")
+            width = STRIP_WIDTH,
+            height = STRIP_HEIGHT,
         )
     } else {
         let geo = match restore {
@@ -186,8 +461,9 @@ pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary:
              w.skipTaskbar = false; w.skipPager = false; w.skipSwitcher = false; w.onAllDesktops = false;"
         )
     };
+    let primary_js = if school { primary_script(primary) } else { String::new() };
     format!(
-        "for (const w of workspace.windowList()) {{\n\
+        "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
            {body}\n\
@@ -237,9 +513,23 @@ fn ensure_rule() {
     install_rule(RULE_ID, &rule_entries());
 }
 
+/// School and orb rules share General/rules. Serialize the complete
+/// read-modify-write/reload transaction. When both locks are needed, the
+/// lifecycle gate comes first; these transactions never acquire it.
+static RULES_MUTATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn mutate_rule_config<T>(gate: &std::sync::Mutex<()>, mutation: impl FnOnce() -> T) -> T {
+    let _lock = gate.lock().unwrap_or_else(|e| e.into_inner());
+    mutation()
+}
+
 /// Install a KWin window rule (idempotent) and reload rules. Fail-soft.
 /// Shared with the Brave orb (orb.rs).
 pub(crate) fn install_rule(rule_id: &str, entries: &[(&str, &str)]) {
+    mutate_rule_config(&RULES_MUTATION, || install_rule_locked(rule_id, entries));
+}
+
+fn install_rule_locked(rule_id: &str, entries: &[(&str, &str)]) {
     let read = std::process::Command::new("kreadconfig6")
         .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
         .output();
@@ -259,12 +549,14 @@ pub(crate) fn install_rule(rule_id: &str, entries: &[(&str, &str)]) {
     write("General", "count", &rules.split(',').count().to_string());
     write("General", "rules", &rules);
     let _ = std::process::Command::new("dbus-send")
-        .args(["--session", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+        .args(["--session", "--print-reply", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
         .output();
 }
 
 /// KWin script name of the dock keeper (stays loaded while docked).
 const KEEPER_NAME: &str = "jarvis_school_keeper";
+static KEEPER_GEN: AtomicU64 = AtomicU64::new(0);
+static KEEPER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Menu space the shell granted the strip above the panel (px, 0 = none),
 /// set by [`school_menu`]. The keeper sizes to exactly panel + this: it
@@ -281,12 +573,10 @@ static MENU_EXTRA_NOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU
 /// dropping to the laptop screen). This re-docks on every such change,
 /// debounced, at exactly panel + `menu_extra` tall (the menu space the
 /// shell granted; never inferred from the window's size). Target: the
-/// `primary` connector when present, else the first screen with a bottom
-/// panel, else the active screen. Pure.
+/// live primary output, with `primary` only an older-KWin fallback. Pure.
 pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
     format!(
-        "const JK_PRIMARY = \"{primary}\";\n\
-         const JK_TITLE = \"{title}\";\n\
+        "{primary_js}const JK_TITLE = \"{title}\";\n\
          function jkIsStrip(w) {{\n\
            return w && w.caption === JK_TITLE && String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\");\n\
          }}\n\
@@ -308,18 +598,12 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
            {inset_js}\
            return {{full: full, a: a, panel: panel, inset: inset, barH: barH}};\n\
          }}\n\
-         function jkTarget() {{\n\
-           const screens = workspace.screens;\n\
-           for (const o of screens) if (o.name === JK_PRIMARY) return o;\n\
-           for (const o of screens) if (jkPanel(o).panel >= 24) return o;\n\
-           return workspace.activeScreen || screens[0];\n\
-         }}\n\
          let jkBusy = false;\n\
          function jkDock() {{\n\
            if (jkBusy) return;\n\
            const w = jkStrip();\n\
            if (!w || w.minimized) return;\n\
-           const o = jkTarget();\n\
+           const o = jkPrimary();\n\
            if (!o) return;\n\
            jkBusy = true;\n\
            try {{\n\
@@ -331,7 +615,9 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
                const h = p.barH + {menu_extra};\n\
                want = {{x: p.full.x + p.inset, y: p.full.y + p.full.height - p.inset - h, width: p.full.width - 2 * p.inset, height: h}};\n\
              }} else {{\n\
-               want = {{x: p.a.x + p.a.width - g.width - {m}, y: p.a.y + p.a.height - g.height - {m}, width: g.width, height: g.height}};\n\
+               const width = Math.min({width}, Math.max(1, p.a.width - 2 * {m}));\n\
+               const h = Math.min({height} + {menu_extra}, Math.max(1, p.a.height - 2 * {m}));\n\
+               want = {{x: p.a.x + p.a.width - width - {m}, y: p.a.y + p.a.height - h - {m}, width: width, height: h}};\n\
              }}\n\
              const off = Math.abs(g.x - want.x) > 1 || Math.abs(g.y - want.y) > 1\n\
                || Math.abs(g.width - want.width) > 1 || Math.abs(g.height - want.height) > 1;\n\
@@ -375,6 +661,7 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
            }}\n\
          }}\n\
          try {{ workspace.screensChanged.connect(jkSoon); }} catch (e) {{}}\n\
+         try {{ workspace.screenOrderChanged.connect(jkSoon); }} catch (e) {{}}\n\
          try {{ workspace.stackingOrderChanged.connect(jkRaise); }} catch (e) {{}}\n\
          try {{ workspace.virtualScreenGeometryChanged.connect(jkSoon); }} catch (e) {{}}\n\
          try {{ workspace.windowAdded.connect(function(w) {{ jkHook(w); jkSoon(); }}); }} catch (e) {{}}\n\
@@ -382,9 +669,11 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
          try {{ workspace.currentDesktopChanged.connect(jkSoon); }} catch (e) {{}}\n\
          for (const w of workspace.windowList()) jkHook(w);\n\
          jkDock();\n",
-        primary = primary.unwrap_or(""),
+        primary_js = primary_script(primary),
         title = STRIP_TITLE,
         m = STRIP_MARGIN,
+        width = STRIP_WIDTH,
+        height = STRIP_HEIGHT,
         menu_extra = menu_extra.min(MENU_MAX_EXTRA),
         inset_js = PANEL_INSET_JS,
     )
@@ -392,30 +681,53 @@ pub fn keeper_script(primary: Option<&str>, menu_extra: u32) -> String {
 
 /// Load the dock keeper (replacing any running one). Fail-soft.
 fn start_keeper() {
-    std::thread::spawn(|| {
+    let gen = TX_GEN.load(Ordering::SeqCst);
+    let keeper_gen = KEEPER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
         let primary = primary_output_name();
+        let extra = MENU_EXTRA_NOW.load(Ordering::SeqCst);
+        let script = with_panel_thickness(&keeper_script(primary.as_deref(), extra));
+        // Serialize replacement/unload: an older menu request must never
+        // overwrite or unload a newer keeper after a slow D-Bus lookup.
+        // Lock order is always lifecycle, then keeper.
+        let _lifecycle = LIFECYCLE.lock();
+        let _lock = KEEPER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Re-checked on this thread: an exit or entry that began since the
         // keeper was asked for has already stopped it, and loading it now
         // would snap the window back to bar height mid-transition.
-        if !is_school() || in_transition() {
+        if !is_school() || in_transition() || TX_GEN.load(Ordering::SeqCst) != gen
+            || KEEPER_GEN.load(Ordering::SeqCst) != keeper_gen {
             return;
         }
-        let extra = MENU_EXTRA_NOW.load(Ordering::SeqCst);
-        load_kwin_named(&with_panel_thickness(&keeper_script(primary.as_deref(), extra)), KEEPER_NAME);
-        // Switched back to normal while it loaded: don't leave it running.
-        if !is_school() {
-            unload_kwin_named(KEEPER_NAME);
-        }
+        load_kwin_named(&script, KEEPER_NAME);
     });
 }
 
 /// Unload the dock keeper, so it never fights a transition or the HUD.
 fn stop_keeper() {
+    KEEPER_GEN.fetch_add(1, Ordering::SeqCst);
+    let _lock = KEEPER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     unload_kwin_named(KEEPER_NAME);
 }
 
-fn run_kwin(script: &str) {
-    run_kwin_named(script, "jarvis_school_dock");
+/// Check ownership and perform native effects atomically; the one-shot's
+/// 300 ms retention must never block the next main-thread school stage.
+fn run_guarded_kwin(
+    script: &str,
+    name: &str,
+    current: impl FnOnce() -> bool,
+    before_load: impl FnOnce(),
+) -> bool {
+    let started = LIFECYCLE.start_one_shot(name, current, |name| {
+        before_load();
+        load_kwin_named(script, name)
+    });
+    if let Some(script) = started {
+        script.finish();
+        true
+    } else {
+        false
+    }
 }
 
 /// Run a school-mode KWin script (one that pins the window above everything)
@@ -424,11 +736,10 @@ fn run_kwin(script: &str) {
 /// switched back to normal in the meantime a late one would re-pin the HUD
 /// above all windows after the restore had cleared it. That was the "stuck
 /// always on top after school mode" bug.
-fn run_school_kwin(script: &str, name: &str) {
-    if !is_school() {
-        return;
-    }
-    run_kwin_named(script, name);
+/// A slow monitor/Plasma lookup from an earlier animation must not move
+/// the overlay after a reversal starts a new transition generation.
+fn run_school_stage_kwin(script: &str, name: &str, gen: u64) {
+    run_guarded_kwin(script, name, || current_mode(true, gen), || {});
 }
 
 /// KWin script that makes the normal HUD a normal window again: not kept
@@ -459,6 +770,10 @@ pub fn rules_without(existing: &str, id: &str) -> String {
 /// Remove a KWin window rule from the active list and reload rules, so a
 /// forced "keep above" can never outlive the mode that wanted it. Fail-soft.
 pub(crate) fn uninstall_rule(rule_id: &str) {
+    mutate_rule_config(&RULES_MUTATION, || uninstall_rule_locked(rule_id));
+}
+
+fn uninstall_rule_locked(rule_id: &str) {
     let read = std::process::Command::new("kreadconfig6")
         .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
         .output();
@@ -479,7 +794,7 @@ pub(crate) fn uninstall_rule(rule_id: &str) {
     write("General", "count", &count.to_string());
     write("General", "rules", &rules);
     let _ = std::process::Command::new("dbus-send")
-        .args(["--session", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+        .args(["--session", "--print-reply", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
         .output();
 }
 
@@ -488,18 +803,24 @@ pub(crate) fn uninstall_rule(rule_id: &str) {
 /// acts in normal mode. Fail-soft; blocks for the script's lifetime, so
 /// call it from a thread.
 pub fn heal_normal_mode(app: Option<&AppHandle>) {
-    if is_school() {
+    heal_normal_generation(app, TX_GEN.load(Ordering::SeqCst));
+}
+
+fn heal_normal_generation(app: Option<&AppHandle>, gen: u64) {
+    if !run_guarded_kwin(
+        &normalize_script(), "jarvis_hud_normalize",
+        || current_mode(false, gen), || uninstall_rule(RULE_ID),
+    ) {
         return;
     }
-    uninstall_rule(RULE_ID);
-    if is_school() {
-        return;
-    }
-    run_kwin_named(&normalize_script(), "jarvis_hud_normalize");
-    if let Some(win) = app.and_then(|a| a.get_webview_window(crate::commands::OVERLAY_LABEL)) {
-        if !is_school() {
-            let _ = win.set_always_on_top(false);
-        }
+    if let Some(app) = app {
+        on_main_sync(app, move |app| {
+            if current_mode(false, gen) {
+                if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
+                    let _ = win.set_always_on_top(false);
+                }
+            }
+        });
     }
 }
 
@@ -520,21 +841,27 @@ fn boot_fill_script() -> String {
     )
 }
 
+const BOOT_FILL_NAME: &str = "jarvis_boot_fill";
+
 /// At launch (normal mode) the HUD fills the screen's work area but stays a
 /// normal decorated window: drag the title bar to move it. Fail-soft.
 pub fn fill_work_area_at_boot() {
     if is_school() {
         return;
     }
-    std::thread::spawn(|| {
+    let gen = TX_GEN.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
         // A previous run may have died in school mode with the HUD pinned
         // above everything: normal mode never starts that way.
-        heal_normal_mode(None);
-        const NAME: &str = "jarvis_boot_fill";
-        if load_kwin_named(&boot_fill_script(), NAME) {
+        heal_normal_generation(None, gen);
+        let mut loaded = false;
+        run_in_mode(false, gen, || {
+            loaded = load_kwin_named(&boot_fill_script(), BOOT_FILL_NAME);
+        });
+        if loaded {
             std::thread::sleep(std::time::Duration::from_secs(20));
         }
-        unload_kwin_named(NAME);
+        run_in_mode(false, gen, || unload_kwin_named(BOOT_FILL_NAME));
     });
 }
 
@@ -597,14 +924,20 @@ fn load_kwin_named(script: &str, name: &str) -> bool {
 /// "collapse" (it folds into the screen sides first), hidden -> "arrive"
 /// (tracers only). [`TX_WATCHDOG_MS`] docks it anyway if the page stalls.
 pub fn enter(app: &AppHandle) {
+    on_main_sync(app, enter_locked);
+}
+
+fn enter_locked(app: &AppHandle) {
+    unload_kwin_named(BOOT_FILL_NAME);
     let was = SCHOOL.swap(true, Ordering::SeqCst);
     // Entered again mid-return: drop the return (its "restore" stage is
     // ignored from here on) and play the arrival from wherever we are.
     let returning = RETURNING.swap(false, Ordering::SeqCst);
     if was && !returning {
-        apply(app);
+        apply_locked(app);
         return;
     }
+    reset_suit_focus_locked(app);
     stop_keeper();
     MENU_EXTRA_NOW.store(0, Ordering::SeqCst);
     ENTERING.store(true, Ordering::SeqCst);
@@ -614,10 +947,12 @@ pub fn enter(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(TX_WATCHDOG_MS));
-        if is_school() && TX_GEN.load(Ordering::SeqCst) == gen && DOCKED_GEN.load(Ordering::SeqCst) != gen {
-            eprintln!("jarvis: school transition stalled; docking directly");
-            apply(&app);
-        }
+        on_main_sync(&app, move |app| {
+            if current_mode(true, gen) && DOCKED_GEN.load(Ordering::SeqCst) != gen {
+                eprintln!("jarvis: school transition stalled; docking directly");
+                apply_locked(app);
+            }
+        });
     });
 }
 
@@ -633,12 +968,18 @@ fn in_transition() -> bool {
 
 /// Straight to the docked strip, no transition (boot restore).
 pub fn enter_quiet(app: &AppHandle) {
-    SCHOOL.store(true, Ordering::SeqCst);
-    apply(app);
+    on_main_sync(app, |app| {
+        reset_suit_focus_locked(app);
+        unload_kwin_named(BOOT_FILL_NAME);
+        TX_GEN.fetch_add(1, Ordering::SeqCst);
+        SCHOOL.store(true, Ordering::SeqCst);
+        RETURNING.store(false, Ordering::SeqCst);
+        apply_locked(app);
+    });
 }
 
-/// Transition generation: bumped per entry, so a stale watchdog or stage
-/// call from an earlier entry never acts on a newer one.
+/// Transition generation: bumped on entry, return, and immediate restore,
+/// so delayed effects from an earlier lifecycle never act on a newer one.
 static TX_GEN: AtomicU64 = AtomicU64::new(0);
 /// Generation whose transition reached the "dock" stage.
 static DOCKED_GEN: AtomicU64 = AtomicU64::new(0);
@@ -656,11 +997,12 @@ pub const TX_WATCHDOG_MS: u64 = 20_000;
 pub fn measure_script(nonce: &str, primary: Option<&str>) -> String {
     let nonce: String = nonce.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect();
     format!(
-        "for (const w of workspace.windowList()) {{\n\
+        "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
            const out = w.output;\n\
-           const prim = workspace.screens.find(o => o.name === \"{primary}\") || out;\n\
+           const prim = jkPrimary();\n\
+           if (!out || !prim) continue;\n\
            const g = w.clientGeometry, og = out.geometry, pg = prim.geometry;\n\
            const full = workspace.clientArea(KWin.FullScreenArea, prim, workspace.currentDesktop);\n\
            const a = workspace.clientArea(KWin.MaximizeArea, prim, workspace.currentDesktop);\n\
@@ -685,7 +1027,7 @@ pub fn measure_script(nonce: &str, primary: Option<&str>) -> String {
            break;\n\
          }}\n",
         title = STRIP_TITLE,
-        primary = primary.unwrap_or(""),
+        primary_js = primary_script(primary),
         inset_js = PANEL_INSET_JS,
     )
 }
@@ -724,10 +1066,7 @@ pub fn cover_script(cover: Cover, primary: Option<&str>, content: Option<[i32; 4
         },
         Cover::Here | Cover::Primary | Cover::At(_) => {
             let target = match cover {
-                Cover::Primary => format!(
-                    "workspace.screens.find(o => o.name === \"{}\") || w.output",
-                    primary.unwrap_or("")
-                ),
+                Cover::Primary => "jkPrimary()".to_string(),
                 Cover::At([x, y, w, h]) => {
                     let (cx, cy) = (x + w / 2, y + h / 2);
                     format!(
@@ -739,6 +1078,7 @@ pub fn cover_script(cover: Cover, primary: Option<&str>, content: Option<[i32; 4
             };
             format!(
                 "const target = {target};\n\
+                 if (!target) continue;\n\
                  if (w.output !== target) workspace.sendClientToScreen(w, target);\n\
                  w.noBorder = true;\n\
                  const g = target.geometry;\n\
@@ -746,8 +1086,9 @@ pub fn cover_script(cover: Cover, primary: Option<&str>, content: Option<[i32; 4
             )
         }
     };
+    let primary_js = if cover == Cover::Primary { primary_script(primary) } else { String::new() };
     format!(
-        "for (const w of workspace.windowList()) {{\n\
+        "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
            {body}\n\
@@ -795,6 +1136,17 @@ pub fn school_stage(
     nonce: Option<String>,
     rect: Option<[i32; 4]>,
 ) -> Result<(), String> {
+    on_main_sync(&app, move |app| {
+        school_stage_locked(app, stage, nonce, rect)
+    }).unwrap_or_else(|| Err("school stage main-thread dispatch failed or timed out".into()))
+}
+
+fn school_stage_locked(
+    app: &AppHandle,
+    stage: String,
+    nonce: Option<String>,
+    rect: Option<[i32; 4]>,
+) -> Result<(), String> {
     if !is_school() {
         return Ok(());
     }
@@ -804,9 +1156,10 @@ pub fn school_stage(
             let nonce = nonce.unwrap_or_default();
             std::thread::spawn(move || {
                 let primary = primary_output_name();
-                run_kwin_named(
+                run_school_stage_kwin(
                     &with_panel_thickness(&measure_script(&nonce, primary.as_deref())),
                     "jarvis_school_measure",
+                    gen,
                 );
             });
         }
@@ -817,6 +1170,7 @@ pub fn school_stage(
                 "cover-at" => Cover::At(rect.ok_or("cover-at needs a rect")?),
                 _ => Cover::Primary,
             };
+            reset_suit_focus_locked(app);
             ensure_rule();
             // Show first: click-through on a hidden (unrealized) window
             // panics tao and takes the whole shell down.
@@ -832,19 +1186,23 @@ pub fn school_stage(
                     std::thread::sleep(std::time::Duration::from_millis(UNFRAME_SETTLE_MS));
                 }
                 let primary = primary_output_name();
-                run_school_kwin(&cover_script(cover, primary.as_deref(), content), "jarvis_school_cover");
+                run_school_stage_kwin(&cover_script(cover, primary.as_deref(), content), "jarvis_school_cover", gen);
             });
         }
         "dock" => {
+            reset_suit_focus_locked(app);
             DOCKED_GEN.store(gen, Ordering::SeqCst);
             ENTERING.store(false, Ordering::SeqCst);
             ensure_rule();
             strip_window_props(&app, false);
-            std::thread::spawn(|| {
+            std::thread::spawn(move || {
                 let primary = primary_output_name();
-                run_school_kwin(
+                run_guarded_kwin(
                     &with_panel_thickness(&kwin_script(true, None, primary.as_deref())),
                     "jarvis_school_dock",
+                    // A menu may open while the monitor lookup is pending.
+                    || current_mode(true, gen) && MENU_EXTRA_NOW.load(Ordering::SeqCst) == 0,
+                    || {},
                 );
             });
             start_keeper();
@@ -919,17 +1277,33 @@ pub const MENU_MAX_EXTRA: u32 = 900;
 /// KWin script growing the docked taskbar upward by `extra` px (0 = back
 /// to just the panel), keeping the bar itself exactly over the panel. Pure.
 pub fn menu_script(extra: u32) -> String {
+    menu_script_on_primary(extra, None)
+}
+
+pub fn menu_script_on_primary(extra: u32, primary: Option<&str>) -> String {
     let extra = extra.min(MENU_MAX_EXTRA);
     format!(
-        "for (const w of workspace.windowList()) {{\n\
+        "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"{title}\") continue;\n\
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
+           const target = jkPrimary();\n\
+           if (!target) continue;\n\
+           if (w.output !== target) workspace.sendClientToScreen(w, target);\n\
            {top_js}\
-           if (panel < 24) continue;\n\
-           w.frameGeometry = {{x: full.x + inset, y: top + inset - {extra}, width: full.width - 2 * inset, height: barH + {extra}}};\n\
+           if (panel >= 24) {{\n\
+             w.frameGeometry = {{x: full.x + inset, y: top + inset - {extra}, width: full.width - 2 * inset, height: barH + {extra}}};\n\
+           }} else {{\n\
+             const width = Math.min({width}, Math.max(1, a.width - 2 * {m}));\n\
+             const height = Math.min({height} + {extra}, Math.max(1, a.height - 2 * {m}));\n\
+             w.frameGeometry = {{x: a.x + a.width - width - {m}, y: a.y + a.height - height - {m}, width: width, height: height}};\n\
+           }}\n\
          }}\n",
         title = STRIP_TITLE,
-        top_js = PANEL_TOP_JS
+        primary_js = primary_script(primary),
+        top_js = PANEL_TOP_JS,
+        width = STRIP_WIDTH,
+        height = STRIP_HEIGHT,
+        m = STRIP_MARGIN,
     )
 }
 
@@ -938,15 +1312,24 @@ pub fn menu_script(extra: u32) -> String {
 /// with 0. Only while docked in school mode.
 #[tauri::command]
 pub fn school_menu(extra: f64) -> Result<(), String> {
+    let _lifecycle = LIFECYCLE.lock();
     // Mid-transition the window belongs to the animation: a menu closing as
     // the bar leaves must not resize it or re-arm the keeper.
     if !is_school() || crate::orb::is_orb() || in_transition() {
         return Ok(());
     }
     let extra = if extra.is_finite() { extra.max(0.0) as u32 } else { 0 };
-    MENU_EXTRA_NOW.store(extra.min(MENU_MAX_EXTRA), Ordering::SeqCst);
+    let extra = extra.min(MENU_MAX_EXTRA);
+    let gen = TX_GEN.load(Ordering::SeqCst);
+    MENU_EXTRA_NOW.store(extra, Ordering::SeqCst);
     std::thread::spawn(move || {
-        run_kwin_named(&with_panel_thickness(&menu_script(extra)), "jarvis_school_menu")
+        let primary = primary_output_name();
+        let script = with_panel_thickness(&menu_script_on_primary(extra, primary.as_deref()));
+        run_guarded_kwin(
+            &script, "jarvis_school_menu",
+            || current_mode(true, gen) && !in_transition() && MENU_EXTRA_NOW.load(Ordering::SeqCst) == extra,
+            || {},
+        );
     });
     // Re-arm the keeper at the new height, or it would undo the menu.
     start_keeper();
@@ -955,6 +1338,33 @@ pub fn school_menu(extra: f64) -> Result<(), String> {
 
 /// Window properties + dock for the strip. Also used by show_overlay.
 pub fn apply(app: &AppHandle) {
+    on_main_sync(app, |app| {
+        if is_school() {
+            apply_locked(app);
+        }
+    });
+}
+
+fn apply_locked(app: &AppHandle) {
+    // A show/voice summon of an already docked modal or menu must not
+    // collapse its window or revoke keyboard access without a UI close.
+    // Decide before clearing ENTERING, so watchdog docking still resets.
+    let plan = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner()).prepare_apply(
+        TX_GEN.load(Ordering::SeqCst), in_transition(), MENU_EXTRA_NOW.load(Ordering::SeqCst),
+    );
+    MENU_EXTRA_NOW.store(plan.menu_extra, Ordering::SeqCst);
+    if plan.preserve_geometry {
+        if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
+            let _ = win.show();
+            let _ = win.set_focusable(plan.focusable);
+            if plan.focusable {
+                let _ = win.set_focus();
+            }
+            crate::commands::click_through_if_visible(&win, false);
+        }
+        start_keeper();
+        return;
+    }
     ENTERING.store(false, Ordering::SeqCst);
     ensure_rule();
     if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
@@ -973,13 +1383,17 @@ pub fn apply(app: &AppHandle) {
         // A real taskbar: its app buttons take clicks (still never focus).
         crate::commands::click_through_if_visible(&win, false);
     }
-    std::thread::spawn(|| {
+    let gen = TX_GEN.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
         // Let the compositor map the resized window before docking it.
         std::thread::sleep(std::time::Duration::from_millis(400));
         let primary = primary_output_name();
-        run_school_kwin(
+        run_guarded_kwin(
             &with_panel_thickness(&kwin_script(true, None, primary.as_deref())),
             "jarvis_school_dock",
+            // A newer menu/diagnostics expansion owns its geometry now.
+            || current_mode(true, gen) && MENU_EXTRA_NOW.load(Ordering::SeqCst) == 0,
+            || {},
         );
     });
     start_keeper();
@@ -994,6 +1408,11 @@ static RETURNING: AtomicBool = AtomicBool::new(false);
 /// land and scans it in, calling "cover-at" then "restore". If it stalls,
 /// [`TX_WATCHDOG_MS`] restores directly.
 pub fn exit(app: &AppHandle) {
+    on_main_sync(app, exit_locked);
+}
+
+fn exit_locked(app: &AppHandle) {
+    reset_suit_focus_locked(app);
     stop_keeper();
     MENU_EXTRA_NOW.store(0, Ordering::SeqCst);
     if !is_school() || !overlay_visible(app) {
@@ -1013,10 +1432,12 @@ pub fn exit(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(TX_WATCHDOG_MS));
-        if TX_GEN.load(Ordering::SeqCst) == gen && RETURNING.swap(false, Ordering::SeqCst) {
-            eprintln!("jarvis: school return stalled; restoring directly");
-            restore(&app);
-        }
+        on_main_sync(&app, move |app| {
+            if current_mode(true, gen) && RETURNING.load(Ordering::SeqCst) {
+                eprintln!("jarvis: school return stalled; restoring directly");
+                restore(app);
+            }
+        });
     });
 }
 
@@ -1030,6 +1451,11 @@ fn restore(app: &AppHandle) {
 /// the saved one. KWin places it `settle_ms` after the decorations come
 /// back, so GTK's title bar is already there.
 fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, settle_ms: u64) {
+    reset_suit_focus_locked(app);
+    unload_kwin_named(BOOT_FILL_NAME);
+    // Even two immediate returns need distinct generations: only the most
+    // recent saved frame may be placed after its compositor settle delay.
+    let gen = TX_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     SCHOOL.store(false, Ordering::SeqCst);
     RETURNING.store(false, Ordering::SeqCst);
     stop_keeper();
@@ -1067,22 +1493,24 @@ fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, s
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(settle_ms));
-        // The school rule forces "keep above": drop it before un-pinning.
-        uninstall_rule(RULE_ID);
-        if is_school() {
-            return; // school mode came back on while we waited
+        // Rule removal and placement belong to this return; retention and
+        // cleanup of its unique script can safely overlap the next entry.
+        if !run_guarded_kwin(
+            &kwin_script(false, restore, None), "jarvis_school_restore",
+            || current_mode(false, gen), || uninstall_rule(RULE_ID),
+        ) {
+            return;
         }
-        run_kwin(&kwin_script(false, restore, None));
         // Late school scripts (compositor settle, a transition step) or
         // KWin re-applying a rule can re-pin the HUD after the restore
         // above. Re-clear after each of them could have landed, so
         // returning to normal always ends not-always-on-top.
         for delay_ms in NORMALIZE_PASSES_MS {
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            if is_school() {
+            if !current_mode(false, gen) {
                 return;
             }
-            heal_normal_mode(Some(&app));
+            heal_normal_generation(Some(&app), gen);
         }
     });
 }
@@ -1093,6 +1521,335 @@ const NORMALIZE_PASSES_MS: [u64; 3] = [600, 1500, 3500];
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suit_focus_changes_only_the_forced_focus_rule() {
+        assert_eq!(suit_focus_rule_entries(true), [("acceptfocus", "true"), ("acceptfocusrule", "2")]);
+        assert_eq!(suit_focus_rule_entries(false), [("acceptfocus", "false"), ("acceptfocusrule", "2")]);
+        assert!(rule_entries().contains(&("acceptfocus", "false")));
+    }
+
+    #[test]
+    fn suit_focus_requires_a_visible_docked_school_window() {
+        let mut focus = SuitFocusState::default();
+        // Normal HUD, hidden strip, orb, and transitions are ineligible.
+        assert_eq!(focus.request(true, None, 1, 0, false), SuitFocusChange::Unchanged);
+        assert!(focus.active.is_none());
+        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(1));
+        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Disable);
+        assert!(focus.active.is_none());
+    }
+
+    #[test]
+    fn old_suit_close_cannot_disable_a_newer_modal() {
+        let mut focus = SuitFocusState::default();
+        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(1));
+        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(2));
+        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(focus.active, Some((1, 2)));
+        assert_eq!(focus.request(false, Some(2), 1, 0, true), SuitFocusChange::Disable);
+    }
+
+    #[test]
+    fn suit_reload_reset_revokes_orphans_and_queued_acquires() {
+        let mut focus = SuitFocusState::default();
+        focus.request(true, None, 1, 0, true);
+        assert_eq!(focus.request(false, None, 1, 0, true), SuitFocusChange::Disable);
+        assert!(focus.active.is_none());
+        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(focus.request(true, None, 1, 1, true), SuitFocusChange::Enable(2));
+        // An older page's token cannot revoke the post-reset lease.
+        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(focus.active, Some((1, 2)));
+    }
+
+    #[test]
+    fn suit_transition_reset_invalidates_focus_even_without_a_prior_lease() {
+        let mut focus = SuitFocusState::default();
+        assert_eq!(focus.reset(), SuitFocusChange::Unchanged);
+        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(focus.request(true, None, 2, 1, true), SuitFocusChange::Enable(1));
+        assert_eq!(focus.reset(), SuitFocusChange::Disable);
+        assert_eq!(focus.request(true, None, 2, 1, true), SuitFocusChange::Unchanged);
+        assert!(focus.active.is_none());
+    }
+
+    #[test]
+    fn docked_show_or_repeated_entry_preserves_suit_focus_and_expansion() {
+        let mut focus = SuitFocusState::default();
+        focus.request(true, None, 4, 0, true);
+        for _ in 0..2 { // show/apply, then an already-on school entry
+            assert_eq!(focus.prepare_apply(4, false, 740), SchoolApplyPlan {
+                preserve_geometry: true, focusable: true, menu_extra: 740,
+            });
+            assert_eq!(focus.active, Some((4, 1)));
+            assert_eq!(focus.epoch, 0);
+        }
+        // The modal still closes with the original lease.
+        assert_eq!(focus.request(false, Some(1), 4, 0, true), SuitFocusChange::Disable);
+    }
+
+    #[test]
+    fn transition_apply_revokes_suit_focus_and_expansion() {
+        let mut focus = SuitFocusState::default();
+        focus.request(true, None, 4, 0, true);
+        assert_eq!(focus.prepare_apply(4, true, 740), SchoolApplyPlan {
+            preserve_geometry: false, focusable: false, menu_extra: 0,
+        });
+        assert!(focus.active.is_none());
+        assert_eq!(focus.request(true, None, 4, 0, true), SuitFocusChange::Unchanged);
+        // Ordinary taskbar menus retain their height, without taking keys.
+        assert_eq!(focus.prepare_apply(4, false, 360), SchoolApplyPlan {
+            preserve_geometry: true, focusable: false, menu_extra: 360,
+        });
+    }
+
+    #[test]
+    fn ordinary_show_does_not_invalidate_a_pending_suit_acquire() {
+        let mut focus = SuitFocusState::default();
+        assert_eq!(focus.prepare_apply(4, false, 0), SchoolApplyPlan {
+            preserve_geometry: false, focusable: false, menu_extra: 0,
+        });
+        assert_eq!(focus.request(true, None, 4, 0, true), SuitFocusChange::Enable(1));
+    }
+
+    fn assert_serialized_rule_mutations(
+        initial: &str,
+        first: fn(&str) -> String,
+        second: fn(&str) -> String,
+        expected: &str,
+    ) {
+        use std::sync::{mpsc, Arc, Mutex};
+        let gate = Arc::new(Mutex::new(()));
+        let rules = Arc::new(Mutex::new(initial.to_owned()));
+        let (read_tx, read_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let first_gate = gate.clone();
+        let first_rules = rules.clone();
+        let first_worker = std::thread::spawn(move || {
+            mutate_rule_config(&first_gate, || {
+                let snapshot = first_rules.lock().unwrap().clone();
+                read_tx.send(()).unwrap();
+                finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                // The transaction must retain the gate between read/write.
+                assert!(first_gate.try_lock().is_err());
+                *first_rules.lock().unwrap() = first(&snapshot);
+            });
+        });
+        read_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let second_gate = gate.clone();
+        let second_rules = rules.clone();
+        let second_worker = std::thread::spawn(move || {
+            attempt_tx.send(()).unwrap();
+            mutate_rule_config(&second_gate, || {
+                let snapshot = second_rules.lock().unwrap().clone();
+                *second_rules.lock().unwrap() = second(&snapshot);
+            });
+        });
+        attempt_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        finish_tx.send(()).unwrap();
+        first_worker.join().unwrap();
+        second_worker.join().unwrap();
+        assert_eq!(*rules.lock().unwrap(), expected);
+    }
+
+    #[test]
+    fn simultaneous_rule_installs_preserve_both_and_unrelated_rules() {
+        assert_serialized_rule_mutations(
+            "other", |rules| rules_with(rules, "orb"), |rules| rules_with(rules, RULE_ID),
+            "other,orb,jarvis-school-strip",
+        );
+    }
+
+    #[test]
+    fn orb_rule_removal_cannot_overwrite_a_school_rule_install() {
+        assert_serialized_rule_mutations(
+            "other,orb", |rules| rules_without(rules, "orb"), |rules| rules_with(rules, RULE_ID),
+            "other,jarvis-school-strip",
+        );
+    }
+
+    /// In-memory native effects, using the same gate and generation guard
+    /// as delayed restores. These tests never create a window or call KWin.
+    #[derive(Default)]
+    struct LifecycleFixture {
+        gate: LifecycleGate,
+        school: AtomicBool,
+        generation: AtomicU64,
+        rule_installed: AtomicBool,
+        geometry: std::sync::Mutex<&'static str>,
+    }
+
+    impl LifecycleFixture {
+        fn transition(&self, school: bool) -> u64 {
+            let _lock = self.gate.lock();
+            self.school.store(school, Ordering::SeqCst);
+            let gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+            if school {
+                self.rule_installed.store(true, Ordering::SeqCst);
+                *self.geometry.lock().unwrap() = "strip";
+            }
+            gen
+        }
+
+        fn restore(&self, gen: u64, geometry: &'static str) -> bool {
+            self.gate.run_for_mode(&self.school, &self.generation, false, gen, || {
+                self.rule_installed.store(false, Ordering::SeqCst);
+                *self.geometry.lock().unwrap() = geometry;
+            })
+        }
+    }
+
+    #[test]
+    fn delayed_return_cannot_remove_reentry_rule_or_move_strip() {
+        let native = LifecycleFixture::default();
+        native.transition(true);
+        let old_return = native.transition(false);
+        native.transition(true); // re-enter during either settle delay
+        assert!(!native.restore(old_return, "old HUD"));
+        assert!(native.rule_installed.load(Ordering::SeqCst));
+        assert_eq!(*native.geometry.lock().unwrap(), "strip");
+    }
+
+    #[test]
+    fn delayed_return_cannot_overwrite_a_newer_return() {
+        let native = LifecycleFixture::default();
+        native.transition(true);
+        let old_return = native.transition(false);
+        native.transition(true);
+        let new_return = native.transition(false);
+        assert!(native.restore(new_return, "new HUD"));
+        // Mode is normal again, so a mode-only guard would place old HUD.
+        assert!(!native.restore(old_return, "old HUD"));
+        assert_eq!(*native.geometry.lock().unwrap(), "new HUD");
+        assert!(!native.rule_installed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn delayed_school_stage_cannot_move_a_new_entry() {
+        let native = LifecycleFixture::default();
+        let old_entry = native.transition(true);
+        native.transition(false);
+        native.transition(true);
+        assert!(!native.gate.run_for_mode(
+            &native.school, &native.generation, true, old_entry,
+            || *native.geometry.lock().unwrap() = "old fullscreen cover",
+        ));
+        assert_eq!(*native.geometry.lock().unwrap(), "strip");
+    }
+
+    #[test]
+    fn lifecycle_gate_holds_until_delayed_effect_finishes() {
+        use std::sync::{mpsc, Arc};
+        let native = Arc::new(LifecycleFixture::default());
+        let old_return = native.transition(false);
+        let (checked_tx, checked_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let worker_native = native.clone();
+        let worker = std::thread::spawn(move || {
+            worker_native.gate.run_for_mode(
+                &worker_native.school, &worker_native.generation, false, old_return,
+                || {
+                    checked_tx.send(()).unwrap();
+                    finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                    worker_native.rule_installed.store(false, Ordering::SeqCst);
+                    *worker_native.geometry.lock().unwrap() = "old HUD";
+                },
+            )
+        });
+        checked_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        // Deterministically pause between the eligibility check and effects.
+        // An entry cannot acquire its gate anywhere inside that interval.
+        let held_during_effect = native.gate.0.try_lock().is_err();
+        finish_tx.send(()).unwrap();
+        assert!(worker.join().unwrap());
+        assert!(held_during_effect);
+        native.transition(true);
+        assert!(native.rule_installed.load(Ordering::SeqCst));
+        assert_eq!(*native.geometry.lock().unwrap(), "strip");
+    }
+
+    #[test]
+    fn one_shot_retention_allows_next_transition_and_preserves_its_script() {
+        use std::collections::HashSet;
+        use std::sync::{mpsc, Arc, Mutex};
+        let native = Arc::new(LifecycleFixture::default());
+        native.transition(true);
+        let scripts = Arc::new(Mutex::new(HashSet::new()));
+        let old = native.gate.start_one_shot("measure", || true, |name| {
+            assert!(native.gate.0.try_lock().is_err());
+            scripts.lock().unwrap().insert(name.to_owned());
+            true
+        }).unwrap();
+        let old_name = old.name.clone();
+        let (retaining_tx, retaining_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let worker_native = native.clone();
+        let worker_scripts = scripts.clone();
+        let worker = std::thread::spawn(move || {
+            old.finish_with(
+                || {
+                    assert!(worker_native.gate.0.try_lock().is_ok());
+                    retaining_tx.send(()).unwrap();
+                    finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                },
+                |name| {
+                    assert!(worker_native.gate.0.try_lock().is_ok());
+                    assert!(worker_scripts.lock().unwrap().remove(name));
+                },
+            );
+        });
+        retaining_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        // Pause the old script in retention, then perform the next mode
+        // change and native stage without allowing that retention to end.
+        assert!(native.gate.0.try_lock().is_ok());
+        native.transition(false);
+        let new = native.gate.start_one_shot("measure", || true, |name| {
+            scripts.lock().unwrap().insert(name.to_owned());
+            true
+        }).unwrap();
+        assert_ne!(old_name, new.name);
+        finish_tx.send(()).unwrap();
+        worker.join().unwrap();
+        // Cleanup targets its invocation, not the shared purpose name.
+        assert!(!scripts.lock().unwrap().contains(&old_name));
+        assert!(scripts.lock().unwrap().contains(&new.name));
+        new.finish_with(|| {}, |name| { scripts.lock().unwrap().remove(name); });
+        assert!(scripts.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn stale_one_shot_never_starts_native_effects() {
+        let native = LifecycleFixture::default();
+        let old_gen = native.transition(false);
+        native.transition(true);
+        native.transition(false);
+        let stale = native.gate.start_one_shot(
+            "restore",
+            || !native.school.load(Ordering::SeqCst)
+                && native.generation.load(Ordering::SeqCst) == old_gen,
+            |_| panic!("stale restore must not remove a rule or load a script"),
+        );
+        assert!(stale.is_none());
+    }
+
+    #[test]
+    fn failed_one_shot_load_cleans_its_identity_without_retention() {
+        let gate = LifecycleGate::new();
+        let script = gate.start_one_shot("measure", || true, |_| false).unwrap();
+        let name = script.name.clone();
+        let mut cleaned = false;
+        script.finish_with(
+            || panic!("failed loads need no retention delay"),
+            |cleanup_name| {
+                assert!(gate.0.try_lock().is_ok());
+                assert_eq!(cleanup_name, name);
+                cleaned = true;
+            },
+        );
+        assert!(cleaned);
+    }
 
     #[test]
     fn normalize_unpins_only_the_hud() {
@@ -1126,10 +1883,9 @@ mod tests {
 
     #[test]
     fn school_scripts_never_run_in_normal_mode() {
-        SCHOOL.store(false, Ordering::SeqCst);
         // Would shell out to dbus-send if it ran; in normal mode it must
         // return before touching KWin at all.
-        run_school_kwin("w.keepAbove = true;", "jarvis_test_never_loaded");
+        run_school_stage_kwin("w.keepAbove = true;", "jarvis_test_never_loaded", TX_GEN.load(Ordering::SeqCst));
         assert!(!is_school());
     }
 
@@ -1167,9 +1923,12 @@ mod tests {
         assert!(keeper_script(None, 0).contains("const jkOut = o;"));
         assert!(measure_script("n", None).contains("const jkOut = prim;"));
         assert!(with_panel_thickness("x").ends_with("\nx"));
-        // Docks on the primary display, else the screen Sir is working on.
-        assert!(dock.contains("o.name === \"DP-1\") || workspace.activeScreen"));
+        // Live primary selection wins over a cached connector or focus.
+        assert!(dock.contains("JK_PRIMARY = \"DP-1\"") && dock.contains("workspace.screenOrder"));
+        assert!(!dock.contains("activeScreen"));
         assert!(dock.contains("sendClientToScreen(w, target)"));
+        // Output assignment can settle later: never measure via w.output.
+        assert!(dock.contains("KWin.FullScreenArea, target, workspace.currentDesktop"));
     }
 
     #[test]
@@ -1190,7 +1949,7 @@ mod tests {
         let s = menu_script(420);
         assert!(s.contains(STRIP_TITLE) && s.contains("resourceClass"));
         assert!(s.contains("y: top + inset - 420") && s.contains("height: barH + 420"));
-        assert!(s.contains("d.dock") && s.contains("d.output !== w.output"));
+        assert!(s.contains("d.dock") && s.contains("d.output !== target"));
         assert!(menu_script(0).contains("height: barH + 0"));
         assert!(menu_script(99_999).contains(&format!("barH + {MENU_MAX_EXTRA}")));
     }
@@ -1200,7 +1959,7 @@ mod tests {
         let s = measure_script("ab12\"; evil()", Some("eDP-1"));
         assert!(s.contains("callDBus(\"org.jarvis.Focus\"") && s.contains("\"SchoolGeom\""));
         assert!(s.contains("nonce: \"ab12evil\"") && !s.contains("evil()"));
-        assert!(s.contains("o.name === \"eDP-1\"") && s.contains("w.clientGeometry"));
+        assert!(s.contains("JK_PRIMARY = \"eDP-1\"") && s.contains("w.clientGeometry"));
         assert!(s.contains("panel: Math.round"));
     }
 
@@ -1209,7 +1968,7 @@ mod tests {
         let here = cover_script(Cover::Here, Some("eDP-1"), None);
         assert!(here.contains("const target = w.output;") && !here.contains("eDP-1"));
         let prim = cover_script(Cover::Primary, Some("eDP-1"), None);
-        assert!(prim.contains("o.name === \"eDP-1\"") && prim.contains("sendClientToScreen"));
+        assert!(prim.contains("JK_PRIMARY = \"eDP-1\"") && prim.contains("sendClientToScreen"));
         assert!(prim.contains("width: g.width, height: g.height") && prim.contains("noBorder = true"));
         // Unframing keeps the content rect: the HUD folds in place.
         let un = cover_script(Cover::Unframe, None, None);
@@ -1253,8 +2012,11 @@ mod tests {
         // A granted menu height is kept, capped.
         assert!(keeper_script(None, 480).contains("const h = p.barH + 480;"));
         assert!(keeper_script(None, 5000).contains(&format!("const h = p.barH + {MENU_MAX_EXTRA};")));
-        // Falls back to any screen with a panel when the primary is gone.
-        assert!(keeper_script(None, 0).contains("jkPanel(o).panel >= 24"));
+        // Re-evaluate primary changes while both monitors remain attached.
+        assert!(k.contains("workspace.screenOrderChanged.connect(jkSoon)"));
+        assert!(k.contains("const o = jkPrimary();") && !k.contains("activeScreen"));
+        // A primary without a panel still receives a slim 620x48 strip.
+        assert!(k.contains("Math.min(620,") && k.contains("Math.min(48 + 0,"));
     }
 
     #[test]

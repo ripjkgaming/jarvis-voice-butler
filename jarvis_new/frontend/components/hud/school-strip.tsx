@@ -2,6 +2,7 @@
 
 import {
   type CSSProperties,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,11 +10,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { BootLine } from '@/components/hud/boot-log';
+import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { AppIcon, MENU_EXTRA, type MenuKind, MenuLayer } from '@/components/hud/school-menus';
-import { useBootLog } from '@/hooks/hud/use-boot-log';
+import { VoiceLinkRail } from '@/components/hud/voice-link';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
+import { refreshWindowGeometry, useWindowGeometry } from '@/hooks/hud/use-window-geometry';
 import {
   type BridgeActivity,
   type BridgeSys,
@@ -23,6 +25,8 @@ import {
 } from '@/lib/bridge';
 import { useSharedPoll } from '@/lib/shared-poll';
 import { invoke, isTauri } from '@/lib/tauri';
+import type { VoiceLink } from '@/lib/voice-link';
+import './school-theme.css';
 
 const STATE_LABEL: Record<JarvisState, string> = {
   idle: 'STANDBY',
@@ -47,16 +51,24 @@ function useStreamLine(): Line | null {
   const inCall = useRoom(500) !== null;
   const live = useLiveCaption(inCall, 500);
   const captions = useCaptions(inCall);
+  const latestAt = captions.at(-1)?.ts;
+  const [expiredAt, setExpiredAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!inCall || latestAt === undefined) return;
+    const remaining = (latestAt + CAPTION_FRESH_S) * 1000 - Date.now();
+    const timer = setTimeout(() => setExpiredAt(latestAt), Math.max(0, remaining) + 20);
+    return () => clearTimeout(timer);
+  }, [inCall, latestAt]);
   return useMemo(() => {
     if (!inCall) return null;
     if (live && !live.done && live.text.trim()) {
       return { who: 'Jarvis', text: live.text, key: `l${live.id}` };
     }
     const last = captions.at(-1);
-    return last && Date.now() / 1000 - last.ts < CAPTION_FRESH_S
+    return last && last.ts !== expiredAt && Date.now() / 1000 - last.ts < CAPTION_FRESH_S
       ? { who: last.role === 'sir' ? 'Sir' : 'Jarvis', text: last.text, key: `c${last.ts}` }
       : null;
-  }, [inCall, live, captions]);
+  }, [inCall, live, captions, expiredAt]);
 }
 
 /** Running system activities (downloads, research, builds), max two. */
@@ -65,36 +77,54 @@ function useRunning(): BridgeActivity[] {
   return useMemo(() => (raw?.items ?? []).filter((a) => a.status === 'running').slice(0, 2), [raw]);
 }
 
-/** Docked over a floating Plasma panel? school.rs trims the panel's gap,
- *  so the window is then narrower than the screen: the bar takes the
- *  panel's rounded corners. (While it still covers the screen the pool's
- *  inset, --sbar-inset, decides; see globals.css.) */
-function useFloating(): boolean {
-  const [floating, setFloating] = useState(false);
-  useEffect(() => {
-    const check = () =>
-      setFloating(window.innerHeight < 300 && window.innerWidth < window.screen.width - 4);
-    check();
-    window.addEventListener('resize', check);
-    const t = setInterval(check, 500); // WebKitGTK resize events are unreliable
-    return () => {
-      window.removeEventListener('resize', check);
-      clearInterval(t);
-    };
-  }, []);
-  return floating;
-}
+const pad = (n: number) => String(n).padStart(2, '0');
 
-function useNow(): Date {
+/** Only this small readout renders at the next minute boundary. */
+const SchoolClock = memo(function SchoolClock({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: (menu: MenuKind) => void;
+}) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      clearTimeout(timer);
+      if (document.hidden) return;
+      setNow(new Date());
+      timer = setTimeout(update, 60_000 - (Date.now() % 60_000) + 20);
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', update);
+    };
   }, []);
-  return now;
-}
-
-const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    <button
+      type="button"
+      className="sbar-clock"
+      data-open={open}
+      aria-label="Calendar"
+      aria-expanded={open}
+      onClick={() => onToggle('calendar')}
+    >
+      <b>
+        {pad(now.getHours())}
+        <span className="sbar-clock__colon">:</span>
+        {pad(now.getMinutes())}
+      </b>
+      <i>
+        {now
+          .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+          .toUpperCase()}
+      </i>
+    </button>
+  );
+});
 
 /* ------------------------------ pieces ------------------------------ */
 
@@ -119,8 +149,15 @@ function StreamLine({ line }: { line: Line }) {
   const text = useRef<HTMLSpanElement>(null);
   const [overflow, setOverflow] = useState(0);
   useLayoutEffect(() => {
-    const over = (text.current?.scrollWidth ?? 0) - (slot.current?.clientWidth ?? 0);
-    setOverflow(over > 4 ? over + 24 : 0);
+    const measure = () => {
+      const over = (text.current?.scrollWidth ?? 0) - (slot.current?.clientWidth ?? 0);
+      setOverflow(over > 4 ? over + 24 : 0);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (slot.current) observer.observe(slot.current);
+    if (text.current) observer.observe(text.current);
+    return () => observer.disconnect();
   }, [line.text]);
   const style = overflow
     ? ({
@@ -153,35 +190,48 @@ const TRACE_TUNE: Record<string, { amp: number; speed: number; ripples: number }
   speaking: { amp: 0.46, speed: 1.1, ripples: 1.8 },
   muted: { amp: 0.02, speed: 0.12, ripples: 0 },
 };
-/** Redraw cadence (ms): ~30 fps is smooth for a slow line and half the CPU. */
-const TRACE_FRAME_MS = 33;
 
 type Ripple = { x: number; w: number; amp: number; freq: number; born: number; life: number };
 
 /** Idle stream: a live signal line. Quasi-periodic waves (irrational
  *  ratios, random phases) plus ripples that bloom at random spots and fade,
  *  so it never visibly repeats. Eases between states instead of jumping. */
-function LiveTrace({ state }: { state: string }) {
+const traceColor = (state: string): number[] => {
+  const hex =
+    state === 'muted' ? MUTED_COLOR : (JARVIS_COLORS[state as JarvisState] ?? JARVIS_COLORS.idle);
+  return [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+};
+
+const LiveTrace = memo(function LiveTrace({ state }: { state: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const tune = useRef(TRACE_TUNE[state] ?? TRACE_TUNE.idle);
-  tune.current = TRACE_TUNE[state] ?? TRACE_TUNE.idle;
+  const targetColor = useRef(traceColor(state));
+  const redraw = useRef<() => void>(() => {});
+  useEffect(() => {
+    tune.current = TRACE_TUNE[state] ?? TRACE_TUNE.idle;
+    targetColor.current = traceColor(state);
+    redraw.current();
+  }, [state]);
 
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const phase = [0, 0, 0, 0].map(() => Math.random() * Math.PI * 2);
     const ripples: Ripple[] = [];
+    const color = [...targetColor.current];
     let amp = tune.current.amp;
     let speed = tune.current.speed;
     let t = Math.random() * 1000;
+    let elapsed = 0;
     let last = performance.now();
-    let color = '';
-    let colorAt = -Infinity;
+    let width = 0;
+    let height = 0;
+    let dpr = window.devicePixelRatio || 1;
     let raf = 0;
 
-    const signal = (x: number, now: number) => {
+    const signal = (x: number) => {
       let v =
         0.5 * Math.sin(x * 6.1 + t + phase[0]) +
         0.3 * Math.sin(x * 11.7 - t * 1.618 + phase[1]) +
@@ -189,26 +239,27 @@ function LiveTrace({ state }: { state: string }) {
         0.12 * Math.sin(x * 41.9 - t * 3.303 + phase[3]);
       v *= amp;
       for (const r of ripples) {
-        const f = (now - r.born) / r.life;
+        const f = (elapsed - r.born) / r.life;
         const env = Math.sin(Math.PI * f) * Math.exp(-(((x - r.x) / r.w) ** 2));
         v += r.amp * (0.2 + amp) * env * Math.sin((x - r.x) * r.freq - t * 5);
       }
       return Math.tanh(v * 1.4);
     };
 
-    const frame = (now: number) => {
-      raf = still ? 0 : requestAnimationFrame(frame);
-      if (!still && (now - last < TRACE_FRAME_MS || document.hidden)) return;
-      const dt = Math.min(0.1, (now - last) / 1000);
+    const draw = (now: number) => {
+      const dt = motion.matches ? 0 : Math.min(0.05, (now - last) / 1000);
       last = now;
+      elapsed += dt * 1000;
       const goal = tune.current;
-      const ease = Math.min(1, dt * 2.5);
+      const ease = motion.matches ? 1 : 1 - Math.exp(-dt * 5);
       amp += (goal.amp - amp) * ease;
       speed += (goal.speed - speed) * ease;
       t += dt * speed;
+      for (let i = 0; i < 3; i++) color[i] += (targetColor.current[i] - color[i]) * ease;
+      const ink = `rgb(${color.map(Math.round).join(',')})`;
 
       for (let i = ripples.length - 1; i >= 0; i--) {
-        if (now - ripples[i].born > ripples[i].life) ripples.splice(i, 1);
+        if (elapsed - ripples[i].born > ripples[i].life) ripples.splice(i, 1);
       }
       if (Math.random() < goal.ripples * dt && ripples.length < 6) {
         ripples.push({
@@ -216,51 +267,74 @@ function LiveTrace({ state }: { state: string }) {
           w: 0.03 + Math.random() * 0.07,
           amp: 0.35 + Math.random() * 0.65,
           freq: 60 + Math.random() * 120,
-          born: now,
+          born: elapsed,
           life: 1400 + Math.random() * 2600,
         });
       }
 
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
-      }
-      if (now - colorAt > 400) {
-        color = getComputedStyle(canvas).color;
-        colorAt = now;
-      }
+      // Dimensions are observer-driven: no layout/style reads in the hot loop.
+      if (!width || !height) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-      if (!w || !h) return;
-      const mid = h / 2;
+      ctx.clearRect(0, 0, width, height);
+      const mid = height / 2;
       const reach = mid - 2;
       const trace = (offset: number) => {
         ctx.beginPath();
-        for (let px = 0; px <= w; px += 2) {
-          const y = mid + signal(px / w + offset, now) * reach;
+        for (let px = 0; px <= width; px += 2) {
+          const y = mid + signal(px / width + offset) * reach;
           if (px === 0) ctx.moveTo(px, y);
           else ctx.lineTo(px, y);
         }
         ctx.stroke();
       };
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = ink;
       ctx.lineJoin = 'round';
-      // A faint echo a little out of step, then the line itself with glow.
       ctx.globalAlpha = 0.22;
       ctx.lineWidth = 1;
       ctx.shadowBlur = 0;
       trace(0.013);
       ctx.globalAlpha = 1;
       ctx.lineWidth = 1.4;
-      ctx.shadowColor = color;
+      ctx.shadowColor = ink;
       ctx.shadowBlur = 6;
       trace(0);
     };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    const frame = (now: number) => {
+      draw(now);
+      raf = requestAnimationFrame(frame);
+    };
+    const sync = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      if (document.hidden) return;
+      last = performance.now();
+      draw(last);
+      if (!motion.matches) raf = requestAnimationFrame(frame);
+    };
+    const observer = new ResizeObserver(([entry]) => {
+      width = entry.contentRect.width;
+      height = entry.contentRect.height;
+      dpr = window.devicePixelRatio || 1;
+      const pixelWidth = Math.round(width * dpr);
+      const pixelHeight = Math.round(height * dpr);
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+      sync();
+    });
+    observer.observe(canvas);
+    redraw.current = () => {
+      if (motion.matches) sync();
+    };
+    document.addEventListener('visibilitychange', sync);
+    motion.addEventListener('change', sync);
+    sync();
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+      motion.removeEventListener('change', sync);
+      redraw.current = () => {};
+    };
   }, []);
 
   return (
@@ -268,7 +342,7 @@ function LiveTrace({ state }: { state: string }) {
       <canvas ref={ref} />
     </span>
   );
-}
+});
 
 function Ring({ pct }: { pct: number | null }) {
   const r = 7;
@@ -314,7 +388,7 @@ function Tile({
         <b>{value}</b>
         {level !== undefined && level !== null ? (
           <span className="sbar-tile__gauge">
-            <span style={{ width: `${Math.round(Math.max(0, Math.min(1, level)) * 100)}%` }} />
+            <span style={{ transform: `scaleX(${Math.max(0, Math.min(1, level))})` }} />
           </span>
         ) : null}
       </span>
@@ -415,9 +489,22 @@ function Apps({ launchers, windows }: { launchers: Launcher[]; windows: BridgeWi
   const [pending, setPending] = useState<{ id: string | null; at: number } | null>(null);
   // Launch feedback: the icon pulses until the new window shows up.
   const [launching, setLaunching] = useState<{ key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setTimeout(() => setPending(null), Math.max(0, pending.at + 2500 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [pending]);
+  useEffect(() => {
+    if (!launching) return;
+    const timer = setTimeout(
+      () => setLaunching(null),
+      Math.max(0, launching.at + 8000 - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [launching]);
   const fresh = pending && Date.now() - pending.at < 2500 ? pending : null;
   const isActive = (w: BridgeWindow) => (fresh ? fresh.id === w.id : w.active);
-  const groups = groupApps(launchers, windows);
+  const groups = useMemo(() => groupApps(launchers, windows), [launchers, windows]);
   if (!groups.length) return null;
 
   const click = (g: AppGroup) => {
@@ -480,55 +567,74 @@ function Apps({ launchers, windows }: { launchers: Launcher[]; windows: BridgeWi
 /** Opens/closes the taskbar menus: grows the shell window upward first
  *  (school.rs `school_menu`), shows the menu once the room is there, and on
  *  close plays the menu out before handing the space back. */
-function useMenu(): {
+const setMenuSpace = (extra: number) => {
+  refreshWindowGeometry();
+  if (isTauri()) {
+    void invoke('school_menu', { extra })
+      .catch(() => undefined)
+      .finally(refreshWindowGeometry);
+  }
+};
+
+function useMenu(
+  height: number,
+  suspended: boolean
+): {
   menu: MenuKind | null;
   shown: boolean;
   closing: boolean;
+  barHeight: number;
   toggle: (m: MenuKind) => void;
   close: () => void;
 } {
   const [menu, setMenu] = useState<MenuKind | null>(null);
+  const activeMenu = useRef<MenuKind | null>(null);
   const [closing, setClosing] = useState(false);
-  const [roomy, setRoomy] = useState(false);
-  const barH = useRef(0);
-  useEffect(() => {
-    const check = () => {
-      const h = window.innerHeight;
-      if (h <= 140) barH.current = h;
-      setRoomy(barH.current > 0 && h >= barH.current + MENU_EXTRA - 8);
-    };
-    check();
-    window.addEventListener('resize', check);
-    const t = setInterval(check, 250); // WebKitGTK resize events are unreliable
-    return () => {
-      window.removeEventListener('resize', check);
-      clearInterval(t);
-    };
-  }, []);
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--sbar-h',
-      `${barH.current || window.innerHeight}px`
-    );
-  });
-  const grow = (extra: number) => {
-    if (isTauri()) void invoke('school_menu', { extra }).catch(() => undefined);
-  };
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [barHeight, setBarHeight] = useState(48);
+  // Only actual docked dimensions can become the bar height. The shell
+  // passes the inherited --sbar-h while transitioning at full screen size.
+  useLayoutEffect(() => {
+    if (height > 0 && height <= 140) setBarHeight(height);
+  }, [height]);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  useLayoutEffect(() => {
+    if (!suspended) return;
+    clearTimeout(closeTimer.current);
+    closeTimer.current = undefined;
+    activeMenu.current = null;
+    setMenu(null);
+    setClosing(false);
+    // The diagnostics controller owns the expanded native surface now.
+  }, [suspended]);
+
   const close = useCallback(() => {
+    if (!activeMenu.current || closeTimer.current !== undefined) return;
     setClosing(true);
-    setTimeout(() => {
+    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 170;
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = undefined;
+      activeMenu.current = null;
       setMenu(null);
       setClosing(false);
-      grow(0);
-    }, 170);
+      setMenuSpace(0);
+    }, delay);
   }, []);
-  const toggle = (m: MenuKind) => {
-    if (menu === m) return close();
-    setClosing(false);
-    setMenu(m);
-    if (!menu) grow(MENU_EXTRA);
-  };
-  return { menu, shown: !!menu && roomy, closing, toggle, close };
+  const toggle = useCallback(
+    (next: MenuKind) => {
+      if (suspended) return;
+      if (activeMenu.current === next && closeTimer.current === undefined) return close();
+      clearTimeout(closeTimer.current);
+      closeTimer.current = undefined;
+      setClosing(false);
+      if (!activeMenu.current) setMenuSpace(MENU_EXTRA);
+      activeMenu.current = next;
+      setMenu(next);
+    },
+    [close, suspended]
+  );
+  const roomy = height >= barHeight + MENU_EXTRA - 8;
+  return { menu, shown: !!menu && roomy, closing, barHeight, toggle, close };
 }
 
 export function SchoolStrip({
@@ -536,19 +642,25 @@ export function SchoolStrip({
   jarvis,
   muted,
   leaving = false,
+  diagnosticsOpen = false,
+  link,
 }: {
   sys: BridgeSys | null;
   jarvis: JarvisState;
   muted: boolean | null;
   /** School mode is ending: fold the bar back into its line. */
   leaving?: boolean;
+  diagnosticsOpen?: boolean;
+  link: VoiceLink;
 }) {
   const line = useStreamLine();
-  const boot = useBootLog();
   const running = useRunning();
-  const now = useNow();
-  const floating = useFloating();
-  const { menu, shown, closing, toggle, close } = useMenu();
+  const geometry = useWindowGeometry();
+  const floating = geometry.height < 300 && geometry.width < geometry.screenWidth - 4;
+  const { menu, shown, closing, barHeight, toggle, close } = useMenu(
+    geometry.height,
+    diagnosticsOpen
+  );
   const state = muted ? 'muted' : jarvis;
   const color = muted ? MUTED_COLOR : JARVIS_COLORS[jarvis];
 
@@ -592,12 +704,18 @@ export function SchoolStrip({
 
   return (
     <div
-      className="sbar-root"
-      style={{ '--sbar-accent': color } as CSSProperties}
+      className="sbar-root sbar-stark"
+      style={{ '--sbar-accent': color, '--sbar-measured-h': `${barHeight}px` } as CSSProperties}
       data-menu={menu ?? undefined}
     >
       {menu && shown ? (
-        <MenuLayer menu={menu} closing={closing} pinned={sys?.launchers ?? []} onClose={close} />
+        <MenuLayer
+          menu={menu}
+          closing={closing}
+          pinned={sys?.launchers ?? []}
+          onClose={close}
+          active={!leaving}
+        />
       ) : (
         <div className="smenu-spacer" onClick={menu ? close : undefined} />
       )}
@@ -606,12 +724,14 @@ export function SchoolStrip({
         data-floating={floating}
         data-leaving={leaving}
         data-state={state}
+        data-voice-phase={link.phase}
         data-talking={line !== null}
         style={{ '--sbar-accent': color } as CSSProperties}
         role="status"
         aria-live="polite"
-        aria-label={`Jarvis school mode, ${muted ? 'microphone muted' : STATE_LABEL[jarvis].toLowerCase()}`}
+        aria-label={`Jarvis school mode, ${muted ? 'microphone muted' : link.phase !== 'idle' ? link.word.toLowerCase() : STATE_LABEL[jarvis].toLowerCase()}`}
       >
+        <AmbientParticles variant="bar" state={state} active={!leaving} className="sbar-ambient" />
         <span className="sbar-scan" aria-hidden="true" />
         <span key={state} className="sbar-sweep" aria-hidden="true" />
 
@@ -622,14 +742,16 @@ export function SchoolStrip({
             className="sbar-start"
             data-open={menu === 'launcher'}
             aria-label="Applications"
+            aria-expanded={menu === 'launcher' && !closing}
             onClick={() => toggle('launcher')}
           >
             <Core />
           </button>
           <span className="sbar-id">
-            <b className="sbar-id__name">JARVIS</b>
+            <b className="sbar-id__name">J.A.R.V.I.S.</b>
+            <span className="sbar-id__mode">STARK OS / SCHOOL</span>
             <span key={state} className="sbar-id__state">
-              {muted ? 'MUTED' : STATE_LABEL[jarvis]}
+              {muted ? 'MUTED' : link.joining ? 'LINKING' : STATE_LABEL[jarvis]}
             </span>
           </span>
         </section>
@@ -647,10 +769,10 @@ export function SchoolStrip({
             <i />
           </span>
           <span className="sbar-stream">
-            {line ? (
+            {link.phase !== 'idle' ? (
+              <VoiceLinkRail link={link} compact />
+            ) : line ? (
               <StreamLine key={line.key} line={line} />
-            ) : boot ? (
-              <BootLine view={boot} />
             ) : (
               <LiveTrace state={state} />
             )}
@@ -671,6 +793,7 @@ export function SchoolStrip({
             className="sbar-tray"
             data-open={menu === 'quick'}
             aria-label="Quick settings"
+            aria-expanded={menu === 'quick' && !closing}
             onClick={() => toggle('quick')}
           >
             {net ? (
@@ -725,24 +848,7 @@ export function SchoolStrip({
               />
             ) : null}
           </button>
-          <button
-            type="button"
-            className="sbar-clock"
-            data-open={menu === 'calendar'}
-            aria-label="Calendar"
-            onClick={() => toggle('calendar')}
-          >
-            <b>
-              {pad(now.getHours())}
-              <span className="sbar-clock__colon">:</span>
-              {pad(now.getMinutes())}
-            </b>
-            <i>
-              {now
-                .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
-                .toUpperCase()}
-            </i>
-          </button>
+          <SchoolClock open={menu === 'calendar' && !closing} onToggle={toggle} />
         </section>
       </div>
     </div>

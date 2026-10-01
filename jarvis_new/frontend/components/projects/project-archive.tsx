@@ -11,6 +11,7 @@
  *  scrolling slowly") and the screen reflects voice state back. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Markdown } from '@/components/projects/markdown';
+import { useSurfaceVisibility } from '@/hooks/hud/use-surface-visibility';
 import {
   type ProjectDetail,
   type ProjectMeta,
@@ -81,6 +82,7 @@ function Reticle({ spinning }: { spinning?: boolean }) {
 type Heard = { at: number; text: string };
 
 export function ProjectArchive() {
+  useSurfaceVisibility();
   const [projects, setProjects] = useState<ProjectMeta[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
@@ -161,6 +163,11 @@ export function ProjectArchive() {
     const step = (t: number) => {
       const el = sheetRef.current;
       if (!el) return;
+      if (document.hidden || t - last > 250) {
+        last = t;
+        raf = requestAnimationFrame(step);
+        return;
+      }
       carry += (SPEED_PX[speed] * (t - last)) / 1000;
       last = t;
       const whole = Math.floor(carry);

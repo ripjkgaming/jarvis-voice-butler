@@ -1,0 +1,9 @@
+{
+  "jarvis_new/frontend/components/projects/project-archive.module.css": "d8e2c47dd5eb75af8ecb82bfb274fe1e34ce936d71e69fff4e4a1eeb59369c24",
+  "jarvis_new/frontend/components/drafts/drafts-window.module.css": "3cce17917d9ae53d7450ab8b5b6327c290d51a5349f443d5b9fd9f7a341fcb9b",
+  "jarvis_new/frontend/styles/globals.css": "e5cd63a90f830e70dbd340c217b3a18dbc4d5f674cf1e06d4c6b2896d9afeabd",
+  "jarvis_new/frontend/hooks/hud/use-surface-visibility.ts": null,
+  "jarvis_new/frontend/components/projects/project-archive.tsx": "421b4c034e0ec2b6c8f3405e66263765077149bc1840d166cb2c6b2058f8a748",
+  "jarvis_new/frontend/components/drafts/drafts-window.tsx": "a079fa078198ced73a446bf7f037eb8939a21563926642dc98864daca246c608",
+  "jarvis_new/frontend/app/layout.tsx": "66cc706973299f3bbaf8812f854967ce67704259b6fa360f69f5b61ad46ef265"
+}

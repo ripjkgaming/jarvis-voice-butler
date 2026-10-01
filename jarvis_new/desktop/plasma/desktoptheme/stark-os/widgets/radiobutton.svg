@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="152" height="24" viewBox="0 0 152 24">
+<defs></defs>
+<rect id="hint-size" x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/>
+<g id="normal" transform="translate(22,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8" cy="8" r="7.5" fill="#03101a" stroke="#7fa6b8" stroke-width="1" opacity="1.0"/></g>
+<g id="checked" transform="translate(44,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><circle cx="8" cy="8" r="7.5" fill="#12546a" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="hover" transform="translate(66,0)"><rect x="0" y="0" width="20" height="20" fill="#000000" fill-opacity="0.001"/><circle cx="10" cy="10" r="9.5" fill="none" stroke="#5fe3ff" stroke-width="1" opacity="0.65"/></g>
+<g id="focus" transform="translate(92,0)"><rect x="0" y="0" width="20" height="20" fill="#000000" fill-opacity="0.001"/><circle cx="10" cy="10" r="9.5" fill="none" stroke="#5fe3ff" stroke-width="1" opacity="1.0"/></g>
+<g id="symbol" transform="translate(118,0)"><rect x="0" y="0" width="6" height="6" fill="#000000" fill-opacity="0.001"/><circle cx="3" cy="3" r="3" fill="#d8f8ff" opacity="1.0"/></g>
+<g id="shadow" transform="translate(130,0)"><rect x="0" y="0" width="18" height="18" fill="#000000" fill-opacity="0.001"/><circle cx="9" cy="10" r="7.5" fill="#000000" opacity="0.25"/></g>
+</svg>

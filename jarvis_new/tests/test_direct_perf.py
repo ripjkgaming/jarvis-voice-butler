@@ -21,6 +21,7 @@ Budget: ~2 min CPU offline (one load per size + short transcriptions).
 from __future__ import annotations
 
 import asyncio
+import math
 import statistics
 import time
 from pathlib import Path
@@ -80,14 +81,14 @@ async def _transcribe(stt: FasterWhisperSTT, pcm: np.ndarray) -> tuple[str, floa
 
 
 async def test_first_transcript_and_turn_latency() -> None:
-    """Cold start + warm p50 turn latency on the reference (base) ear."""
+    """Lazy model load + STT only; these are not full voice-turn timings."""
     skip = _needs_voice() or _needs_size("base")
     if skip is not None:
         pytest.skip(skip)
-    stt = FasterWhisperSTT(model_size="base")  # fresh: load happens here
-    pcm, fix = await asyncio.to_thread(_fixture_pcm, EARS_IDX[1])
-    first_text, first_secs = await _transcribe(stt, pcm)
-    print(f"\nfirst transcript ({fix['text']!r}): {first_secs:.1f}s -> {first_text!r}")
+    stt = FasterWhisperSTT(model_size="base")  # load is lazy: first recognize below
+    pcm, _fix = await asyncio.to_thread(_fixture_pcm, EARS_IDX[1])
+    _first_text, first_secs = await _transcribe(stt, pcm)
+    print(f"\nsingle cold STT sample (lazy load + decode): {first_secs:.2f}s")
     assert first_secs < FIRST_TRANSCRIPT_BUDGET_S
 
     latencies: list[float] = []
@@ -97,7 +98,8 @@ async def test_first_transcript_and_turn_latency() -> None:
         latencies.append(secs)
         print(f"  {fixture_slug(item_fix['text'], item_fix['kind'])}: {secs:.2f}s")
     p50 = statistics.median(latencies)
-    print(f"base p50 turn latency: {p50:.2f}s (max {max(latencies):.2f}s)")
+    p95 = sorted(latencies)[math.ceil(0.95 * len(latencies)) - 1]
+    print(f"base warm STT: p50 {p50:.2f}s p95 {p95:.2f}s (n={len(latencies)})")
     assert p50 < P50_BUDGET_S, f"p50 {p50:.2f}s >= {P50_BUDGET_S}s"
 
 

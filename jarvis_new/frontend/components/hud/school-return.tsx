@@ -22,6 +22,7 @@ import {
   runTimers,
   stage,
   uplink,
+  waitForSchoolScreen,
 } from '@/components/hud/school-transition';
 import { bridgeSchoolGeom } from '@/lib/bridge';
 
@@ -75,11 +76,13 @@ export function useSchoolReturn() {
     const onSignal = (e: Event) => {
       const phase = String((e as CustomEvent).detail);
       if (phase === 'return') {
-        setBarPx(window.innerHeight);
+        // Menus grow the window by 480 px; only the actual strip sinks.
+        const bar = document.querySelector<HTMLElement>('.sbar');
+        setBarPx(bar?.getBoundingClientRect().height || Math.min(140, window.innerHeight));
         setBarInset(dockedInset());
         setRetStage('bar');
         setRet({ id: Date.now() });
-      } else if (phase === 'collapse' || phase === 'arrive') {
+      } else if (phase === 'collapse' || phase === 'arrive' || phase === 'expand') {
         setRet(null);
       }
     };
@@ -374,9 +377,42 @@ export function SchoolReturn({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    let ctx: CanvasRenderingContext2D | null = null;
+    try {
+      ctx = canvas?.getContext('2d') ?? null;
+    } catch {
+      // A lost/unavailable canvas must still restore the native window.
+    }
     let alive = true;
+    let finishing = false;
+    let completed = false;
+    const active = () => alive && !finishing;
+    const pending = new Set<() => void>();
+    const timedOut = Symbol('return-timeout');
+    // Native IPC can remain unresolved even after the shell's watchdog has
+    // restored the window. Bound it here so React also releases the return face.
+    const bounded = <T,>(work: Promise<T>, ms: number): Promise<T | typeof timedOut> =>
+      new Promise((resolve) => {
+        let settled = false;
+        const finish = (value: T | typeof timedOut) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          pending.delete(cancel);
+          resolve(value);
+        };
+        const cancel = () => finish(timedOut);
+        const timer = setTimeout(cancel, ms);
+        pending.add(cancel);
+        void work.then(finish, cancel);
+      });
+    const saved = loadHudRect();
+    let restoreFrame = saved?.frame;
+    let restoring: Promise<unknown> | undefined;
+    const requestRestore = () =>
+      (restoring ??= bounded(stage('restore', undefined, restoreFrame), 1800));
+    const advance = (name: string, nonce?: string, rect?: number[]) =>
+      active() ? bounded(stage(name, nonce, rect), 1800) : Promise.resolve(timedOut);
     const root = document.documentElement;
     root.classList.add('school-tx');
     const scene: Scene = {
@@ -394,66 +430,124 @@ export function SchoolReturn({
       onResize: null,
       packets: [],
     };
+    let scanHud: HTMLElement | null = null;
     const clock = frameClock();
     let raf = 0;
-    const frame = (now: number) => {
-      raf = requestAnimationFrame(frame);
-      drawScene(canvas, ctx, scene, clock.tick(now), colorRef.current);
+    const stopMotion = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      clock.dispose();
     };
-    raf = requestAnimationFrame(frame);
+    const release = () => {
+      clearTimeout(deadline);
+      stopMotion();
+      pending.forEach((cancel) => cancel());
+      root.classList.remove('school-tx', 'stx-scan');
+      root.style.removeProperty('--stx-scan');
+      scanHud?.style.removeProperty('clip-path');
+    };
+    const complete = () => {
+      if (!alive || completed) return;
+      completed = true;
+      finishing = true;
+      release();
+      onDone();
+    };
+    const finishRestore = async () => {
+      if (!active()) return;
+      finishing = true;
+      clearTimeout(deadline);
+      stopMotion();
+      // Reuse an in-flight restore; a timeout must not dispatch it twice.
+      await requestRestore();
+      complete();
+    };
+    const frame = (now: number) => {
+      raf = 0;
+      if (!active() || !canvas || !ctx) return;
+      try {
+        drawScene(canvas, ctx, scene, clock.tick(now), colorRef.current);
+        raf = requestAnimationFrame(frame);
+      } catch {
+        void finishRestore();
+      }
+    };
+    const deadline = setTimeout(() => void finishRestore(), 15000);
 
-    const { sleep, until, untilT, waitT, tween, settle } = runTimers(clock, () => alive);
+    const { sleep, until, untilT, waitT, tween, settle } = runTimers(clock, active);
     /** Where to land: the rect recorded on the way in, else a default-size
      *  HUD centred on the bar's screen (measured now). */
-    const target = async (): Promise<HudRect | null> => {
-      const saved = loadHudRect();
-      if (saved) return saved;
-      const nonce = Math.random().toString(36).slice(2, 12);
-      await stage('measure', nonce);
-      const t0 = performance.now();
-      while (alive && performance.now() - t0 < 1600) {
-        const g = await bridgeSchoolGeom(nonce).catch(() => null);
-        if (g) {
-          const o = g.out;
-          const w = Math.min(DEFAULT_W, o.w - 80);
-          const h = Math.min(DEFAULT_H, o.h - 120);
-          const x = o.x + Math.round((o.w - w) / 2);
-          const y = o.y + Math.round((o.h - h) / 2);
-          return { frame: [x, y, w, h], content: [x, y, w, h], screen: [o.x, o.y, o.w, o.h] };
-        }
-        await sleep(70);
-      }
-      return null;
-    };
+    const target = (): Promise<HudRect | null> =>
+      saved
+        ? Promise.resolve(saved)
+        : bounded(
+            (async () => {
+              const nonce = Math.random().toString(36).slice(2, 12);
+              await advance('measure', nonce);
+              while (active()) {
+                const g = await bridgeSchoolGeom(nonce).catch(() => null);
+                if (g) {
+                  const o = g.out;
+                  const w = Math.min(DEFAULT_W, o.w - 80);
+                  const h = Math.min(DEFAULT_H, o.h - 120);
+                  const x = o.x + Math.round((o.w - w) / 2);
+                  const y = o.y + Math.round((o.h - h) / 2);
+                  return {
+                    frame: [x, y, w, h],
+                    content: [x, y, w, h],
+                    screen: [o.x, o.y, o.w, o.h],
+                  };
+                }
+                await sleep(70);
+              }
+              return null;
+            })(),
+            1600
+          ).then((result) => (result === timedOut ? null : result));
 
     const run = async () => {
-      const t = await target();
-      if (!alive) return;
-      if (!t || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        if (t) await stage('restore', undefined, t.frame);
-        else await stage('restore');
-        root.classList.remove('school-tx');
-        if (alive) onDone();
+      if (!canvas || !ctx) {
+        await finishRestore();
         return;
       }
+      const t = await target();
+      if (!active()) return;
+      restoreFrame = t?.frame;
+      if (!t || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        await finishRestore();
+        return;
+      }
+      raf = requestAnimationFrame(frame);
       const [cx, cy, cw, ch] = t.content;
-      const [sx, sy] = t.screen;
+      const [sx, sy, sw, sh] = t.screen;
+      const screen = { x: sx, y: sy, w: sw, h: sh };
 
       // Which way the HUD's screen lies from the bar's (null: same one).
       const cross = beamDir(t.primary, t.screen);
       let hair: Seg;
       if (cross) {
         // Sink on the bar's screen, then beam the edge across as data...
-        await stage('primary');
-        await until(() => window.innerHeight > barPx + 100, 2500);
+        if ((await advance('primary')) === timedOut) {
+          await finishRestore();
+          return;
+        }
+        const primary = await waitForSchoolScreen('primary', active);
+        if (!active()) return;
+        if (!primary) {
+          await finishRestore();
+          return;
+        }
         await settle();
+        if (!active()) return;
         const pw = window.innerWidth;
         const ph = window.innerHeight;
         const ey = ph - barInset - barPx;
         const edge: Seg = { x0: barInset, y0: ey, x1: pw - barInset, y1: ey, a: 0 };
         scene.hair = [edge];
+        if (!active()) return;
         onStage('sink');
         await tween(SINK_MS, (e) => (edge.a = e), easeOut);
+        if (!active()) return;
         onStage('draft');
         scene.packets = uplink([edge], cross, pw, ph, clock.now);
         const outEnd = beamEnd(scene.packets);
@@ -461,11 +555,18 @@ export function SchoolReturn({
         await untilT(() => clock.now >= outEnd, 1500);
         scene.hair = [];
         scene.packets = [];
-        await stage('cover-at', undefined, t.content);
-        await sleep(420);
-        await until(() => window.innerHeight > barPx + 100, 2500);
+        if ((await advance('cover-at', undefined, t.content)) === timedOut) {
+          await finishRestore();
+          return;
+        }
+        const arrived = await waitForSchoolScreen(screen, active);
+        if (!active()) return;
+        if (!arrived) {
+          await finishRestore();
+          return;
+        }
         await settle();
-        if (!alive) return;
+        if (!active()) return;
         // ...packing back into the bottom edge on the HUD's screen.
         const W0 = window.innerWidth;
         const H0 = window.innerHeight;
@@ -479,19 +580,30 @@ export function SchoolReturn({
       } else {
         // Cover the HUD's screen; the bar stays put at the bottom and
         // sinks away, its top edge left glowing.
-        await stage('cover-at', undefined, t.content);
-        await until(() => window.innerHeight > barPx + 100, 2500);
+        if ((await advance('cover-at', undefined, t.content)) === timedOut) {
+          await finishRestore();
+          return;
+        }
+        const arrived = await waitForSchoolScreen(screen, active);
+        if (!active()) return;
+        if (!arrived) {
+          await finishRestore();
+          return;
+        }
         await settle();
+        if (!active()) return;
         const W0 = window.innerWidth;
         const H0 = window.innerHeight;
         const hy = H0 - barInset - barPx;
         hair = { x0: barInset, y0: hy, x1: W0 - barInset, y1: hy, a: 0 };
         scene.hair = [hair];
+        if (!active()) return;
         onStage('sink');
         await tween(SINK_MS, (e) => (hair.a = e), easeOut);
+        if (!active()) return;
         onStage('draft');
       }
-      if (!alive) return;
+      if (!active()) return;
       const W = window.innerWidth;
       const H = window.innerHeight;
       const top = H - barPx;
@@ -513,7 +625,7 @@ export function SchoolReturn({
         easeIn
       );
       scene.hair = [];
-      if (!alive) return;
+      if (!active()) return;
 
       // Draft: from each end up the screen side to the HUD's bottom
       // corner, then its outline; a branch draws the bottom edge.
@@ -566,7 +678,7 @@ export function SchoolReturn({
       scene.pens = [leftPen, rightPen, branchL, branchR];
       const longest = Math.max(...scene.pens.map((p) => p.t0 - now + p.travelMs + p.draftMs));
       await waitT(longest + 60);
-      if (!alive) return;
+      if (!active()) return;
 
       // Lock: brackets snap on; the grid and label fill the frame.
       await tween(
@@ -578,7 +690,7 @@ export function SchoolReturn({
         },
         easeOut
       );
-      if (!alive) return;
+      if (!active()) return;
 
       // Scan: the HUD window lands in the frame and scans in.
       root.style.setProperty('--stx-scan', '0%');
@@ -590,12 +702,16 @@ export function SchoolReturn({
           scene.oy = 0;
         }
       };
-      await stage('restore', undefined, t.frame);
+      if ((await requestRestore()) === timedOut) {
+        await finishRestore();
+        return;
+      }
       await until(
         () => Math.abs(window.innerWidth - cw) <= 4 && Math.abs(window.innerHeight - ch) <= 4,
         2500
       );
       await settle();
+      if (!active()) return;
       scene.onResize?.(window.innerWidth, window.innerHeight);
       scene.onResize = null;
       scene.ox = 0;
@@ -603,11 +719,14 @@ export function SchoolReturn({
       scene.w = window.innerWidth;
       scene.h = window.innerHeight;
       root.classList.remove('school-tx');
+      scanHud = document.querySelector<HTMLElement>('.hud');
       await tween(
         SCAN_MS,
         (e) => {
           scene.scan = e;
-          root.style.setProperty('--stx-scan', `${(e * 100).toFixed(2)}%`);
+          // clip-path is not inherited: update only the HUD layer instead
+          // of invalidating every descendant through a root CSS variable.
+          if (scanHud) scanHud.style.clipPath = `inset(0 0 ${((1 - e) * 100).toFixed(2)}% 0)`;
           const late = clamp01((e - 0.55) / 0.45);
           scene.outline = 1 - late;
           scene.lock = 1 - clamp01((e - 0.65) / 0.35);
@@ -617,15 +736,13 @@ export function SchoolReturn({
         (u) => u
       );
       scene.scan = null;
-      if (alive) onDone();
+      if (active()) complete();
     };
-    void run();
+    void run().catch(() => void finishRestore());
 
     return () => {
       alive = false;
-      cancelAnimationFrame(raf);
-      root.classList.remove('school-tx', 'stx-scan');
-      root.style.removeProperty('--stx-scan');
+      release();
     };
   }, [ret, barPx, barInset, onStage, onDone]);
 

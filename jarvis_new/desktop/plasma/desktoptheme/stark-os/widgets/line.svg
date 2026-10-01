@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="43" height="36" viewBox="0 0 43 36">
+<defs></defs>
+<g id="horizontal-line" transform="translate(0,0)"><rect x="0" y="0" width="32" height="1" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="32" height="1" fill="#5fe3ff" fill-opacity="0.3"/></g>
+<g id="vertical-line" transform="translate(38,0)"><rect x="0" y="0" width="1" height="32" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="1" height="32" fill="#5fe3ff" fill-opacity="0.3"/></g>
+</svg>

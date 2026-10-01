@@ -144,6 +144,22 @@ pub fn show_overlay(app: &AppHandle) {
     }
 }
 
+/// Reveal the simulated suit panel's host without starting a voice turn.
+/// School menus already own their expanded geometry: showing must neither
+/// re-dock them nor move them away from the primary display.
+pub fn show_suit_overlay(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
+        if crate::school::is_school() {
+            let _ = win.unminimize();
+            let _ = win.show();
+            return;
+        }
+        crate::orb::restore_for_suit(app);
+        let _ = win.unminimize();
+        show_overlay(app);
+    }
+}
+
 /// Toggle overlay visibility (hotkey + `jarvis toggle` share this).
 pub fn toggle_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("overlay") {

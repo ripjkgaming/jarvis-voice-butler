@@ -79,7 +79,16 @@ function rowKeys(panel: string, items: Item[]): string[] {
 
 type Shown = { name: string; data: PanelData; leaving: boolean };
 
-export function HudPanels() {
+export const PANEL_TITLES = TITLES;
+export { row as panelRow, rowKeys as panelRowKeys };
+export type { PanelData, Item as PanelItem };
+
+/** Panel state for any view: the open panels plus the ones still playing
+ *  their exit, and which rows are new since the last poll. */
+export function usePanelsView(): {
+  shown: Shown[];
+  fresh: Record<string, Set<string>>;
+} {
   const reply = useSharedPoll<PanelsReply>('/panels', POLL_MS);
   const visible = useMemo(() => reply?.visible ?? [], [reply]);
 
@@ -127,6 +136,11 @@ export function HudPanels() {
       .filter((name) => !visible.includes(name))
       .map((name) => ({ name, data: last.current[name] ?? {}, leaving: true })),
   ];
+  return { shown, fresh };
+}
+
+export function HudPanels() {
+  const { shown, fresh } = usePanelsView();
   if (shown.length === 0) return null;
   return (
     <div className="hud-panels" aria-live="polite" aria-label="Open panels">

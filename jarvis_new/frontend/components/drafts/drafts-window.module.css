@@ -2,18 +2,18 @@
    hairlines on deep navy, amber for anything waiting, red for urgent. */
 
 .root {
-  --dw-ink: #02080d;
-  --dw-panel: rgba(5, 20, 31, 0.86);
-  --dw-line: rgba(84, 246, 255, 0.16);
-  --dw-line-2: rgba(84, 246, 255, 0.34);
-  --dw-cyan: #54f6ff;
-  --dw-hot: #d9fbff;
-  --dw-text: #cfe7f0;
-  --dw-sub: #6f93a1;
-  --dw-amber: #ffb547;
-  --dw-red: #ff6a5c;
-  --dw-mono: var(--font-commit-mono), ui-monospace, monospace;
-  --dw-sans: 'Inter', 'Segoe UI', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
+  --dw-ink: #03101a;
+  --dw-panel: rgba(6, 24, 38, 0.96);
+  --dw-line: rgba(95, 227, 255, 0.16);
+  --dw-line-2: rgba(95, 227, 255, 0.34);
+  --dw-cyan: #5fe3ff;
+  --dw-hot: #d8f8ff;
+  --dw-text: #d9f4ff;
+  --dw-sub: #7fa6b8;
+  --dw-amber: #ffb347;
+  --dw-red: #ff4d5e;
+  --dw-mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  --dw-sans: var(--font-rajdhani), 'Rajdhani', ui-sans-serif, system-ui, sans-serif;
 
   position: fixed;
   inset: 0;
@@ -22,10 +22,12 @@
   gap: 14px;
   padding: 14px 18px 10px;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(24, 90, 120, 0.22), transparent 70%),
+    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(10, 42, 68, 0.7), transparent 70%),
     var(--dw-ink);
   color: var(--dw-text);
-  font-family: var(--dw-mono);
+  font-family: var(--dw-sans);
+  font-weight: 500;
+  color-scheme: dark;
   overflow: hidden;
   cursor: none;
   user-select: none;
@@ -35,10 +37,10 @@
   inset: 0;
   pointer-events: none;
   background-image:
-    repeating-linear-gradient(0deg, rgba(84, 246, 255, 0.035) 0 1px, transparent 1px 16px),
-    repeating-linear-gradient(90deg, rgba(84, 246, 255, 0.035) 0 1px, transparent 1px 16px),
-    repeating-linear-gradient(0deg, rgba(84, 246, 255, 0.06) 0 1px, transparent 1px 80px),
-    repeating-linear-gradient(90deg, rgba(84, 246, 255, 0.06) 0 1px, transparent 1px 80px);
+    repeating-linear-gradient(0deg, rgba(95, 227, 255, 0.035) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(95, 227, 255, 0.035) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(0deg, rgba(95, 227, 255, 0.06) 0 1px, transparent 1px 200px),
+    repeating-linear-gradient(90deg, rgba(95, 227, 255, 0.06) 0 1px, transparent 1px 200px);
   mask-image: radial-gradient(ellipse 95% 90% at 50% 45%, #000 55%, transparent 100%);
 }
 
@@ -53,7 +55,7 @@
   border: 1px solid var(--dw-line);
   border-bottom-color: var(--dw-line-2);
   background: linear-gradient(180deg, rgba(6, 28, 42, 0.9), rgba(2, 10, 16, 0.6));
-  box-shadow: 0 1px 22px rgba(84, 246, 255, 0.08);
+  box-shadow: 0 1px 22px rgba(95, 227, 255, 0.08);
 }
 .brand {
   display: flex;
@@ -65,7 +67,7 @@
   color: var(--dw-hot);
   letter-spacing: 0.26em;
   font-size: 15px;
-  text-shadow: 0 0 12px rgba(84, 246, 255, 0.6);
+  text-shadow: 0 0 12px rgba(95, 227, 255, 0.6);
 }
 .brand small {
   display: block;
@@ -103,7 +105,7 @@
 }
 .stats b.hot {
   color: var(--dw-red);
-  text-shadow: 0 0 10px rgba(255, 106, 92, 0.6);
+  text-shadow: 0 0 10px rgba(255, 77, 94, 0.6);
 }
 .clock {
   display: flex;
@@ -119,7 +121,7 @@
   font-size: 10px;
   letter-spacing: 0.2em;
   color: var(--dw-red);
-  border: 1px solid rgba(255, 106, 92, 0.5);
+  border: 1px solid rgba(255, 77, 94, 0.5);
   padding: 2px 8px;
 }
 
@@ -140,7 +142,7 @@
   border: 1px solid var(--dw-line);
   background: var(--dw-panel);
   box-shadow:
-    inset 0 0 40px rgba(84, 246, 255, 0.04),
+    inset 0 0 40px rgba(95, 227, 255, 0.04),
     0 0 24px rgba(0, 0, 0, 0.5);
 }
 .monitor::before,
@@ -183,8 +185,8 @@
 }
 .rowOn {
   border-color: var(--dw-line-2);
-  background: linear-gradient(90deg, rgba(84, 246, 255, 0.1), rgba(84, 246, 255, 0.02));
-  box-shadow: inset 3px 0 0 var(--dw-cyan);
+  background: linear-gradient(90deg, rgba(95, 227, 255, 0.1), rgba(95, 227, 255, 0.02));
+  box-shadow: inset 2px 0 0 var(--dw-cyan);
 }
 .rowNum {
   color: var(--dw-sub);
@@ -225,7 +227,7 @@
 }
 .urgent {
   color: var(--dw-red);
-  border: 1px solid rgba(255, 106, 92, 0.55);
+  border: 1px solid rgba(255, 77, 94, 0.55);
   font-size: 9px;
   letter-spacing: 0.22em;
   padding: 2px 6px;
@@ -278,7 +280,7 @@
 }
 .stP {
   color: var(--dw-amber);
-  border-color: rgba(255, 181, 71, 0.55);
+  border-color: rgba(255, 179, 71, 0.55);
 }
 .stA {
   color: var(--dw-cyan);
@@ -356,4 +358,70 @@
   letter-spacing: 0.08em;
   padding: 2px 10px;
   border: 1px solid var(--dw-line);
+}
+
+/* STARK OS extension: numeric readouts stay mono; labels share the HUD face. */
+.stats b,
+.clock,
+.rowNum {
+  font-family: var(--dw-mono);
+}
+.brand strong {
+  font-family: var(--dw-sans);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+.root ::selection {
+  background: #12546a;
+  color: #d8f8ff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (max-width: 800px) {
+  .root {
+    gap: 8px;
+    padding: 8px;
+  }
+  .header {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .monitors {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 30%) minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+@media (max-width: 480px) {
+  .paper {
+    gap: 12px;
+    padding: 14px 12px;
+  }
+  .fields {
+    grid-template-columns: 40px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+  .body {
+    padding: 12px 14px;
+  }
+}
+
+/* Long replies must remain readable at high scale/small window sizes. */
+.list,
+.paper,
+.body {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dw-line-2) transparent;
+}
+.body {
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
 }

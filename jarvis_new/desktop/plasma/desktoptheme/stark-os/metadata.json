@@ -1,0 +1,16 @@
+{
+  "KPlugin": {
+    "Id": "stark-os",
+    "Name": "Stark OS",
+    "Description": "Jarvis HUD glass: cyan hairlines, chamfers and corner brackets on deep ink",
+    "Authors": [
+      {
+        "Name": "Jarvis"
+      }
+    ],
+    "License": "MIT",
+    "Version": "1.0",
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "5.0"
+}

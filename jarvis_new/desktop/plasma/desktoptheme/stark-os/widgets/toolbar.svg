@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="171" height="20" viewBox="0 0 171 20">
+<defs></defs>
+<g id="topleft" transform="translate(0,0)"><rect x="0" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="4" fill="#061826" fill-opacity="1"/></g>
+<g id="top" transform="translate(10,0)"><rect x="0" y="0" width="16" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="16" height="4" fill="#061826" fill-opacity="1"/></g>
+<g id="topright" transform="translate(32,0)"><rect x="0" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="4" fill="#061826" fill-opacity="1"/></g>
+<g id="left" transform="translate(42,0)"><rect x="0" y="0" width="4" height="16" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="16" fill="#061826" fill-opacity="1"/></g>
+<g id="center" transform="translate(52,0)"><rect x="0" y="0" width="16" height="16" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="16" height="16" fill="#061826" fill-opacity="1"/></g>
+<g id="right" transform="translate(74,0)"><rect x="0" y="0" width="4" height="16" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="16" fill="#061826" fill-opacity="1"/></g>
+<g id="bottomleft" transform="translate(84,0)"><rect x="0" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="4" fill="#061826" fill-opacity="1"/><rect x="0" y="3" width="4" height="1" fill="#5fe3ff" fill-opacity="0.3"/></g>
+<g id="bottom" transform="translate(94,0)"><rect x="0" y="0" width="16" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="16" height="4" fill="#061826" fill-opacity="1"/><rect x="0" y="3" width="16" height="1" fill="#5fe3ff" fill-opacity="0.3"/></g>
+<g id="bottomright" transform="translate(116,0)"><rect x="0" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/><rect x="0" y="0" width="4" height="4" fill="#061826" fill-opacity="1"/><rect x="0" y="3" width="4" height="1" fill="#5fe3ff" fill-opacity="0.3"/></g>
+<rect id="hint-top-margin" x="126" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/>
+<rect id="hint-bottom-margin" x="136" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/>
+<rect id="hint-left-margin" x="146" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/>
+<rect id="hint-right-margin" x="156" y="0" width="4" height="4" fill="#000000" fill-opacity="0.001"/>
+<rect id="hint-tile-center" x="166" y="0" width="1" height="1" fill="#000000" fill-opacity="0.001"/>
+</svg>

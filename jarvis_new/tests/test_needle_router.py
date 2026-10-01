@@ -205,7 +205,18 @@ def test_resolver_needle_exception_falls_back(needle_env, monkeypatch) -> None:
 def _write_worker_stub(tmp_path, body: str):
     """A stand-in worker script speaking the same JSON-lines protocol."""
     stub = tmp_path / "stub_worker.py"
-    stub.write_text(body)
+    # These workers intentionally SIGSEGV. Disable dumpability in the child
+    # before running its body: RLIMIT_CORE alone still invokes a pipe-based
+    # system coredump handler and can open DrKonqi on the user's desktop.
+    preamble = (
+        "import sys\n"
+        "if sys.platform == 'linux':\n"
+        "    import ctypes\n"
+        "    _libc = ctypes.CDLL(None, use_errno=True)\n"
+        "    if _libc.prctl(4, 0, 0, 0, 0) != 0:\n"
+        "        raise OSError(ctypes.get_errno(), 'cannot disable test core dumps')\n"
+    )
+    stub.write_text(preamble + body)
     return stub
 
 
@@ -271,9 +282,25 @@ def test_isolated_retires_after_repeated_crashes(monkeypatch, tmp_path) -> None:
     try:
         for _ in range(needle_router._MAX_CRASHES + 2):
             assert needle_router.route_with_needle("open chrome") is None
-            import time
-
-            time.sleep(0.2)
+            # Await the worker, not a guessed interpreter startup duration.
+            # The following turn observes its exit and counts the crash.
+            if needle_router._proc is not None:
+                needle_router._proc.wait(timeout=10)
         assert needle_router._retired is True
     finally:
         needle_router.reset_agent()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux core-handler isolation")
+def test_worker_stub_disables_dumpability_before_test_body(tmp_path):
+    import subprocess
+
+    stub = _write_worker_stub(
+        tmp_path,
+        "import ctypes\nprint(ctypes.CDLL(None).prctl(3, 0, 0, 0, 0))\n",
+    )
+    result = subprocess.run(
+        [sys.executable, str(stub)], capture_output=True, text=True, timeout=5
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "0"

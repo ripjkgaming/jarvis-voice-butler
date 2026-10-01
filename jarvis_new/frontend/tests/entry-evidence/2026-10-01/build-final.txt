@@ -1,0 +1,42 @@
+
+> agent-starter-react@0.1.0 build /mnt/data/jarvis-voice-butler/jarvis_new/frontend
+> next build && find ../shell/ui -mindepth 1 -maxdepth 1 ! -name globe -exec rm -rf {} + && cp -r out/. ../shell/ui/
+
+   ▲ Next.js 15.5.18
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 14.1s
+   Linting and checking validity of types ...
+
+./components/agents-ui/agent-audio-visualizer-aura.tsx
+34:12  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/agents-ui/agent-audio-visualizer-radial.tsx
+162:6  Warning: React Hook useMemo has an unnecessary dependency: '_barCount'. Either exclude it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/7) ...
+   Generating static pages (1/7) 
+   Generating static pages (3/7) 
+   Generating static pages (5/7) 
+ ✓ Generating static pages (7/7)
+   Finalizing page optimization ...
+   Collecting build traces ...
+   Exporting (0/2) ...
+ ✓ Exporting (2/2)
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                     183 kB         285 kB
+├ ○ /_not-found                            360 B         102 kB
+├ ○ /drafts                              3.62 kB         105 kB
+└ ○ /projects                            7.76 kB         110 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/821-3ef8b9d5f4c835a5.js       45.6 kB
+  ├ chunks/e1749d0d-0e6be9f6f7fa45f8.js  54.2 kB
+  └ other shared chunks (total)          1.97 kB
+
+
+○  (Static)  prerendered as static content
+

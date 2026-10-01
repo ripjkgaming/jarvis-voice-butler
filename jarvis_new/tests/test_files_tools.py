@@ -155,10 +155,15 @@ async def test_describe_folder(local):
     assert "Tools inside" in out["say"]  # deploy.sh spotted
 
 
-async def test_describe_folder_by_name(local):
+async def test_describe_folder_by_name(local, monkeypatch):
     base = _tree(local)
     _write_config(local, base)
     second_brain.build(incremental=False)
+    # A relative directory takes precedence over indexed name lookup. Use an
+    # empty cwd so this tests the latter regardless of repository docs/ files.
+    workdir = local / "empty-workdir"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
     out = await FilesTools.describe_folder(FilesTools(), _ctx(), path_or_name="docs")
     assert out["path"] == str(base)
 

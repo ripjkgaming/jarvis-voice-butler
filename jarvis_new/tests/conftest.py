@@ -5,6 +5,7 @@ real ~/.jarvis/brave-profile and never trips Chromium's single-process
 profile lock when several managers launch in one test.
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,15 @@ def _no_real_dbus(monkeypatch: pytest.MonkeyPatch) -> None:
     # unless a test stubs _qdbus itself.
     monkeypatch.setattr(active_window, "_qdbus",
                          lambda argv, timeout=8.0: "")
+    # Disabling the listener makes active() try the synchronous kdotool
+    # fallback. Keep that isolated too: an unrelated test's broad which()
+    # mock previously resolved kdotool to Brave and opened command-name
+    # tabs in the user's browser. Focus tests replace this runner explicitly.
+    monkeypatch.setattr(
+        active_window,
+        "_run",
+        lambda argv, timeout=5.0: subprocess.CompletedProcess(argv, 1, "", ""),
+    )
 
 
 # --- live-model tests (IRONMAN_SPEC §8.1) ----------------------------------
@@ -143,3 +153,12 @@ def _clear_google_token_cache():
     google_api.clear_token_cache()
     yield
     google_api.clear_token_cache()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_action_guard() -> None:
+    """Each test starts with no recent claims, so one test's play_media or
+    volume step never dedupes the next test's (action_guard.WINDOW_S)."""
+    import action_guard
+
+    action_guard.reset()
