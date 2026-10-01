@@ -320,3 +320,129 @@ async def test_send_calls_sync_close(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     await DraftTools.draft_send(tools, None, "m1")  # type: ignore[arg-type]
     assert len(sent) == 1
     assert seen == ["sync"]
+
+
+# --- "open drafts and approve all": bulk approve + honest results ---
+
+
+@pytest.mark.asyncio
+async def test_approve_all_sends_every_draft_and_marks_sent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    draft_engine.write_draft(_draft("m1", created=1.0))
+    draft_engine.write_draft(_draft("m2", created=2.0, body="Second reply."))
+    sent: list = []
+    _fake_gmail(monkeypatch, sent)
+    inbox = InboxTools()
+    tools = DraftTools(inbox)
+    result = await DraftTools.draft_approve_all(tools, None)  # type: ignore[arg-type]
+    assert len(sent) == 2
+    assert result["say"].startswith("Sent 2:")
+    assert draft_engine.read_draft("m1")["status"] == "sent"
+    assert draft_engine.read_draft("m2")["status"] == "sent"
+    assert inbox._confirmed_draft is None  # never left armed
+    # A repeated "approve all" must not double-send.
+    again = await DraftTools.draft_approve_all(tools, None)  # type: ignore[arg-type]
+    assert "no drafts waiting" in again["say"]
+    assert len(sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_approve_all_reports_failures_and_never_marks_them_sent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    draft_engine.write_draft(_draft("m1", created=1.0))
+    # Recipient differs from the real sender: the confirm gate refuses it.
+    draft_engine.write_draft(_draft("m2", created=2.0, to="someone@else.com"))
+    sent: list = []
+    _fake_gmail(monkeypatch, sent)
+    inbox = InboxTools()
+    tools = DraftTools(inbox)
+    result = await DraftTools.draft_approve_all(tools, None)  # type: ignore[arg-type]
+    assert len(sent) == 1
+    assert "Sent 1" in result["say"] and "1 NOT sent" in result["say"]
+    assert draft_engine.read_draft("m1")["status"] == "sent"
+    assert draft_engine.read_draft("m2")["status"] == "pending"
+    assert inbox._confirmed_draft is None
+
+
+@pytest.mark.asyncio
+async def test_approve_all_all_failed_is_an_error_not_a_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    draft_engine.write_draft(_draft("m1", to="someone@else.com"))
+    _fake_gmail(monkeypatch, [])
+    tools = DraftTools(InboxTools())
+    with pytest.raises(ToolError, match="NOT sent"):
+        await DraftTools.draft_approve_all(tools, None)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_approve_all_with_nothing_waiting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    tools = DraftTools(InboxTools())
+    result = await DraftTools.draft_approve_all(tools, None)  # type: ignore[arg-type]
+    assert "no drafts waiting" in result["say"]
+
+
+@pytest.mark.asyncio
+async def test_approve_all_respects_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    draft_engine.write_draft(_draft("m1", created=1.0))
+    draft_engine.write_draft(_draft("m2", created=2.0))
+    sent: list = []
+    _fake_gmail(monkeypatch, sent)
+    tools = DraftTools(InboxTools())
+    await DraftTools.draft_approve_all(tools, None, ids="m2")  # type: ignore[arg-type]
+    assert len(sent) == 1
+    assert draft_engine.read_draft("m2")["status"] == "sent"
+    assert draft_engine.read_draft("m1")["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_open_drafts_ui_admits_when_window_did_not_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _home(monkeypatch, tmp_path)
+    import drafts_ui
+
+    monkeypatch.setattr(drafts_ui, "pending_drafts", lambda: [_draft("m1")])
+    monkeypatch.setattr(
+        drafts_ui, "open_drafts", lambda run=None: ("One draft, Sir.", False)
+    )
+    tools = DraftTools(InboxTools())
+    result = await DraftTools.open_drafts_ui(tools, None)  # type: ignore[arg-type]
+    assert "couldn't open" in result["say"]
+
+
+def test_compound_open_and_approve_is_not_swallowed_by_the_window_verb() -> None:
+    import drafts_ui
+
+    assert drafts_ui.parse_voice("open drafts and approve all") is None
+    assert drafts_ui.parse_voice("show my drafts then send them") is None
+    assert drafts_ui.parse_voice("open my drafts") == {"op": "open"}
+    assert drafts_ui.parse_voice("close drafts") == {"op": "close"}
+
+
+def test_shell_verb_requires_exit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    import projects
+
+    monkeypatch.setattr(projects.shutil, "which", lambda n: "/usr/bin/jarvis-shell")
+
+    def bad(argv, **kw):
+        return subprocess.CompletedProcess(argv, 2, b"", b"unknown verb")
+
+    def good(argv, **kw):
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    assert projects.shell_verb("draftsshow", bad) is False
+    assert projects.shell_verb("draftsshow", good) is True

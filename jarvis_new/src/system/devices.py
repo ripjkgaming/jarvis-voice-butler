@@ -893,6 +893,9 @@ class DeviceTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         g = game.strip().lower()
+        from system.school_tools import loud_guard
+
+        loud_guard("play_game", {"game": g})
         if g in ("roblox", "sober"):
             cmds = []
             if shutil.which("sober"):

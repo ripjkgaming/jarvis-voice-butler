@@ -10,6 +10,7 @@ gmail_reply path, so the single-use confirm gate is never weakened.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
@@ -19,6 +20,7 @@ from system import LocalSystemError, log_action, require_local
 from system.inbox import InboxTools, _draft_key
 
 LIVE = ("pending", "announced")
+MAX_BULK = 15
 
 
 def _label(record: dict) -> str:
@@ -40,6 +42,7 @@ class DraftTools:
 
     def __init__(self, inbox: InboxTools) -> None:
         self._inbox = inbox
+        self._bulk_lock = asyncio.Lock()
 
     @property
     def tools(self) -> list:
@@ -49,6 +52,7 @@ class DraftTools:
             self.draft_revise,
             self.draft_discard,
             self.draft_send,
+            self.draft_approve_all,
             self.open_drafts_ui,
             self.close_drafts_ui,
         ]
@@ -183,6 +187,79 @@ class DraftTools:
         return result
 
     @function_tool()
+    async def draft_approve_all(
+        self, context: RunContext, ids: str = ""
+    ) -> dict[str, str]:
+        """Send every waiting reply draft because Sir said "approve all".
+
+        ONLY for Sir's explicit bulk command: "approve all", "send all the
+        drafts", "approve them all". His saying so is the authorization,
+        so do not ask again. For one draft, or "approve the one to X", use
+        draft_read + confirm_email_action + draft_send. Never call this to
+        be helpful on your own. Each draft is sent through the normal
+        confirm gate and marked sent only when Gmail accepted it; the
+        reply lists exactly what went and what didn't, so report that
+        verbatim and never say "approved" for anything it lists as failed.
+
+        Args:
+            ids: Optional comma-separated draft ids; empty = every waiting draft.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        wanted = {i.strip() for i in (ids or "").split(",") if i.strip()}
+        async with self._bulk_lock:  # a repeated call must not double-send
+            rows = [d for s in LIVE for d in draft_engine.list_drafts(s)]
+            rows.sort(key=lambda d: float(d.get("created") or 0))
+            if wanted:
+                rows = [d for d in rows if str(d.get("id")) in wanted]
+            if not rows:
+                return {"say": "There are no drafts waiting to approve, Sir."}
+            sent: list[str] = []
+            failed: list[tuple[str, str]] = []
+            for record in rows[:MAX_BULK]:
+                label = str(record.get("sender") or record.get("to") or "them")
+                try:
+                    # Sir's "approve all" arms this one draft; the gate in
+                    # gmail_reply re-checks the exact to/subject/body.
+                    self._inbox._confirmed_draft = _draft_key(
+                        record["to"], record["subject"], record["body"]
+                    )
+                    await InboxTools.gmail_reply(
+                        self._inbox, context, str(record["id"]), record["body"]
+                    )
+                except Exception as exc:
+                    failed.append((label, str(exc)[:140] or "send failed"))
+                    log_action("drafts", f"bulk fail id={str(record['id'])[:20]}")
+                else:
+                    draft_engine.set_status(str(record["id"]), "sent")
+                    sent.append(label)
+                    log_action("drafts", f"bulk sent id={str(record['id'])[:20]}")
+                finally:
+                    self._inbox._confirmed_draft = None  # never leave it armed
+            skipped = max(0, len(rows) - MAX_BULK)
+        with contextlib.suppress(Exception):
+            import drafts_ui
+
+            drafts_ui.sync_close()
+        parts = []
+        if sent:
+            parts.append(f"Sent {len(sent)}: {', '.join(sent)}.")
+        if failed:
+            parts.append(
+                f"{len(failed)} NOT sent: "
+                + "; ".join(f"{who} ({why})" for who, why in failed)
+                + "."
+            )
+        if skipped:
+            parts.append(f"{skipped} more left for the next batch.")
+        say = " ".join(parts)[:900]
+        if not sent:
+            raise ToolError(say)
+        return {"say": say}
+
+    @function_tool()
     async def open_drafts_ui(self, context: RunContext) -> dict[str, str]:
         """Open the Drafts window when Sir asks to open, show or pull up his drafts.
 
@@ -197,7 +274,15 @@ class DraftTools:
 
         if not drafts_ui.pending_drafts():
             return {"say": "No drafts, Sir."}
-        say, _opened = drafts_ui.open_drafts()
+        say, opened = drafts_ui.open_drafts()
+        if not opened:
+            # The drafts exist but the window never appeared: say so rather
+            # than letting "opened" be assumed.
+            log_action("drafts", "open failed: shell did not respond")
+            return {
+                "say": f"{say} I couldn't open the Drafts window though, Sir; "
+                "I can read them out instead."
+            }
         return {"say": say}
 
     @function_tool()

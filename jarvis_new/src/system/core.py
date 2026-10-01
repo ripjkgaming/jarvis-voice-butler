@@ -361,6 +361,24 @@ async def _maximize_new_windows(before: set[str]) -> None:
         pass
 
 
+async def _return_to(title: str) -> None:
+    """Re-focus Sir's previous window once a new player window has stolen
+    focus, so music opens in the background. A new window can appear late
+    (browser start-up), so re-assert it a couple of times. Fail-soft."""
+    try:
+        from system import window_ctl
+
+        for delay in (1.5, 2.0, 3.0):
+            await asyncio.sleep(delay)
+            now = (await asyncio.to_thread(window_ctl.active_title)).lower()
+            # Only undo the player's own focus grab: if Sir has since
+            # switched somewhere himself, leave him there.
+            if "youtube" in now or "brave" in now:
+                await asyncio.to_thread(window_ctl.restore, title)
+    except Exception:
+        pass
+
+
 class SystemTools:
     """Local PC-control tools. Register via .tools on the SystemAgent."""
 
@@ -704,7 +722,9 @@ class SystemTools:
         }
 
     @function_tool()
-    async def play_media(self, context: RunContext, query: str) -> dict[str, str]:
+    async def play_media(
+        self, context: RunContext, query: str, show: bool = False
+    ) -> dict[str, str]:
         """Play music/video on the SYSTEM YouTube (Brave), never the agent browser.
 
         "Play X" always lands here: a system Brave window on YouTube search
@@ -713,16 +733,23 @@ class SystemTools:
         automation only — never for watching or listening.
         A bare "play some music" (no query) opens the saved playlist.
 
+        The window opens in the BACKGROUND: whatever Sir is working in
+        stays in front and the music just starts. Only pass show=true when
+        he asks to see it ("play X and show me", "put it on screen").
+
         Args:
             query: What to play, e.g. "lofi hip hop". Empty means the playlist.
+            show: True to leave the player window in front.
         """
         try:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from system import window_ctl
         from system.school_tools import loud_guard
 
         loud_guard("play_media", {"query": query})
+        previous = "" if show else await asyncio.to_thread(window_ctl.active_title)
         query = (query or "").strip()[:200]
         if query:
             # Autoplay: resolve the top hit to a watch URL so playback
@@ -770,6 +797,10 @@ class SystemTools:
         except FileNotFoundError:
             raise ToolError("I could not launch Brave.") from None
         log_action("play", url)
+        if previous:
+            _bg = asyncio.create_task(_return_to(previous))
+            self._tasks.add(_bg)
+            _bg.add_done_callback(self._tasks.discard)
         return {"say": say, "pid": str(proc.pid or 0)}
 
     @function_tool()
@@ -1404,6 +1435,14 @@ class SystemTools:
         action = action.lower()
         from system import kwin_windows
 
+        if action == "focus" and query.strip():
+            from system import window_ctl
+
+            ok, say = await asyncio.to_thread(window_ctl.focus, query)
+            log_action("window", f"focus {query[:60]} ok={ok}")
+            if not ok:
+                raise ToolError(say)
+            return {"say": say}
         if kwin_windows.available() and action in kwin_windows.ACTIONS:
             # Plasma Wayland: wmctrl can't see native windows (it listed
             # nothing and "close" silently no-oped), so drive KWin directly.

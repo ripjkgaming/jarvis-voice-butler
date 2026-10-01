@@ -368,30 +368,21 @@ def question_after_address(text: str) -> str:
 
 # --- loud actions ---------------------------------------------------------
 
-_LOUD_TOOLS = frozenset({"play_media"})
-
-
-_LOUD_APPS = ("sober", "roblox", "steam", "spotify", "vlc", "resolve", "obs")
+# School mode gates exactly one thing: launching Sober (Roblox). Music,
+# volume, YouTube, Spotify and everything else work as normal — the mode
+# only quiets Jarvis's own chatter and the HUD.
+_LOUD_APPS = ("sober", "roblox")
 
 
 def is_loud(tool: str, args: dict | None = None) -> bool:
-    """Would this action make noise or take over the screen? Pure."""
+    """Is this the one action school mode confirms first (launching
+    Sober / Roblox)? Pure."""
     args = args or {}
-    if tool in _LOUD_TOOLS:
-        return True
-    if tool == "set_volume":
-        action = str(args.get("action", "")).lower()
-        level = args.get("level", 0)
-        try:
-            level = int(level)
-        except (TypeError, ValueError):
-            level = 0
-        return action in ("up", "unmute") or (action == "set" and level > 40)
     if tool == "open_app":
         name = f"{args.get('app', '')} {args.get('url', '')}".lower()
-        return any(a in name for a in _LOUD_APPS) or "youtube" in name
-    if tool == "quote_action":
-        return str(args.get("action", "")) in ("play", "party")
+        return any(a in name for a in _LOUD_APPS)
+    if tool == "play_game":
+        return str(args.get("game", "roblox")).strip().lower() in _LOUD_APPS
     return False
 
 
@@ -421,7 +412,7 @@ def loud_allowed(now: float | None = None) -> bool:
 
 
 LOUD_REFUSAL = (
-    "School mode: that would be loud. Ask Sir to confirm first (\"Are you sure, "
-    "Sir? It will play out loud.\"). Only if Sir says yes, call "
+    "School mode: launching Sober needs a yes first. Ask Sir (\"Are you sure, "
+    "Sir? That's Roblox in school mode.\"). Only if Sir says yes, call "
     "confirm_loud_action, then call this tool again."
 )

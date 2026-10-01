@@ -21,6 +21,13 @@ _OPEN = re.compile(
     r"\b(?:open|show|pull\s+up|bring\s+up)\b"
     r".*?\b(?:my\s+)?(?:email\s+|reply\s+)?drafts\b"
 )
+# "open drafts and approve all": the window verb alone would silently drop
+# the rest of the request and report success. Anything that also asks to
+# send/approve/discard/revise belongs to the agent, which has the tools.
+_ACTS = re.compile(
+    r"\b(?:approve|approved|send|sent|respond|discard|delete|"
+    r"reject|revise|rewrite|edit|read|accept|confirm|ok|okay)\b"
+)
 _CLOSE = re.compile(
     r"\b(?:close|hide|dismiss|put\s+away)\b"
     r".*?\b(?:my\s+)?(?:email\s+|reply\s+)?drafts\b"
@@ -50,14 +57,17 @@ def parse_voice(text: str) -> dict | None:
 
     Open: open/show/pull up/bring up + drafts (also "my drafts",
     "email drafts", "reply drafts"). Close: close/hide/dismiss/put away
-    + drafts. Pure. Never matches project phrases or singular-draft
-    phrases like "draft a whatsapp" / "draft an email".
+    + drafts. Pure. Never matches project phrases, singular-draft
+    phrases like "draft a whatsapp" / "draft an email", or compound
+    requests ("open drafts and approve all") that need more than the window.
     """
     norm = _norm(text)
     if not norm or "drafts" not in norm:
         return None
     # Another surface owns these: never steal them.
     if "project" in norm or "archive" in norm or "whatsapp" in norm:
+        return None
+    if _ACTS.search(norm):
         return None
     open_m = _OPEN.search(norm)
     close_m = _CLOSE.search(norm)

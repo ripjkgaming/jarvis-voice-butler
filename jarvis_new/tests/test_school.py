@@ -45,16 +45,20 @@ def test_parse_command(text, want):
 @pytest.mark.parametrize(
     ("tool", "args", "loud"),
     [
-        ("play_media", {"query": "x"}, True),
-        ("set_volume", {"action": "up"}, True),
-        ("set_volume", {"action": "set", "level": 70}, True),
-        ("set_volume", {"action": "set", "level": 20}, False),
+        # School mode gates only launching Sober/Roblox; all else is normal.
+        ("play_media", {"query": "x"}, False),
+        ("set_volume", {"action": "up"}, False),
+        ("set_volume", {"action": "set", "level": 70}, False),
         ("set_volume", {"action": "down"}, False),
         ("open_app", {"app": "sober"}, True),
-        ("open_app", {"app": "brave", "url": "https://www.youtube.com"}, True),
+        ("open_app", {"app": "roblox"}, True),
+        ("play_game", {"game": "roblox"}, True),
+        ("play_game", {"game": "sober"}, True),
+        ("play_game", {"game": "Portal 2"}, False),
+        ("open_app", {"app": "spotify"}, False),
+        ("open_app", {"app": "brave", "url": "https://www.youtube.com"}, False),
         ("open_app", {"app": "files"}, False),
-        ("quote_action", {"action": "party"}, True),
-        ("quote_action", {"action": "vitals"}, False),
+        ("quote_action", {"action": "party"}, False),
         ("disk_space", {}, False),
     ],
 )
@@ -72,16 +76,23 @@ def test_confirmation_covers_one_chain_then_expires():
     assert not school.loud_allowed(now=200.0 + school.LOUD_CONFIRM_S + 1)
 
 
-def test_loud_guard_only_in_school_mode():
+def test_loud_guard_only_gates_sober_in_school_mode():
     from system.school_tools import loud_guard
 
-    loud_guard("play_media", {"query": "x"})  # normal: fine
+    loud_guard("open_app", {"app": "sober"})  # normal: fine
     school.set_mode("school")
-    with pytest.raises(ToolError):
-        loud_guard("play_media", {"query": "x"})
-    loud_guard("disk_space", {})
-    school.confirm_loud()
+    # School mode no longer refuses music, volume, apps...
     loud_guard("play_media", {"query": "x"})
+    loud_guard("set_volume", {"action": "up"})
+    loud_guard("open_app", {"app": "spotify"})
+    loud_guard("disk_space", {})
+    # ...only launching Sober needs a yes first.
+    with pytest.raises(ToolError):
+        loud_guard("open_app", {"app": "sober"})
+    with pytest.raises(ToolError):
+        loud_guard("play_game", {"game": "roblox"})
+    school.confirm_loud()
+    loud_guard("open_app", {"app": "sober"})
 
 
 def test_school_vad_is_stricter():

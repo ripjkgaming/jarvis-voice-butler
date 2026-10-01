@@ -1528,6 +1528,10 @@ class Assistant(Agent):
             tool, args, source = hit
             ok, say = await fast_path.execute(self.system_tools, tool, args)
             with contextlib.suppress(Exception):
+                import claim_guard
+
+                claim_guard.GUARD.note_tool(tool, ok)
+            with contextlib.suppress(Exception):
                 from system import log_action
 
                 log_action("fastpath", f"{source} {tool} {args} ok={ok}")
@@ -1770,6 +1774,52 @@ async def my_agent(ctx: JobContext):
 
     session.on("user_input_transcribed", _mark_turn)
     session.on("function_tools_executed", _mark_tools)
+
+    # Claim guard (src/claim_guard.py): Jarvis must never say "approved",
+    # "paused", "turned it down" unless a matching tool actually succeeded.
+    # A false claim is answered by making him really do it (one re-prompt
+    # with tools on), then a fixed honest correction as the last resort.
+    import claim_guard as _cg
+
+    def _guard_user(event) -> None:
+        text = (getattr(event, "transcript", "") or "").strip()
+        if text and getattr(event, "is_final", False) and not _echo.is_echo(text):
+            _cg.GUARD.note_user(text)
+
+    def _guard_tools(event) -> None:
+        for call, out in event.zipped():
+            _cg.GUARD.note_tool(getattr(call, "name", ""), not getattr(out, "is_error", False))
+
+    def _guard_item(event) -> None:
+        item = getattr(event, "item", None)
+        if getattr(item, "role", "") != "assistant" or not _cg.enabled():
+            return
+        verdict = _cg.GUARD.check(str(getattr(item, "text_content", "") or ""))
+        if verdict is None:
+            return
+        level = _cg.GUARD.next_correction()
+        if not level:
+            return
+        with contextlib.suppress(Exception):
+            from system import log_action as _log_claim
+
+            _log_claim(
+                "claim-guard",
+                f"{verdict.category} {verdict.reason} level={level}: {verdict.claim[:80]}",
+            )
+        try:
+            if level == 1:
+                session.generate_reply(
+                    instructions=_cg.reprompt(verdict, _cg.GUARD.user_text)
+                )
+            else:
+                session.say(_cg.fixed_line(verdict))
+        except Exception:
+            pass
+
+    session.on("user_input_transcribed", _guard_user)
+    session.on("function_tools_executed", _guard_tools)
+    session.on("conversation_item_added", _guard_item)
 
     # HUD captions: the Tauri overlay has no WebRTC (system WebKitGTK
     # exposes no RTCPeerConnection), so it can never join a room — it

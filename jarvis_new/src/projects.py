@@ -1066,10 +1066,12 @@ def shell_verb(verb: str, run=subprocess.run) -> bool:
         if not (Path(argv[0]).exists() or shutil.which(argv[0])):
             continue
         try:
-            run([*argv, verb], capture_output=True, timeout=10)
-            return True
+            proc = run([*argv, verb], capture_output=True, timeout=10)
         except Exception:
             continue
+        # A verb the shell rejected is not "opened": only exit 0 counts.
+        if getattr(proc, "returncode", 0) == 0:
+            return True
     return False
 
 

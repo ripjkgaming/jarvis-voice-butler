@@ -55,21 +55,23 @@ class WindowTools:
 
     @function_tool()
     async def focus_window(self, context: RunContext, title: str) -> dict[str, str]:
-        """Bring a window to the front by part of its title or app name.
+        """Switch to a window: pull it up in front of everything else.
+
+        Use for "switch to spotify", "go to my browser", "bring up the
+        chemistry notes", "pull up Dolphin". It reports honestly when no
+        such window exists or it did not come forward.
 
         Args:
-            title: e.g. "spotify", "chemistry notes".
+            title: Part of the window title or app name, e.g. "spotify".
         """
         _guard()
-        from system import kwin_windows
+        from system import window_ctl
 
-        if not (title or "").strip():
-            raise ToolError("Which window, Sir?")
-        hit = await asyncio.to_thread(kwin_windows.act, "focus", title.strip())
-        if hit is None:
-            raise ToolError(f"No window matching {title.strip()[:60]}.")
-        log_action("window", f"focus {hit[0][:80]}")
-        return {"say": f"{hit[0][:70]} is in front."}
+        ok, say = await asyncio.to_thread(window_ctl.focus, title)
+        log_action("window", f"focus {title[:60]} ok={ok}")
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
 
     @function_tool()
     async def arrange_windows(
