@@ -35,9 +35,23 @@ export async function invoke<T>(cmd: string, args?: unknown): Promise<T> {
 }
 
 /** Mint a participant token + connection details via `invoke('mint_token')`.
- *  Mirrors the old /api/token response so livekit's TokenSource.custom works. */
-export function mintToken(roomConfig?: unknown): Promise<ConnectionDetails> {
-  return invoke<ConnectionDetails>('mint_token', { roomConfig });
+ *  Mirrors the old /api/token response so livekit's TokenSource.custom works.
+ *  With a room name: join-mode token for that live room WITHOUT agent
+ *  dispatch (the agent is already there — dispatching again would summon a
+ *  second voice). Without: legacy summon mode (fresh room + dispatch). */
+export function mintToken(roomName?: string): Promise<ConnectionDetails> {
+  // No room, no token: minting without one would summon a fresh room +
+  // dispatch (a stray second call). The watcher only starts when a live
+  // wake room exists, so this is strictly a race guard.
+  if (!roomName) return Promise.reject(new Error('no live room to join'));
+  return invoke<ConnectionDetails>('mint_token', { roomName });
+}
+
+/** Bridge connection surface via `invoke('bridge_info')`: `{url, token}`.
+ *  The bridge may bind the tailnet IP (phone access), so the HUD must not
+ *  assume loopback. Throws when outside Tauri. */
+export function bridgeInfo(): Promise<{ url: string; token?: string | null }> {
+  return invoke<{ url: string; token?: string | null }>('bridge_info');
 }
 
 /** Shell config surface (agentName, etc.) via `invoke('app_config')`. */
@@ -76,4 +90,12 @@ export function setMicMuted(muted: boolean): Promise<boolean> {
 /** Query the mic mute state. Throws when outside Tauri or unreachable. */
 export function micStatus(): Promise<MicStatus> {
   return invoke<MicStatus>('mic_status');
+}
+
+/** PTT summon: HUD NumpadEnter asks the wake listener for a talk session
+ *  (bridge POST /summon) — the same summon the "hey Jarvis" hotword
+ *  performs, without the hotword. Throws when outside Tauri or when the
+ *  chain is unreachable (fail-soft at the caller). */
+export function summonTalk(): Promise<{ ok: boolean; talk?: string; muted?: boolean }> {
+  return invoke<{ ok: boolean; talk?: string; muted?: boolean }>('talk');
 }

@@ -414,9 +414,20 @@ async def test_locate_text_returns_grid_coords(
 
     monkeypatch.setattr(SystemTools, "take_os_screenshot", fake_shot)
 
+    def _doubled(tsv: str) -> str:
+        # OCR runs on a 2x upscale, so tesseract reports 2x pixel boxes.
+        rows = []
+        for line in tsv.splitlines():
+            cols = line.split("\t")
+            if len(cols) >= 12 and cols[6].isdigit():
+                cols[6:10] = [str(int(c) * 2) for c in cols[6:10]]
+            rows.append("\t".join(cols))
+        return "\n".join(rows)
+
     async def fake_run(*argv: str, timeout: float = 10.0):
         assert argv[0] == "tesseract"
-        return 0, SAMPLE_TSV, ""
+        assert argv[1].endswith("-ocr.png") and "--psm" in argv
+        return 0, _doubled(SAMPLE_TSV), ""
 
     monkeypatch.setattr(desktop_module, "run_cmd", fake_run)
     tools = DesktopTools()

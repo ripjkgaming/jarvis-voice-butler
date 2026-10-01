@@ -53,7 +53,51 @@ def test_volume_pct_parsing() -> None:
 
 def test_unknown_tool_rejected() -> None:
     assert run_phone_tool("format_disk", {})["ok"] is False
-    assert run_phone_tool("open_app", {"app": "evil"})["ok"] is False
+
+
+def test_notify_tool_routes_via_notify_send(monkeypatch) -> None:
+    import notify
+
+    calls = []
+
+    def fake_send(text, **kw):
+        calls.append((text, kw))
+        return {"route": "notification", "ok": True}
+
+    monkeypatch.setattr(notify, "send", fake_send)
+    result = run_phone_tool("notify", {"title": "T", "body": "ping"})
+    assert result["ok"] is True
+    assert calls[0][0] == "ping"
+    assert calls[0][1]["title"] == "T"
+    assert calls[0][1]["kind"] == "phone"
+    assert calls[0][1]["source"] == "phone"
+    assert calls[0][1]["allow_speech"] is False
+
+
+def test_notify_tool_empty_body_is_not_ok(monkeypatch) -> None:
+    import notify
+
+    monkeypatch.setattr(notify, "send", lambda *a, **k: {"route": "empty"})
+    assert run_phone_tool("notify", {"title": "T", "body": "  "})["ok"] is False
+
+
+def test_open_app_unmapped_goes_to_launcher_and_never_spawns(monkeypatch) -> None:
+    # Unmapped names reach the universal launcher (never a real launch here:
+    # the old "evil" assertion opened a live web result on the desktop).
+    def _no_spawn(*a, **k):
+        raise AssertionError("test must not launch anything")
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", _no_spawn)
+    seen = []
+    monkeypatch.setattr(
+        bridge, "_launch_anything", lambda n: seen.append(n) or {"ok": True}
+    )
+    assert run_phone_tool("open_app", {"app": "Evil"})["ok"] is True
+    assert seen == ["evil"]
+    monkeypatch.undo()
+    monkeypatch.setattr(bridge.subprocess, "Popen", _no_spawn)
+    assert run_phone_tool("open_app", {"app": "x" * 61})["ok"] is False
+    assert run_phone_tool("open_app", {"app": ""})["ok"] is False
 
 
 def test_kscreen_output_parsing() -> None:
@@ -90,7 +134,7 @@ def test_screens_and_unlock_with_stubbed_runner(monkeypatch, tmp_path) -> None:
         "outputs": [{"id": "1", "name": "HDMI-A-2", "enabled": True}],
     }
     assert run_phone_tool("unlock", {})["ok"] is True
-    assert calls[-1] == ["loginctl", "unlock-session"]
+    assert calls[-1] == ["loginctl", "unlock-sessions"]
     assert run_phone_tool("screen_off", {})["ok"] is True
     assert ["kscreen-doctor", "output.HDMI-A-2.disable"] in calls
     assert run_phone_tool("screens_restore", {})["ok"] is True
@@ -221,9 +265,11 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
     client_sock.settimeout(5)
     client_sock.sendall(b'{"rate": 16000, "channels": 1}\n')
     assert json.loads(client_sock.recv(256).decode()) == {"ok": True}
-    pcm = (b"\x00\x00" * 1280) * 8  # 8 native frames of silence
+    # Silence on purpose: every frame must reach the streaming model, quiet
+    # or not (skipping frames broke detection outright).
+    pcm = (b"\x00\x00" * 1280) * 8
     client_sock.sendall(pcm)
-    client_sock.sendall(pcm)  # 16 frames total -> fires on 3rd, cooldown eats rest
+    client_sock.sendall(pcm)
     time.sleep(0.5)
     client_sock.setblocking(False)
     got = b""
@@ -237,5 +283,79 @@ def test_mic_serve_client_wake_and_cooldown() -> None:
         pass
     wake_lines = [ln for ln in got.decode().splitlines() if ln.startswith("WAKE")]
     assert len(wake_lines) == 1  # exactly one: cooldown suppresses the rest
-    assert model.calls >= 3
+    assert model.calls == 16  # every frame scored, none skipped
     client_sock.close()
+
+
+def test_polite_and_questioned_launches_hit_the_instant_route() -> None:
+    # Regression: "Can you launch Sober?" missed the ^open|launch regex,
+    # fell to the voice model, which opened Spotify ("Sober" the song).
+    from bridge import _match_voice_tool
+
+    for text, app in (
+        ("Can you launch Sober?", "sober"),
+        ("Jarvis, could you please open Sober?", "sober"),
+        ("You launch Roblox?", "roblox"),
+        ("Launch Sober.", "sober"),
+        ("Launch DaVinci Resolve.", "davinci resolve"),
+        ("Would you open Claude for me?", "claude for me"),
+        ("Bring up Sober", "sober"),
+        ("Pull up Dolphin!", "dolphin"),
+    ):
+        hit = _match_voice_tool(text)
+        assert hit is not None and hit[0] == "open_app", (text, hit)
+        assert hit[1]["app"] == app, (text, hit)
+    hit = _match_voice_tool("bring up the volume")
+    assert hit is None or hit[0] != "open_app"
+
+
+def test_phone_open_app_prefers_priority_apps(monkeypatch) -> None:
+    from system.launcher import Decision
+
+    spawned = []
+    monkeypatch.setattr(
+        bridge.subprocess, "Popen", lambda argv, **k: spawned.append(argv)
+    )
+    monkeypatch.setattr(
+        "system.launcher.priority_app",
+        lambda q, **k: (
+            Decision("app", "Sober", argv=["flatpak", "run", "sober"])
+            if q.startswith("sober")
+            else None
+        ),
+    )
+    out = run_phone_tool("open_app", {"app": "sober."})
+    assert out["ok"] is True and spawned == [["flatpak", "run", "sober"]]
+
+
+def test_phone_open_app_already_running_does_not_spawn(monkeypatch) -> None:
+    from system.launcher import Decision
+
+    monkeypatch.setattr(
+        bridge.subprocess,
+        "Popen",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no spawn")),
+    )
+    monkeypatch.setattr(
+        "system.launcher.priority_app",
+        lambda q, **k: Decision(
+            "app", "Sober", argv=[], say="Sober is already running, Sir."
+        ),
+    )
+    out = run_phone_tool("open_app", {"app": "sober"})
+    assert out["ok"] is True and out.get("app") == "Sober"
+
+
+def test_already_running_reply_is_honest() -> None:
+    from bridge import _dynamic_voice_reply
+
+    assert (
+        _dynamic_voice_reply(
+            "open_app", {"app": "sober"}, {"app": "Sober", "state": "already running"}
+        )
+        == "Sober is already running, Sir."
+    )
+    assert (
+        _dynamic_voice_reply("open_app", {"app": "konsole"}, {"app": "Konsole"})
+        == "Opening Konsole, Sir."
+    )

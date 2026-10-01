@@ -7,13 +7,17 @@ no power. Assertions read FunctionCallEvent names only.
 """
 
 import pytest
-from livekit.agents import AgentSession, inference, llm
+from _free_llm import free_eval_llm, patient_run, throttle
+from livekit.agents import AgentSession, llm
 
 from agent import Assistant
 
 
 def _agent_llm() -> llm.LLM:
-    return inference.LLM(model="openai/gpt-4.1-mini")
+    # Free routing judge (AI Studio key, $0). inference.LLM bills Cloud
+    # credits per call; the fallback chain spreads load across per-model
+    # free quotas just like production.
+    return free_eval_llm()
 
 
 async def _dry_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -28,7 +32,10 @@ def _dry_assistant(agent_llm: llm.LLM) -> Assistant:
 
 
 async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> list[str]:
-    result = await session.run(user_input=prompt)
+    # Pace every prompt (not just test starts): multi-prompt tests burst
+    # through the ~10 RPM combined free quota otherwise.
+    await throttle()
+    result = await patient_run(session.run, user_input=prompt)
     return [
         event.item.name
         for event in result.events
@@ -36,8 +43,10 @@ async def _calls(session: AgentSession, assistant: Assistant, prompt: str) -> li
     ]
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_shutdown_uses_narrow_handoff() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)
@@ -46,8 +55,10 @@ async def test_routing_shutdown_uses_narrow_handoff() -> None:
         assert "power_control" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_open_app_uses_narrow_handoff() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)
@@ -56,8 +67,10 @@ async def test_routing_open_app_uses_narrow_handoff() -> None:
         assert "open_app" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_gmail_never_touches_browser() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)
@@ -66,8 +79,10 @@ async def test_routing_gmail_never_touches_browser() -> None:
         assert "open_url" not in calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_common_tools_stay_direct() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)
@@ -80,8 +95,10 @@ async def test_routing_common_tools_stay_direct() -> None:
         assert "transfer_to_system_control" not in volume_calls
 
 
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_routing_search_uses_search_tool() -> None:
+    await throttle()
     async with _agent_llm() as agent_llm, AgentSession() as session:
         assistant = _dry_assistant(agent_llm)
         await session.start(assistant)

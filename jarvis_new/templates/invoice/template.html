@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{number}}</title>
+<style>
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 48px; font-size: 14px; line-height: 1.5; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid {{brand_color}}; padding-bottom: 20px; }
+  .company { font-size: 24px; font-weight: 700; color: {{brand_color}}; margin: 0; }
+  .addr { color: #555; font-size: 12px; margin: 4px 0 0; white-space: pre-line; }
+  .inv-title { text-align: right; }
+  .inv-title h2 { margin: 0; font-size: 28px; letter-spacing: 2px; color: #333; }
+  .inv-title p { margin: 2px 0; font-size: 12px; color: #555; }
+  .meta { display: flex; justify-content: space-between; margin: 24px 0; }
+  .meta h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+  .meta p { margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: {{brand_color}}; color: #fff; text-align: left; padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  th.num, td.num { text-align: right; }
+  td { padding: 10px 12px; border-bottom: 1px solid #e3e3e3; }
+  tr:nth-child(even) td { background: {{accent_color}}; }
+  .totals { margin-left: auto; width: 280px; margin-top: 16px; }
+  .totals div { display: flex; justify-content: space-between; padding: 4px 0; }
+  .totals .grand { font-size: 18px; font-weight: 700; color: {{brand_color}}; border-top: 2px solid {{brand_color}}; margin-top: 6px; padding-top: 8px; }
+  .terms { margin-top: 32px; font-size: 12px; color: #555; border-top: 1px solid #ddd; padding-top: 12px; }
+  .notes { margin-top: 12px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <p class="company">{{company}}</p>
+      <p class="addr">{{company_address}}</p>
+    </div>
+    <div class="inv-title">
+      <h2>INVOICE</h2>
+      <p><strong>{{number}}</strong></p>
+      <p>Issued {{issue_date}} &middot; Due {{due_date}}</p>
+    </div>
+  </div>
+  <div class="meta">
+    <div>
+      <h4>Billed to</h4>
+      <p>{{client}}</p>
+    </div>
+    <div>
+      <h4>From</h4>
+      <p>{{company}}</p>
+    </div>
+  </div>
+  <table>
+    <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit ({{currency}})</th><th class="num">Total</th></tr>
+    {{#items}}<tr><td>{{description}}</td><td class="num">{{qty}}</td><td class="num">{{unit_price}}</td><td class="num">{{line_total}}</td></tr>{{/items}}
+  </table>
+  <div class="totals">
+    <div><span>Subtotal</span><span>{{currency}} {{subtotal}}</span></div>
+    <div><span>Tax ({{tax_rate}}%)</span><span>{{currency}} {{tax}}</span></div>
+    <div class="grand"><span>Total due</span><span>{{currency}} {{total}}</span></div>
+  </div>
+  <div class="notes">{{notes}}</div>
+  <div class="terms">{{payment_terms}}</div>
+</body>
+</html>

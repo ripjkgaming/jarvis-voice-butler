@@ -159,6 +159,14 @@ LOG:
     end on my side. Note:     bridge /status shows local_unlocked=false /
     livekit_configured=false when launched bare (reads process env only) —
     by contract the Tauri launcher sets these (env_cfg.rs); no change made.
+[2026-09-19 02:15 UTC] [phase1] JARVISLINK v1.1 SHIPPED (912793c):
+    APK ~/JarvisLink-v1.1.apk (15MB, vCode 2, debug-signed, verified).
+    Bridge: /chat live-shaped (LLM drought persists -> warning path),
+    unlock + blackout/restore PROVEN LIVE on real display via tailnet,
+    wizard gate bind+token aware (green). App: particle OrbView, Chat
+    tab, always-on Talk/Chat, unlock/blackout/restore buttons.
+    32 tests green, ruff clean, pushed. Install v1.1 over v1.0 (same
+    applicationId, versionCode 1->2 upgrades cleanly).
 [2026-09-19 01:10 UTC] [phase1] JARVISLINK PHONE APP v1 SHIPPED (568ef2d):
     APK at ~/JarvisLink-v1.0.apk (15MB, debug-signed, verified sig).
     PC side live-proven over tailnet IP: 401-no-token/200-token, mic
@@ -398,3 +406,106 @@ Rules:
 [2026-09-18 15:00 UTC] [phase5] 5.1 COLLISION RESOLVED per owner: killed my 416-ex run (was converging 1.52->1.27, one epoch behind), owner run on 325-ex set (lr 1e-4 seed 7, ep5 loss 0.69/val 0.71) keeps the CPU. Will gate jarvis_lora2.pkl on finish; my screened dataset stands by if gate FAILS.
 [2026-09-18 15:17 UTC] [phase5] HELPER REVIEW (within-day): H2 seeds ACCEPT 6 morning (exact, fix 2 misroutes + promote 3 confirms; verified 1.0) / REJECT 12 focus+prep seeds (no single-tool target; abstention is correct, LLM performs skills/*.md). CAUGHT+FIXED my own regression: seed morning-startup fuzzy-misrouted work-sprint-starting 0.571 -> dropped the redundant seed (daily-startup covers it), phrase abstains again. Corpus 950 rows, intent/needle/regressions 33 green, ruff clean.
 [2026-09-18 15:35 UTC] [phase5] DONE 5.1 v2 GATE: FAIL (behavioral, per spec). Tuned jarvis2.cact: routed 11/40 (27.5%) vs base 9/40 (22.5%) = delta +5pts (need +10); abstention 14/20 (70%) vs need >=95% (base was 90% - tuning made it trigger-happy: asdf-qwerty->whatsapp_read with gibberish in slot; arg-extraction cases abstain). Loss converged ep8 0.66/0.63, plateau rule never triggered - data/boundary issue, not LR. Artifact UNDEPLOYED at ~/.jarvis/voice-butler/needle/jarvis2.cact + .gate.json (untracked); JARVIS_NEEDLE_WEIGHTS NOT wired, base stays. Record: /tmp/opencode/phase5/v2_outcome.md. Standby: 416-ex screened set (53% neg) if owner wants a retrain. Final board: 74 passed, ruff clean, wizard 7/7. Phase 5 COMPLETE except a future retrain.
+
+[2026-09-19 15:20 +08] window+stats+errors pass (opencode session):
+- Overlay is now a real movable window: decorations on, blur-hide removed,
+  header drag region (data-tauri-drag-region), x hide button, Esc hides,
+  geometry persists, first-show centers, close-request hides (never destroys).
+- Live system stats: new shell bridge_info invoke (url+token) + frontend
+  bridge client attaches Bearer; verified LOAD/RAM/HOME live in header.
+- ERRORS FIXED (root causes, all verified):
+  1. mic-uplink + bridge kill-restart loops + notification spam: every Rust
+     health probe assumed 127.0.0.1 while sidecars bind JARVIS_BRIDGE_BIND /
+     JARVIS_MIC_BIND (tailnet). Added env_cfg bridge_host/mic_host/
+     bridge_token + host-aware health fns + HttpOkOn/TcpPortOn ready checks.
+     Bridge uptime now monotonic, zero death notices.
+  2. Agent heard silence on every call: wake _pump_mic called livekit
+     AudioSource.capture_frame without await (now a coroutine) — every mic
+     frame dropped with RuntimeWarning. Fixed (await). NEEDS live voice test.
+  3. HUD session could never connect: system WebKitGTK has no
+     RTCPeerConnection at all (probed same engine via PyGObject, even with
+     all media settings on) — no wry/Tauri setting can enable it. HUD is
+     now sessionless by design: room watcher (/room), captions pipe
+     (agent conversation hooks -> captions.log -> bridge /captions ->
+     live-caption), typed SEND via bridge /chat, orb tint from call
+     presence, standby/in-call pill. Removed dead session UI (welcome
+     button, session pill, start-audio button).
+- Captions verified live (agent greetings mirrored); /chat mechanism works
+  (one Gemini read-timeout observed — API-side, fail-soft warning shown).
+- Added shell verbs: `jarvis state` (visibility/geometry) and `jarvis
+  domstate` (live DOM snapshot via webview eval) for headless verification.
+- Caveats: CSP connect-src pins tailnet http://100.77.6.93:* (update if IP
+  changes); default sink is HDMI (monitor) — voice plays there, not laptop
+  speakers; remote `talk` can't steal focus under Wayland (by design) —
+  Super+J is the reliable summon.
+- Tests: 40 Rust + 47 Python green; tsc/eslint/prettier clean.
+
+[2026-09-19 15:25 +08] /chat "LLM unavailable: ReadTimeout" fixed (opencode):
+- Two stacked causes, both in bridge _gemini_reply path:
+  1. Model rot: gemini-flash-latest blackholes generateContent for newer
+     keys (instant ReadTimeout); 2.x models 404 "no longer available to
+     new users". Pinned GEMINI_TEXT_MODEL=gemini-3-flash-preview (verified
+     live via SDK). agent.py DIRECT_LLM_MODEL untouched (different API —
+     LiveKit RealtimeModel namespace, voice works); fixed both comments
+     that wrongly claimed the two must stay in sync.
+  2. http_options={"timeout": 30} dict breaks google-genai 2.18.1 (instant
+     ReadTimeout on EVERY call, any model). Dropped — SDK defaults work.
+- Verified live: POST /chat -> {"ok": true, "reply": "HUD typed path works"}.
+- Note: typed SEND in HUD + phone Chat tab share this path — both work now.
+
+[2026-09-19 16:55 +08] STT fixed end-to-end (opencode voice debug):
+- Symptom: agent never transcribed user speech (zero user_input_transcribed
+  ever); calls ended in silence hangups.
+- Root causes found by elimination (tap-subscriber proved wire carries
+  audio; direct Live API probes proved server VAD deaf):
+  1. wake _pump_mic never awaited capture_frame (coroutine) — mic frames
+     dropped with RuntimeWarning. Now awaited.
+  2. ai_coustics QUAIL enhancement needs LiveKit Cloud (absent locally) —
+     removed from room input options.
+  3. AdaptiveInterruptionDetector dials agent-gateway.livekit.cloud (401
+     loop) — interruption mode now local "vad".
+  4. THE BIG ONE: wake published the mic track with default source
+     SOURCE_UNKNOWN; AgentSession input only accepts SOURCE_MICROPHONE,
+     so it attached to nothing on every call (raw subscribers unaffected
+     — hence the confusing "wire works" evidence). Publish now stamps
+     TrackPublishOptions(source=SOURCE_MICROPHONE). Verified live:
+     track source reads 2 (microphone).
+  5. Server-side turn detection/VAD deaf for this key (proven direct:
+     manual activity_start/end answers, automatic never fires at any
+     sensitivity). realtime_input_config disabled + local Silero VAD
+     endpointing (turn_detection="vad", vad on session).
+- PROOF (live call, acoustic speaker->mic): captions show sir transcription
+  + agent answered "It is Saturday, sixteen forty six." correctly.
+- Note: test artifact lesson — naive np.interp resample produces aliasing
+  mush ("HARDING HARDING"); always FFT-bandlimit or verify with STT.
+- Bridge /chat model pinned gemini-3-flash-preview + dropped broken
+  http_options dict (SDK 2.18 instant ReadTimeout); verified reply live.
+
+[2026-09-19 18:55 +08] JarvisLink v1.2: system voice assistant (phone):
+- Added JarvisInteractionService (BIND_VOICE_INTERACTION + voice_interaction
+  meta-data), JarvisSessionService/JarvisSession (voice-plate overlay: orb,
+  status, transcript, Listen/Dismiss; auto-listens on show, /talk roundtrip,
+  reply shown + spoken), JarvisRecognitionService (utterance -> /talk ->
+  SpeechRecognizer results; REQUIRED: role controller demands a non-empty
+  recognitionService — found by decompiling the on-device RoleController).
+- Fixed MainActivity crash on launch: 6 tabs > BottomNavigationView limit 5;
+  TabLayout now. Fixed 2 pre-existing MissingPermission lint errors.
+- Verified on API-35 emulator vs live PC bridge: role granted, service bound
+  (incl. across reboot), session show/exchange/hide, Dismiss tap, recognizer
+  ready/begin/error callbacks, MainActivity boot, lint+tests green.
+- Artifact: ~/JarvisLink-v1.2.apk (debug-signed, vCode 3). Phone offline —
+  on-device install by owner.
+
+[2026-09-19 19:10 +08] JarvisLink v1.2 bugtest round 2 (emulator, live bridge):
+- FIXED Link-tab crash: bare TextViews in fragment_settings.xml lacked
+  layout_width/height (InflateException); same latent bug in
+  fragment_type.xml key buttons. Scanner now covers all layouts.
+- FIXED tab bar buried under system nav: fitsSystemWindows on activity root.
+- Verified all 6 tabs render, zero crashes in logcat.
+- Link prefs persist; Test connection -> "OK: bridge 0.2.0, agent my-agent"
+  live over tailnet from emulator.
+- Final gates green (test 4/4, lint clean); ~/JarvisLink-v1.2.apk refreshed.
+[2026-09-19 12:00 UTC] [link-v1.3] START v1.3 in jarvis_new/phone (client-only, zero desktop-app changes per owner). Scope: vCode 4/1.3, hotword loop, PTT/wake routing, TTS, session/cursor/offline prefs, 7-tab UI on existing /talk /chat /type /tool /camera /mic /actions endpoints. Bridge.py untouched (no CLAIM needed); missing-endpoint features (/history /costs /phone queue /SOS dispatch) deferred with in-app notes.
+[2026-09-19 12:45 UTC] [link-v1.3] COLLISION note: owner is live-editing phone/ too (ControlFragment biometric unlock hunk, no function dep). I did NOT revert: completed it by adding androidx.biometric:1.1.0 dep only + mirrored the same deny-posture fingerprint unlock into the new Phone tab (spec item). My 7-tab nav leaves old Talk/Chat/Type/PC/Camera fragments unreferenced (files kept). If owner wants different placement, say so.
+[2026-09-19 12:45 UTC] [link-v1.3] DONE v1.3 client slice: hotword loop+backoff+music/PTT gate, locked one-shot vs unlocked auto-talk, TTS first-line + male preset, session/cursor/offline/autostart prefs, 7-tab UI on existing bridge endpoints, local SOS + shade Approve/Deny, owner biometric hunk completed (dep) + mirrored in Phone tab. Gates: 11 unit tests green, lint clean, assembleDebug green, ~/JarvisLink-v1.3.apk (vCode 4, 15.7MB). Deferred (in-app notes): /history /costs /phone queue /SOS dispatch /TTS push /tap-click (need desktop endpoints). Old Talk/Chat/Type/PC/Camera fragments kept unreferenced. No commit (owner pushes).
+[2026-09-29 11:21 UTC] [draft-notify] DONE draft-ready/check-desk/announce. Files: NEW src/draft_engine.py, src/draft_notify.py, src/draft_tools.py, tests/test_draft_engine.py, tests/test_draft_notify.py, tests/test_draft_tools.py, tests/test_mail_watch_job.py; EDITED src/mail_watch_job.py (_maybe_draft hook, cap 3/run, auto-ack untouched), src/agent.py (DraftTools registered, DraftWatcher started like ProactiveWatcher), src/proactive/policy.py (additive: in_quiet(), consider(batch=False)). Env: JARVIS_DRAFTS=0, JARVIS_DRAFT_ANNOUNCE=0. New tests + ruff format/check green on touched files; full suite 1394 pass, 10 fail = live-Gemini APIConnectionError tests (test_agent/test_routing_dryrun/test_handoff_desktop), unrelated. Live agent and cron not run. No commit.

@@ -1,6 +1,7 @@
 import pytest
 
 import briefing_job
+import notify
 from briefing_job import shape_briefing_for_speech
 
 
@@ -13,9 +14,30 @@ async def test_deliver_falls_back_to_log_without_notify(
     def _missing(*args, **kwargs):
         raise FileNotFoundError("no notify-send")
 
-    monkeypatch.setattr(briefing_job.subprocess, "run", _missing)
+    monkeypatch.setattr(notify.subprocess, "run", _missing)
     assert briefing_job.deliver("test briefing") == "log"
     assert "test briefing" in (tmp_path / "briefings.log").read_text()
+
+
+def test_deliver_goes_through_notify_without_speech(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(briefing_job, "BRIEFING_LOG", tmp_path / "briefings.log")
+    calls: list = []
+
+    def fake_send(text, **kw):
+        calls.append((text, kw))
+        return {"route": "notification", "ok": True}
+
+    monkeypatch.setattr(notify, "send", fake_send)
+    assert briefing_job.deliver("test briefing") == "notification+log"
+    assert len(calls) == 1
+    text, kw = calls[0]
+    assert text == "test briefing"
+    assert kw["title"] == "Jarvis - morning briefing"
+    assert kw["kind"] == "briefing"
+    assert kw["source"] == "briefing"
+    assert kw["allow_speech"] is False
 
 
 @pytest.mark.asyncio
@@ -71,7 +93,7 @@ async def test_main_dedupes_repeats(monkeypatch: pytest.MonkeyPatch, tmp_path) -
         return BUNDLE
 
     monkeypatch.setattr(briefing_job, "build_briefing", _bundle)
-    monkeypatch.setattr(briefing_job.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(notify.subprocess, "run", lambda *a, **k: None)
     assert await briefing_job.main() == "notification+log"
     assert await briefing_job.main() == "skipped-duplicate"
 
@@ -92,6 +114,6 @@ async def test_main_skips_empty_bundle(
 def test_deliver_logs_full_bundle(tmp_path, monkeypatch) -> None:
     log = tmp_path / "briefings.log"
     monkeypatch.setattr(briefing_job, "BRIEFING_LOG", log)
-    monkeypatch.setattr(briefing_job.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(notify.subprocess, "run", lambda *a, **k: None)
     assert briefing_job.deliver("short shaped", full_text=BUNDLE) == "notification+log"
     assert BUNDLE in log.read_text()

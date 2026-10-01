@@ -13,6 +13,39 @@ pub const LIVEKIT_PORT: u16 = 7880;
 pub const BRIDGE_PORT_DEFAULT: u16 = 4317;
 pub const AGENT_NAME_DEFAULT: &str = "my-agent";
 
+/// Host the bridge binds. Phone-over-Tailscale setups set
+/// `JARVIS_BRIDGE_BIND` to the tailnet IP — every health probe must use
+/// this, never assume loopback (probing 127.0.0.1 while the bridge serves
+/// the tailnet IP reads as "down" and the manager kills a healthy bridge).
+pub fn bridge_host() -> String {
+    std::env::var("JARVIS_BRIDGE_BIND")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
+/// Host the mic uplink binds (`JARVIS_MIC_BIND`, default loopback).
+/// Same loopback-assumption hazard as [`bridge_host`].
+pub fn mic_host() -> String {
+    std::env::var("JARVIS_MIC_BIND")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
+/// Bridge Bearer token when `JARVIS_BRIDGE_TOKEN` is set (presence only —
+/// never logged; passed straight into the Authorization header). The bridge
+/// gates every route when a token is set, including reads like `/health`,
+/// so tokenless probes 401 and read as "down".
+pub fn bridge_token() -> Option<String> {
+    std::env::var("JARVIS_BRIDGE_TOKEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Locate the `jarvis_new` repo checkout.
 ///
 /// 1. `JARVIS_REPO` env (installer/first-run wizard writes this).
@@ -272,5 +305,36 @@ mod tests {
         assert_eq!(repo_root(), tmp);
         std::env::remove_var("JARVIS_REPO");
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn bind_hosts_default_to_loopback() {
+        let vars = [
+            "JARVIS_BRIDGE_BIND",
+            "JARVIS_MIC_BIND",
+            "JARVIS_BRIDGE_TOKEN",
+        ];
+        let saved: Vec<(String, Option<String>)> = vars
+            .iter()
+            .map(|v| (v.to_string(), std::env::var(v).ok()))
+            .collect();
+        for v in vars {
+            std::env::remove_var(v);
+        }
+        assert_eq!(bridge_host(), "127.0.0.1");
+        assert_eq!(mic_host(), "127.0.0.1");
+        assert_eq!(bridge_token(), None);
+        std::env::set_var("JARVIS_BRIDGE_BIND", "100.77.6.93");
+        std::env::set_var("JARVIS_MIC_BIND", "100.77.6.93");
+        std::env::set_var("JARVIS_BRIDGE_TOKEN", "s3cret");
+        assert_eq!(bridge_host(), "100.77.6.93");
+        assert_eq!(mic_host(), "100.77.6.93");
+        assert_eq!(bridge_token(), Some("s3cret".to_string()));
+        for (v, old) in saved {
+            match old {
+                Some(val) => std::env::set_var(&v, val),
+                None => std::env::remove_var(&v),
+            }
+        }
     }
 }

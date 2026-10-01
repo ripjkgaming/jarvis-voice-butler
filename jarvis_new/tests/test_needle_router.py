@@ -41,6 +41,7 @@ def _fake_needle_module(complete_fn):
 @pytest.fixture
 def needle_env(monkeypatch):
     monkeypatch.setenv("JARVIS_NEEDLE", "1")
+    monkeypatch.setenv("JARVIS_NEEDLE_ISOLATE", "0")
     yield
     needle_router.reset_agent()
     needle_router.reset_agent()
@@ -199,3 +200,80 @@ def test_resolver_needle_exception_falls_back(needle_env, monkeypatch) -> None:
     result = resolve_intent("hot rod redd")
     assert result.action == "set_color"
     assert result.confidence >= 0.5
+
+
+def _write_worker_stub(tmp_path, body: str):
+    """A stand-in worker script speaking the same JSON-lines protocol."""
+    stub = tmp_path / "stub_worker.py"
+    stub.write_text(body)
+    return stub
+
+
+def _isolated_env(monkeypatch, tmp_path, body: str):
+    import subprocess
+
+    stub = _write_worker_stub(tmp_path, body)
+    monkeypatch.setenv("JARVIS_NEEDLE", "1")
+    monkeypatch.setenv("JARVIS_NEEDLE_ISOLATE", "1")
+    monkeypatch.setattr(needle_router, "needle_enabled", lambda: True)
+    real_popen = subprocess.Popen
+    monkeypatch.setattr(
+        needle_router.subprocess,
+        "Popen",
+        lambda cmd, **kw: real_popen([sys.executable, str(stub)], **kw),
+    )
+    needle_router.reset_agent()
+
+
+_STUB_OK = (
+    "import sys, json\n"
+    "print(json.dumps({'ready': True}), flush=True)\n"
+    "for line in sys.stdin:\n"
+    "    t = json.loads(line)['text']\n"
+    "    if 'boom' in t:\n"
+    "        import os, signal; os.kill(os.getpid(), signal.SIGSEGV)\n"
+    "    raw = {'type': 'call', 'confidence': 0.95,\n"
+    "           'function_calls': [{'name': 'tell_time', 'arguments': {}}]}\n"
+    "    print(json.dumps({'raw': raw}), flush=True)\n"
+)
+
+
+def _wait_ready() -> None:
+    import time
+
+    for _ in range(100):
+        if needle_router._ready.is_set():
+            return
+        time.sleep(0.05)
+    raise AssertionError("worker never became ready")
+
+
+def test_isolated_routes_and_survives_segfault(monkeypatch, tmp_path) -> None:
+    _isolated_env(monkeypatch, tmp_path, _STUB_OK)
+    try:
+        needle_router.warm_up()
+        _wait_ready()
+        hit = needle_router.route_with_needle("what time is it")
+        assert hit == {"action": "tell_time", "params": {}, "confidence": 0.95}
+        # Native crash: this process must live and the turn must abstain.
+        assert needle_router.route_with_needle("boom") is None
+        # Next call respawns (abstains while loading), then works again.
+        needle_router.route_with_needle("what time is it")
+        _wait_ready()
+        assert needle_router.route_with_needle("what time is it") is not None
+    finally:
+        needle_router.reset_agent()
+
+
+def test_isolated_retires_after_repeated_crashes(monkeypatch, tmp_path) -> None:
+    crash_on_start = "import os, signal\nos.kill(os.getpid(), signal.SIGSEGV)\n"
+    _isolated_env(monkeypatch, tmp_path, crash_on_start)
+    try:
+        for _ in range(needle_router._MAX_CRASHES + 2):
+            assert needle_router.route_with_needle("open chrome") is None
+            import time
+
+            time.sleep(0.2)
+        assert needle_router._retired is True
+    finally:
+        needle_router.reset_agent()

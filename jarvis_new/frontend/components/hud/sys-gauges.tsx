@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { bridgeSys } from '@/lib/bridge';
+import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 
 function fmtBytes(n: number): string {
   if (!n) return '0B';
@@ -30,27 +29,7 @@ function Gauge({ label, pct, text }: { label: string; pct: number; text: string 
 
 /** Silent 1s bridge poll. Pauses when tab hidden. Hidden in solo mode. */
 export function SysGauges() {
-  const [sys, setSys] = useState<Awaited<ReturnType<typeof bridgeSys>>>(null);
-
-  useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const tick = async () => {
-      if (document.hidden) return;
-      try {
-        const j = await bridgeSys();
-        if (alive && j) setSys(j);
-      } catch {
-        /* offline — keep last */
-      }
-    };
-    tick();
-    timer = setInterval(tick, 1000);
-    return () => {
-      alive = false;
-      if (timer) clearInterval(timer);
-    };
-  }, []);
+  const sys = useBridgeSysSnapshot();
 
   // Bridge /sys: load average (1/5/15), mem bytes, home disk free.
   const load = Number(sys?.load_1_5_15?.[0] ?? 0);

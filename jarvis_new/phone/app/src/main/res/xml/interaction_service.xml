@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Assistant declaration: routes the system assistant entry point to
+     JarvisSessionService, with JarvisRecognitionService transcribing
+     utterances via bridge /talk. Keyguard launch stays off in v1. -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="dev.jarvis.link.JarvisSessionService"
+    android:recognitionService="dev.jarvis.link.JarvisRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="false" />

@@ -1,31 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { bridgeActions } from '@/lib/bridge';
+import { useEffect, useMemo, useRef } from 'react';
+import { useSharedPoll } from '@/lib/shared-poll';
 
-/** Tails ~/.jarvis/actions.log via bridge /actions (last ~50, 2s poll). */
+/** Tails the local JARVIS activity log via bridge /actions (last ~50, 2s poll). */
 export function CommandLog({ fullscreen = false }: { fullscreen?: boolean }) {
-  const [lines, setLines] = useState<string[]>([]);
+  // Shared /actions poll: the list (and the scroll-to-bottom below) only
+  // changes when a new action lands.
+  const raw = useSharedPoll<{ actions?: string[] }>('/actions?limit=50', 2000);
+  const lines = useMemo(() => raw?.actions ?? [], [raw]);
   const boxRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      if (document.hidden) return;
-      try {
-        const actions = await bridgeActions(50);
-        if (alive) setLines(actions);
-      } catch {
-        /* keep last */
-      }
-    };
-    tick();
-    const timer = setInterval(tick, 2000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -35,8 +19,8 @@ export function CommandLog({ fullscreen = false }: { fullscreen?: boolean }) {
   return (
     <div className="hud-log" data-fullscreen={fullscreen ? 'true' : 'false'}>
       <div className="hud-log__head">
-        <span>TERMINAL</span>
-        <span className="hud-log__path">~/.jarvis/actions.log</span>
+        <span>ACTIVITY LOG</span>
+        <span className="hud-log__path">RECENT SYSTEM ACTIONS</span>
       </div>
       <div ref={boxRef} className="hud-log__body">
         {lines.length === 0 ? (

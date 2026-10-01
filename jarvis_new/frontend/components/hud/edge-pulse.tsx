@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import type { HudTaskEvent } from '@/hooks/hud/use-hud-events';
 
 /**
- * Border glow on tool_finish(success). Solo = subtle 4s auto-dismiss;
- * dual/external = full-strength until acked (click).
+ * Task-done acknowledgement. Solo = subtle chip, 4s auto-dismiss;
+ * dual = chip until acked (click). Never a fullscreen click-catcher —
+ * the overlay must stay usable hands-free while the glow confirms.
  */
 export function EdgePulse({ events, solo = false }: { events: HudTaskEvent[]; solo?: boolean }) {
   const [glow, setGlow] = useState(false);
@@ -26,9 +27,12 @@ export function EdgePulse({ events, solo = false }: { events: HudTaskEvent[]; so
     <button
       type="button"
       aria-label="Acknowledge task completion"
-      className="hud-edge"
+      className="hud-ack"
       data-solo={solo ? 'true' : 'false'}
       onClick={() => setGlow(false)}
-    />
+    >
+      <span className="hud-ack__dot" aria-hidden="true" />
+      Task done — tap to ack
+    </button>
   );
 }

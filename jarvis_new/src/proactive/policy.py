@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 
 QUIET_ENV = "JARVIS_QUIET_HOURS"
 MAX_ENV = "JARVIS_PROACTIVE_MAX_PER_DAY"
-DEFAULT_QUIET = "22:00-07:00"
+DEFAULT_QUIET = "22:30-07:00"
 DEFAULT_MAX_PER_DAY = 3
 BATCH_WINDOW_S = 30 * 60.0
 DEDUPE_WINDOW_S = 60 * 60.0
@@ -115,7 +115,11 @@ class ProactivePolicy:
         cap: int | None = None,
         now_fn: Callable[[], float] | None = None,
         log_fn: Callable[[str, str], None] | None = None,
+        idle_gate: Callable[[], bool] | None = None,
     ) -> None:
+        # idle_gate: when given, quiet hours only apply while it returns True
+        # (dnd.idle_ok: no input for 30+ minutes). None keeps the plain clock.
+        self._idle_gate = idle_gate
         self._window = window if window is not None else quiet_hours()
         self._cap = cap if cap is not None else max_per_day()
         self._now = now_fn or time.time
@@ -157,8 +161,14 @@ class ProactivePolicy:
         urgency: str = "info",
         fingerprint_fp: str | None = None,
         now: float | None = None,
+        batch: bool = True,
     ) -> Decision:
-        """Gate one speakable line. Returns what to speak now (if anything)."""
+        """Gate one speakable line. Returns what to speak now (if anything).
+
+        ``batch=False`` lets an ``info`` line speak at once (after quiet
+        hours, dedupe and the cap) instead of waiting in the 30-minute
+        batch, for one-off notices that have their own retry loop.
+        """
         at = now if now is not None else self._now()
         dt = datetime.datetime.fromtimestamp(at)
         self._roll_day(dt.date().isoformat())
@@ -173,7 +183,7 @@ class ProactivePolicy:
             # twice (in the batch, in the quiet queue) would speak it twice.
             self._note(REASON_DEDUPED, tag)
             return Decision("drop", REASON_DEDUPED)
-        if in_quiet_hours(dt, self._window):
+        if self._quiet(dt):
             self._queue.append((at, text, urgency, fp))
             self._note(REASON_QUEUED_QUIET, tag)
             return Decision("defer", REASON_QUEUED_QUIET)
@@ -185,7 +195,7 @@ class ProactivePolicy:
         if self._delivered_today >= self._cap:
             self._note(REASON_CAPPED, tag)
             return Decision("drop", REASON_CAPPED)
-        if urgency == "urgent":
+        if urgency == "urgent" or not batch:
             self._record(fp, at)
             self._note(REASON_DELIVERED, tag)
             return Decision("speak", REASON_DELIVERED, [text])
@@ -205,12 +215,23 @@ class ProactivePolicy:
         self._note(REASON_BATCHED_WAITING, tag)
         return Decision("defer", REASON_BATCHED_WAITING)
 
+    def _quiet(self, dt: datetime.datetime) -> bool:
+        """Inside the window AND (when a gate is set) Sir has been away."""
+        if not in_quiet_hours(dt, self._window):
+            return False
+        return True if self._idle_gate is None else bool(self._idle_gate())
+
+    def in_quiet(self, now: float | None = None) -> bool:
+        """True while quiet hours hold every line. Pure read."""
+        at = now if now is not None else self._now()
+        return self._quiet(datetime.datetime.fromtimestamp(at))
+
     def drain_queue(self, now: float | None = None) -> Decision:
         """Flush quiet-held lines once quiet ends (cap still applies)."""
         at = now if now is not None else self._now()
         dt = datetime.datetime.fromtimestamp(at)
         self._roll_day(dt.date().isoformat())
-        if not self._queue or in_quiet_hours(dt, self._window):
+        if not self._queue or self._quiet(dt):
             return Decision("drop", REASON_QUEUED_QUIET)
         if self._delivered_today >= self._cap:
             self._note(REASON_CAPPED, "quiet-flush-held")

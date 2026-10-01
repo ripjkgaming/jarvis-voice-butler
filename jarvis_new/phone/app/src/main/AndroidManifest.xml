@@ -4,6 +4,7 @@
     <!-- Network (Tailscale tailnet HTTP to the PC bridge) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Voice: push-to-talk + background mic uplink for remote hotword -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -12,10 +13,30 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Alerts tab: SOS last-known location (runtime-granted, fail-soft) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Camera tab: see-what-I-see frame ingest -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
+
+    <!-- Android 11+ package visibility: RDP clients for RemoteLauncher. -->
+    <queries>
+        <package android:name="com.microsoft.rdc.androidx" />
+        <package android:name="com.freerdp.afreerdp" />
+        <package android:name="com.limelight" />
+        <package android:name="com.carriez.flutter_hbb" />
+        <package android:name="com.iiordanov.freeaRDP" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="rdp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="rustdesk" />
+        </intent>
+    </queries>
 
     <application
         android:label="JarvisLink"
@@ -35,12 +56,81 @@
                 <action android:name="dev.jarvis.link.WAKE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Assist action: opens the app for raw assist intents that
+                 bypass the voice session. -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <service
             android:name=".LinkService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Realtime voice call mic holder (join -> hangup). -->
+        <service
+            android:name=".VoiceCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- On-device "Jarvis" hotword loop (restart + backoff). -->
+        <service
+            android:name=".HotwordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Locked-screen one-shot voice: shows over the keyguard, never
+             opens the app. -->
+        <activity
+            android:name=".OneShotVoiceActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.JarvisLink" />
+
+        <!-- One-tap Approve/Deny from the notification shade. -->
+        <receiver
+            android:name=".ApprovalReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.jarvis.link.APPROVAL_DECIDE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- System assistant entry point: BIND_VOICE_INTERACTION lets the
+             OS bind this when the user picks Jarvis as digital assistant. -->
+        <service
+            android:name=".JarvisInteractionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/interaction_service" />
+        </service>
+
+        <!-- Assistant session host (voice plate UI). System-bound only. -->
+        <service
+            android:name=".JarvisSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <!-- Assistant speech recognizer (utterance -> bridge /talk).
+             Referenced from interaction_service.xml; system-bound only.
+             The intent-filter advertises it for recognition availability
+             queries (SpeechRecognizer.isRecognitionAvailable). -->
+        <service
+            android:name=".JarvisRecognitionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".BootReceiver"

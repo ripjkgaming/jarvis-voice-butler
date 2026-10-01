@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:background="#D8000000" android:fillViewport="true"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+<LinearLayout android:orientation="vertical" android:padding="16dp"
+    android:layout_width="match_parent" android:layout_height="wrap_content">
+    <TextView android:id="@+id/home_banner" android:text="Offline mode — bridge calls held"
+        android:visibility="gone" android:textColor="#FF3B30"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <!-- HUD header: clock block left, identity right -->
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <LinearLayout android:orientation="vertical"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content">
+            <TextView android:id="@+id/home_clock" android:text="9:21"
+                android:textSize="34sp" android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/home_date" android:text="18 DEC"
+                android:textSize="13sp" android:textColor="#1FD5F9"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <TextView android:text="Mo Tu We Th Fr Sa Su"
+                android:textSize="10sp" android:textColor="#5A7A8C"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:gravity="end"
+            android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <TextView android:text="J.A.R.V.I.S."
+                android:textSize="16sp" android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/home_status" android:text="● ALL SYSTEMS NOMINAL"
+                android:textSize="10sp" android:textColor="#1FD5F9"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        </LinearLayout>
+    </LinearLayout>
+    <!-- Arc-reactor hero -->
+    <dev.jarvis.link.ArcReactorView android:id="@+id/home_orb"
+        android:layout_width="300dp" android:layout_height="300dp"
+        android:layout_gravity="center_horizontal" />
+    <!-- Power core row: red mini-reactor + battery readout -->
+    <LinearLayout android:orientation="horizontal" android:gravity="center_vertical"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <dev.jarvis.link.ArcReactorView
+            app:reactorCore="red"
+            android:layout_width="104dp" android:layout_height="104dp" />
+        <LinearLayout android:orientation="vertical" android:paddingStart="12dp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content">
+            <TextView android:id="@+id/home_battery" android:text="POWER -- %"
+                android:textSize="14sp" android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            <TextView android:id="@+id/home_charge" android:text="— STANDBY —"
+                android:textSize="11sp" android:textColor="#FF3B30"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        </LinearLayout>
+    </LinearLayout>
+    <TextView android:id="@+id/home_out" android:text="At your service, Sir."
+        android:minHeight="48dp" android:textColor="#9BE9FF"
+        android:fontFamily="monospace" android:textSize="14sp"
+        android:background="@drawable/hud_panel" android:padding="12dp"
+        android:layout_marginTop="8dp" android:layout_marginBottom="8dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/home_mic" android:text="◉ TAP TO TALK"
+            android:textColor="#FFFFFF" android:backgroundTint="#06333D"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/home_mute" android:text="MUTE"
+            android:textColor="#1FD5F9" android:backgroundTint="#0A1626"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <EditText android:id="@+id/home_prompt" android:hint="Ask Jarvis…"
+            android:textColor="#E8F6FF" android:textColorHint="#5A7A8C"
+            android:backgroundTint="#1FD5F9"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/home_send" android:text="Send"
+            android:textColor="#1FD5F9" android:backgroundTint="#0A1626"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <Button android:id="@+id/home_route" android:text="⚡"
+            android:textColor="#FFFFFF" android:backgroundTint="#06333D"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <Button android:id="@+id/home_shot" android:text="Shot"
+            android:textColor="#1FD5F9" android:backgroundTint="#0A1626"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/home_unlock" android:text="Unlock PC"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <Button android:id="@+id/home_notify" android:text="Ping"
+            android:textColor="#1FD5F9" android:backgroundTint="#0A1626"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/home_stream"
+        android:layout_width="match_parent" android:layout_height="240dp" />
+    <TextView android:text="— STARK INDUSTRIES // JARVISLINK v1.5 —"
+        android:textSize="10sp" android:textColor="#33454F"
+        android:fontFamily="monospace" android:gravity="center"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+</LinearLayout>
+</ScrollView>

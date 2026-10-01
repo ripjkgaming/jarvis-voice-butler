@@ -47,13 +47,16 @@ fn bridge_port() -> u16 {
         .unwrap_or(env_cfg::BRIDGE_PORT_DEFAULT)
 }
 
-/// Bridge Bearer token when `JARVIS_BRIDGE_TOKEN` is set (presence only —
-/// never logged; passed straight into the Authorization header).
+/// Bridge Bearer token — see [`env_cfg::bridge_token`]. Thin local alias
+/// so mute-path call sites stay short.
 fn bridge_token() -> Option<String> {
-    std::env::var("JARVIS_BRIDGE_TOKEN")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    env_cfg::bridge_token()
+}
+
+/// Host the bridge serves (tailnet IP for phone setups, else loopback).
+/// Every bridge call must go here, never hardcoded 127.0.0.1.
+fn bridge_host() -> String {
+    env_cfg::bridge_host()
 }
 
 /// Blocking core of the mute path: POST `/mic` to the bridge (which proxies
@@ -61,7 +64,8 @@ fn bridge_token() -> Option<String> {
 /// tray checkbox, and the single-instance CLI verbs. Returns the mute the
 /// wake listener confirmed.
 pub fn post_mic_muted(muted: bool) -> Result<bool, String> {
-    let reply = health::http_post_json(
+    let reply = health::http_post_json_on(
+        &bridge_host(),
         bridge_port(),
         "/mic",
         &serde_json::json!({"muted": muted}),
@@ -83,8 +87,13 @@ pub fn post_mic_muted(muted: bool) -> Result<bool, String> {
 
 /// Blocking core of the status path: GET `/mic` from the bridge.
 pub fn get_mic_status() -> Result<serde_json::Value, String> {
-    let reply = health::http_get_json_authed(bridge_port(), "/mic", bridge_token().as_deref())
-        .map_err(|e| format!("mic status unreachable: {e}"))?;
+    let reply = health::http_get_json_authed_on(
+        &bridge_host(),
+        bridge_port(),
+        "/mic",
+        bridge_token().as_deref(),
+    )
+    .map_err(|e| format!("mic status unreachable: {e}"))?;
     if reply.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         let detail = reply
             .get("error")
@@ -134,6 +143,41 @@ pub async fn mic_status() -> Result<serde_json::Value, String> {
         .map_err(|e| format!("mic status task: {e}"))?
 }
 
+/// PTT summon from the HUD (NumpadEnter): show the overlay, then ask the
+/// wake listener for a talk session via bridge POST /summon — the same
+/// summon the "hey Jarvis" hotword performs, without the hotword.
+/// Blocking bridge I/O runs on the blocking pool. When wake auto-unmutes
+/// for the call, mirror that on shell state + tray checkbox so nothing
+/// lies. Err when the chain is unreachable (fail-soft at the caller).
+#[tauri::command]
+pub async fn talk(app: AppHandle) -> Result<serde_json::Value, String> {
+    crate::tray::show_overlay(&app);
+    let reply = tauri::async_runtime::spawn_blocking(|| {
+        health::http_post_json_on(
+            &bridge_host(),
+            bridge_port(),
+            "/summon",
+            &serde_json::json!({}),
+            bridge_token().as_deref(),
+        )
+        .map_err(|e| format!("summon unreachable: {e}"))
+    })
+    .await
+    .map_err(|e| format!("summon task: {e}"))??;
+    if reply.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+        let detail = reply
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("wake listener refused");
+        return Err(format!("summon failed: {detail}"));
+    }
+    if reply.get("muted").and_then(|v| v.as_bool()) == Some(false) {
+        set_desired_mute(&app, false);
+        crate::tray::set_mute_checked(&app, false);
+    }
+    Ok(reply)
+}
+
 /// Blocking diagnostics runner: agent-venv `src/diagnostics.py` (stdlib,
 /// redacted bundle). Returns the tarball path parsed from the script's
 /// last stdout line. 3-minute hard timeout; never panics.
@@ -175,6 +219,20 @@ pub fn run_diagnostics_blocking() -> Result<PathBuf, String> {
         .ok_or_else(|| "diagnostics printed no path".to_string())
 }
 
+/// Bridge connection surface for the HUD: `{ url, token }`.
+///
+/// The bridge may bind the tailnet IP (phone access) instead of loopback,
+/// so the HUD cannot assume 127.0.0.1. The token (when set) goes into the
+/// `Authorization: Bearer` header the bridge demands. Same-machine trust:
+/// the webview can already invoke `mint_token`, so handing it the loopback
+/// credential adds no privilege.
+#[tauri::command]
+pub fn bridge_info() -> serde_json::Value {
+    let host = env_cfg::bridge_host();
+    let token = env_cfg::bridge_token();
+    serde_json::json!({ "url": format!("http://{host}:{}", bridge_port()), "token": token })
+}
+
 #[tauri::command]
 pub fn app_config() -> serde_json::Value {
     let agent_name = std::env::var("AGENT_NAME")
@@ -185,11 +243,30 @@ pub fn app_config() -> serde_json::Value {
     serde_json::json!({ "agentName": agent_name })
 }
 
+/// Shell-side twin of `mint_token.valid_room_name`: wake room names are
+/// `jarvis-<epoch>`. Anything else is rejected (the script would mint a
+/// stray summon-mode room instead — never what a join call wants). Pure.
+pub fn sanitize_room_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 64 {
+        return None;
+    }
+    if name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
 #[tauri::command]
-pub async fn mint_token(
-    room_config: Option<serde_json::Value>,
-) -> Result<serde_json::Value, String> {
-    let _ = room_config; // reserved: agent dispatch stays AGENT_NAME (v1)
+pub async fn mint_token(room_name: Option<String>) -> Result<serde_json::Value, String> {
+    // Join mode: an explicit wake room → token WITHOUT dispatch (the agent
+    // is already there; dispatching again would summon a second voice).
+    // None/invalid → legacy summon mode (fresh room + dispatch).
+    let join_room: Option<String> = room_name.as_deref().and_then(sanitize_room_name);
     let repo = env_cfg::repo_root();
     let progs = env_cfg::sidecar_programs(&repo);
     let script = repo.join("src").join("mint_token.py");
@@ -204,8 +281,17 @@ pub async fn mint_token(
     let mut last_err = "no python interpreter found".to_string();
     for py in &candidates {
         let mut cmd = tokio::process::Command::new(py);
-        cmd.arg(&script)
-            .envs(env_cfg::sidecar_env(&repo))
+        cmd.arg(&script);
+        if let Some(room) = &join_room {
+            // mint_token.py [agent] [room] join — no dispatch (see script).
+            let agent = std::env::var("AGENT_NAME")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| AGENT_NAME_DEFAULT.to_string());
+            cmd.arg(agent).arg(room).arg("join");
+        }
+        cmd.envs(env_cfg::sidecar_env(&repo))
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let out = match tokio::time::timeout(Duration::from_secs(15), cmd.output()).await {
@@ -259,6 +345,14 @@ pub fn click_through_desired() -> bool {
     CLICK_THROUGH_DESIRED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
+/// `set_ignore_cursor_events` only while the window is visible (see the
+/// GTK hazard above); a hidden window is left alone. Never panics.
+pub fn click_through_if_visible(win: &tauri::WebviewWindow, ignore: bool) {
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.set_ignore_cursor_events(ignore);
+    }
+}
+
 /// Apply the stashed click-through desire to a now-visible window.
 pub fn apply_click_through(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
@@ -295,6 +389,43 @@ mod tests {
         let v = app_config();
         let name = v.get("agentName").and_then(|n| n.as_str()).unwrap();
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn bridge_info_points_at_a_loopback_default() {
+        let vars = ["JARVIS_BRIDGE_BIND", "JARVIS_BRIDGE_TOKEN"];
+        let saved: Vec<(String, Option<String>)> = vars
+            .iter()
+            .map(|v| (v.to_string(), std::env::var(v).ok()))
+            .collect();
+        std::env::remove_var("JARVIS_BRIDGE_BIND");
+        std::env::remove_var("JARVIS_BRIDGE_TOKEN");
+        let v = bridge_info();
+        let url = v.get("url").and_then(|u| u.as_str()).unwrap();
+        assert!(url.starts_with("http://127.0.0.1:"), "{url}");
+        assert!(v.get("token").is_some());
+        for (v, old) in saved {
+            match old {
+                Some(val) => std::env::set_var(&v, val),
+                None => std::env::remove_var(&v),
+            }
+        }
+    }
+
+    #[test]
+    fn room_names_are_strictly_allowlisted() {
+        assert_eq!(
+            sanitize_room_name("jarvis-123"),
+            Some("jarvis-123".to_string())
+        );
+        assert_eq!(
+            sanitize_room_name("  jarvis-1  "),
+            Some("jarvis-1".to_string())
+        );
+        assert_eq!(sanitize_room_name(""), None);
+        assert_eq!(sanitize_room_name("../../etc"), None);
+        assert_eq!(sanitize_room_name("a b"), None);
+        assert_eq!(sanitize_room_name(&"x".repeat(65)), None);
     }
 
     #[test]

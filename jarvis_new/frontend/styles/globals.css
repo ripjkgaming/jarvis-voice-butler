@@ -460,6 +460,34 @@
   padding: 0.6rem 1rem;
   border-bottom: 1px solid rgb(34 211 238 / 18%);
   background: linear-gradient(180deg, rgb(2 12 22 / 72%), transparent);
+  cursor: move;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.hud__header-interactive {
+  display: contents;
+}
+.hud__header-interactive,
+.hud-hidebtn,
+.hud-status {
+  cursor: pointer;
+}
+.hud-hidebtn {
+  font-family: var(--font-commit-mono), monospace;
+  font-size: 12px;
+  line-height: 1;
+  color: #7dd3fc;
+  opacity: 0.7;
+  background: transparent;
+  border: 1px solid rgb(34 211 238 / 25%);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.5rem;
+}
+.hud-hidebtn:hover {
+  opacity: 1;
+  color: #e0fbff;
+  border-color: rgb(34 211 238 / 60%);
+  box-shadow: 0 0 10px rgb(34 211 238 / 35%);
 }
 .hud__grid {
   flex: 1;
@@ -541,6 +569,39 @@
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 8px 40px rgb(0 0 0 / 50%);
   overflow: hidden;
+}
+/* Linking shimmer while (re)joining — status text, never a button. */
+.hud-linking {
+  position: fixed;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgb(34 211 238 / 30%);
+  background: rgb(1 8 16 / 78%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #9be9f8;
+  pointer-events: none;
+  max-width: min(92vw, 40rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-linking__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22d3ee;
+  box-shadow: 0 0 8px #22d3ee;
+  animation: hud-blink 1s ease-in-out infinite alternate;
 }
 /* Welcome — centered card over a blurred HUD. */
 .hud-welcome {
@@ -745,6 +806,31 @@
   line-height: 1.45;
   animation: hud-blur-in 0.45s ease-out;
 }
+/* Word-synced live line: newest words pinned to the bottom, older
+   lines clipped off the top as Jarvis keeps talking. */
+.hud-caption__text--live {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: calc(1.45em * 3);
+  -webkit-line-clamp: unset;
+}
+.hud-caption__word {
+  animation: hud-word-in 0.16s ease-out;
+}
+@keyframes hud-word-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-caption__word {
+    animation: none;
+  }
+}
 .hud-log {
   border: 1px solid rgb(34 211 238 / 20%);
   border-radius: 0.6rem;
@@ -849,23 +935,6 @@
 .hud-radar[data-stealth='true'] {
   background: conic-gradient(from 0deg, rgb(148 163 184 / 22%), transparent 22%);
 }
-.hud-edge {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  pointer-events: auto;
-  background: transparent;
-  border: 2px solid rgb(34 211 238 / 80%);
-  box-shadow:
-    0 0 24px rgb(34 211 238 / 50%),
-    inset 0 0 24px rgb(34 211 238 / 25%);
-  animation: hud-blink 1.2s ease-in-out infinite alternate;
-  cursor: pointer;
-}
-.hud-edge[data-solo='true'] {
-  border-width: 1px;
-  opacity: 0.6;
-}
 @keyframes hud-eq {
   to {
     height: 100%;
@@ -926,5 +995,4554 @@
   }
   .hud-gauges {
     display: none;
+  }
+}
+
+/* ---- Voice-first redesign: ambient state, big targets, calm motion ---- */
+
+/* Screen-reader-only fallback content (node labels, etc.). */
+.hud-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  list-style: none;
+}
+
+/* State-tinted ambience wash over the whole surface. Opacity-only,
+   pointer-events-none: pure CSS, zero JS/canvas cost. */
+.hud {
+  --jarvis-state: #22d3ee;
+}
+.hud-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in srgb, var(--jarvis-state) 9%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at 50% 115%,
+      color-mix(in srgb, var(--jarvis-state) 7%, transparent),
+      transparent 50%
+    );
+  opacity: 0.9;
+  transition: background 0.6s ease;
+}
+.hud[data-state='speaking'] {
+  --jarvis-state: #fb923c;
+}
+.hud[data-state='thinking'] {
+  --jarvis-state: #22c55e;
+}
+.hud[data-state='listening'] {
+  --jarvis-state: #a855f7;
+}
+.hud[data-state='idle'] {
+  --jarvis-state: #22d3ee;
+}
+/* Idle park: every remaining CSS loop freezes while the HUD is idle —
+   zero compositor wakeups on the desktop overlay (the baked-canvas
+   loops park via useBakedCanvas(paused) in JS). Motion resumes the
+   instant data-state leaves 'idle'. */
+.hud[data-state='idle'] .hud-orb__ring,
+.hud[data-state='idle'] .hud-orb::after,
+.hud[data-state='idle'] .hud-caption__bars i,
+.hud[data-state='idle'] .hud-exec__pulse,
+.hud[data-state='idle'] .hud-pill__eq i,
+.hud[data-state='idle'] .hud-linking__pulse,
+.hud[data-state='idle'] .hud-radar {
+  animation-play-state: paused !important;
+}
+.hud__header,
+.hud__grid,
+.hud-state,
+.hud-solo__orb,
+.hud-solo__command,
+.hud-caption,
+.hud-log,
+.hud-linking {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ambient state banner: one glanceable hands-free line. */
+.hud-state {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 44px;
+  padding: 0.35rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--jarvis-state) 22%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--jarvis-state) 8%, transparent),
+    transparent
+  );
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+.hud-state__dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--jarvis-state);
+  box-shadow: 0 0 12px var(--jarvis-state);
+  animation: hud-blink 1.6s ease-in-out infinite alternate;
+}
+.hud-state[data-state='idle'] .hud-state__dot {
+  animation: none;
+  opacity: 0.75;
+}
+.hud-state__label {
+  color: #eafcff;
+  white-space: nowrap;
+}
+.hud-state__mic {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #9be9f8;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 40%, transparent);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  white-space: nowrap;
+}
+.hud-state__mic[data-muted='true'] {
+  color: #e5e7eb;
+  border-color: rgb(107 114 128 / 70%);
+  background: rgb(107 114 128 / 15%);
+}
+.hud-state__hints {
+  margin-left: auto;
+  color: rgb(125 211 252 / 55%);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.hud--solo .hud-state {
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 25%, transparent);
+  border-radius: 999px;
+  background: rgb(1 8 16 / 70%);
+}
+.hud--solo .hud-state__hints {
+  display: none;
+}
+.hud-solo__command {
+  width: min(92vw, 42rem);
+}
+
+/* Big touch + voice targets: every interactive control ≥ 44px. */
+.hud-command__input {
+  min-height: 44px;
+  font-size: 14px;
+}
+.hud-command__send,
+.hud-command__mic {
+  min-height: 44px;
+  min-width: 52px;
+  font-size: 12px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+.hud-command__send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.hud-status,
+.hud-hidebtn {
+  min-height: 44px;
+  font-size: 12px;
+  padding: 0.4rem 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hud-hidebtn {
+  cursor: pointer;
+}
+
+/* Visible keyboard focus everywhere — voice users tab/arrow too. */
+.hud-command__input:focus-visible,
+.hud-command__send:focus-visible,
+.hud-command__mic:focus-visible,
+.hud-status:focus-visible,
+.hud-hidebtn:focus-visible,
+.hud-ack:focus-visible {
+  outline: 2px solid var(--jarvis-state, #22d3ee);
+  outline-offset: 2px;
+}
+
+/* Task-done ack chip: small, corner-docked, never fullscreen. */
+.hud-ack {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state, #22d3ee) 55%, transparent);
+  background: rgb(1 8 16 / 85%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #eafcff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--jarvis-state, #22d3ee) 25%, transparent);
+  animation: hud-pill-in 0.35s ease-out;
+}
+.hud-ack__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 10px #22c55e;
+}
+
+/* PTT summon in flight: the command bar glows while wake answers. */
+.hud-command[data-talking='true'] {
+  border-color: color-mix(in srgb, var(--jarvis-state, #22d3ee) 70%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--jarvis-state, #22d3ee) 35%, transparent);
+}
+
+/* Caption speaker tint: Sir vs Jarvis vs typed echo. */
+.hud-caption[data-role='sir'] {
+  border-left-color: #a855f7;
+}
+.hud-caption[data-role='typed'] {
+  border-left-color: #22c55e;
+}
+.hud-caption[data-role='sir'] .hud-caption__bars i {
+  background: #a855f7;
+}
+.hud-caption[data-role='typed'] .hud-caption__bars i {
+  background: #22c55e;
+}
+
+/* Call lamp tints with call presence. */
+.hud-linking__pulse[data-state='incall'] {
+  background: #a855f7;
+  box-shadow: 0 0 8px #a855f7;
+}
+
+/* Calm-motion contract: one switch kills all HUD animation. */
+@media (prefers-reduced-motion: reduce) {
+  .hud-state__dot,
+  .hud-caption__bars i,
+  .hud-pill__eq i,
+  .hud-exec__pulse,
+  .hud-linking__pulse,
+  .hud-orb::after,
+  .hud-orb__ring,
+  .hud-radar,
+  .hud-ack,
+  .hud-caption__text,
+  .jarvis-background__ambient,
+  .jarvis-background__module,
+  .jarvis-background__ring--segments,
+  .jarvis-background__ring--outer,
+  .jarvis-background__ring--bright,
+  .jarvis-background__ring--inner,
+  .jarvis-background__ticks,
+  .jarvis-background__orbit,
+  .jarvis-background__particle {
+    animation: none !important;
+  }
+  .hud-orb[data-boosted='true'] {
+    transform: scale(1.06);
+  }
+}
+
+/* SYSTEM core panel: baked bar textures + blinking particle eye. */
+.hud-core {
+  border: 1px solid rgb(34 211 238 / 20%);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: rgb(1 8 16 / 70%);
+  display: flex;
+  flex-direction: column;
+}
+.hud-core__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+}
+.hud-core__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 11px;
+}
+.hud-core__bar-label {
+  width: 2.2rem;
+  color: #7dd3fc;
+  letter-spacing: 0.1em;
+}
+.hud-core__bar-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(34 211 238 / 12%);
+  overflow: hidden;
+}
+.hud-core__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  /* Baked stripe texture: pure gradient, GPU-composited; only width% goes live. */
+  background: repeating-linear-gradient(
+    -55deg,
+    rgb(34 211 238 / 85%) 0 6px,
+    rgb(34 211 238 / 45%) 6px 12px
+  );
+  box-shadow: 0 0 8px rgb(34 211 238 / 60%);
+  transition: width 0.6s ease;
+}
+/* Baked dual-canvas stage for the workflow graph. */
+.hud-graph__stage {
+  position: relative;
+  width: 100%;
+  height: 240px;
+}
+.hud-graph__stage .hud-graph__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- JARVIS voice console redesign ---- */
+:root {
+  --hud-ink: #040b12;
+  --hud-panel: rgb(5 17 27 / 76%);
+  --hud-line: rgb(109 207 232 / 14%);
+  --hud-line-strong: rgb(109 207 232 / 27%);
+  --hud-text: #e8f7fc;
+  --hud-subtle: #89a9b5;
+}
+
+.jarvis-background__hud {
+  opacity: 0.24;
+}
+
+.jarvis-background__glow-layer {
+  filter: blur(1.3px) drop-shadow(0 0 5px rgb(0 221 255 / 28%));
+}
+
+.hud {
+  --jarvis-state: #22d3ee;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  color: var(--hud-text);
+  background:
+    radial-gradient(ellipse at 50% -18%, rgb(14 78 101 / 20%), transparent 56%),
+    linear-gradient(135deg, rgb(1 8 15 / 86%), rgb(3 11 19 / 90%));
+  isolation: isolate;
+}
+
+.hud-ambient {
+  opacity: 0.52;
+}
+
+.hud__header {
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(310px, 1.15fr) auto;
+  align-items: center;
+  gap: clamp(0.6rem, 1.4vw, 1.4rem);
+  min-height: 72px;
+  padding: 0.65rem clamp(1rem, 2.2vw, 2rem);
+  border-bottom: 1px solid var(--hud-line);
+  background: linear-gradient(180deg, rgb(4 15 25 / 92%), rgb(4 13 21 / 68%));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: grab;
+}
+
+.hud__header:active {
+  cursor: grabbing;
+}
+
+.hud__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.72rem;
+  min-width: 0;
+}
+
+.hud__brand-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 52%, transparent);
+  border-radius: 12px 4px 12px 4px;
+  color: var(--jarvis-state);
+  background: color-mix(in srgb, var(--jarvis-state) 8%, rgb(2 12 20 / 92%));
+  box-shadow: inset 0 0 15px color-mix(in srgb, var(--jarvis-state) 11%, transparent);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.08em;
+  transition:
+    color 350ms ease,
+    border-color 350ms ease,
+    background 350ms ease;
+}
+
+.hud__brand-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.hud__brand-copy strong {
+  color: #eafaff;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.19em;
+}
+
+.hud__brand-copy small {
+  color: #7795a1;
+  font-size: 8px;
+  letter-spacing: 0.17em;
+  white-space: nowrap;
+}
+
+.hud__header-interactive {
+  display: block;
+}
+
+.hud-status {
+  min-height: 44px;
+  padding: 0.35rem 0.72rem;
+  border-color: var(--hud-line);
+  border-radius: 7px;
+  color: #b8d1db;
+  background: rgb(7 21 31 / 68%);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.hud-status:hover {
+  border-color: color-mix(in srgb, var(--jarvis-state) 44%, transparent);
+  color: #f0fcff;
+  background: color-mix(in srgb, var(--jarvis-state) 7%, rgb(7 21 31 / 90%));
+}
+
+.hud-status__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  box-shadow: 0 0 9px var(--jarvis-state);
+}
+
+.hud-status__label {
+  white-space: nowrap;
+}
+
+.hud-status__profile,
+.hud-status__sep {
+  color: #7695a2;
+}
+
+.hud-status__mode {
+  color: var(--jarvis-state);
+  font-size: 9px;
+}
+
+.hud-gauges {
+  justify-content: flex-end;
+  gap: clamp(0.65rem, 1.5vw, 1.35rem);
+}
+
+.hud-gauge {
+  gap: 0.45rem;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.hud-gauge__label {
+  color: #7795a1;
+}
+
+.hud-gauge__bar {
+  width: clamp(44px, 5vw, 74px);
+  height: 3px;
+  background: rgb(124 191 207 / 12%);
+}
+
+.hud-gauge__fill {
+  background: linear-gradient(90deg, #087f9b, var(--jarvis-state));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--jarvis-state) 65%, transparent);
+  transition:
+    width 450ms ease,
+    background 350ms ease;
+}
+
+.hud-gauge__text {
+  min-width: 50px;
+  color: #c6dce4;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-hidebtn {
+  min-height: 44px;
+  padding: 0.35rem 0.72rem;
+  border-color: var(--hud-line);
+  border-radius: 7px;
+  color: #a5bfca;
+  background: rgb(7 21 31 / 62%);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.hud-hidebtn:hover {
+  border-color: rgb(248 113 113 / 44%);
+  color: #fecaca;
+  background: rgb(127 29 29 / 16%);
+  box-shadow: none;
+}
+
+.hud-state {
+  z-index: 1;
+  min-height: 42px;
+  gap: 0.62rem;
+  padding: 0.35rem clamp(1rem, 2.2vw, 2rem);
+  border-bottom: 1px solid color-mix(in srgb, var(--jarvis-state) 13%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--jarvis-state) 5%, transparent),
+    transparent 66%
+  );
+  font-size: 9px;
+  letter-spacing: 0.11em;
+}
+
+.hud-state__dot {
+  width: 8px;
+  height: 8px;
+}
+
+.hud-state__label {
+  color: #d5eaf0;
+}
+
+.hud-state__mic {
+  margin-left: 0.3rem;
+  padding: 0.23rem 0.54rem;
+  border-color: color-mix(in srgb, var(--jarvis-state) 28%, transparent);
+  color: #a9c6d0;
+  font-size: 8px;
+}
+
+.hud-state__hints {
+  color: #6f8c98;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.hud__grid {
+  z-index: 1;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  gap: clamp(12px, 1.5vw, 22px);
+  padding: clamp(14px, 1.8vw, 24px) clamp(16px, 2.2vw, 32px);
+  background: transparent;
+}
+
+.hud__left,
+.hud__right {
+  gap: clamp(10px, 1.15vw, 16px);
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.hud__left {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.hud__orb-wrap {
+  position: relative;
+  display: grid;
+  width: clamp(205px, 34vh, 310px);
+  flex: none;
+  place-items: center;
+  aspect-ratio: 1;
+  isolation: isolate;
+}
+
+.hud__orb-wrap::before,
+.hud__orb-wrap::after {
+  position: absolute;
+  inset: 3%;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 17%, transparent);
+  border-radius: 50%;
+  content: '';
+  pointer-events: none;
+}
+
+.hud__orb-wrap::before {
+  inset: 0;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--jarvis-state) 13%, transparent);
+  animation: hud-orbit-slow 46s linear infinite;
+}
+
+.hud__orb-wrap::after {
+  inset: 8%;
+  border-color: color-mix(in srgb, var(--jarvis-state) 10%, transparent);
+  transform: scaleX(1.08) rotate(-26deg);
+}
+
+.hud-orb {
+  z-index: 1;
+  width: 88%;
+  max-height: none;
+  overflow: visible;
+  transition: transform 450ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.hud-orb[data-boosted='true'] {
+  transform: scale(1.08);
+}
+
+.hud-orb__ring {
+  inset: 5%;
+  border-color: color-mix(in srgb, var(--jarvis-state) 36%, transparent);
+  border-style: dotted;
+  animation-duration: 32s;
+  transition: border-color 400ms ease;
+}
+
+.hud[data-state='listening'] .hud-orb__ring {
+  animation-duration: 13s;
+}
+
+.hud[data-state='thinking'] .hud-orb__ring {
+  animation-duration: 8s;
+}
+
+.hud[data-state='speaking'] .hud-orb__ring {
+  animation-duration: 5s;
+}
+
+.hud-orb::after {
+  inset: -18%;
+  opacity: 0.19;
+  filter: blur(25px);
+}
+
+.hud-voice {
+  display: grid;
+  width: min(100%, 480px);
+  gap: 8px;
+  flex: none;
+}
+
+.hud-voice__summon,
+.hud-voice__mute {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 58px;
+  gap: 0.8rem;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 180ms ease,
+    border-color 220ms ease,
+    background 220ms ease,
+    box-shadow 220ms ease,
+    opacity 180ms ease;
+}
+
+.hud-voice__summon {
+  padding: 0.68rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 48%, transparent);
+  border-radius: 9px;
+  color: #edfbff;
+  background:
+    linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--jarvis-state) 10%, transparent),
+      transparent 70%
+    ),
+    rgb(5 19 30 / 87%);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 3%),
+    0 5px 22px rgb(0 0 0 / 17%);
+}
+
+.hud-voice__summon::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--jarvis-state);
+  box-shadow: 0 0 13px var(--jarvis-state);
+  content: '';
+  opacity: 0.8;
+}
+
+.hud-voice__summon:not(:disabled):hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--jarvis-state) 76%, transparent);
+  background-color: color-mix(in srgb, var(--jarvis-state) 9%, rgb(5 19 30 / 94%));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--jarvis-state) 13%, transparent);
+}
+
+.hud-voice__summon:disabled {
+  cursor: default;
+}
+
+.hud-voice[data-summoning='true'] .hud-voice__summon-icon {
+  animation: hud-sparkle-turn 1.8s ease-in-out infinite;
+}
+
+.hud-voice[data-live='true'] .hud-voice__summon {
+  border-color: color-mix(in srgb, var(--jarvis-state) 32%, transparent);
+  background-color: rgb(6 18 28 / 76%);
+}
+
+.hud-voice__summon-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 28%, transparent);
+  border-radius: 7px;
+  color: var(--jarvis-state);
+  background: color-mix(in srgb, var(--jarvis-state) 9%, transparent);
+}
+
+.hud-voice__summon-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.7;
+}
+
+.hud-voice__summon-copy {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.hud-voice__summon-copy strong {
+  color: #e7f7fb;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+.hud-voice__summon-copy small {
+  overflow: hidden;
+  color: #829fab;
+  font-size: 9px;
+  letter-spacing: 0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-voice__shortcut {
+  margin-left: auto;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid var(--hud-line);
+  border-radius: 4px;
+  color: #78939e;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.hud-voice__mute {
+  min-height: 44px;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--hud-line);
+  border-radius: 7px;
+  color: #99b2bd;
+  background: rgb(4 15 24 / 63%);
+  font-size: 9px;
+  letter-spacing: 0.035em;
+}
+
+.hud-voice__mute:hover {
+  border-color: var(--hud-line-strong);
+  color: #e1f5fb;
+  background: rgb(7 24 35 / 84%);
+}
+
+.hud-voice__mute[aria-pressed='true'] {
+  border-color: rgb(148 163 184 / 34%);
+  color: #b8c1ca;
+  background: rgb(100 116 139 / 10%);
+}
+
+.hud-voice__mute-icon {
+  display: grid;
+  width: 20px;
+  place-items: center;
+  color: var(--jarvis-state);
+}
+
+.hud-voice__mute[aria-pressed='true'] .hud-voice__mute-icon {
+  color: #9ca3af;
+}
+
+.hud-voice__mute-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
+}
+
+.hud-voice__mute-state {
+  margin-left: auto;
+  color: var(--jarvis-state);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.hud-caption {
+  width: min(100%, 480px);
+  min-height: 56px;
+  gap: 0.68rem;
+  padding: 0.55rem 0.72rem;
+  border: 1px solid var(--hud-line);
+  border-left: 2px solid var(--jarvis-state);
+  border-radius: 6px;
+  background: linear-gradient(110deg, rgb(8 23 33 / 82%), rgb(4 14 23 / 70%));
+  box-shadow: inset 0 1px rgb(255 255 255 / 2%);
+}
+
+.hud-caption__bars {
+  width: 30px;
+  flex: none;
+  justify-content: center;
+  gap: 2px;
+  height: 18px;
+  color: var(--jarvis-state);
+}
+
+.hud-caption__bars i {
+  width: 2px;
+  border-radius: 2px;
+  background: var(--jarvis-state);
+  opacity: 0.74;
+}
+
+.hud-caption__text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #c2d9e1;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hud-log,
+.hud-graph,
+.hud-exec,
+.hud-core {
+  border: 1px solid var(--hud-line);
+  border-radius: 8px;
+  background: var(--hud-panel);
+  box-shadow: inset 0 1px rgb(255 255 255 / 2%);
+}
+
+.hud-log {
+  display: flex;
+  width: min(100%, 480px);
+  min-height: 74px;
+  flex: 1 1 80px;
+  flex-direction: column;
+  background: linear-gradient(145deg, rgb(5 16 25 / 84%), rgb(3 11 18 / 80%));
+}
+
+.hud-log__head,
+.hud-graph__head,
+.hud-exec__head {
+  min-height: 31px;
+  align-items: center;
+  padding: 0.42rem 0.7rem;
+  border-bottom-color: var(--hud-line);
+  color: #90b4c0;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+}
+
+.hud-log__path,
+.hud-graph__hint,
+.hud-exec__count {
+  color: #587581;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+}
+
+.hud-log__body {
+  max-height: none;
+  padding: 0.42rem 0.7rem;
+  overflow: auto;
+  scrollbar-color: rgb(91 143 159 / 32%) transparent;
+  scrollbar-width: thin;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.hud-log__line {
+  color: #90abb6;
+}
+
+.hud-log__empty {
+  color: #5d7b87;
+  font-size: 9px;
+}
+
+.hud__right {
+  justify-content: flex-start;
+}
+
+.hud-graph {
+  min-height: 120px;
+  flex: 1 1 225px;
+}
+
+.hud-graph__stage {
+  height: auto;
+  min-height: 85px;
+  flex: 1;
+}
+
+.hud-graph__canvas {
+  height: 100%;
+}
+
+.hud-exec {
+  flex: none;
+  overflow: hidden;
+}
+
+.hud-exec__list {
+  gap: 0.25rem;
+  padding: 0.45rem 0.7rem 0.6rem;
+}
+
+.hud-exec__item {
+  min-height: 24px;
+  gap: 0.55rem;
+  color: #b9d0d8;
+  font-size: 10px;
+}
+
+.hud-exec__pulse {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: #58d7aa;
+  box-shadow: 0 0 8px rgb(88 215 170 / 60%);
+}
+
+.hud-exec__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hud-exec__time {
+  flex: none;
+  color: #7896a1;
+  font-variant-numeric: tabular-nums;
+  font-size: 9px;
+}
+
+.hud-exec__empty {
+  margin: 0;
+  padding: 0.78rem 0.7rem;
+  color: #6e8a95;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 10px;
+}
+
+.hud-core {
+  flex: none;
+}
+
+.hud-core__bars {
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem 0.58rem;
+}
+
+.hud-core__bar {
+  gap: 0.6rem;
+  color: #9bb5bf;
+  font-size: 9px;
+}
+
+.hud-core__bar-label {
+  color: #7697a3;
+  font-size: 8px;
+}
+
+.hud-core__bar-track {
+  height: 4px;
+  background: rgb(34 211 238 / 9%);
+}
+
+.hud-core__bar-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--jarvis-state) 38%, #087c91),
+    var(--jarvis-state)
+  );
+  box-shadow: 0 0 7px color-mix(in srgb, var(--jarvis-state) 44%, transparent);
+}
+
+.hud-linking {
+  right: 18px;
+  bottom: 12px;
+  left: auto;
+  transform: none;
+  z-index: 12;
+  min-height: 30px;
+  padding: 0.3rem 0.65rem;
+  border-color: var(--hud-line);
+  border-radius: 6px;
+  background: rgb(3 12 20 / 88%);
+  color: #7f9da8;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.hud-linking__pulse {
+  width: 6px;
+  height: 6px;
+}
+
+.hud--solo {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto auto minmax(72px, 0.3fr);
+  justify-items: center;
+  align-items: center;
+  gap: clamp(8px, 1.4vh, 14px);
+  padding: max(14px, env(safe-area-inset-top)) 18px max(16px, env(safe-area-inset-bottom));
+}
+
+.hud--solo .hud-solo__orb {
+  display: grid;
+  width: min(42vh, 320px, 76vw);
+  height: auto;
+  max-height: 100%;
+  align-items: center;
+  justify-items: center;
+  aspect-ratio: 1;
+}
+
+.hud--solo .hud-state {
+  width: min(100%, 520px);
+  min-height: 38px;
+  justify-content: center;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--jarvis-state) 21%, transparent);
+  border-radius: 7px;
+  background: rgb(4 14 23 / 78%);
+}
+
+.hud--solo .hud-state__hints {
+  display: none;
+}
+
+.hud--solo .hud-voice,
+.hud--solo .hud-caption {
+  width: min(100%, 520px);
+}
+
+.hud--solo .hud-log[data-fullscreen='true'] {
+  width: min(100%, 720px);
+  min-height: 72px;
+  max-height: 100%;
+}
+
+.hud--solo .hud-log[data-fullscreen='true'] .hud-log__body {
+  max-height: 100%;
+}
+
+.hud--solo .hud-linking {
+  right: 12px;
+  bottom: 12px;
+  max-width: 46vw;
+}
+
+.hud-command,
+.hud-solo__command {
+  display: none !important;
+}
+
+.hud-voice__summon:focus-visible,
+.hud-voice__mute:focus-visible {
+  outline: 2px solid var(--jarvis-state);
+  outline-offset: 3px;
+}
+
+@keyframes hud-orbit-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hud-sparkle-turn {
+  50% {
+    transform: rotate(24deg) scale(1.08);
+  }
+}
+
+@media (max-width: 1100px) {
+  .hud__header {
+    grid-template-columns: minmax(150px, 1fr) auto auto;
+  }
+
+  .hud-gauges {
+    display: none;
+  }
+
+  .hud__grid {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .hud__orb-wrap {
+    width: clamp(190px, 30vh, 260px);
+  }
+}
+
+@media (max-width: 900px) {
+  .hud__header {
+    grid-template-columns: 1fr auto;
+    min-height: 62px;
+    padding-inline: 12px;
+  }
+
+  .hud__brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px 4px 9px 4px;
+  }
+
+  .hud__brand-copy strong {
+    font-size: 11px;
+  }
+
+  .hud__brand-copy small {
+    font-size: 7px;
+  }
+
+  .hud-status {
+    min-height: 44px;
+    gap: 0.35rem;
+    padding-inline: 0.5rem;
+    font-size: 8px;
+  }
+
+  .hud-status__profile,
+  .hud-status__sep,
+  .hud-status__mode {
+    display: none;
+  }
+
+  .hud-hidebtn {
+    display: none;
+  }
+
+  .hud-state {
+    min-height: 36px;
+    padding-inline: 12px;
+    font-size: 8px;
+  }
+
+  .hud-state__hints {
+    display: none;
+  }
+
+  .hud__grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(450px, 1.1fr) minmax(310px, 0.9fr);
+    overflow: auto;
+    padding: 12px;
+  }
+
+  .hud__left {
+    min-height: 450px;
+  }
+
+  .hud__right {
+    min-height: 310px;
+  }
+
+  .hud__orb-wrap {
+    width: min(31vh, 240px);
+  }
+
+  .hud-radar {
+    display: none;
+  }
+}
+
+@media (max-height: 650px) and (min-width: 761px) {
+  .hud__header {
+    min-height: 58px;
+    padding-block: 0.35rem;
+  }
+
+  .hud-state {
+    min-height: 34px;
+  }
+
+  .hud__grid {
+    padding-block: 10px;
+  }
+
+  .hud__orb-wrap {
+    width: clamp(170px, 29vh, 220px);
+  }
+
+  .hud__left,
+  .hud__right {
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud__orb-wrap::before,
+  .hud-voice[data-summoning='true'] .hud-voice__summon-icon {
+    animation: none !important;
+  }
+
+  .hud-voice__summon,
+  .hud-voice__mute,
+  .hud-status,
+  .hud-hidebtn,
+  .hud-gauge__fill,
+  .hud-orb,
+  .hud-orb__ring {
+    transition: none !important;
+  }
+}
+
+/* Calm mode: the overlay idles at near-zero CPU. data-state="idle" means
+   no call is active, so every decorative animation freezes (software
+   rendering repaints the whole 1370x858 surface per frame otherwise).
+   Any non-idle state restores full motion instantly. */
+.hud[data-state='idle'] *,
+.hud[data-state='idle'] *::before,
+.hud[data-state='idle'] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ============ STARK RESKIN (Rainmeter HUD) — appended, overrides above ============ */
+.hud {
+  --stark: #54f6ff;
+  --stark-hot: #d9fbff;
+  --stark-dim: rgba(84, 246, 255, 0.28);
+  --stark-faint: rgba(84, 246, 255, 0.12);
+  --stark-bg: #010507;
+  --stark-panel: rgba(2, 22, 32, 0.66);
+  background: var(--stark-bg);
+  letter-spacing: 0.04em;
+}
+/* Blueprint grid backdrop + vignette. */
+.hud-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 90% 70% at 50% 42%, rgba(84, 246, 255, 0.07), transparent 65%),
+    repeating-linear-gradient(0deg, rgba(84, 246, 255, 0.05) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(90deg, rgba(84, 246, 255, 0.05) 0 1px, transparent 1px 56px);
+}
+/* Scanlines over everything (static gradient = zero repaint cost). */
+.hud::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+}
+/* Header instrument strip. */
+.hud__header {
+  border-bottom: 1px solid rgba(84, 246, 255, 0.35);
+  background: linear-gradient(180deg, rgba(3, 26, 38, 0.9), rgba(1, 5, 7, 0.4));
+  box-shadow: 0 1px 18px rgba(84, 246, 255, 0.12);
+}
+.hud__brand-copy strong {
+  color: var(--stark-hot);
+  text-shadow: 0 0 12px rgba(84, 246, 255, 0.8);
+  letter-spacing: 0.18em;
+}
+.hud__brand-copy small {
+  color: var(--stark);
+  letter-spacing: 0.3em;
+}
+/* Stark dial cluster. */
+.stark-dials {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.stark-dial {
+  position: relative;
+  width: 104px;
+  height: 104px;
+}
+.stark-dial__svg {
+  width: 100%;
+  height: 100%;
+}
+.stark-dial__core {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.stark-dial__value {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--stark-hot);
+  text-shadow: 0 0 10px rgba(84, 246, 255, 0.9);
+  line-height: 1;
+}
+.stark-dial__label {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  color: var(--stark);
+}
+.stark-dial__sub {
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  color: rgba(217, 251, 255, 0.62);
+}
+/* Panels: angular glass cards with corner brackets. */
+.hud__left,
+.hud__right {
+  background: rgba(1, 5, 7, 0.45);
+}
+.hud-graph,
+.hud-exec,
+.hud-core,
+.hud-log,
+.hud-caption,
+.hud-command {
+  position: relative;
+  background: var(--stark-panel);
+  border: 1px solid rgba(84, 246, 255, 0.22);
+  border-radius: 3px;
+  box-shadow: inset 0 0 24px rgba(84, 246, 255, 0.05);
+}
+.hud-graph::before,
+.hud-exec::before,
+.hud-core::before,
+.hud-log::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 16px;
+  height: 16px;
+  border-top: 2px solid var(--stark);
+  border-left: 2px solid var(--stark);
+  filter: drop-shadow(0 0 4px rgba(84, 246, 255, 0.9));
+  pointer-events: none;
+}
+.hud-graph::after,
+.hud-exec::after,
+.hud-core::after,
+.hud-log::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 16px;
+  height: 16px;
+  border-bottom: 2px solid var(--stark);
+  border-right: 2px solid var(--stark);
+  filter: drop-shadow(0 0 4px rgba(84, 246, 255, 0.9));
+  pointer-events: none;
+}
+.hud-graph__head,
+.hud-exec__head,
+.hud-log__head {
+  letter-spacing: 0.22em;
+  color: var(--stark);
+  text-shadow: 0 0 8px rgba(84, 246, 255, 0.6);
+  border-bottom: 1px solid var(--stark-faint);
+}
+/* Center reactor stage. */
+.hud__orb-wrap {
+  max-width: 460px;
+  margin: 0 auto;
+  width: 100%;
+}
+.hud-orb {
+  max-height: 420px;
+}
+.hud-orb__ring {
+  border: 1px solid rgba(84, 246, 255, 0.5);
+  box-shadow:
+    0 0 18px rgba(84, 246, 255, 0.25),
+    inset 0 0 18px rgba(84, 246, 255, 0.12);
+}
+/* Voice dock: angular Stark buttons. */
+.hud-voice__summon,
+.hud-voice__mute,
+.hud-command__send,
+.hud-command__mic,
+.hud-hidebtn,
+.hud-status {
+  border-radius: 2px !important;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.hud-command__send {
+  background: var(--stark);
+  box-shadow: 0 0 14px rgba(84, 246, 255, 0.55);
+  font-weight: 700;
+}
+/* State banner + captions glow. */
+.hud-state__label,
+.hud-caption__text {
+  text-shadow: 0 0 8px rgba(84, 246, 255, 0.5);
+}
+.hud-caption {
+  border-left: 2px solid var(--stark);
+}
+/* Footer strip. */
+.stark-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 1rem;
+  border-top: 1px solid rgba(84, 246, 255, 0.35);
+  background: linear-gradient(0deg, rgba(3, 26, 38, 0.9), rgba(1, 5, 7, 0.4));
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: var(--stark);
+}
+.stark-foot__brand {
+  color: var(--stark-hot);
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(84, 246, 255, 0.8);
+}
+.stark-foot__mid {
+  opacity: 0.75;
+}
+.stark-foot__right {
+  opacity: 0.75;
+}
+/* Solo mode keeps the reactor front and center. */
+.hud--solo .hud-solo__orb {
+  width: min(58vh, 420px);
+  height: min(58vh, 420px);
+  filter: drop-shadow(0 0 26px rgba(84, 246, 255, 0.35));
+}
+
+/* ============ STARK v2 — rings everywhere, middle re-render, new anims ============ */
+/* Twin tick rings around the reactor (pure CSS, GPU-cheap rotates). */
+.hud-orb__ticks {
+  position: absolute;
+  inset: -4%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    rgba(84, 246, 255, 0.55) 0deg 1.2deg,
+    transparent 1.2deg 7.5deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 68%, #000 68.5%, #000 71%, transparent 71.5%);
+  mask: radial-gradient(circle, transparent 68%, #000 68.5%, #000 71%, transparent 71.5%);
+  animation: jarvis-rotate 40s linear infinite;
+}
+.hud-orb__ticks--rev {
+  inset: -9%;
+  background: repeating-conic-gradient(
+    rgba(84, 246, 255, 0.35) 0deg 0.8deg,
+    transparent 0.8deg 5deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 70%, #000 70.5%, #000 72%, transparent 72.5%);
+  mask: radial-gradient(circle, transparent 70%, #000 70.5%, #000 72%, transparent 72.5%);
+  animation: jarvis-rotate-reverse 60s linear infinite;
+}
+/* Middle stage re-render: bigger reactor, glowing readout stack. */
+.hud__orb-wrap {
+  max-width: 560px;
+}
+.hud-orb {
+  max-height: 480px;
+}
+.hud__left .hud-caption {
+  font-size: 15px;
+  border-left-width: 3px;
+  box-shadow: 0 0 22px rgba(84, 246, 255, 0.12);
+}
+.hud-command {
+  box-shadow: 0 0 18px rgba(84, 246, 255, 0.1);
+}
+/* Entrance choreography: panels rise in stagger, dials bloom. */
+@keyframes stark-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes stark-bloom {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes stark-footpulse {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.hud__left > *,
+.hud__right > * {
+  animation: stark-rise 0.5s ease-out both;
+}
+.hud__right > *:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.hud__right > *:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.hud__left > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.hud__left > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.hud__left > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+.stark-dial {
+  animation: stark-bloom 0.6s ease-out both;
+}
+.stark-dial:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.stark-dial:nth-child(3) {
+  animation-delay: 0.14s;
+}
+.stark-dial:nth-child(4) {
+  animation-delay: 0.21s;
+}
+.stark-foot__right {
+  animation: stark-footpulse 2.4s ease-in-out infinite alternate;
+}
+
+/* ============ IRON MAN MARK I–II MOVIE HUD (presentation-only reskin) ============
+   Near-black + deep-blue vignette, #5FE3FF wireframes, #FFB347 warnings,
+   1px strokes, tick rings, segmented arcs, hex micro-texture, scanlines,
+   bloom, mono micro-labels, rolling ticker, bracket corners, leader lines.
+   SVG + transform/opacity CSS only. No data-flow or layout-contract change. */
+:root {
+  --im-cyan: #5fe3ff;
+  --im-cyan-hot: #d8f8ff;
+  --im-cyan-soft: rgba(95, 227, 255, 0.55);
+  --im-cyan-faint: rgba(95, 227, 255, 0.14);
+  --im-amber: #ffb347;
+  --im-amber-soft: rgba(255, 179, 71, 0.6);
+  --im-ink: #010409;
+  --im-blue: #0a2a44;
+}
+
+/* ---- Backdrop: near-black + deep blue vignette + hex/grid + scanlines ---- */
+.hud {
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 38%, rgba(10, 42, 68, 0.5), transparent 62%),
+    radial-gradient(ellipse 90% 75% at 50% 110%, rgba(8, 60, 96, 0.32), transparent 60%),
+    linear-gradient(180deg, #010409 0%, #020914 55%, #010409 100%);
+}
+.hud-ambient {
+  background-image:
+    radial-gradient(ellipse 70% 55% at 50% 42%, rgba(95, 227, 255, 0.08), transparent 65%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='97' viewBox='0 0 56 97'%3E%3Cpath d='M28 0l28 16v32L28 64 0 48V16zM28 64l28 16v17' fill='none' stroke='rgba(95,227,255,0.055)' stroke-width='1'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(0deg, rgba(95, 227, 255, 0.045) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(90deg, rgba(95, 227, 255, 0.045) 0 1px, transparent 1px 56px);
+  background-size:
+    auto,
+    56px 97px,
+    56px 56px,
+    56px 56px;
+  opacity: 0.9;
+}
+/* Deep-blue vignette wash above ambient, below content. */
+.hud::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 105% 100% at 50% 45%,
+    transparent 52%,
+    rgba(1, 4, 9, 0.55) 82%,
+    rgba(0, 1, 4, 0.88) 100%
+  );
+}
+/* Faint static scanlines (zero repaint cost). */
+.hud::after {
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
+  opacity: 0.5;
+}
+/* Slow vertical scan sweep — one composited layer, transform-only. */
+.im-boot {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(95, 227, 255, 0.06) 45%,
+      rgba(95, 227, 255, 0.14) 50%,
+      rgba(95, 227, 255, 0.06) 55%,
+      transparent 100%
+    ),
+    rgba(190, 245, 255, 0.85);
+  opacity: 0;
+  animation: im-boot-flicker 1.1s steps(12, end) 1;
+}
+@keyframes im-boot-flicker {
+  0% {
+    opacity: 0.9;
+  }
+  8% {
+    opacity: 0.15;
+  }
+  16% {
+    opacity: 0.7;
+  }
+  28% {
+    opacity: 0.1;
+  }
+  42% {
+    opacity: 0.55;
+  }
+  58% {
+    opacity: 0.12;
+  }
+  74% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ---- Micro-labels: monospaced uppercase, letter-spaced, tabular nums ---- */
+.hud-graph__head,
+.hud-exec__head,
+.hud-log__head,
+.hud-state,
+.hud-status,
+.im-ticker,
+.stark-foot {
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+}
+.hud-graph__head,
+.hud-exec__head,
+.hud-log__head {
+  color: var(--im-cyan);
+  text-shadow: 0 0 8px rgba(95, 227, 255, 0.55);
+}
+.hud-gauge__text,
+.hud-exec__time,
+.stark-dial__value,
+.hud-log__body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Panels: 1px cyan wireframe + 4-corner [ ] brackets + bloom ---- */
+.hud-graph,
+.hud-exec,
+.hud-core,
+.hud-log {
+  border: 1px solid rgba(95, 227, 255, 0.22);
+  background:
+    linear-gradient(135deg, rgba(95, 227, 255, 0.05) 0%, transparent 18%) top right / 15px 15px
+      no-repeat,
+    linear-gradient(315deg, rgba(95, 227, 255, 0.05) 0%, transparent 18%) bottom left / 15px 15px
+      no-repeat,
+    linear-gradient(150deg, rgba(4, 18, 30, 0.88), rgba(2, 10, 18, 0.82));
+  box-shadow:
+    inset 0 0 24px rgba(95, 227, 255, 0.05),
+    0 0 18px rgba(95, 227, 255, 0.07);
+}
+.hud-graph::before,
+.hud-exec::before,
+.hud-core::before,
+.hud-log::before {
+  border-top: 2px solid var(--im-cyan);
+  border-left: 2px solid var(--im-cyan);
+  filter: drop-shadow(0 0 4px rgba(95, 227, 255, 0.9));
+}
+.hud-graph::after,
+.hud-exec::after,
+.hud-core::after,
+.hud-log::after {
+  border-bottom: 2px solid var(--im-cyan);
+  border-right: 2px solid var(--im-cyan);
+  filter: drop-shadow(0 0 4px rgba(95, 227, 255, 0.9));
+}
+.hud-caption {
+  border: 1px solid rgba(95, 227, 255, 0.2);
+  border-left: 2px solid var(--jarvis-state, var(--im-cyan));
+  background: linear-gradient(110deg, rgba(8, 24, 36, 0.85), rgba(3, 12, 20, 0.75));
+  box-shadow:
+    inset 0 0 18px rgba(95, 227, 255, 0.05),
+    0 0 16px rgba(95, 227, 255, 0.06);
+}
+
+/* ---- Rolling telemetry ticker ---- */
+.im-ticker {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(95, 227, 255, 0.16);
+  background: linear-gradient(
+    90deg,
+    rgba(95, 227, 255, 0.05),
+    transparent 30%,
+    transparent 70%,
+    rgba(95, 227, 255, 0.05)
+  );
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: rgba(95, 227, 255, 0.75);
+  white-space: nowrap;
+  user-select: none;
+}
+.im-ticker__track {
+  display: inline-flex;
+  padding: 0.3rem 0;
+  will-change: transform;
+  animation: im-ticker-scroll 36s linear infinite;
+}
+.im-ticker__track span {
+  padding-right: 2rem;
+}
+@keyframes im-ticker-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ---- Arc-reactor core ---- */
+.im-reactor {
+  isolation: isolate;
+}
+.im-reactor__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--im-cyan);
+  filter: drop-shadow(0 0 6px rgba(95, 227, 255, 0.45));
+}
+.im-reactor__canvas {
+  position: absolute !important;
+  inset: 19%;
+  width: 62% !important;
+  height: 62% !important;
+  border-radius: 50%;
+}
+.im-ring {
+  fill: none;
+  stroke: var(--im-cyan);
+  stroke-width: 1;
+}
+.im-ring--hair {
+  opacity: 0.85;
+}
+.im-ring--faint {
+  opacity: 0.3;
+}
+.im-ring--seg {
+  opacity: 0.9;
+  stroke-width: 5;
+  stroke-dasharray: 120 34 18 34;
+  stroke-linecap: butt;
+}
+.im-ring--seg2 {
+  opacity: 0.75;
+  stroke-width: 2.5;
+  stroke-dasharray: 64 22 10 22;
+}
+.im-ring--coil {
+  opacity: 0.6;
+  stroke-width: 1.5;
+  stroke-dasharray: 8 10;
+}
+.im-tick {
+  stroke: var(--im-cyan);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+.im-tick--major {
+  stroke-width: 1.5;
+  opacity: 0.95;
+}
+.im-tick--coil {
+  stroke-width: 2;
+  opacity: 0.7;
+}
+.im-core__halo {
+  pointer-events: none;
+  animation: im-core-breathe 4s ease-in-out infinite alternate;
+}
+.im-core__iris {
+  fill: none;
+  stroke: var(--jarvis-state, var(--im-cyan));
+  stroke-width: 3;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 8px var(--jarvis-state, var(--im-cyan)));
+}
+.im-core__iris-dash {
+  fill: none;
+  stroke: var(--im-cyan-hot);
+  stroke-width: 1.2;
+  stroke-dasharray: 26 30;
+  opacity: 0.8;
+}
+.im-core__hot {
+  fill: #ffffff;
+  opacity: 0.92;
+  filter: drop-shadow(0 0 10px var(--jarvis-state, var(--im-cyan)));
+}
+.im-core__spark {
+  fill: #ffffff;
+  opacity: 1;
+}
+/* Segmented-arc rotation speeds: slow ticks / medium shell / fast inner. */
+.im-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform;
+}
+.im-spin--slow {
+  animation: im-spin 64s linear infinite;
+}
+.im-spin--slow-rev {
+  animation: im-spin-rev 80s linear infinite;
+}
+.im-spin--med {
+  animation: im-spin 22s linear infinite;
+}
+.im-spin--med-rev {
+  animation: im-spin-rev 26s linear infinite;
+}
+.im-spin--fast-rev {
+  animation: im-spin-rev 11s linear infinite;
+}
+@keyframes im-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes im-spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes im-core-breathe {
+  from {
+    opacity: 0.75;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Voice-state reaction: speaking/thinking spin up + brighten the core. */
+.hud[data-state='speaking'] .im-spin--med {
+  animation-duration: 7s;
+}
+.hud[data-state='speaking'] .im-spin--fast-rev {
+  animation-duration: 4s;
+}
+.hud[data-state='thinking'] .im-spin--med {
+  animation-duration: 11s;
+}
+.hud[data-state='thinking'] .im-spin--fast-rev {
+  animation-duration: 7s;
+}
+.hud[data-state='listening'] .im-spin--med {
+  animation-duration: 15s;
+}
+.hud[data-state='speaking'] .im-core__halo {
+  animation-duration: 1.6s;
+}
+.hud[data-state='speaking'] .im-core__hot {
+  opacity: 1;
+}
+/* Idle park keeps the reactor turning slowly (GPU transform only). */
+.hud[data-state='idle'] .im-spin--slow {
+  animation: im-spin 64s linear infinite !important;
+}
+.hud[data-state='idle'] .im-spin--slow-rev {
+  animation: im-spin-rev 80s linear infinite !important;
+}
+.hud[data-state='idle'] .im-spin--med {
+  animation: im-spin 34s linear infinite !important;
+}
+.hud[data-state='idle'] .im-spin--med-rev {
+  animation: im-spin-rev 40s linear infinite !important;
+}
+.hud[data-state='idle'] .im-spin--fast-rev {
+  animation: im-spin-rev 22s linear infinite !important;
+}
+.hud[data-state='idle'] .im-ticker__track {
+  animation: im-ticker-scroll 36s linear infinite !important;
+}
+.hud[data-state='idle'] .im-core__halo {
+  animation: im-core-breathe 4s ease-in-out infinite alternate !important;
+}
+.hud[data-state='idle'] .im-boot {
+  animation: im-boot-flicker 1.1s steps(12, end) 1 !important;
+}
+
+/* ---- Leader-line crosshair behind the reactor ---- */
+.hud__orb-wrap {
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - 0.5px),
+      rgba(95, 227, 255, 0.12) calc(50% - 0.5px),
+      rgba(95, 227, 255, 0.12) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      0deg,
+      transparent calc(50% - 0.5px),
+      rgba(95, 227, 255, 0.12) calc(50% - 0.5px),
+      rgba(95, 227, 255, 0.12) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    );
+}
+
+/* ---- Amber warnings (sparing, Iron Man style) ---- */
+.hud-core__bar[data-warn='true'] .hud-core__bar-fill {
+  background: repeating-linear-gradient(
+    -55deg,
+    rgba(255, 179, 71, 0.9) 0 6px,
+    rgba(255, 179, 71, 0.45) 6px 12px
+  );
+  box-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+}
+.hud-core__bar[data-warn='true'] .hud-core__bar-label,
+.hud-core__bar[data-warn='true'] .hud-core__bar-text {
+  color: var(--im-amber);
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+}
+
+/* ---- Entrance: panels slide/scale in with stagger ---- */
+@keyframes im-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.hud__left > *,
+.hud__right > * {
+  animation: im-panel-in 0.55s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.hud__left > *:nth-child(2),
+.hud__right > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.hud__left > *:nth-child(3),
+.hud__right > *:nth-child(3) {
+  animation-delay: 0.14s;
+}
+.hud__left > *:nth-child(4) {
+  animation-delay: 0.21s;
+}
+.hud__header,
+.im-ticker {
+  animation: im-panel-in 0.5s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+/* ---- Movie background retint (presentation only, JSX untouched) ---- */
+.jarvis-background {
+  background:
+    radial-gradient(circle at 50% 46%, rgba(10, 42, 68, 0.35), transparent 22%),
+    radial-gradient(circle at 18% 7%, rgba(8, 45, 75, 0.4), transparent 30%),
+    linear-gradient(135deg, #010409 0%, #020914 52%, #010409 100%);
+}
+.jarvis-background__hud {
+  color: var(--im-cyan);
+  opacity: 0.32;
+}
+.jarvis-background__glow-layer {
+  filter: blur(1.3px) drop-shadow(0 0 5px rgba(95, 227, 255, 0.3));
+}
+.jarvis-background__particle {
+  background: var(--im-cyan);
+  box-shadow: 0 0 14px var(--im-cyan);
+}
+
+/* ---- Reduced motion: one switch kills the movie motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .im-boot,
+  .im-ticker__track,
+  .im-spin,
+  .im-spin--slow,
+  .im-spin--slow-rev,
+  .im-spin--med,
+  .im-spin--med-rev,
+  .im-spin--fast-rev,
+  .im-core__halo,
+  .hud__left > *,
+  .hud__right > *,
+  .hud__header,
+  .im-ticker {
+    animation: none !important;
+  }
+}
+
+/* ---- Footer-height reserve + short-viewport fit (presentation only) ----
+   The bottom `.stark-foot` strip is pinned to the shell bottom while the dual
+   shell reserves the strip's height as bottom padding, so grid content never
+   slides under the footer at 1600x900 or 1280x720. The reactor stage is capped
+   by viewport height so VoiceDock + LiveCaption stay above the footer, and the
+   "standing by" pill returns to its fixed overlay slot instead of stealing
+   flex space and painting over the footer. */
+.hud--dual {
+  --stark-foot-h: 30px;
+  padding-bottom: var(--stark-foot-h);
+}
+.hud--dual .stark-foot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  flex: none;
+  min-height: var(--stark-foot-h);
+  margin: 0;
+}
+.hud--dual .hud-linking {
+  position: fixed;
+  right: auto;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 50;
+  margin: 0;
+  transform: translateX(-50%);
+}
+/* Reactor stage tracks viewport height so the left column keeps VoiceDock +
+   LiveCaption above the footer instead of clipping them. */
+.hud__orb-wrap {
+  width: min(100%, 560px, 44vh);
+}
+@media (max-height: 940px) and (min-width: 901px) {
+  .hud__orb-wrap {
+    width: min(100%, 460px, 36vh);
+  }
+}
+/* Short viewports (the desktop overlay is a fixed 1280x720): compact the
+   header instrument cluster, banner, grid and reactor so every panel fits.
+   Lives here — after the reskin sections — so it wins the cascade. */
+@media (max-height: 760px) and (min-width: 761px) {
+  .hud__header {
+    min-height: 58px;
+    padding-block: 0.35rem;
+  }
+  /* The 104px dial cluster would burst the compact header, so dials shrink
+     with it. */
+  .stark-dials {
+    gap: 0.25rem;
+  }
+  .stark-dial {
+    width: 60px;
+    height: 60px;
+  }
+  .stark-dial__value {
+    font-size: 14px;
+  }
+  .stark-dial__label {
+    font-size: 7px;
+  }
+  .stark-dial__sub {
+    display: none;
+  }
+  .hud-state {
+    min-height: 34px;
+  }
+  .hud__grid {
+    padding-block: 10px;
+  }
+  .hud__orb-wrap {
+    width: clamp(170px, 29vh, 220px);
+  }
+  .hud__left,
+  .hud__right {
+    gap: 8px;
+  }
+}
+
+/* ---- SYSTEM live stat gauges: 4 thin rings in a row, 2x2 under ~1100px ---- */
+.hud-core__gauges {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  padding: 0.55rem 0.6rem 0.1rem;
+}
+@media (max-width: 1100px) {
+  .hud-core__gauges {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.hud-core__gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.hud-core__ring {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: none;
+}
+.hud-core__ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hud-core__ring-track {
+  fill: none;
+  stroke: var(--im-cyan-faint);
+  stroke-width: 2;
+}
+.hud-core__ring-fg {
+  fill: none;
+  stroke: var(--im-cyan);
+  stroke-width: 2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--im-cyan-soft));
+  transition: stroke-dasharray 0.6s ease;
+}
+.hud-core__gauge[data-warn='true'] .hud-core__ring-fg {
+  stroke: var(--im-amber);
+  filter: drop-shadow(0 0 4px var(--im-amber-soft));
+}
+.hud-core__gauge-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--im-cyan-hot);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px var(--im-cyan-soft);
+  white-space: nowrap;
+}
+.hud-core__gauge[data-warn='true'] .hud-core__gauge-value {
+  color: var(--im-amber);
+  text-shadow: 0 0 8px var(--im-amber-soft);
+}
+.hud-core__gauge-label,
+.hud-core__gauge-sub {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+}
+.hud-core__gauge-label {
+  color: var(--im-cyan);
+}
+.hud-core__gauge[data-warn='true'] .hud-core__gauge-label,
+.hud-core__gauge[data-warn='true'] .hud-core__gauge-sub {
+  color: var(--im-amber);
+}
+.hud-core__gauge-sub {
+  color: rgba(216, 248, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── SUIT POWER lifecycle (boot / charging / full / low / lost) ──────────
+   All motion is transform/opacity on standalone HTML layers: composited,
+   no SVG repaint per frame. The ring fill itself only transitions once. */
+.hud-core__ring {
+  position: relative;
+}
+.hud-suit__fg {
+  transition: stroke-dasharray 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hud-suit__flow,
+.hud-suit__bolt,
+.hud-suit__flash {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+}
+.hud-suit__flow {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+.hud-suit__flow circle {
+  fill: none;
+  stroke: #e9fbff;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.hud-suit__bolt {
+  width: 13px;
+  height: 13px;
+  top: 6px;
+  left: 50%;
+  margin-left: -6.5px;
+  fill: var(--im-amber, #ffb347);
+}
+.hud-suit__flash {
+  inset: 8%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(95 227 255 / 55%), transparent 70%);
+}
+.hud-suit[data-mode='booting'] .hud-suit__flash {
+  animation: hud-suit-flash 1.2s ease-out 1 both;
+}
+.hud-suit[data-mode='booting'] .hud-core__gauge-sub {
+  color: #e9fbff;
+}
+.hud-suit[data-mode='charging'] .hud-suit__flow {
+  opacity: 0.9;
+  animation: hud-suit-spin 3.2s linear infinite;
+}
+.hud-suit[data-mode='charging'] .hud-suit__bolt,
+.hud-suit[data-mode='full'] .hud-suit__bolt {
+  opacity: 1;
+}
+.hud-suit[data-mode='charging'] .hud-suit__bolt {
+  animation: hud-suit-blink 1.6s ease-in-out infinite;
+}
+.hud-suit[data-mode='full'] .hud-suit__bolt {
+  fill: var(--im-cyan, #5fe3ff);
+}
+.hud-suit[data-mode='low'] .hud-core__ring {
+  animation: hud-suit-blink 2.4s ease-in-out infinite;
+}
+.hud-suit[data-mode='lost'] .hud-core__ring {
+  animation: hud-suit-down 0.9s ease-in 1 both;
+}
+@keyframes hud-suit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes hud-suit-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes hud-suit-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+@keyframes hud-suit-down {
+  to {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+}
+
+/* ── PERF PASS (24/7 webview on a 15GB laptop) ────────────────────────────
+   WebKit repaints a whole <svg> (and its glow filters) for ANY animation
+   inside it. The full-screen background SVG ran 35 such animations
+   (circuit dash-flow, arc pulse, twinkles, pixels, rotations) = a
+   full-viewport filtered repaint every frame. Freeze its internals; the
+   HTML-level haze/particles/ambient layers keep the room alive for free. */
+.jarvis-background svg,
+.jarvis-background svg * {
+  animation: none !important;
+}
+/* Pause everything while the window is hidden/minimised (see html class). */
+html.hud-hidden *,
+html.hud-hidden *::before,
+html.hud-hidden *::after {
+  animation-play-state: paused !important;
+}
+/* Bolt/flow must beat the generic `.hud-core__ring svg` sizing rule. */
+.hud-suit .hud-core__ring svg.hud-suit__bolt {
+  inset: 3px auto auto 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+}
+.hud-suit .hud-core__ring svg.hud-suit__flow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ============ Live research strip (under the ticker) ============ */
+.hud-research {
+  --hr-amber: #ffb547;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(255, 181, 71, 0.22);
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.07), transparent 70%);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+}
+.hud-research--compact {
+  position: relative;
+  z-index: 2;
+  padding: 4px 10px;
+}
+.hud-research__job {
+  display: grid;
+  grid-template-columns: auto minmax(0, 14ch) minmax(60px, 1fr) 5ch minmax(0, 1.4fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--stark-hot, #d9fbff);
+}
+.hud-research__tag {
+  color: var(--hr-amber);
+  letter-spacing: 0.26em;
+  font-size: 9.5px;
+}
+.hud-research__title,
+.hud-research__stage {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hud-research__stage {
+  color: var(--hr-amber);
+}
+.hud-research__track {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 181, 71, 0.35);
+}
+.hud-research__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(255, 181, 71, 0.5), var(--hr-amber));
+  box-shadow: 0 0 8px rgba(255, 181, 71, 0.6);
+  transition: width 0.9s ease-out;
+}
+.hud-research__pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.hud-research--compact .hud-research__job {
+  grid-template-columns: auto minmax(60px, 1fr) 5ch;
+}
+.hud-research--compact .hud-research__title,
+.hud-research--compact .hud-research__stage {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-research__fill {
+    transition: none;
+  }
+}
+
+/* ============ Short screens (1366x768 laptops and below) ============
+   At 768 px tall the dual HUD's fixed blocks (orb, dock, mic, caption,
+   panels, graph, system) no longer fit: the activity log and the system
+   card slid under the footer. Tighten the vertical budget instead. */
+@media (max-height: 820px) {
+  .hud--dual .hud__grid {
+    padding-block: 10px;
+    gap: 12px;
+  }
+  .hud--dual .hud__left,
+  .hud--dual .hud__right {
+    gap: 8px;
+  }
+  .hud--dual .hud__orb-wrap {
+    width: clamp(150px, 27vh, 230px);
+  }
+  .hud--dual .hud-log {
+    min-height: 44px;
+    flex-basis: 44px;
+  }
+  .hud--dual .hud-graph {
+    min-height: 64px;
+    flex-basis: 96px;
+  }
+  .hud--dual .hud-graph__stage {
+    min-height: 36px;
+  }
+  .hud--dual .hud-panel {
+    padding: 6px 9px;
+  }
+  .hud--dual .hud-panel__row:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+/* ============ Voice panels (show mail / hide calendar) ============
+   Opened and closed only by voice (src/hud_panels.py). Glass cards in the
+   right column, same line/panel tokens as the rest of the HUD. */
+.hud-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+}
+.hud-panel {
+  border: 1px solid var(--hud-line-strong);
+  background: var(--hud-panel);
+  padding: 8px 10px;
+  min-width: 0;
+  animation: hud-panel-in 0.45s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.hud-panel[data-leaving='true'] {
+  pointer-events: none;
+  animation: hud-panel-out 0.28s cubic-bezier(0.4, 0, 0.7, 0.2) both;
+}
+.hud-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--hud-line);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.hud-panel__tag {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--stark-hot, #d9fbff);
+}
+.hud-panel__count {
+  font-size: 10px;
+  color: var(--hud-subtle);
+  animation: hud-panel-count 0.4s cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+.hud-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hud-panel__row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* A row that arrived while the panel was open: rise in, one sweep. */
+.hud-panel__row[data-fresh='true'] {
+  overflow: hidden;
+  animation: hud-act-in 0.35s ease-out;
+}
+.hud-panel__row[data-fresh='true']::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--jarvis-state, #22d3ee) 26%, transparent),
+    transparent
+  );
+  content: '';
+  pointer-events: none;
+  animation: hud-act-sweep 1.1s cubic-bezier(0.2, 0.75, 0.25, 1) 0.1s both;
+}
+.hud-panel__row[data-fresh='true'] .hud-panel__main {
+  color: var(--stark-hot, #d9fbff);
+  transition: color 1.6s ease-out;
+}
+.hud-panel__main,
+.hud-panel__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-panel__main {
+  font-size: 11.5px;
+  color: var(--hud-text);
+}
+.hud-panel__sub {
+  font-size: 10px;
+  color: var(--hud-subtle);
+  letter-spacing: 0.04em;
+}
+.hud-panel__empty {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--hud-subtle);
+}
+.hud-panel__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--hud-subtle);
+  letter-spacing: 0.08em;
+}
+.hud-panel__stats b {
+  color: var(--hud-text);
+  font-weight: 500;
+}
+@keyframes hud-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hud-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+@keyframes hud-panel-count {
+  0% {
+    color: var(--stark-hot, #d9fbff);
+    transform: scale(1.45);
+  }
+  100% {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-panel,
+  .hud-panel[data-leaving='true'],
+  .hud-panel__count,
+  .hud-panel__row[data-fresh='true'],
+  .hud-panel__row[data-fresh='true']::after {
+    animation: none;
+  }
+}
+
+/* ============ School mode: Jarvis IS the taskbar ============
+   Laid exactly over the bottom panel by KWin (shell/src-tauri/src/school.rs):
+   full width, panel height, click-through. Every measure scales off the
+   height (--h). Three zones: Jarvis (core, name, state, session timer) ·
+   the stream (live words, else an ambient trace; running jobs) · the machine
+   (net, volume, cpu, memory, battery, phone, clock). Motion: the bar opens
+   from its centre line, zones rise in staggered, a scan glides along the top
+   edge, and a light sweep crosses on every state change. */
+/* Registered so the state colour fades across the whole bar. */
+@property --sbar-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #5fe3ff;
+}
+/* The shell window is transparent in school mode: only the bar (and an
+   open menu) paint; the space a menu grows into shows the desktop. */
+html:has(.sbar),
+html:has(.sbar) body {
+  background: transparent !important;
+  overflow: hidden;
+}
+/* Nothing else paints in school mode: the HUD's background art and the
+   hover theme toggle (bottom centre, right over the bar) stay hidden. */
+html:has(.sbar-root) .jarvis-background,
+html:has(.sbar-root) body > div > .group.fixed,
+html:has(.sbar-root) body > .group.fixed {
+  display: none !important;
+}
+.sbar-root {
+  z-index: 60;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.smenu-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sbar {
+  --sbar-accent: var(--im-cyan, #5fe3ff);
+  --h: var(--sbar-h, 100vh);
+  --line: rgb(109 207 232 / 13%);
+  --line-strong: rgb(109 207 232 / 26%);
+  --text: var(--hud-text, #e8f7fc);
+  --subtle: var(--hud-subtle, #89a9b5);
+  --amber: var(--im-amber, #ffb347);
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--h) * 0.5);
+  flex: none;
+  width: 100%;
+  height: var(--h);
+  padding: 0 calc(var(--h) * 0.3);
+  overflow: hidden;
+  background:
+    radial-gradient(
+      40% 220% at 0% 50%,
+      color-mix(in srgb, var(--sbar-accent) 22%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 160% at 50% 120%,
+      color-mix(in srgb, var(--sbar-accent) 14%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--sbar-accent) 7%, transparent),
+      color-mix(in srgb, var(--sbar-accent) 3%, transparent)
+    ),
+    radial-gradient(60% 260% at 50% 140%, rgb(10 60 90 / 30%), transparent 70%),
+    repeating-linear-gradient(90deg, rgb(95 227 255 / 3%) 0 1px, transparent 1px 24px),
+    linear-gradient(180deg, #071824, #030b12 70%);
+  color: var(--text);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  user-select: none;
+  cursor: default;
+  transition: --sbar-accent 0.6s ease;
+  animation: sbar-open 0.75s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+/* Top edge: hairline in the state colour, brighter at the centre. */
+.sbar::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 55%, transparent) 20%,
+    var(--sbar-accent) 50%,
+    color-mix(in srgb, var(--sbar-accent) 55%, transparent) 80%,
+    transparent
+  );
+  opacity: 0.7;
+  transition: background 0.5s ease;
+}
+.sbar[data-leaving='true'] {
+  animation: sbar-close 0.36s cubic-bezier(0.6, 0, 0.8, 0.4) forwards;
+}
+@keyframes sbar-close {
+  0% {
+    clip-path: inset(0 0 0 0);
+  }
+  55% {
+    clip-path: inset(48% 0 48% 0);
+  }
+  100% {
+    clip-path: inset(48% 50% 48% 50%);
+  }
+}
+@keyframes sbar-open {
+  0% {
+    clip-path: inset(48% 50% 48% 50%);
+  }
+  45% {
+    clip-path: inset(48% 0 48% 0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.sbar > section {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  animation: sbar-rise 0.5s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-left {
+  gap: calc(var(--h) * 0.3);
+  animation-delay: 0.45s !important;
+}
+.sbar-mid {
+  gap: calc(var(--h) * 0.3);
+  animation-delay: 0.55s !important;
+}
+.sbar-right {
+  gap: 0;
+  animation-delay: 0.65s !important;
+}
+@keyframes sbar-rise {
+  from {
+    transform: translateY(40%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A glint that glides along the top edge, forever, slowly. */
+.sbar-scan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 14%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--sbar-accent), transparent);
+  filter: blur(0.5px);
+  opacity: 0.9;
+  animation: sbar-scan 7s ease-in-out infinite;
+}
+@keyframes sbar-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(720%);
+  }
+}
+/* One-shot light sweep on every state change (re-keyed per state). */
+.sbar-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 20%, transparent),
+    transparent
+  );
+  transform: translateX(-110%);
+  animation: sbar-sweep 1.1s ease-out 0.05s forwards;
+}
+@keyframes sbar-sweep {
+  to {
+    transform: translateX(620%);
+  }
+}
+
+/* ---- Core ---- */
+.sbar-core {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 0.78);
+  height: calc(var(--h) * 0.78);
+}
+.sbar-core > * {
+  grid-area: 1 / 1;
+}
+.sbar-core__halo {
+  width: 130%;
+  height: 130%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--sbar-accent) 42%, transparent),
+    transparent 64%
+  );
+  animation: sbar-breathe 3.2s ease-in-out infinite;
+}
+.sbar-core__ring {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: sbar-spin 10s linear infinite;
+}
+.sbar-core__ring circle {
+  fill: none;
+  stroke: var(--sbar-accent);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-dasharray: 18 5 3 5 8 5;
+  opacity: 0.9;
+  transition: stroke 0.5s ease;
+}
+.sbar-core__ring--inner {
+  animation-direction: reverse;
+  animation-duration: 6s;
+}
+.sbar-core__ring--inner circle {
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
+.sbar-core__dot {
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 36% 32%,
+    #fff 0%,
+    var(--sbar-accent) 45%,
+    color-mix(in srgb, var(--sbar-accent) 45%, #000) 92%
+  );
+  box-shadow: 0 0 8px var(--sbar-accent);
+  animation: sbar-breathe 3.2s ease-in-out infinite;
+}
+.sbar[data-state='thinking'] .sbar-core__ring {
+  animation-duration: 1.2s;
+}
+.sbar[data-state='thinking'] .sbar-core__ring:not(.sbar-core__ring--inner) circle {
+  stroke-dasharray: 24 42;
+}
+.sbar[data-state='listening'] .sbar-core__halo,
+.sbar[data-state='speaking'] .sbar-core__halo,
+.sbar[data-state='listening'] .sbar-core__dot,
+.sbar[data-state='speaking'] .sbar-core__dot {
+  animation-duration: 0.9s;
+}
+.sbar[data-state='muted'] .sbar-core * {
+  animation: none;
+  opacity: 0.5;
+}
+@keyframes sbar-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.78;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes sbar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Clickable zones (start core, tray tiles, clock) ---- */
+:where(.sbar) button {
+  font: inherit;
+  color: inherit;
+}
+.sbar-start,
+.sbar-tray,
+.sbar-clock {
+  position: relative;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sbar-start {
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 1.05);
+  margin-left: calc(var(--h) * -0.12);
+}
+.sbar-tray {
+  display: flex;
+  align-items: center;
+  transition: background 0.2s ease;
+}
+.sbar-start::after,
+.sbar-tray::after,
+.sbar-clock::after {
+  content: '';
+  position: absolute;
+  inset: auto 18% 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 6px var(--sbar-accent);
+  transform: scaleX(0);
+  transition: transform 0.25s ease;
+}
+.sbar-start:hover::after,
+.sbar-tray:hover::after,
+.sbar-clock:hover::after {
+  transform: scaleX(0.4);
+}
+.sbar-start[data-open='true']::after,
+.sbar-tray[data-open='true']::after,
+.sbar-clock[data-open='true']::after {
+  transform: scaleX(1);
+}
+.sbar-tray:hover,
+.sbar-tray[data-open='true'],
+.sbar-clock:hover,
+.sbar-clock[data-open='true'] {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--sbar-accent) 9%, transparent)
+  );
+}
+.sbar-start:hover .sbar-core__ring,
+.sbar-start[data-open='true'] .sbar-core__ring {
+  animation-duration: 2s;
+}
+
+/* ---- Identity ---- */
+.sbar-id {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  line-height: 1;
+}
+.sbar-id {
+  min-width: 10.5ch;
+}
+.sbar-id__name {
+  color: var(--text);
+  font-size: clamp(10px, calc(var(--h) * 0.28), 14px);
+  font-weight: 700;
+  letter-spacing: 0.34em;
+}
+.sbar-id__state {
+  color: var(--sbar-accent);
+  font-size: clamp(8px, calc(var(--h) * 0.2), 10px);
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--sbar-accent) 60%, transparent);
+  animation: sbar-rise 0.35s ease-out both;
+}
+/* Bottom edge glow in the state colour: the wash reads at a glance. */
+.sbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 12% 0;
+  height: 1px;
+  background: radial-gradient(closest-side, var(--sbar-accent), transparent);
+  opacity: 0.55;
+}
+.sbar[data-state='listening']::after,
+.sbar[data-state='thinking']::after,
+.sbar[data-state='speaking']::after {
+  opacity: 1;
+  animation: sbar-edge 1.8s ease-in-out infinite;
+}
+@keyframes sbar-edge {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---- Apps ---- */
+.sbar-apps {
+  gap: calc(var(--h) * 0.1);
+  padding: 0 calc(var(--h) * 0.2);
+  border-left: 1px solid var(--line);
+  animation-delay: 0.5s !important;
+}
+.sbar-app {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: calc(var(--h) * 0.92);
+  height: calc(var(--h) * 0.86);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.15s ease;
+  animation: sbar-rise 0.4s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  animation-delay: calc(0.55s + var(--i, 0) * 0.04s);
+}
+.sbar-app img,
+.sbar-app__glyph {
+  width: calc(var(--h) * 0.56);
+  height: calc(var(--h) * 0.56);
+  transition:
+    transform 0.2s ease,
+    filter 0.2s ease,
+    opacity 0.2s ease;
+}
+.sbar-app img {
+  object-fit: contain;
+}
+.sbar-app__glyph {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: calc(var(--h) * 0.28);
+  font-weight: 700;
+}
+.sbar-app:hover {
+  border-color: var(--line-strong);
+  background: rgb(95 227 255 / 6%);
+}
+.sbar-app:hover img,
+.sbar-app:hover .sbar-app__glyph {
+  transform: translateY(-1px) scale(1.06);
+}
+.sbar-app:active {
+  transform: scale(0.94);
+}
+.sbar-app[data-active='true'] {
+  border-color: color-mix(in srgb, var(--sbar-accent) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    transparent 30%,
+    color-mix(in srgb, var(--sbar-accent) 16%, transparent)
+  );
+}
+.sbar-app[data-active='true'] img {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--sbar-accent) 60%, transparent));
+}
+.sbar-app[data-minimized='true'] img,
+.sbar-app[data-minimized='true'] .sbar-app__glyph {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+.sbar-app[data-launching='true'] img,
+.sbar-app[data-launching='true'] .sbar-app__glyph {
+  animation: sbar-launch 0.7s ease-in-out infinite;
+}
+@keyframes sbar-launch {
+  50% {
+    transform: translateY(-3px) scale(1.08);
+    filter: drop-shadow(0 0 6px var(--sbar-accent));
+  }
+}
+.sbar-app__pips {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  display: flex;
+  gap: 2px;
+  transform: translateX(-50%);
+}
+.sbar-app__pips i {
+  width: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--subtle);
+  opacity: 0.7;
+  transition:
+    width 0.25s ease,
+    background 0.25s ease;
+}
+.sbar-app__pips i[data-on='true'] {
+  width: 12px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 4px var(--sbar-accent);
+  opacity: 1;
+}
+
+/* ---- Stream ---- */
+.sbar-mid {
+  flex: 1 1 auto !important;
+  justify-content: center;
+  padding: 0 calc(var(--h) * 0.4);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.sbar-stream {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 92%, transparent);
+}
+.sbar-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  width: 100%;
+  min-width: 0;
+  padding-left: 0.6em;
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(12px, calc(var(--h) * 0.32), 15px);
+  white-space: nowrap;
+  animation: sbar-line-in 0.45s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-line b {
+  flex: none;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sbar-line .is-jarvis {
+  color: var(--im-cyan, #5fe3ff);
+}
+.sbar-line .is-sir {
+  color: var(--subtle);
+}
+.sbar-line__slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.sbar-line__text {
+  display: inline-block;
+  color: var(--text);
+}
+.sbar-line__text.is-marquee {
+  animation: sbar-marquee var(--marquee-s, 8s) ease-in-out 1.2s infinite;
+}
+@keyframes sbar-line-in {
+  from {
+    transform: translateY(60%);
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes sbar-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--marquee));
+  }
+}
+/* Ambient signal when nothing is said: drawn live on a canvas (LiveTrace),
+ * so it never repeats. `color` feeds the canvas its state colour. */
+.sbar-trace {
+  width: 100%;
+  height: calc(var(--h) * 0.7);
+  color: var(--sbar-accent);
+  opacity: 0.85;
+  transition: opacity 0.6s ease;
+  animation: sbar-line-in 0.6s ease-out both;
+}
+.sbar-trace canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.sbar[data-state='muted'] .sbar-trace {
+  opacity: 0.35;
+}
+/* Voice bars: grow in beside the stream while Jarvis listens or speaks. */
+.sbar-bars {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 0;
+  height: 44%;
+  opacity: 0;
+  transition:
+    width 0.35s ease,
+    opacity 0.35s ease;
+}
+.sbar[data-state='listening'] .sbar-bars,
+.sbar[data-state='speaking'] .sbar-bars {
+  width: 22px;
+  opacity: 1;
+}
+.sbar-bars i {
+  flex: 1;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 4px var(--sbar-accent);
+  transform: scaleY(0.25);
+  animation: sbar-eq 0.9s ease-in-out infinite;
+}
+.sbar-bars i:nth-child(2) {
+  animation-delay: -0.45s;
+  animation-duration: 0.7s;
+}
+.sbar-bars i:nth-child(3) {
+  animation-delay: -0.2s;
+  animation-duration: 1.05s;
+}
+.sbar-bars i:nth-child(4) {
+  animation-delay: -0.6s;
+  animation-duration: 0.8s;
+}
+.sbar-bars i:nth-child(5) {
+  animation-delay: -0.35s;
+  animation-duration: 0.95s;
+}
+@keyframes sbar-eq {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+/* Running jobs (research, downloads, builds). */
+.sbar-job {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 8px 3px 5px;
+  border: 1px solid rgb(255 179 71 / 24%);
+  background: rgb(255 179 71 / 5%);
+  color: var(--amber);
+  font-size: clamp(8px, calc(var(--h) * 0.2), 10px);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  animation: sbar-rise 0.45s ease-out both;
+}
+.sbar-job__title {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--amber) 75%, var(--text));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbar-ring {
+  flex: none;
+  width: calc(var(--h) * 0.42);
+  height: calc(var(--h) * 0.42);
+  transform: rotate(-90deg);
+}
+.sbar-ring.is-spin {
+  animation: sbar-spin-ring 1.4s linear infinite;
+}
+@keyframes sbar-spin-ring {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+.sbar-ring circle {
+  fill: none;
+  stroke-width: 2.2;
+}
+.sbar-ring__track {
+  stroke: rgb(255 179 71 / 18%);
+}
+.sbar-ring__fill {
+  stroke: var(--amber);
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 2px var(--amber));
+  transition: stroke-dashoffset 0.9s ease-out;
+}
+
+/* ---- Machine tiles ---- */
+.sbar-tile {
+  --tile: var(--im-cyan, #5fe3ff);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 62%;
+  padding: 0 calc(var(--h) * 0.3);
+  border-left: 1px solid var(--line);
+}
+.sbar-tile[data-tone='warn'] {
+  --tile: var(--amber);
+}
+.sbar-tile[data-tone='hot'] {
+  --tile: #ff5d5d;
+}
+.sbar-tile[data-tone='hot'] .sbar-tile__body b {
+  animation: sbar-blink 1.2s steps(2) infinite;
+}
+.sbar-tile[data-tone='dim'] {
+  --tile: var(--subtle);
+}
+.sbar-tile__icon svg {
+  display: block;
+  width: calc(var(--h) * 0.36);
+  height: calc(var(--h) * 0.36);
+  overflow: visible;
+}
+.sbar-tile__icon path,
+.sbar-tile__icon rect,
+.sbar-tile__icon circle {
+  fill: none;
+  stroke: rgb(137 169 181 / 35%);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sbar-tile__icon .on {
+  stroke: var(--tile);
+}
+.sbar-tile__icon .fill,
+.sbar-tile__icon .dot {
+  fill: var(--tile);
+  stroke: none;
+}
+.sbar-tile__icon .batt {
+  filter: drop-shadow(0 0 2px var(--tile));
+}
+.sbar-tile__icon .bolt {
+  fill: #02080d;
+  stroke: none;
+}
+.sbar-tile__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+}
+.sbar-tile__body i {
+  color: var(--subtle);
+  font-size: clamp(7px, calc(var(--h) * 0.16), 8.5px);
+  font-style: normal;
+  letter-spacing: 0.22em;
+}
+.sbar-tile__body b {
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(9px, calc(var(--h) * 0.24), 12px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbar-tile[data-tone] .sbar-tile__body b {
+  color: var(--tile);
+}
+.sbar-tile__gauge {
+  position: relative;
+  display: block;
+  height: 2px;
+  background: rgb(137 169 181 / 16%);
+}
+.sbar-tile__gauge span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--tile);
+  box-shadow: 0 0 4px var(--tile);
+  transition: width 0.8s ease-out;
+}
+@keyframes sbar-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---- Clock ---- */
+.sbar-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 calc(var(--h) * 0.1) 0 calc(var(--h) * 0.4);
+  border-left: 1px solid var(--line-strong);
+  line-height: 1;
+}
+.sbar-clock b {
+  color: var(--text);
+  font-size: clamp(13px, calc(var(--h) * 0.38), 19px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 10px rgb(95 227 255 / 35%);
+}
+.sbar-clock__colon {
+  color: var(--sbar-accent);
+  animation: sbar-blink 2s steps(2) infinite;
+}
+.sbar-clock i {
+  color: var(--subtle);
+  font-size: clamp(7px, calc(var(--h) * 0.17), 9px);
+  font-style: normal;
+  letter-spacing: 0.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sbar,
+  .sbar *,
+  .sbar::before {
+    animation: none !important;
+    transition: none !important;
+  }
+  .sbar-scan,
+  .sbar-sweep {
+    display: none;
+  }
+  .sbar::after {
+    animation: none;
+  }
+}
+
+/* ============ School taskbar menus: open upward out of the bar ============ */
+.smenu-layer {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.smenu {
+  --line: rgb(109 207 232 / 14%);
+  --text: var(--hud-text, #e8f7fc);
+  --subtle: var(--hud-subtle, #89a9b5);
+  position: absolute;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sbar-accent) 34%, transparent);
+  background:
+    radial-gradient(
+      120% 60% at 50% 100%,
+      color-mix(in srgb, var(--sbar-accent) 12%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(180deg, rgb(8 24 36 / 97%), rgb(3 11 17 / 98%));
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 40%),
+    0 18px 50px rgb(0 0 0 / 55%),
+    0 0 26px color-mix(in srgb, var(--sbar-accent) 18%, transparent);
+  color: var(--text);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  transform-origin: bottom center;
+  animation: smenu-in 0.28s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.smenu::before,
+.smenu::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--sbar-accent);
+  pointer-events: none;
+}
+.smenu::before {
+  top: 4px;
+  left: 4px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.smenu::after {
+  top: 4px;
+  right: 4px;
+  border-left: 0;
+  border-bottom: 0;
+}
+.smenu-layer[data-closing='true'] .smenu {
+  animation: smenu-out 0.17s ease-in forwards;
+}
+@keyframes smenu-in {
+  from {
+    transform: translateY(18px) scaleY(0.94);
+    opacity: 0;
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes smenu-out {
+  to {
+    transform: translateY(14px) scaleY(0.96);
+    opacity: 0;
+  }
+}
+:where(.smenu) button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.smenu__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.smenu__head b {
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--sbar-accent);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+}
+.smenu__head i {
+  color: var(--subtle);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.24em;
+}
+
+/* Launcher */
+.smenu-layer[data-menu='launcher'] .smenu {
+  left: 8px;
+  width: min(640px, calc(100vw - 16px));
+  height: calc(100% - 16px);
+}
+.smenu__pinned {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.smenu__pin {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(95 227 255 / 3%);
+  transition:
+    border-color 0.2s ease,
+    transform 0.15s ease;
+}
+.smenu__pin:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+  transform: translateY(-2px);
+}
+.smenu__pin img,
+.smenu__pin .sbar-app__glyph {
+  width: 26px;
+  height: 26px;
+}
+.smenu__body {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.smenu__cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--line);
+}
+.smenu__cats button {
+  position: relative;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--subtle);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-align: left;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.smenu__cats button:hover {
+  background: rgb(95 227 255 / 6%);
+  color: var(--text);
+}
+.smenu__cats button[data-on='true'] {
+  background: color-mix(in srgb, var(--sbar-accent) 14%, transparent);
+  color: var(--text);
+}
+.smenu__cats button[data-on='true']::before {
+  content: '';
+  position: absolute;
+  inset: 6px auto 6px 0;
+  width: 2px;
+  background: var(--sbar-accent);
+  box-shadow: 0 0 6px var(--sbar-accent);
+}
+.smenu__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(95 227 255 / 25%) transparent;
+}
+.smenu__app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  animation: smenu-app 0.3s ease-out both;
+  animation-delay: calc(var(--i, 0) * 12ms + 60ms);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.smenu__app:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--sbar-accent) 8%, transparent);
+}
+.smenu__app img,
+.smenu__app .sbar-app__glyph {
+  width: 34px;
+  height: 34px;
+  transition: transform 0.15s ease;
+}
+.smenu__app:hover img {
+  transform: scale(1.1);
+}
+.smenu__app span {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+@keyframes smenu-app {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+.smenu__empty {
+  grid-column: 1 / -1;
+  color: var(--subtle);
+  font-size: 12px;
+  text-align: center;
+}
+.smenu__power {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: rgb(0 0 0 / 18%);
+}
+.smenu__pbtn {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--subtle);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.smenu__pbtn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.smenu__pbtn:hover {
+  background: rgb(95 227 255 / 7%);
+  color: var(--text);
+}
+.smenu__pbtn[data-danger='true']:hover {
+  color: #ffb4a8;
+}
+.smenu__pbtn[data-armed='true'] {
+  border-color: rgb(255 93 93 / 60%);
+  background: rgb(255 93 93 / 14%);
+  color: #ff8a80;
+  animation: sbar-blink 0.9s steps(2) infinite;
+}
+
+/* Quick settings */
+.smenu-layer[data-menu='quick'] .smenu {
+  right: 150px;
+  width: 360px;
+}
+.smenu__toggles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 12px 14px;
+}
+.smenu__toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(95 227 255 / 3%);
+  text-align: left;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+.smenu__toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--subtle);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.smenu__toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.smenu__toggle b {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.smenu__toggle i {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 9.5px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 88px;
+}
+.smenu__toggle[data-on='true'] {
+  border-color: color-mix(in srgb, var(--sbar-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--sbar-accent) 16%, transparent);
+}
+.smenu__toggle[data-on='true'] svg {
+  stroke: var(--sbar-accent);
+  filter: drop-shadow(0 0 4px var(--sbar-accent));
+}
+.smenu__toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.smenu__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--line);
+}
+.smenu__slider-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.smenu__slider-head b {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: var(--subtle);
+}
+.smenu__slider-head i {
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.smenu__slider-head button {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+.smenu__slider-head button:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+}
+.smenu__slider input {
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+.smenu__slider input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--sbar-accent) var(--v), rgb(137 169 181 / 18%) var(--v));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+}
+.smenu__slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 2px solid var(--sbar-accent);
+  border-radius: 50%;
+  background: #02080d;
+  box-shadow: 0 0 8px var(--sbar-accent);
+  appearance: none;
+}
+.smenu__slider {
+  position: relative;
+}
+/* 100% mark on a boost-capable slider (volume goes to 150%). */
+.smenu__slider[data-boostable='true']::after {
+  content: '';
+  position: absolute;
+  bottom: 14px;
+  left: calc(16px + (100% - 32px) * var(--mark-f, 1));
+  width: 1px;
+  height: 12px;
+  background: rgb(232 247 252 / 45%);
+  pointer-events: none;
+}
+.smenu__slider[data-boost='true'] i {
+  color: var(--im-amber, #ffb347);
+}
+.smenu__slider[data-boost='true'] input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    var(--sbar-accent) var(--mark),
+    var(--im-amber, #ffb347) var(--mark) var(--v),
+    rgb(137 169 181 / 18%) var(--v)
+  );
+}
+.smenu__slider[data-muted='true'] input {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+/* Calendar */
+.smenu-layer[data-menu='calendar'] .smenu {
+  right: 8px;
+  width: 320px;
+}
+.smenu__nav {
+  display: flex;
+  gap: 2px;
+}
+.smenu__nav button {
+  width: 24px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+}
+.smenu__nav button:hover {
+  border-color: color-mix(in srgb, var(--sbar-accent) 50%, transparent);
+}
+.smenu__big {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px 6px;
+}
+.smenu__big b {
+  font-family: var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+}
+.smenu__big i {
+  color: var(--subtle);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+.smenu__cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  padding: 10px 14px 16px;
+  text-align: center;
+}
+.smenu__cal i {
+  padding-bottom: 4px;
+  color: var(--subtle);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.14em;
+}
+.smenu__cal span {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.smenu__cal span[data-weekend='true'] {
+  color: var(--subtle);
+}
+.smenu__cal span[data-today='true'] {
+  border: 1px solid var(--sbar-accent);
+  background: color-mix(in srgb, var(--sbar-accent) 18%, transparent);
+  color: var(--text);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sbar-accent) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smenu,
+  .smenu__app {
+    animation: none !important;
+  }
+}
+
+/* ============ HUD <-> school taskbar transitions ============
+   Entering: school-transition.tsx (the HUD folds into the screen sides,
+   tracers run the rim and pool into the bar). Leaving: the bar closes to
+   its line (.sbar[data-leaving]) and the HUD unfolds upward from the
+   bottom. */
+html.hud-unfolding .hud {
+  transform-origin: 50% 100%;
+}
+html.hud-unfolding .hud {
+  animation: hud-unfold 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+html.hud-unfolding body::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #5fe3ff 20%,
+    #d8f8ff 50%,
+    #5fe3ff 80%,
+    transparent
+  );
+  box-shadow:
+    0 0 12px #5fe3ff,
+    0 0 30px rgb(95 227 255 / 60%);
+  pointer-events: none;
+  z-index: 9999;
+}
+html.hud-unfolding body::after {
+  animation: hud-unfold-line 0.8s ease-out forwards;
+}
+@keyframes hud-unfold {
+  0% {
+    transform: scaleY(0.004);
+    opacity: 0;
+    filter: brightness(2.2);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes hud-unfold-line {
+  0% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  45%,
+  100% {
+    transform: scaleX(0.3);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.hud-unfolding .hud,
+  html.hud-unfolding body::after {
+    animation-duration: 0.01s !important;
+  }
+}
+
+/* Entry transition layer: the page goes see-through (the shell window is
+   transparent and click-through while it plays); only the frozen HUD
+   halves, the light canvas, and finally the bar paint. */
+html.school-tx,
+html.school-tx body {
+  background: transparent !important;
+  overflow: hidden;
+}
+html.school-tx .jarvis-background:not(.stx-half .jarvis-background),
+html.school-tx body > div > .group.fixed,
+html.school-tx body > .group.fixed {
+  display: none !important;
+}
+.stx {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+.stx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+/* The frozen HUD halves squeeze into their own sides. */
+.stx-half {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  will-change: transform, filter;
+}
+.stx-half--left {
+  clip-path: inset(0 50% 0 0);
+  transform-origin: 0 50%;
+}
+.stx-half--right {
+  clip-path: inset(0 0 0 50%);
+  transform-origin: 100% 50%;
+}
+/* Copies restart every CSS animation: jump each to its end and hold it,
+   so one-shot effects (the boot flash, entrances) show as finished and
+   loops freeze mid-motion. */
+.stx-half *,
+.stx-half *::before,
+.stx-half *::after {
+  animation-delay: -60s !important;
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+/* The boot flash is long gone on the live HUD; a copy would replay it. */
+.stx-half .im-boot {
+  display: none !important;
+}
+/* The bar surfaces out of the pool (no clip-open of its own), and never
+   replays that opening once it has arrived this way. */
+.stx-bar {
+  display: contents;
+}
+.stx-bar[data-pooling='true'] .sbar-root {
+  animation: stx-surface 0.38s ease-out both;
+}
+/* A floating Plasma panel: the bar surfaces where it will dock, the panel's
+   gap in from the screen's edges, with its rounded corners. Only while the
+   window still covers the screen: the moment it shrinks onto the panel the
+   bar fills it again (a media query flips with the viewport, no re-render). */
+@media (min-height: 300px) {
+  .stx-bar[data-pooling='true'] .sbar-root,
+  .stx-bar[data-returning] .sbar-root {
+    inset: 0 var(--sbar-inset, 0px) var(--sbar-inset, 0px);
+  }
+  .stx-bar[data-pooling='true'] .sbar,
+  .stx-bar[data-returning] .sbar {
+    border-radius: min(var(--sbar-inset, 0px), 8px);
+  }
+}
+.sbar[data-floating='true'] {
+  border-radius: 8px;
+}
+.stx-bar[data-arrived='true'] .sbar:not([data-leaving='true']) {
+  animation: none;
+}
+@keyframes stx-surface {
+  from {
+    opacity: 0;
+    filter: brightness(1.6);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+/* Return transition (school-return.tsx). The bar sinks away first... */
+.stx-bar[data-returning='sink'] .sbar-root {
+  animation: stx-sink 0.38s cubic-bezier(0.6, 0, 0.8, 0.4) forwards;
+}
+@keyframes stx-sink {
+  to {
+    opacity: 0;
+    transform: translateY(40%);
+    filter: brightness(1.5);
+  }
+}
+/* ...and once the HUD window lands in the drafted frame, it scans in from
+   the top behind the page's scan line (--stx-scan, 0-100%). */
+html.stx-scan,
+html.stx-scan body {
+  background: transparent !important;
+}
+html.stx-scan .hud,
+html.stx-scan .jarvis-background {
+  clip-path: inset(0 0 calc(100% - var(--stx-scan, 0%)) 0);
+}
+
+/* ---- EXECUTION: live system activity rows (downloads, updates, projects) ----
+   One row per activity: kind glyph, tag, title, %/elapsed, detail, and a
+   2px progress rail (sweeping segment when the total is unknown). */
+.hud-exec {
+  --act-accent: var(--im-cyan);
+}
+.hud-act__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.5rem 0.7rem 0.65rem;
+  list-style: none;
+}
+.hud-act {
+  --act-accent: var(--im-cyan);
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  min-width: 0;
+  animation: hud-act-in 0.35s ease-out;
+}
+.hud-act[data-kind='update'] {
+  --act-accent: var(--im-amber);
+}
+.hud-act[data-kind='coding'],
+.hud-act[data-kind='build'] {
+  --act-accent: #58d7aa;
+}
+.hud-act[data-kind='research'] {
+  --act-accent: #b388ff;
+}
+.hud-act__glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border: 1px solid color-mix(in srgb, var(--act-accent) 45%, transparent);
+  border-radius: 2px;
+  color: var(--act-accent);
+  background: color-mix(in srgb, var(--act-accent) 9%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--act-accent) 22%, transparent);
+}
+.hud-act__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hud-act__top {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  min-width: 0;
+}
+.hud-act__tag {
+  flex: none;
+  color: var(--act-accent);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+.hud-act__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #d4e8ef;
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hud-act__num {
+  display: flex;
+  flex: none;
+  gap: 0.45rem;
+  color: var(--act-accent);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.hud-act__time {
+  flex: none;
+  color: #6f8e99;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.hud-act__detail {
+  overflow: hidden;
+  color: #7f9ca7;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hud-act__bar {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--act-accent) 14%, transparent);
+}
+.hud-act__bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--act-accent);
+  box-shadow: 0 0 6px var(--act-accent);
+  transition: width 0.5s ease-out;
+}
+.hud-act__bar[data-indeterminate] i {
+  width: 28%;
+  animation: hud-act-sweep 1.4s ease-in-out infinite;
+}
+.hud-act--done {
+  align-items: center;
+  opacity: 0.62;
+}
+.hud-act__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  color: #58d7aa;
+  font-size: 10px;
+}
+.hud-act--done[data-status='failed'] .hud-act__mark {
+  color: #ff6b6b;
+}
+.hud-act--done[data-status='cancelled'] .hud-act__mark {
+  color: #6f8e99;
+}
+.hud-act__more {
+  padding-left: calc(22px + 0.55rem);
+  color: #6f8e99;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+}
+@keyframes hud-act-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+@keyframes hud-act-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.hud[data-state='idle'] .hud-act__bar[data-indeterminate] i {
+  animation-play-state: running !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-act,
+  .hud-act__bar[data-indeterminate] i {
+    animation: none;
+  }
+  .hud-act__bar[data-indeterminate] i {
+    width: 100%;
+    opacity: 0.45;
+  }
+}
+
+/* ---- Brave taskbar orb (shell orb.rs): the whole window is the orb ---- */
+.hud.hud--orb {
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  min-width: 0;
+  height: 100vh;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #070b10;
+}
+.hud-orb-dot {
+  --orb: #5fe3ff;
+  display: block;
+  width: 62%;
+  height: 62%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 36% 32%,
+    #ffffff 0%,
+    var(--orb) 38%,
+    color-mix(in srgb, var(--orb) 45%, #000) 78%
+  );
+  box-shadow:
+    0 0 6px var(--orb),
+    0 0 14px color-mix(in srgb, var(--orb) 55%, transparent);
+  animation: hud-orb-breathe 3.2s ease-in-out infinite;
+}
+.hud-orb-dot[data-state='speaking'],
+.hud-orb-dot[data-state='listening'] {
+  animation-duration: 0.9s;
+}
+@keyframes hud-orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* The HUD pauses animations while idle; the taskbar orb keeps breathing. */
+.hud[data-state='idle'] .hud-orb-dot {
+  animation-play-state: running !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-orb-dot {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Call-setup readout ("hey Jarvis" → agent online). Every row is a real
+   step from the wake client; purple while linking, cyan once up.
+   ------------------------------------------------------------------------- */
+.hud-boot {
+  --boot-accent: #a855f7;
+  position: absolute;
+  inset: auto 4% 4% 4%;
+  z-index: 2;
+  padding: 0.45rem 0.6rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--boot-accent) 35%, transparent);
+  border-radius: 0.4rem;
+  background: rgb(4 8 20 / 78%);
+  backdrop-filter: blur(6px);
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  animation: hud-boot-in 0.28s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  pointer-events: none;
+}
+.hud-boot[data-online='true'] {
+  --boot-accent: #22d3ee;
+}
+.hud-boot__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--boot-accent);
+}
+.hud-boot__rows {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hud-boot__row {
+  display: grid;
+  grid-template-columns: 0.8rem minmax(0, 1fr) auto 3.2rem;
+  align-items: center;
+  gap: 0.45rem;
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.hud-boot__row[data-done='true'] {
+  color: #94a3b8;
+}
+.hud-boot__mark {
+  width: 6px;
+  height: 6px;
+  justify-self: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--boot-accent);
+  border-right-color: transparent;
+  animation: hud-boot-spin 0.7s linear infinite;
+}
+.hud-boot__row[data-done='true'] .hud-boot__mark {
+  border-color: var(--boot-accent);
+  background: var(--boot-accent);
+  opacity: 0.75;
+  animation: none;
+}
+.hud-boot__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-boot__row:not([data-done='true']) .hud-boot__label {
+  color: #f1f5f9;
+}
+.hud-boot__detail {
+  color: #64748b;
+  white-space: nowrap;
+}
+.hud-boot__at {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--boot-accent) 70%, #94a3b8);
+}
+.hud-boot__sub {
+  padding-left: 1.25rem;
+  color: #7c8aa0;
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.hud-boot__sub::before {
+  content: '└ ';
+  color: color-mix(in srgb, var(--boot-accent) 60%, transparent);
+}
+@keyframes hud-boot-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes hud-boot-row {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+@keyframes hud-boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* School strip: the same readout as one line in the stream slot. */
+.sbar-boot {
+  --boot-accent: #a855f7;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  width: 100%;
+  min-width: 0;
+  padding-left: 0.6em;
+  white-space: nowrap;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
+  font-size: clamp(11px, calc(var(--h) * 0.28), 13px);
+  color: var(--text);
+}
+.sbar-boot[data-online='true'] {
+  --boot-accent: #22d3ee;
+}
+.sbar-boot b {
+  flex: none;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--boot-accent);
+}
+.sbar-boot__label {
+  flex: none;
+  animation: sbar-line-in 0.35s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+.sbar-boot__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--subtle);
+  animation: hud-boot-row 0.22s ease-out both;
+}
+.sbar-boot__sub::before {
+  content: '· ';
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-boot,
+  .hud-boot__row,
+  .hud-boot__sub,
+  .sbar-boot__label,
+  .sbar-boot__sub {
+    animation: none;
+  }
+  .hud-boot__mark {
+    animation: none;
+    border-right-color: var(--boot-accent);
   }
 }

@@ -23,6 +23,14 @@ from proactive.monitors import (
 )
 from proactive.policy import ProactivePolicy
 
+
+def _dnd_idle() -> bool:
+    """Quiet hours apply only after 30+ minutes without input (dnd.py)."""
+    import dnd
+
+    return dnd.idle_long_enough()
+
+
 SnapshotFn = Callable[[], TelemetrySnapshot]
 SpeakFn = Callable[[str], Awaitable[None]]
 LogFn = Callable[[str, str], None]
@@ -55,7 +63,9 @@ class ProactiveWatcher:
         self._speak_fn = speak_fn
         self._poll_s = poll_s
         self._cooldown_s = cooldown_s
-        self._policy = policy or ProactivePolicy(now_fn=now_fn, log_fn=log_fn)
+        self._policy = policy or ProactivePolicy(
+            now_fn=now_fn, log_fn=log_fn, idle_gate=_dnd_idle
+        )
         self._now = now_fn or time.time
         if log_fn is not None:
             self._log = log_fn

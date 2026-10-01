@@ -88,8 +88,54 @@ def test_cursor_navigation_backs_up_open_app() -> None:
 
 
 def test_app_launch_and_multistep_desktop_chain() -> None:
-    assert "ALWAYS call open_app first, NEVER window_action" in SYSTEM_INSTRUCTIONS
-    assert "desktop_screenshot to view and read the resulting output" in SYSTEM_INSTRUCTIONS
+    assert (
+        "ALWAYS call open_app first with exactly the name Sir said"
+        in SYSTEM_INSTRUCTIONS
+    )
+    assert "NEVER window_action" in SYSTEM_INSTRUCTIONS
+    assert (
+        "desktop_screenshot to view and read the resulting output"
+        in SYSTEM_INSTRUCTIONS
+    )
     assert "ONLY THEN call transfer_back_to_main" in SYSTEM_INSTRUCTIONS
 
 
+def test_open_app_never_substitutes_example_apps() -> None:
+    assert "open_app arg discipline" in AGENT_INSTRUCTIONS
+    assert "never substitutes" in AGENT_INSTRUCTIONS
+
+
+def test_standby_rules_gate_speech() -> None:
+    assert "standby" in AGENT_INSTRUCTIONS.lower()
+    assert "by name" in AGENT_INSTRUCTIONS.lower()
+    assert "Never open with an unprompted greeting" in AGENT_INSTRUCTIONS
+
+
+def test_standby_engagement_persists_across_turns() -> None:
+    assert "Engagement persists across turns" in AGENT_INSTRUCTIONS
+    assert "omit it" in AGENT_INSTRUCTIONS
+
+
+def test_sober_is_the_roblox_app_not_music() -> None:
+    assert "Sober is the Roblox client" in AGENT_INSTRUCTIONS
+
+
+def test_research_search_and_site_opens_never_mix() -> None:
+    assert "Three separate jobs, never mixed" in AGENT_INSTRUCTIONS
+    assert "= research_project" in AGENT_INSTRUCTIONS
+    assert "Never turn a search or a site open into research_project" in AGENT_INSTRUCTIONS
+    assert "= code_project" in AGENT_INSTRUCTIONS
+    assert "= open_projects" in AGENT_INSTRUCTIONS
+
+
+def test_interrupt_min_s_default_env_and_floor(monkeypatch) -> None:
+    import agent
+
+    monkeypatch.delenv("JARVIS_INTERRUPT_MIN_S", raising=False)
+    assert agent.interrupt_min_s() == 0.9
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "1.4")
+    assert agent.interrupt_min_s() == 1.4
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "0.01")
+    assert agent.interrupt_min_s() == 0.3
+    monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "junk")
+    assert agent.interrupt_min_s() == 0.9

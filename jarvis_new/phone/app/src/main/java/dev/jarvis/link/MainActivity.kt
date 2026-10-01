@@ -8,29 +8,41 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.fragment.app.Fragment
-import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.tabs.TabLayout
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         requestPerms()
-        val nav = findViewById<BottomNavigationView>(R.id.bottom_nav)
-        nav.setOnItemSelectedListener { item ->
-            val frag: Fragment = when (item.itemId) {
-                R.id.tab_talk -> TalkFragment()
-                R.id.tab_chat -> ChatFragment()
-                R.id.tab_type -> TypeFragment()
-                R.id.tab_control -> ControlFragment()
-                R.id.tab_camera -> CameraFragment()
-                else -> SettingsFragment()
-            }
-            supportFragmentManager.beginTransaction()
-                .replace(R.id.fragment_host, frag).commit()
-            true
-        }
-        if (savedInstanceState == null) nav.selectedItemId = R.id.tab_talk
+        TtsManager.init(this)
+        val nav = findViewById<TabLayout>(R.id.bottom_nav)
+        Tabs13.NAMES.forEach { nav.addTab(nav.newTab().setText(it)) }
+        nav.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) = showTab(tab.position)
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+            override fun onTabReselected(tab: TabLayout.Tab) = showTab(tab.position)
+        })
+        if (savedInstanceState == null) nav.getTabAt(0)?.select()
         handleIntent(intent)
+    }
+
+    private fun showTab(position: Int) {
+        val frag: Fragment = when (Tabs13.NAMES.getOrNull(position)) {
+            "Voice" -> VoiceFragment()
+            "Chat" -> ChatFragment()
+            "Control" -> ControlFragment()
+            "Activity" -> ActivityFragment()
+            "Screens" -> ScreensFragment()
+            "Approvals" -> ApprovalsFragment()
+            "Phone" -> PhoneFragment()
+            "Alerts" -> AlertsFragment()
+            "Settings" -> SettingsFragment()
+            else -> HomeFragment()
+        }
+        supportFragmentManager.beginTransaction()
+            .setCustomAnimations(R.anim.hud_enter, R.anim.hud_exit)
+            .replace(R.id.fragment_host, frag).commit()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -40,7 +52,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent?.action == LinkService.ACTION_WAKE) {
-            findViewById<BottomNavigationView>(R.id.bottom_nav).selectedItemId = R.id.tab_talk
+            findViewById<TabLayout>(R.id.bottom_nav).getTabAt(0)?.select()
+            if (intent.getBooleanExtra(WakeRouter.EXTRA_AUTO_TALK, false)) {
+                findViewById<TabLayout>(R.id.bottom_nav).postDelayed({
+                    (supportFragmentManager.findFragmentById(R.id.fragment_host) as? HomeFragment)
+                        ?.startAutoExchange()
+                }, 500)
+            }
         }
     }
 

@@ -13,7 +13,7 @@ briefings.log for the record; the notification carries the shaped
 text. Every skip is reason-coded to actions.log.
 
 Install (weekdays 07:30):
-    (crontab -l 2>/dev/null; echo "30 7 * * 1-5 cd /home/ripjk/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 .venv/bin/python src/briefing_job.py") | crontab -
+    (crontab -l 2>/dev/null; echo "30 7 * * 1-5 cd /mnt/data/jarvis-voice-butler/jarvis_new && JARVIS_LOCAL=1 .venv/bin/python src/briefing_job.py") | crontab -
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import datetime
 import hashlib
 import json
 import re
-import subprocess
 from pathlib import Path
 
 BRIEFING_LOG = Path.home() / ".jarvis" / "briefings.log"
@@ -114,12 +113,18 @@ def deliver(text: str, *, full_text: str = "") -> str:
     except Exception:
         pass
     try:
-        subprocess.run(
-            ["notify-send", "Jarvis — morning briefing", text[:2000]],
-            timeout=10,
-            check=False,
+        import notify
+
+        result = notify.send(
+            text[:2000],
+            title="Jarvis - morning briefing",
+            kind="briefing",
+            source="briefing",
+            allow_speech=False,
         )
-        return "notification+log"
+        if result.get("ok") or result.get("route") == "deduped":
+            return "notification+log"
+        return "log"
     except Exception:
         return "log"
 

@@ -24,14 +24,21 @@ import json
 import logging
 import os
 import socket
-import struct
 import threading
 import time
 
 try:
-    from wake_client import WAKE_MODEL, frame_16k_chunks, wake_threshold
+    from wake_client import (
+        WAKE_MODEL,
+        score_frames,
+        wake_threshold,
+    )
 except ImportError:  # pragma: no cover - package layout fallback
-    from src.wake_client import WAKE_MODEL, frame_16k_chunks, wake_threshold
+    from src.wake_client import (
+        WAKE_MODEL,
+        score_frames,
+        wake_threshold,
+    )
 
 logger = logging.getLogger("jarvis-mic-uplink")
 
@@ -85,22 +92,22 @@ def serve_client(conn: socket.socket, addr, model, threshold: float) -> None:
         return
     logger.info("mic uplink from %s", peer)
     conn.settimeout(CHUNK_TIMEOUT)
-    pending: list[int] = []
+    import numpy as np
+
+    pending16 = np.zeros(0, dtype=np.int16)
     last_wake = 0.0
     try:
         while True:
             raw = conn.recv(4096)
             if not raw:
                 return
-            samples = list(
-                struct.unpack(f"<{len(raw) // 2}h", raw[: len(raw) // 2 * 2])
-            )
-            frames, pending = frame_16k_chunks(pending, samples)
-            for frame in frames:
-                try:
-                    score = float(model.predict(frame).get(WAKE_MODEL, 0.0))
-                except Exception:
-                    continue
+            # Zero-copy int16 (was struct.unpack per-sample list).
+            even = raw[: len(raw) // 2 * 2]
+            if not even:
+                continue
+            pending16 = np.concatenate([pending16, np.frombuffer(even, dtype=np.int16)])
+            scores, pending16 = score_frames(model, pending16)
+            for score in scores:
                 now = time.time()
                 if score >= threshold and now - last_wake >= COOLDOWN_S:
                     last_wake = now

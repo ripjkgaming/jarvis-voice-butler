@@ -3,13 +3,26 @@ import json
 import pytest
 
 from wake_client import (
+    HUD_WAKING_FILE,
     OWW_FRAME,
+    clear_hud_room,
+    clear_hud_waking,
     downsample_48k_to_16k,
+    drain_queue,
+    extract_talk_text,
     frame_16k_chunks,
     handle_mic_command,
+    handle_talk_request,
     load_livekit_env,
+    mark_hud_waking,
     mint_summon_token,
+    publish_hud_room,
+    read_hud_room,
     room_has_active_call,
+    score_frames,
+    shell_talk_candidates,
+    should_rewake,
+    summon_overlay,
     summon_room_name,
     wake_score,
     wake_socket_path,
@@ -148,6 +161,87 @@ async def test_summon_stays_out_when_call_active(
     await client._summon_session()
 
 
+def test_shell_talk_candidates_end_with_talk() -> None:
+    for argv in shell_talk_candidates():
+        assert argv[-1] == "talk"
+    assert len(shell_talk_candidates()) >= 1
+
+
+def test_summon_overlay_never_raises() -> None:
+    # Fire-and-forget daemon thread; must not raise even with no shell.
+    summon_overlay()
+
+
+async def test_summon_joins_without_deferral(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Wake joins immediately now: the HUD is receive-only (no mic in the
+    webview), so there is no race to defer — one call check, then join."""
+    import wake_client
+    from wake_client import WakeClient
+
+    class _ReachedConnectError(Exception):
+        pass
+
+    class _FakeRoom:
+        def on(self, *args, **kwargs):
+            def deco(fn):
+                return fn
+
+            return deco
+
+        async def connect(self, *args, **kwargs):
+            raise _ReachedConnectError("reached-connect")
+
+    calls = {"n": 0}
+
+    async def _idle(_creds: dict) -> bool:
+        calls["n"] += 1
+        return False
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(wake_client, "active_call_exists", _idle)
+    import livekit.rtc
+
+    monkeypatch.setattr(livekit.rtc, "Room", _FakeRoom)
+    client = WakeClient()
+    with pytest.raises(_ReachedConnectError):
+        await client._summon_session()
+    assert calls["n"] == 1
+
+
+def test_hud_room_publish_read_clear(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert read_hud_room() is None
+    assert publish_hud_room("jarvis-123") is True
+    assert read_hud_room() == "jarvis-123"
+    clear_hud_room()
+    assert read_hud_room() is None
+
+
+def test_hud_waking_mark_and_clear(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mark_hud_waking()
+    assert (tmp_path / HUD_WAKING_FILE).is_file()
+    clear_hud_waking()
+    assert not (tmp_path / HUD_WAKING_FILE).exists()
+    clear_hud_waking()  # idempotent
+
+
+def test_hud_room_stale_reads_as_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import os
+    import time
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    assert publish_hud_room("jarvis-old") is True
+    path = tmp_path / "hud_room"
+    old = time.time() - 20 * 60
+    os.utime(path, (old, old))
+    assert read_hud_room() is None
+
+
 async def test_active_call_exists_fails_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -199,6 +293,46 @@ def test_handle_mic_command_status_reports_state() -> None:
         "in_call": True,
     }
     assert new_muted is None  # status never flips the mute
+
+
+def test_handle_talk_request_unmuted() -> None:
+    reply, wants_talk, unmute = handle_talk_request({"talk": True}, muted=False)
+    assert reply == {"ok": True, "talk": "requested", "muted": False}
+    assert wants_talk is True
+    assert unmute is False  # already live: nothing to unmute
+
+
+def test_handle_talk_request_muted_unmutes_first() -> None:
+    # PTT is an explicit talk action: holding it while muted still summons.
+    reply, wants_talk, unmute = handle_talk_request({"talk": True}, muted=True)
+    assert reply == {"ok": True, "talk": "requested", "muted": False}
+    assert wants_talk is True
+    assert unmute is True
+
+
+def test_handle_talk_request_rejects_garbage() -> None:
+    for bad in ({"talk": False}, {"talk": "yes"}, {"frobnicate": 1}, [1], "talk", None):
+        reply, wants_talk, unmute = handle_talk_request(bad, muted=False)
+        assert reply["ok"] is False
+        assert wants_talk is False
+        assert unmute is False
+
+
+def test_extract_talk_text_accepts_short_text() -> None:
+    assert (
+        extract_talk_text({"talk": True, "text": "  tell me the news "})
+        == "tell me the news"
+    )
+    assert extract_talk_text({"talk": True, "text": "x" * 500}) == "x" * 500
+
+
+def test_extract_talk_text_rejects_blank_long_and_nonstr() -> None:
+    assert extract_talk_text({"talk": True}) is None
+    assert extract_talk_text({"talk": True, "text": "   "}) is None
+    assert extract_talk_text({"talk": True, "text": 42}) is None
+    assert extract_talk_text({"talk": True, "text": "x" * 501}) is None
+    assert extract_talk_text("talk") is None
+    assert extract_talk_text(None) is None
 
 
 def test_handle_mic_command_rejects_garbage() -> None:
@@ -282,3 +416,111 @@ def test_mic_control_survives_stale_socket_file(
     else:
         raise AssertionError("listener never came up over stale file")
     assert reply["ok"] is True
+
+
+class _StreamModel:
+    """Records every frame; openWakeWord is streaming and needs them all."""
+
+    def __init__(self) -> None:
+        self.frames = []
+
+    def predict(self, frame):
+        self.frames.append(frame.copy())
+        return {"hey_jarvis": 0.0}
+
+
+def test_score_frames_feeds_every_frame_including_silence() -> None:
+    # Regression: a perf gate skipped silent frames and 2 of every 3 voiced
+    # ones; the model then saw chopped audio and "hey Jarvis" scored 0.00
+    # (vs 1.00 at full rate) -- the wake word never fired.
+    import numpy as np
+
+    audio = np.concatenate(
+        [
+            np.zeros(OWW_FRAME * 3, dtype=np.int16),  # digital silence
+            np.full(OWW_FRAME * 4, 4000, dtype=np.int16),  # voiced
+            np.arange(100, dtype=np.int16),  # partial frame stays pending
+        ]
+    )
+    model = _StreamModel()
+    scores, rest = score_frames(model, audio)
+    assert len(scores) == len(model.frames) == 7
+    assert np.array_equal(np.concatenate(model.frames), audio[: OWW_FRAME * 7])
+    assert np.array_equal(rest, np.arange(100, dtype=np.int16))
+
+
+def test_should_rewake_needs_sustained_hit_and_stale_call() -> None:
+    assert should_rewake(2, 25.0)
+    assert not should_rewake(1, 25.0)  # one frame is chatter, not a summons
+    assert not should_rewake(2, 5.0)  # agent just spoke: name goes to the call
+
+
+def test_drain_queue_empties_backlog() -> None:
+    import asyncio
+
+    q: asyncio.Queue = asyncio.Queue()
+    for i in range(5):
+        q.put_nowait(i)
+    assert drain_queue(q) == 5
+    assert q.empty()
+    assert drain_queue(q) == 0
+
+
+def _blocks(levels):
+    import numpy as np
+
+    from wake_client import BLOCKSIZE
+
+    rng = np.random.default_rng(0)
+    return [
+        (rng.normal(0, lvl, BLOCKSIZE)).clip(-32767, 32767).astype(np.int16).tobytes()
+        for lvl in levels
+    ]
+
+
+async def _record(levels, peak, floor=None):
+    import asyncio
+
+    from wake_client import WakeClient
+
+    q: asyncio.Queue = asyncio.Queue()
+    for b in _blocks(levels):
+        q.put_nowait(b)
+    return await WakeClient._record_question(WakeClient(), q, peak, floor)
+
+
+async def test_record_question_stops_under_a_playing_video() -> None:
+    from wake_client import BLOCKSIZE, MIC_RATE
+
+    block_s = BLOCKSIZE / MIC_RATE
+    # Sir speaks for ~1 s at 3000 RMS, then a video fluctuates 300-900 RMS
+    # for 10 s. Old gate (2.5 x floor) never saw quiet and ran to the cap.
+    speech = [3000] * int(1.0 / block_s)
+    video = [300 if i % 2 else 900 for i in range(int(10 / block_s))]
+    got = await _record(speech + video, peak=3000.0, floor=300.0)
+    assert len(got) * block_s < 2.5
+
+
+async def test_record_question_caps_in_constant_speech() -> None:
+    from wake_client import BLOCKSIZE, MIC_RATE, RECORD_MAX_S
+
+    block_s = BLOCKSIZE / MIC_RATE
+    got = await _record([3000] * int(12 / block_s), peak=3000.0, floor=100.0)
+    assert abs(len(got) * block_s - RECORD_MAX_S) < 0.1
+
+
+def test_hud_stage_writes_the_setup_log(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import json
+
+    from wake_client import hud_stage
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    mark_hud_waking()
+    hud_stage("connect")
+    hud_stage("online")
+    log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
+    assert [s for s, _ in log] == ["wake", "connect", "online"]
+    assert log[0][1] <= log[1][1] <= log[2][1]
+    mark_hud_waking()  # a new wake starts a fresh log
+    log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
+    assert [s for s, _ in log] == ["wake"]

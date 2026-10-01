@@ -16,6 +16,10 @@ object Audio16k {
         @Volatile var recording = false
             private set
 
+        // RECORD_AUDIO is requested at MainActivity startup and the
+        // assistant session only runs after setup; start() still
+        // fail-softs (false) when the mic is unavailable.
+        @android.annotation.SuppressLint("MissingPermission")
         fun start(): Boolean {
             val minBuf = AudioRecord.getMinBufferSize(
                 RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,

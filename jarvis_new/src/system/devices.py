@@ -633,12 +633,15 @@ class DeviceTools:
             "files": "dolphin",
             "sober": "sober",
             "roblox": "sober",
-            "spotify": "spotify",
             "discord": "discord",
         }
         target = known.get(app.strip().lower(), app.strip())
         if target == "sober" and shutil.which("sober") is None:
             target = "flatpak run org.vinegarhq.Sober"
+        from system.launcher import blocked_say, is_blocked
+
+        if blocked := is_blocked(app, target):
+            raise ToolError(blocked_say(blocked))
         try:
             argv = target.split() if " " in target else [target]
             await asyncio.create_subprocess_exec(
@@ -890,6 +893,9 @@ class DeviceTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         g = game.strip().lower()
+        from system.school_tools import loud_guard
+
+        loud_guard("play_game", {"game": g})
         if g in ("roblox", "sober"):
             cmds = []
             if shutil.which("sober"):

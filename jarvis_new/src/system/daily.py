@@ -247,6 +247,7 @@ class DailyTools:
     def tools(self) -> list:
         return [
             self.school_day,
+            self.exam_times,
             self.daily_briefing,
             self.study_plan,
             self.study_tick,
@@ -256,15 +257,42 @@ class DailyTools:
             self.whatsapp_chats,
             self.whatsapp_read,
             self.whatsapp_draft,
+            self.whatsapp_mimic,
         ]
 
     # --- school ---
+
+    @function_tool()
+    async def exam_times(self, context: RunContext, when: str = "today") -> dict[str, str]:
+        """Exam times, how long each paper is, and the free time between papers.
+
+        Use this for ANY question about exams: when they are, how long each one
+        is, how much time there is between them, what is next. It answers
+        instantly from the saved timetable; never search the web or open a
+        browser for exam questions. (To add, remove, or find one exam by
+        subject use exam_schedule instead.)
+
+        Args:
+            when: "today", "tomorrow", "next", "all" (every remaining day), a weekday, or YYYY-MM-DD.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        import exam_timetable
+
+        rows = exam_timetable.load(DATA_DIR, Path.home() / "Downloads")
+        if not rows:
+            return {"say": "I don't have your exam timetable saved yet, Sir. Put it in Downloads."}
+        log_action("exams", f"times {when[:20]}")
+        return {"say": exam_timetable.answer(rows, when)}
 
     @function_tool()
     async def school_day(
         self, context: RunContext, when: str = "today"
     ) -> dict[str, str]:
         """School timetable from the offline .ics (today/tomorrow/date/next).
+        Not for exam lengths or gaps between exams: use exam_times for those.
 
         Args:
             when: "today", "tomorrow", "YYYY-MM-DD", or "next".
@@ -347,6 +375,14 @@ class DailyTools:
                     f"{n + 1}. {i['text']}" for n, i in enumerate(open_items[-5:])
                 )
                 parts.append("Todos: " + enum)
+        except Exception:
+            pass
+        try:
+            import exams
+
+            line = exams.briefing_line()
+            if line:
+                parts.append(line)
         except Exception:
             pass
         say = " ".join(parts)[:1400] or "Nothing planned for today."
@@ -687,6 +723,13 @@ class DailyTools:
         if not result.get("ok"):
             raise ToolError(str(result.get("err", "could not read that chat"))[:200])
         msgs = result.get("messages", [])
+        try:
+            import wa_vision
+
+            await asyncio.to_thread(wa_vision.fill_photos, msgs, {}, 2)
+        except Exception:
+            for m in msgs:
+                m.pop("image", None)
         if not msgs:
             return {"say": f"No readable messages in {result.get('name', chat)[:40]}."}
         lines = []
@@ -730,3 +773,50 @@ class DailyTools:
         return {
             "say": f"Draft queued for {chat[:40]}. Approve it on your phone to send."
         }
+
+    @function_tool()
+    async def whatsapp_mimic(
+        self, context: RunContext, action: str = "list", chat: str = "", note: str = ""
+    ) -> dict[str, str]:
+        """Manage who gets WhatsApp auto-replies written AS Sir, in his style.
+
+        Chats on this list are answered as Sir himself instead of as Jarvis.
+        Use for "reply as me to Aarav", "add Mum to my mimic list", "stop
+        mimicking me with Kabir", "who am I mimicking".
+
+        Args:
+            action: "list", "add" or "remove".
+            chat: Exact WhatsApp chat name (for add/remove).
+            note: Optional context about the person, e.g. "best friend, gaming".
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        import wa_mimic
+
+        action = (action or "list").strip().lower()
+        chat = " ".join((chat or "").split())[:60]
+        if action == "list":
+            names = sorted(wa_mimic.entries())
+            if not names:
+                return {"say": "Nobody is on the mimic list, Sir."}
+            only = " Everyone else is left alone." if wa_mimic.only_listed() else ""
+            return {
+                "say": f"I reply as you to {len(names)}: {', '.join(names)}.{only}"[
+                    :900
+                ]
+            }
+        if not chat:
+            raise ToolError("Which chat? Give me the exact WhatsApp name.")
+        if action == "add":
+            if not wa_mimic.add(chat, note):
+                raise ToolError("I could not save that to the mimic list.")
+            log_action("whatsapp-mimic", f"add {chat}")
+            return {"say": f"Done. I will reply to {chat} as you, in your style."}
+        if action == "remove":
+            if not wa_mimic.remove(chat):
+                return {"say": f"{chat} was not on the mimic list, Sir."}
+            log_action("whatsapp-mimic", f"remove {chat}")
+            return {"say": f"{chat} is off the mimic list; Jarvis answers them again."}
+        raise ToolError('Action must be "list", "add" or "remove".')

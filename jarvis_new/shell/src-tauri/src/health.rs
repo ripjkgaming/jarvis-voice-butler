@@ -61,9 +61,17 @@ pub fn combine_status(alive: &[(&str, bool)], bridge: Option<&BridgeStatus>) -> 
 
 /// TCP connect probe (livekit-server :7880, bridge :4317).
 pub fn tcp_reachable(port: u16) -> bool {
-    let addr: SocketAddr = format!("127.0.0.1:{port}")
-        .parse()
-        .expect("loopback parses");
+    tcp_reachable_on("127.0.0.1", port)
+}
+
+/// TCP connect probe against an explicit bind host. The bridge and the mic
+/// uplink may serve a tailnet IP instead of loopback — probing 127.0.0.1
+/// there reads as "down" and the manager kills healthy sidecars.
+pub fn tcp_reachable_on(host: &str, port: u16) -> bool {
+    let addr: SocketAddr = match format!("{host}:{port}").parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
     TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).is_ok()
 }
 
@@ -80,13 +88,29 @@ pub fn http_get_json_authed(
     path: &str,
     token: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    http_get_json_authed_on("127.0.0.1", port, path, token)
+}
+
+/// Host-aware GET + optional Bearer token. See [`tcp_reachable_on`] for
+/// why the host must be explicit.
+pub fn http_get_json_on(host: &str, port: u16, path: &str) -> Result<serde_json::Value, String> {
+    http_get_json_authed_on(host, port, path, None)
+}
+
+/// Host-aware GET with an optional Bearer token.
+pub fn http_get_json_authed_on(
+    host: &str,
+    port: u16,
+    path: &str,
+    token: Option<&str>,
+) -> Result<serde_json::Value, String> {
     let clean = token.unwrap_or("").replace(['\r', '\n'], "");
-    let mut head = format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n");
+    let mut head = format!("GET {path} HTTP/1.0\r\nHost: {host}\r\n");
     if !clean.is_empty() {
         head += &format!("Authorization: Bearer {clean}\r\n");
     }
     head += "\r\n";
-    let body = http_roundtrip(port, &head, &[])?;
+    let body = http_roundtrip_on(host, port, &head, &[])?;
     serde_json::from_str(&body).map_err(|e| format!("bad json: {e}"))
 }
 
@@ -99,25 +123,41 @@ pub fn http_post_json(
     body: &serde_json::Value,
     token: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    http_post_json_on("127.0.0.1", port, path, body, token)
+}
+
+/// Host-aware POST with a JSON body + optional Bearer token.
+pub fn http_post_json_on(
+    host: &str,
+    port: u16,
+    path: &str,
+    body: &serde_json::Value,
+    token: Option<&str>,
+) -> Result<serde_json::Value, String> {
     let text = serde_json::to_string(body).map_err(|e| format!("bad body: {e}"))?;
     // Our own env feeds the header: strip CR/LF so a weird value can only
     // fail auth, never smuggle a second header.
     let clean_token = token.unwrap_or("").replace(['\r', '\n'], "");
     let mut head = format!(
-        "POST {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        "POST {path} HTTP/1.0\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
         text.len()
     );
     if !clean_token.is_empty() {
         head += &format!("Authorization: Bearer {clean_token}\r\n");
     }
     head += "\r\n";
-    let resp = http_roundtrip(port, &head, text.as_bytes())?;
+    let resp = http_roundtrip_on(host, port, &head, text.as_bytes())?;
     serde_json::from_str(&resp).map_err(|e| format!("bad json: {e}"))
 }
 
-/// One blocking request/response over loopback TCP. Returns the body text.
+/// One blocking request/response over TCP. Returns the body text.
 fn http_roundtrip(port: u16, head: &str, body: &[u8]) -> Result<String, String> {
-    let addr: SocketAddr = format!("127.0.0.1:{port}")
+    http_roundtrip_on("127.0.0.1", port, head, body)
+}
+
+/// Host-aware variant of [`http_roundtrip`].
+fn http_roundtrip_on(host: &str, port: u16, head: &str, body: &[u8]) -> Result<String, String> {
+    let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .map_err(|e| format!("bad addr: {e}"))?;
     let mut stream =
@@ -141,7 +181,14 @@ fn http_roundtrip(port: u16, head: &str, body: &[u8]) -> Result<String, String> 
 /// Typed bridge `/status` fetch. `None` = unreachable/unparseable (degraded,
 /// not fatal).
 pub fn bridge_status(port: u16) -> Option<BridgeStatus> {
-    http_get_json(port, "/status")
+    bridge_status_on("127.0.0.1", port, None)
+}
+
+/// Host-aware `/status` fetch with optional Bearer token. The tokenless
+/// loopback default only works for default-bind bridges; tailnet binds
+/// need both the host and the token or every read 401s.
+pub fn bridge_status_on(host: &str, port: u16, token: Option<&str>) -> Option<BridgeStatus> {
+    http_get_json_authed_on(host, port, "/status", token)
         .ok()
         .and_then(|v| serde_json::from_value(v).ok())
 }
@@ -317,5 +364,23 @@ mod tests {
     #[test]
     fn tcp_probe_fails_closed_port() {
         assert!(!tcp_reachable(1));
+    }
+
+    #[test]
+    fn host_aware_probes_hit_explicit_binds() {
+        // TCP half: hold our own listener open (kernel completes the
+        // handshake while it lives).
+        let tcp_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp_port = tcp_listener.local_addr().unwrap().port();
+        assert!(tcp_reachable_on("127.0.0.1", tcp_port));
+        // HTTP half: single-accept fake bridge.
+        let (port, h) = fake_bridge(r#"{"ok": true}"#);
+        let v = http_get_json_on("127.0.0.1", port, "/health").expect("parses");
+        assert_eq!(v["ok"], true);
+        // Unroutable host fails soft, never panics (bad addr string).
+        assert!(http_get_json_on("not a host!!", port, "/health").is_err());
+        assert!(!tcp_reachable_on("not a host!!", tcp_port));
+        drop(tcp_listener);
+        h.join().ok();
     }
 }

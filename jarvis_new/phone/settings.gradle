@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // LiveKit's audioswitch fork (com.github.davidliu) is JitPack-only.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 rootProject.name = "JarvisLink"

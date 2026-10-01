@@ -24,6 +24,21 @@ pub struct OverlayGeometry {
 /// File name under `$JARVIS_HOME` holding the geometry.
 pub const OVERLAY_GEOMETRY_FILE: &str = "overlay.json";
 
+/// Canonical 16:9 HUD size. The whole HUD (both regions) is laid out for
+/// this; anything smaller crops it.
+pub const OVERLAY_WIDTH: u32 = 1280;
+pub const OVERLAY_HEIGHT: u32 = 720;
+
+/// True when a persisted geometry predates the 16:9 HUD (or was hand-edited
+/// into something unusable): too small, or nowhere near 16:9. Pure.
+pub fn needs_migration(geom: &OverlayGeometry) -> bool {
+    if geom.width < 1000 || geom.height < 600 {
+        return true;
+    }
+    let ratio = geom.width as f64 / geom.height as f64;
+    (ratio - 16.0 / 9.0).abs() > 0.25
+}
+
 /// `$JARVIS_HOME/overlay.json` for an explicit home dir (pure).
 pub fn geometry_path(home: &Path) -> PathBuf {
     home.join(OVERLAY_GEOMETRY_FILE)
@@ -70,8 +85,8 @@ mod tests {
         let geom = OverlayGeometry {
             x: 120,
             y: 80,
-            width: 420,
-            height: 640,
+            width: OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
         };
         save_geometry(&path, &geom).expect("save");
         assert_eq!(load_geometry(&path), Some(geom));
@@ -101,11 +116,29 @@ mod tests {
         let geom = OverlayGeometry {
             x: 0,
             y: 0,
-            width: 420,
-            height: 640,
+            width: OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
         };
         save_geometry(&path, &geom).expect("save with fresh parents");
         assert_eq!(load_geometry(&path), Some(geom));
         std::fs::remove_dir_all(std::env::temp_dir().join("jarvis-overlay-test-nested")).ok();
+    }
+
+    #[test]
+    fn old_portrait_geometry_needs_migration() {
+        let old = OverlayGeometry {
+            x: 0,
+            y: 0,
+            width: 420,
+            height: 640,
+        };
+        assert!(needs_migration(&old));
+        let good = OverlayGeometry {
+            x: 0,
+            y: 0,
+            width: OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
+        };
+        assert!(!needs_migration(&good));
     }
 }

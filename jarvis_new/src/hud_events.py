@@ -16,10 +16,18 @@ fallback when the channel is silent. Zero inference cost.
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
+from pathlib import Path
 from typing import Any
 
 TOPIC = "jarvis-tasks"
+
+#: Conversation mirror for HUDs without a LiveKit client (the Tauri
+#: webview has no WebRTC, so it can never join a room — it reads these).
+CAPTIONS_FILE = "captions.log"
+CAPTIONS_KEEP = 200
 
 FRIENDLY_LABELS: dict[str, str] = {
     "nmap_scan": "scanning network…",
@@ -83,3 +91,123 @@ def mirror_to_log(tool: str, kind: str, detail: str = "") -> None:
         log_action(f"hud:{kind}", f"{tool} {detail[:200]}".strip())
     except Exception:
         pass
+    mirror_to_activity(tool, kind, detail)
+
+
+def jarvis_activity_id(tool: str) -> str:
+    """Activity id for a Jarvis tool ("open_app" -> "jarvis-open-app"). Pure."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(tool or "").lower()).strip("-")
+    return f"jarvis-{slug or 'tool'}"[:64]
+
+
+def mirror_to_activity(tool: str, kind: str, detail: str = "") -> None:
+    """Jarvis tool runs join the HUD EXECUTION feed (src/activity.py): the
+    webview has no WebRTC, so the data-channel copy never reached it."""
+    try:
+        import activity
+
+        item_id = jarvis_activity_id(tool)
+        if kind == "tool_start":
+            activity.start(
+                "task",
+                FRIENDLY_LABELS.get(tool, f"{tool}…"),
+                detail="Jarvis",
+                source="jarvis",
+                item_id=item_id,
+            )
+        elif kind == "tool_finish":
+            activity.finish(item_id, ok=detail != "error")
+    except Exception:
+        pass
+
+
+#: Live subtitles: a partial transcript earns a caption line when it grew
+#: by this many chars or this many seconds passed (overlay shows the tail,
+#: so interim lines read as live typing, not lag).
+PARTIAL_MIN_CHARS = 8
+PARTIAL_MIN_SECONDS = 1.5
+
+
+def partial_changed(last: str, last_ts: float, text: str, now: float) -> bool:
+    """Should an interim transcript line be captioned? Pure."""
+    text = " ".join(str(text or "").split())
+    if not text or text == last:
+        return False
+    if len(text) >= len(last) + PARTIAL_MIN_CHARS:
+        return True
+    return (now - last_ts) >= PARTIAL_MIN_SECONDS
+
+
+def captions_path() -> Path:
+    """Captions file under $JARVIS_HOME (default ~/.jarvis). Pure (env)."""
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    base = Path(home) if home else Path.home() / ".jarvis"
+    return base / CAPTIONS_FILE
+
+
+def caption(role: str, text: str) -> bool:
+    """Append one `ts\\trole\\ttext` line, pruning to the last keep window.
+
+    Fail-soft, never raises. Roles: "sir" (user) / "jarvis" (assistant).
+    """
+    try:
+        text = " ".join(str(text or "").split())
+        if not text:
+            return False
+        path = captions_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            fh.write(f"{int(time.time())}\t{role}\t{text[:500]}\n")
+        lines = path.read_text().splitlines()
+        if len(lines) > CAPTIONS_KEEP + 50:
+            path.write_text("\n".join(lines[-CAPTIONS_KEEP:]) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+#: Jarvis's in-progress line, rewritten word by word as the audio plays
+#: (fed by the agent's synced transcription output). One JSON object:
+#: {"id", "text", "ts", "done"}.
+LIVE_CAPTION_FILE = "caption_live.json"
+
+
+def live_caption(uid: str, text: str, done: bool = False) -> bool:
+    """Atomically replace the live Jarvis line. Fail-soft, never raises."""
+    try:
+        path = captions_path().with_name(LIVE_CAPTION_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "id": str(uid),
+                    "text": " ".join(str(text or "").split())[:2000],
+                    "ts": time.time(),
+                    "done": bool(done),
+                }
+            )
+        )
+        tmp.replace(path)
+        return True
+    except OSError:
+        return False
+
+
+def read_captions(limit: int = 20) -> list[dict]:
+    """Tail of the captions file as [{ts, role, text}]. Never raises."""
+    try:
+        lines = captions_path().read_text().splitlines()[-max(1, limit) :]
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in lines:
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            ts = int(parts[0])
+        except ValueError:
+            continue
+        out.append({"ts": ts, "role": parts[1], "text": parts[2]})
+    return out

@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#05070D</color>
-    <color name="jarvis_cyan">#1FD5F9</color>
+    <!-- Flutter revamp signal cyan (#5FE3FF, theme.dart) for new screens. -->
+    <color name="jarvis_cyan">#5FE3FF</color>
+    <!-- Flutter revamp warning amber (theme.dart). -->
+    <color name="jarvis_amber">#FFB648</color>
     <color name="jarvis_blue">#002CF2</color>
+    <!-- v1.6 HUD system: translucent panels over the animated backdrop. -->
+    <color name="hud_panel">#B30A1A2E</color>
+    <color name="hud_stroke">#661FD5F9</color>
+    <color name="hud_text">#E8F6FF</color>
+    <color name="hud_dim">#5A7A8C</color>
+    <color name="hud_ice">#9BE9FF</color>
+    <color name="hud_red">#FF3B30</color>
+    <color name="hud_field">#80061222</color>
 </resources>

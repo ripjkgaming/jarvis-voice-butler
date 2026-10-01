@@ -22,13 +22,16 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import datetime
 import difflib
 import json
 import os
 import re
+import shlex
 import shutil
 import time
+import urllib.parse
 from pathlib import Path
 
 from livekit.agents import RunContext, function_tool
@@ -207,7 +210,6 @@ _APP_CANDIDATES: dict[str, list[str]] = {
     "kalculator": ["kcalc", "gnome-calculator"],
     "kcalc": ["kcalc", "gnome-calculator"],
     "settings": ["systemsettings"],
-    "spotify": ["spotify"],
     "discord": ["discord"],
     "whatsie": ["flatpak:com.ktechpit.whatsie"],
     "whatsapp": ["flatpak:com.ktechpit.whatsie"],
@@ -324,11 +326,66 @@ def _resolve_app(
     return None
 
 
+def _window_ids_from_wmctrl(out: str) -> set[str]:
+    """Parse `wmctrl -l` output into window-id hex strings. Pure."""
+    ids: set[str] = set()
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if parts:
+            ids.add(parts[0])
+    return ids
+
+
+async def _maximize_new_windows(before: set[str]) -> None:
+    """Maximize windows that appeared after the `before` snapshot.
+
+    Fail-soft by design: a missing wmctrl, no display, or zero new
+    windows all silently no-op. Never breaks the open itself.
+    """
+    try:
+        await asyncio.sleep(1.5)
+        rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
+        if rc != 0:
+            return
+        for wid in sorted(_window_ids_from_wmctrl(out) - before):
+            await run_cmd(
+                "wmctrl",
+                "-i",
+                "-r",
+                wid,
+                "-b",
+                "add,maximized_vert,maximized_horz",
+                timeout=5.0,
+            )
+    except Exception:
+        pass
+
+
+async def _return_to(title: str) -> None:
+    """Re-focus Sir's previous window once a new player window has stolen
+    focus, so music opens in the background. A new window can appear late
+    (browser start-up), so re-assert it a couple of times. Fail-soft."""
+    try:
+        from system import window_ctl
+
+        for delay in (1.5, 2.0, 3.0):
+            await asyncio.sleep(delay)
+            now = (await asyncio.to_thread(window_ctl.active_title)).lower()
+            # Only undo the player's own focus grab: if Sir has since
+            # switched somewhere himself, leave him there.
+            if "youtube" in now or "brave" in now:
+                await asyncio.to_thread(window_ctl.restore, title)
+    except Exception:
+        pass
+
+
 class SystemTools:
     """Local PC-control tools. Register via .tools on the SystemAgent."""
 
     def __init__(self) -> None:
         self._confirmed_power: str | None = None
+        self._confirmed_command: str | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
 
     @property
     def tools(self) -> list:
@@ -341,10 +398,14 @@ class SystemTools:
             self.set_volume,
             self.media_control,
             self.now_playing,
+            self.play_media,
+            self.close_app,
+            self.launch_gods_eye,
             self.set_brightness,
             self.battery_status,
             self.disk_space,
-            self.find_files,
+            # find_files lives in system.files_tools now (brain index, /mnt/data,
+            # content search); two same-named tools broke the agent.
             self.list_dir,
             self.read_file,
             self.write_file,
@@ -360,6 +421,8 @@ class SystemTools:
             self.window_action,
             self.confirm_power_action,
             self.power_control,
+            self.confirm_command_action,
+            self.run_command,
         ]
 
     # --- talk / core ---
@@ -524,7 +587,7 @@ class SystemTools:
     async def set_volume(
         self, context: RunContext, action: str, level: int = 50
     ) -> dict[str, str]:
-        """Get/set/mute the system volume via PulseAudio.
+        """Get/set/mute the system volume (PipeWire/PulseAudio), verified.
 
         Args:
             action: One of status, up, down, set, mute, unmute.
@@ -534,50 +597,35 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        action = action.lower()
+        from system.school_tools import loud_guard
 
-        async def pct() -> str:
-            _rc, out, _ = await run_cmd(
-                "pactl", "get-sink-volume", "@DEFAULT_SINK@", timeout=5.0
-            )
-            m = re.search(r"(\d+)%", out or "")
-            return m.group(1) + "%" if m else "?"
+        loud_guard("set_volume", {"action": action, "level": level})
+        from intent import fast_path
+        from system import audio_ctl
 
-        if action == "status":
-            _rc, out, _ = await run_cmd(
-                "pactl", "get-sink-mute", "@DEFAULT_SINK@", timeout=5.0
+        # Verified: wpctl first (PipeWire), read back after; a change that
+        # didn't happen is reported as a failure, never as "done". once():
+        # the voice fast path and Gemini never both apply the same request.
+        ok, say, dup = await fast_path.once(
+            "set_volume",
+            {"action": action, "level": level},
+            "fast" if context is None else "llm",
+            lambda: asyncio.to_thread(audio_ctl.volume, action, level),
+        )
+        if not dup:
+            log_action(
+                "volume",
+                f"{action} {level if action in ('set', 'level') else ''} ok={ok}",
             )
-            muted = "yes" in (out or "").lower()
-            return {"say": f"Volume {await pct()}{' (muted)' if muted else ''}."}
-        if action in ("mute", "unmute"):
-            await run_cmd(
-                "pactl",
-                "set-sink-mute",
-                "@DEFAULT_SINK@",
-                "1" if action == "mute" else "0",
-                timeout=5.0,
-            )
-            log_action("volume", action)
-            return {"say": f"{'Muted' if action == 'mute' else 'Unmuted'}."}
-        delta = None
-        if action in ("up", "down"):
-            delta = "+5%" if action == "up" else "-5%"
-        elif action in ("set", "level"):
-            try:
-                delta = f"{max(0, min(150, int(level)))}%"
-            except Exception:
-                raise ToolError("Volume level must be 0 to 150.") from None
-        else:
-            raise ToolError(f"Unknown volume action {action}.")
-        await run_cmd("pactl", "set-sink-volume", "@DEFAULT_SINK@", delta, timeout=5.0)
-        log_action("volume", f"{action} {delta}")
-        return {"say": f"Volume {await pct()}."}
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
 
     @function_tool()
     async def media_control(
         self, context: RunContext, action: str, value: str = ""
     ) -> dict[str, str]:
-        """Control the local music player via playerctl.
+        """Control the playing media player via playerctl, verified.
 
         Args:
             action: play, pause, play-pause, next, previous, seek, loop,
@@ -592,8 +640,23 @@ class SystemTools:
         action = action.lower().replace("_", "-")
         cmd: list[str] = []
         if action in ("play", "pause", "play-pause", "next", "previous", "stop"):
-            cmd = ["playerctl", action]
-        elif action == "seek":
+            # The playing player, verified (playerctl alone hits whichever
+            # player it lists first, often not the one playing).
+            from intent import fast_path
+            from system import audio_ctl
+
+            ok, say, dup = await fast_path.once(
+                "media_control",
+                {"action": action},
+                "fast" if context is None else "llm",
+                lambda: asyncio.to_thread(audio_ctl.media, action),
+            )
+            if not dup:
+                log_action("media", f"{action} ok={ok}")
+            if not ok:
+                raise ToolError(say)
+            return {"say": say}
+        if action == "seek":
             v = value.strip()
             m = re.fullmatch(r"(\d+):(\d+)", v)
             if m:
@@ -657,6 +720,125 @@ class SystemTools:
             "track": (meta or "").strip(),
             "say": f"{(meta or 'Unknown track').strip()} is {(status or '').strip()}.",
         }
+
+    @function_tool()
+    async def play_media(
+        self, context: RunContext, query: str, show: bool = False
+    ) -> dict[str, str]:
+        """Play music/video on the SYSTEM YouTube (Brave), never the agent browser.
+
+        "Play X" always lands here: a system Brave window on YouTube search
+        results for the query, so playback uses Sir's own browser, logins,
+        and speakers. The Playwright backend browser is for research and
+        automation only — never for watching or listening.
+        A bare "play some music" (no query) opens the saved playlist.
+
+        The window opens in the BACKGROUND: whatever Sir is working in
+        stays in front and the music just starts. Only pass show=true when
+        he asks to see it ("play X and show me", "put it on screen").
+
+        Args:
+            query: What to play, e.g. "lofi hip hop". Empty means the playlist.
+            show: True to leave the player window in front.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        from system import window_ctl
+        from system.school_tools import loud_guard
+
+        loud_guard("play_media", {"query": query})
+        previous = "" if show else await asyncio.to_thread(window_ctl.active_title)
+        query = (query or "").strip()[:200]
+        if query:
+            # Autoplay: resolve the top hit to a watch URL so playback
+            # starts on its own; fall back to the results page.
+            url = (
+                "https://www.youtube.com/results?search_query="
+                + urllib.parse.quote_plus(query)
+            )
+            ytdlp = shutil.which("yt-dlp")
+            if ytdlp:
+                search = None
+                try:
+                    search = await asyncio.create_subprocess_exec(
+                        ytdlp,
+                        "--get-id",
+                        "--flat-playlist",
+                        f"ytsearch1:{query}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    out, _ = await asyncio.wait_for(search.communicate(), 12)
+                    vid = out.decode().strip().splitlines()
+                    if vid and re.fullmatch(r"[\w-]{11}", vid[0]):
+                        url = f"https://www.youtube.com/watch?v={vid[0]}"
+                except (OSError, asyncio.TimeoutError):
+                    if search is not None:
+                        with contextlib.suppress(ProcessLookupError):
+                            search.kill()
+            say = f"Playing {query} on YouTube."
+        else:
+            url = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+            say = "Playing your playlist on YouTube."
+        brave = shutil.which("brave-browser") or shutil.which("brave")
+        if brave is None:
+            raise ToolError("Brave is not installed on this system.")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                brave,
+                "--new-window",
+                url,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except FileNotFoundError:
+            raise ToolError("I could not launch Brave.") from None
+        log_action("play", url)
+        if previous:
+            _bg = asyncio.create_task(_return_to(previous))
+            self._tasks.add(_bg)
+            _bg.add_done_callback(self._tasks.discard)
+        return {"say": say, "pid": str(proc.pid or 0)}
+
+    @function_tool()
+    async def launch_gods_eye(self, context: RunContext) -> dict[str, str]:
+        """Show the God's-Eye globe window (ambient display only).
+
+        "Launch gods eye view" / "show the globe" lands here: it toggles
+        the Tauri globe window visible. The page runs ambient (slow
+        auto-spin, all input ignored) — this tool is show/hide only,
+        there is nothing to click or drive inside it.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        repo = Path(__file__).resolve().parent.parent.parent
+        candidates = [
+            [str(repo / "shell" / "src-tauri" / "target" / "debug" / "jarvis-shell")],
+            ["jarvis-shell"],
+            ["jarvis"],
+        ]
+        for argv in candidates:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *argv,
+                    # Show-only (never toggle): a second "launch" while
+                    # visible is a no-op, not a hide.
+                    "globeshow",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                await asyncio.wait_for(proc.wait(), timeout=10.0)
+                log_action("globe", "toggle")
+                return {"say": "God's Eye on screen."}
+            except Exception:
+                continue
+        raise ToolError("The Jarvis shell is not running.")
 
     # --- devices ---
 
@@ -1102,42 +1284,139 @@ class SystemTools:
     # --- apps / windows ---
 
     @function_tool()
-    async def open_app(self, context: RunContext, app: str) -> dict[str, str]:
+    async def open_app(
+        self, context: RunContext, app: str, url: str = ""
+    ) -> dict[str, str]:
         """Open an installed app by spoken name, executable, or .desktop entry.
 
         Args:
             app: e.g. "calculator", "brave", "code", "konsole", "files".
+            url: optional http(s) URL to open in (works with browser apps
+                like "brave": bare "open YouTube" lands in Sir's system
+                browser, never the Playwright backend).
         """
         try:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from system.school_tools import loud_guard
+
+        loud_guard("open_app", {"app": app, "url": url})
         app = app.strip().lower()[:60]
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")
-        target = _resolve_app(app)
-        if target is None:
-            raise ToolError(
-                f"I could not find the app {app} (not on PATH, no .desktop "
-                "entry). Fall back to cursor navigation: desktop_screenshot, "
-                "desktop_locate_text for its icon or name, then desktop_click."
+        url = (url or "").strip()[:500]
+        say = f"Opening {app}."
+        pri = None
+        if not url:
+            # Sir's priority apps (Sober, Resolve, Dolphin, Claude-in-Konsole,
+            # Konsole, Brave) win before any other resolution.
+            from system.launcher import priority_app
+
+            with contextlib.suppress(Exception):
+                pri = priority_app(app)
+        target = None if pri is not None else _resolve_app(app)
+        if target is not None and Path(target).name == "env":
+            # .desktop Exec "env VAR=... /opt/app/bin/app" resolved to bare
+            # `env` (does nothing): let the launcher use the full argv.
+            target = None
+        if pri is not None and not pri.argv:
+            # Single-instance app already up (Sober/Resolve): no duplicate.
+            return {"say": pri.say or f"{pri.target} is already running, Sir."}
+        if pri is not None:
+            argv = list(pri.argv)
+            target = pri.target
+            say = pri.say or say
+        elif target is not None:
+            argv = (
+                ["flatpak", "run", target.split("flatpak:", 1)[1]]
+                if target.startswith("flatpak:")
+                else [target]
             )
-        argv = (
-            ["flatpak", "run", target.split("flatpak:", 1)[1]]
-            if target.startswith("flatpak:")
-            else [target]
-        )
+            if url:
+                if not re.match(r"^https?://[A-Za-z0-9]", url):
+                    raise ToolError("That URL is not safe to open.")
+                argv.append(url)
+        elif url:
+            # No app resolved but Sir named a URL: open it in the browser.
+            if not re.match(r"^https?://[A-Za-z0-9]", url):
+                raise ToolError("That URL is not safe to open.")
+            argv = ["xdg-open", url]
+            target = url
+        else:
+            # Universal launcher: match installed apps, then sites Sir has
+            # actually visited, then the web -- so "open <anything>" always
+            # does something sensible instead of dead-ending on KCalc or a
+            # "not found". A dominant hit is instant; ambiguity is arbitrated
+            # by the local router model.
+            from system.launcher import resolve_launch
+
+            try:
+                known = __import__("tools").KNOWN_SITES
+            except Exception:
+                known = None
+            decision = resolve_launch(app, known_sites=known)
+            if decision.kind == "app" and decision.argv:
+                argv = decision.argv
+                target = decision.target
+            else:
+                argv = ["xdg-open", decision.target]
+                target = decision.target
+            say = decision.say or say
+        from system.launcher import blocked_say, is_blocked
+
+        if blocked := is_blocked(app, url, target, *argv):
+            raise ToolError(blocked_say(blocked))
+        try:
+            rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
+            before = _window_ids_from_wmctrl(out) if rc == 0 else set()
+        except Exception:
+            before = set()
+        # Sandbox mode: launch onto the nested test display, never the
+        # real session (see system.desktop.sandbox_display).
+        from system.desktop import sandbox_display, sandbox_env
+
+        _sandbox = sandbox_display()
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
+                **({"env": sandbox_env(_sandbox)} if _sandbox else {}),
             )
         except FileNotFoundError:
             raise ToolError(f"I could not launch {app}.") from None
+        # Maximize what just opened without delaying the reply: the
+        # follow-up snapshots wmctrl itself and no-ops when Sir already
+        # placed the window or nothing new appeared.
+        _max_task = asyncio.create_task(_maximize_new_windows(before))
+        self._tasks.add(_max_task)
+        _max_task.add_done_callback(self._tasks.discard)
         log_action("launch", target)
-        return {"say": f"Opening {app}.", "pid": str(proc.pid or 0)}
+        return {"say": say, "pid": str(proc.pid or 0)}
+
+    @function_tool()
+    async def close_app(self, context: RunContext, name: str) -> dict[str, str]:
+        """Close a website or app Sir names ("close YouTube", "quit Steam").
+
+        A site closes as just its tab(s) in Sir's Brave, never the whole
+        window with his other tabs; anything else closes its app window.
+
+        Args:
+            name: The site or app, e.g. "youtube", "dolphin", "github.com".
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        from system.closer import close_target
+
+        out = await asyncio.to_thread(close_target, (name or "")[:80])
+        if not out.get("ok"):
+            raise ToolError(out.get("say") or "I could not close that.")
+        log_action("close", f"{out.get('closed')} {name[:60]}")
+        return {"say": out["say"]}
 
     @function_tool()
     async def window_action(
@@ -1154,6 +1433,28 @@ class SystemTools:
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         action = action.lower()
+        from system import kwin_windows
+
+        if action == "focus" and query.strip():
+            from system import window_ctl
+
+            ok, say = await asyncio.to_thread(window_ctl.focus, query)
+            log_action("window", f"focus {query[:60]} ok={ok}")
+            if not ok:
+                raise ToolError(say)
+            return {"say": say}
+        if kwin_windows.available() and action in kwin_windows.ACTIONS:
+            # Plasma Wayland: wmctrl can't see native windows (it listed
+            # nothing and "close" silently no-oped), so drive KWin directly.
+            if not query.strip():
+                raise ToolError("Which window? Give me part of its title.")
+            hit = await asyncio.to_thread(kwin_windows.act, action, query.strip())
+            if hit is None:
+                raise ToolError(f"No window matching {query.strip()[:60]}.")
+            title, n = hit
+            log_action("window", f"{action} {title[:80]}")
+            more = f" ({n - 1} more matched; name it more exactly)" if n > 1 else ""
+            return {"say": f"Window {action}: {title[:70]}.{more}"}
         if action == "list":
             _rc, out, _ = await run_cmd("wmctrl", "-l", timeout=5.0)
             if _rc != 0:
@@ -1247,3 +1548,114 @@ class SystemTools:
             log_action("power", "suspend")
             return {"say": "Suspending."}
         raise ToolError(f"Unknown power action {action}.")
+
+    @function_tool()
+    async def confirm_command_action(self, context: RunContext, command: str) -> str:
+        """Authorize ONE shell command exactly as discussed with the user.
+
+        Call only after the user explicitly approves the exact command.
+        The next run_command must match it verbatim, then the
+        authorization burns. Denylisted commands can never be confirmed.
+
+        Args:
+            command: The exact command line the user approved.
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        cmd = _normalize_command(command)
+        if not cmd:
+            raise ToolError("Confirm what, Sir? Give me the command first.")
+        denied = command_denied(cmd)
+        if denied is not None:
+            raise ToolError(f"That command is never allowed: {denied}.")
+        self._confirmed_command = cmd
+        log_action("cmd-confirm", cmd[:200])
+        return f"Authorized one run of {cmd[:200]}."
+
+    @function_tool()
+    async def run_command(
+        self, context: RunContext, command: str, timeout_s: int = 30
+    ) -> dict[str, str]:
+        """Run an authorized shell command (no shell: argv only, no pipes
+        or redirects). Requires confirm_command_action first with the
+        exact command; single use. Output capped at 8KB.
+
+        Args:
+            command: The exact confirmed command line.
+            timeout_s: Kill after this many seconds (5-120, default 30).
+        """
+        try:
+            require_local()
+        except LocalSystemError as exc:
+            raise ToolError(str(exc)) from exc
+        cmd = _normalize_command(command)
+        if self._confirmed_command != cmd or not cmd:
+            raise ToolError(
+                "That command is not authorized. Read it back and ask the "
+                "user to confirm it before running."
+            )
+        self._confirmed_command = None
+        denied = command_denied(cmd)
+        if denied is not None:
+            raise ToolError(f"That command is never allowed: {denied}.")
+        try:
+            argv = shlex.split(cmd, posix=True)
+        except ValueError as exc:
+            raise ToolError(f"I could not parse that command: {exc}.") from exc
+        if not argv:
+            raise ToolError("Empty command.")
+        try:
+            timeout = max(5, min(120, int(timeout_s or 30)))
+        except (TypeError, ValueError):
+            timeout = 30
+        rc, out, err = await run_cmd(*argv, timeout=float(timeout))
+        log_action("cmd", f"{cmd[:200]} rc={rc}")
+        text = (out or err or "").strip()[:8000]
+        if not text:
+            text = "(no output)"
+        return {"say": f"Exit {rc}: {text[:1500]}", "rc": str(rc), "output": text}
+
+
+# run_command denylist: patterns that never execute even when confirmed.
+# No shell is ever used (argv only), so operators are rejected outright
+# rather than escaped. Pure data for _command_denied().
+_COMMAND_DENY: tuple[tuple[str, str], ...] = (
+    (r"\brm\s+[^|]*-[a-z]*r", "recursive delete"),
+    (r"rm\s+(-rf?\s+)?(/|~|\$HOME)", "delete of root/home"),
+    (r"\bmkfs\b", "filesystem format"),
+    (r"\bdd\b.*\bof=", "raw disk write"),
+    (r":\(\)\s*\{", "fork bomb"),
+    (r"\b(shutdown|reboot|poweroff|halt)\b", "use power_control instead"),
+    # Any recursive chmod/chown: never casual over voice, deny outright.
+    (r"\b(chmod|chown)\b[^\n|;]*-[a-z]*r", "recursive ownership/mode change"),
+    (r">\s*/dev/sd", "raw disk write"),
+    (r"(curl|wget).*\|\s*(sh|bash)", "pipe-to-shell"),
+    (r"\bnc\b.*-[a-z]*l", "network listener"),
+    (r"\bnc\b.*-e\b", "reverse shell"),
+    (r"/dev/tcp/", "reverse shell"),
+    (r"\b(passwd|visudo)\b", "credential change"),
+)
+
+# Shell operators are rejected (argv-only execution, no shell to honor them).
+_SHELL_TOKENS = (";", "&&", "||", "|", "`", "$(", ">", "<")
+
+
+def _normalize_command(cmd: str) -> str:
+    """Collapse whitespace for exact-match confirm gating. Pure."""
+    return re.sub(r"\s+", " ", (cmd or "").strip())
+
+
+def command_denied(cmd: str) -> str | None:
+    """Reason a command must never run, or None if allowed. Pure."""
+    text = _normalize_command(cmd)
+    if not text:
+        return "empty command"
+    if any(tok in text for tok in _SHELL_TOKENS):
+        return "one simple command, no shell operators or redirects"
+    lowered = f" {text.casefold()} "
+    for pattern, reason in _COMMAND_DENY:
+        if re.search(pattern, lowered):
+            return reason
+    return None

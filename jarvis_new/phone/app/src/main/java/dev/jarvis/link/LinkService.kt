@@ -8,9 +8,11 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -43,11 +45,16 @@ class LinkService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var telemetryRunning = false
+    private var telemetryThread: Thread? = null
+    private var batteryReceiver: BroadcastReceiver? = null
+    @Volatile private var lastCharging: Boolean? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        TtsManager.init(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CH_STATUS, "JarvisLink link", NotificationManager.IMPORTANCE_LOW)
@@ -70,13 +77,98 @@ class LinkService : Service() {
                 .also { it.acquire(12 * 60 * 60 * 1000L) }
             worker = thread(name = "mic-uplink", isDaemon = true) { loop() }
         }
+        startTelemetry()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        stopTelemetry()
         running = false
         try { wakeLock?.release() } catch (_: Exception) { }
         super.onDestroy()
+    }
+
+    /** Phone battery telemetry: POST /phone/telemetry on start, every
+     *  60s, and when the charging state flips. Network runs off the
+     *  main thread; all failures are silent. */
+    private fun startTelemetry() {
+        if (telemetryRunning) return
+        telemetryRunning = true
+        try {
+            readBattery()?.let { lastCharging = it.second }
+        } catch (_: Exception) { }
+        sendTelemetryAsync()
+        try {
+            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            batteryReceiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    if (intent?.action != Intent.ACTION_BATTERY_CHANGED) return
+                    try {
+                        val st = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                        val charging = st == BatteryManager.BATTERY_STATUS_CHARGING ||
+                            st == BatteryManager.BATTERY_STATUS_FULL
+                        val prev = lastCharging
+                        if (prev == null) {
+                            lastCharging = charging
+                            return
+                        }
+                        if (charging != prev) {
+                            lastCharging = charging
+                            sendTelemetryAsync()
+                        }
+                    } catch (_: Exception) { }
+                }
+            }.also { registerReceiver(it, filter) }
+        } catch (_: Exception) { }
+        if (telemetryThread?.isAlive != true) {
+            telemetryThread = thread(name = "telemetry-tick", isDaemon = true) {
+                while (telemetryRunning) {
+                    try {
+                        Thread.sleep(60_000)
+                    } catch (_: InterruptedException) { break }
+                    if (!telemetryRunning) break
+                    sendTelemetryAsync()
+                }
+            }
+        }
+    }
+
+    private fun stopTelemetry() {
+        telemetryRunning = false
+        try {
+            batteryReceiver?.let { unregisterReceiver(it) }
+        } catch (_: Exception) { }
+        batteryReceiver = null
+        try { telemetryThread?.interrupt() } catch (_: Exception) { }
+        telemetryThread = null
+    }
+
+    /** Real phone battery % + charging state (same source as HomeFragment). */
+    private fun readBattery(): Pair<Int, Boolean>? {
+        try {
+            val bm = getSystemService(BATTERY_SERVICE) as BatteryManager
+            val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            if (pct < 0) return null
+            val sticky = registerReceiver(
+                null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            )
+            val st = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val charging = st == BatteryManager.BATTERY_STATUS_CHARGING ||
+                st == BatteryManager.BATTERY_STATUS_FULL
+            return pct.coerceIn(0, 100) to charging
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    private fun sendTelemetryAsync() {
+        thread(name = "telemetry-send", isDaemon = true) {
+            try {
+                val (pct, charging) = readBattery() ?: return@thread
+                lastCharging = charging
+                LinkApi(Prefs(this@LinkService)).postTelemetry(pct, charging)
+            } catch (_: Exception) { }
+        }
     }
 
     private fun statusNotif(text: String): Notification {
@@ -116,6 +208,9 @@ class LinkService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_STATUS, statusNotif(text))
     }
 
+    // RECORD_AUDIO is requested at MainActivity startup before this
+    // foreground service is ever started; failures still fail soft.
+    @android.annotation.SuppressLint("MissingPermission")
     private fun stream(prefs: Prefs) {
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
@@ -194,16 +289,20 @@ class LinkService : Service() {
     }
 }
 
-/** Autostart the mic uplink after boot (only if enabled in Settings). */
+/** Autostart services after boot (gated by the autostart toggle, then per-service toggles). */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (!Prefs(context).micUplink) return
-        val svc = Intent(context, LinkService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(svc)
-        } else {
-            context.startService(svc)
+        val prefs = Prefs(context)
+        if (!prefs.autostart) return
+        if (prefs.micUplink) {
+            val svc = Intent(context, LinkService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(svc)
+            } else {
+                context.startService(svc)
+            }
         }
+        if (prefs.hotwordEnabled) HotwordService.start(context)
     }
 }
