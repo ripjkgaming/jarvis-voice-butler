@@ -78,6 +78,7 @@ from system.vision_tools import VisionTools
 from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
 from tools import BrowserTools
+import tool_usage
 
 # Resolve against the checkout root, not cwd: the Tauri shell spawns the
 # worker with cwd=shell/, where a relative ".env.local" never resolves and
@@ -1065,6 +1066,9 @@ def _wrap_tools_with_timing(tools: list) -> list:
                     import acks as _acks
 
                     _acks.record(_tid, ms / 1000.0)
+                    import tool_usage as _usage
+
+                    _usage.record(_tid)
                     if log_action is not None:
                         log_action("latency", f"{_tid} {ms:.0f}ms")
                 except Exception:
@@ -1277,6 +1281,7 @@ class SystemAgent(Agent):
         llm=None,
         only_ids: set[str] | frozenset[str] | None = None,
         parent: Agent | None = None,
+        extra_tools: list | None = None,
     ) -> None:
         self._parent = parent
         self.task = ""
@@ -1310,7 +1315,7 @@ class SystemAgent(Agent):
             instructions=SYSTEM_INSTRUCTIONS,
             # end_call always rides along: after a handoff this agent owns
             # the call, so a direct "hang up" must work here too.
-            tools=[*picked, *self._end_call_tool.tools],
+            tools=[*picked, *(extra_tools or []), *self._end_call_tool.tools],
         )
         _wrap_tools_with_timing(self.tools)
 
@@ -1368,6 +1373,30 @@ def _with_memory(instructions: str) -> str:
     return f"{instructions}\n\n# Memory\n{block}" if block else instructions
 
 
+#: Rare-handoff tools that are safe to promote onto the router when Sir keeps
+#: using them. Power/command/pentest/desktop tools are never in this set.
+PROMOTABLE_RARE_IDS: frozenset[str] = frozenset(
+    {
+        "open_app",
+        "media_control",
+        "window_action",
+        "set_brightness",
+        "keyboard_light",
+        "monitor_setup",
+        "open_on_monitor",
+    }
+)
+
+
+def _never_demote(tool_id: str) -> bool:
+    """Handoffs, safety confirmations and the live-latency tool stay put."""
+    return (
+        tool_id.startswith("transfer_")
+        or "confirm" in tool_id
+        or tool_id in {"latency_report", "set_volume", "tell_time"}
+    )
+
+
 class Assistant(Agent):
     def __init__(
         self,
@@ -1414,6 +1443,106 @@ class Assistant(Agent):
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
+        all_tools = [
+            *self.browser_tools.tools,
+            *self._end_call_tool.tools,
+            # Common laptop tools live here directly: small models
+            # cannot be trusted to hand off, and mail/Reddit must
+            # never go near the browser. The rare/dangerous ids in
+            # RARE_SYSTEM_TOOL_IDS are excluded and served behind
+            # the narrow transfer_to_system_control handoff instead.
+            # Passive OSINT rides directly (public data, no confirm);
+            # active pentest stays behind the handoff (rare ids).
+            *self.osint_tools.tools,
+            # Background research (Claude) / coding (opencode) projects
+            # + the voice-only Project Archive window.
+            *self.project_tools.tools,
+            # Movie / meme lines -> fixed safe actions (src/quotes.py).
+            *self.quote_tools.tools,
+            # School mode switch + loud-action confirmation.
+            *self.school_tools.tools,
+            # Find / open / describe / tidy Sir's files (second brain).
+            *self.files_tools.tools,
+            # "Find me a cheaper alternative to X" -> research project.
+            *self.alternatives_tools.tools,
+            # Focus mode: lock on to a window/tab, drift alerts, review.
+            *self.focus_tools.tools,
+            # Eyes: appearance feedback, posture/phone watch, gestures.
+            *self.vision_tools.tools,
+            # Google Docs/Sheets/Drive, Notion, invoice generation.
+            *self.workspace_tools.tools,
+            # Email reply drafts (send stays behind confirm_email_action).
+            *self.draft_tools.tools,
+            # "What did you say to X", "what emails did you reply to",
+            # "catch me up": read-only recall of WhatsApp/mail logs.
+            *self.recall_tools.tools,
+            # Exam schedule: next / find / add, fed by schedule imports.
+            *self.exam_tools.tools,
+            # Delegate a task to Meta's Muse agent (email/WhatsApp),
+            # read back and confirm-gated before anything is sent.
+            *self.muse_tools.tools,
+            # Long-term memory: recall, last time, remember/forget.
+            *self.memory_tools.tools,
+            # Windows: list / focus / arrange / undo (reversible, logged).
+            *self.window_tools.tools,
+            # Vision on demand: the active window or one camera frame.
+            *self.look_tools.tools,
+            # Code: background test runs, failure explanations, gated PRs.
+            *self.code_tools.tools,
+            # Multi-step background tasks; acts pause for Sir's yes.
+            *self.task_tools.tools,
+            # HUD panels by voice: show mail / hide calendar.
+            *self.panel_tools.tools,
+            # Workshop: parallel read-only specialists, one merged status.
+            *self.workshop_tools.tools,
+            # One voice tool: notify Sir (spoken if present, toast otherwise).
+            *self.notify_tools.tools,
+            *[
+                tool
+                for group in (
+                    self.system_tools.tools,
+                    self.device_tools.tools,
+                    self.daily_tools.tools,
+                    self.background_tools.tools,
+                    self.inbox_tools.tools,
+                    self.reddit_tools.tools,
+                )
+                for tool in group
+                if tool.id not in RARE_SYSTEM_TOOL_IDS
+            ],
+        ]
+        # Adaptive tiering: tools Sir has stopped using leave the router's
+        # per-turn tool list and ride behind one handoff (src/tool_usage.py).
+        # Rare tools he keeps using are promoted onto the router.
+        promoted = tool_usage.promote(PROMOTABLE_RARE_IDS)
+        router = [
+            t
+            for t in all_tools
+            if t.id not in RARE_SYSTEM_TOOL_IDS or t.id in promoted
+        ]
+        seen_ids = {t.id for t in router}
+        router += [
+            t
+            for t in (
+                *self.system_tools.tools,
+                *self.device_tools.tools,
+            )
+            if t.id in promoted and t.id not in seen_ids
+        ]
+        always = {t.id for t in self.browser_tools.tools}
+        always |= {t.id for t in self._end_call_tool.tools}
+        always |= {t.id for t in self.notify_tools.tools}
+        cold_ids = tool_usage.plan_cold(
+            (t.id for t in router),
+            protected={*always, *(t.id for t in router if _never_demote(t.id))},
+        )
+        cold = [t for t in router if t.id in cold_ids]
+        router = [t for t in router if t.id not in cold_ids]
+        self._cold_tools = cold
+        self._cold_extras = cold + [t for t in router if "confirm" in t.id]
+        if cold:
+            router.append(self._more_tools_handoff(sorted(cold_ids)))
+        instructions = _with_memory(AGENT_INSTRUCTIONS)
         super().__init__(
             # A Large Language Model (LLM) is your agent's brain. In realtime
             # mode this is the bundled Gemini voice model; in local-pipeline
@@ -1428,81 +1557,46 @@ class Assistant(Agent):
             # 3. Add `from livekit.plugins import openai` to the top of this file
             # 4. Replace the llm argument with:
             #     llm=openai.realtime.RealtimeModel(voice="marin")
-            instructions=_with_memory(AGENT_INSTRUCTIONS),
-            tools=[
-                *self.browser_tools.tools,
-                *self._end_call_tool.tools,
-                # Common laptop tools live here directly: small models
-                # cannot be trusted to hand off, and mail/Reddit must
-                # never go near the browser. The rare/dangerous ids in
-                # RARE_SYSTEM_TOOL_IDS are excluded and served behind
-                # the narrow transfer_to_system_control handoff instead.
-                # Passive OSINT rides directly (public data, no confirm);
-                # active pentest stays behind the handoff (rare ids).
-                *self.osint_tools.tools,
-                # Background research (Claude) / coding (opencode) projects
-                # + the voice-only Project Archive window.
-                *self.project_tools.tools,
-                # Movie / meme lines -> fixed safe actions (src/quotes.py).
-                *self.quote_tools.tools,
-                # School mode switch + loud-action confirmation.
-                *self.school_tools.tools,
-                # Find / open / describe / tidy Sir's files (second brain).
-                *self.files_tools.tools,
-                # "Find me a cheaper alternative to X" -> research project.
-                *self.alternatives_tools.tools,
-                # Focus mode: lock on to a window/tab, drift alerts, review.
-                *self.focus_tools.tools,
-                # Eyes: appearance feedback, posture/phone watch, gestures.
-                *self.vision_tools.tools,
-                # Google Docs/Sheets/Drive, Notion, invoice generation.
-                *self.workspace_tools.tools,
-                # Email reply drafts (send stays behind confirm_email_action).
-                *self.draft_tools.tools,
-                # "What did you say to X", "what emails did you reply to",
-                # "catch me up": read-only recall of WhatsApp/mail logs.
-                *self.recall_tools.tools,
-                # Exam schedule: next / find / add, fed by schedule imports.
-                *self.exam_tools.tools,
-                # Delegate a task to Meta's Muse agent (email/WhatsApp),
-                # read back and confirm-gated before anything is sent.
-                *self.muse_tools.tools,
-                # Long-term memory: recall, last time, remember/forget.
-                *self.memory_tools.tools,
-                # Windows: list / focus / arrange / undo (reversible, logged).
-                *self.window_tools.tools,
-                # Vision on demand: the active window or one camera frame.
-                *self.look_tools.tools,
-                # Code: background test runs, failure explanations, gated PRs.
-                *self.code_tools.tools,
-                # Multi-step background tasks; acts pause for Sir's yes.
-                *self.task_tools.tools,
-                # HUD panels by voice: show mail / hide calendar.
-                *self.panel_tools.tools,
-                # Workshop: parallel read-only specialists, one merged status.
-                *self.workshop_tools.tools,
-                # One voice tool: notify Sir (spoken if present, toast otherwise).
-                *self.notify_tools.tools,
-                *[
-                    tool
-                    for group in (
-                        self.system_tools.tools,
-                        self.device_tools.tools,
-                        self.daily_tools.tools,
-                        self.background_tools.tools,
-                        self.inbox_tools.tools,
-                        self.reddit_tools.tools,
-                    )
-                    for tool in group
-                    if tool.id not in RARE_SYSTEM_TOOL_IDS
-                ],
-            ],
+            instructions=instructions,
+            tools=router,
         )
         # NOTE: transfer_* handoff methods are @function_tool methods on this
         # class, so Agent.__init__ auto-discovers them via find_function_tools.
         # Do NOT also pass them explicitly in tools=[...] — that registers
         # each twice and LiveKit raises "duplicate function name".
         _wrap_tools_with_timing(self.tools)
+
+    def _more_tools_handoff(self, names: list[str]):
+        """The one tool that reaches every demoted (unused-lately) tool."""
+
+        async def transfer_to_more_tools(context: RunContext, task: str):
+            """Hand off to the specialist holding Sir's less-used tools.
+
+            Args:
+                task: What Sir wants done, in his words.
+            """
+            if self._more_agent is None:
+                llm = getattr(self, "llm", None)
+                self._more_agent = SystemAgent(
+                    llm=llm if llm is not None else None,
+                    only_ids=frozenset(),
+                    parent=self,
+                    extra_tools=self._cold_extras,
+                )
+            self._more_agent.task = task
+            return self._more_agent, f"Handing off for that: {task}."
+
+        self._more_agent: SystemAgent | None = None
+        return function_tool(
+            transfer_to_more_tools,
+            name="transfer_to_more_tools",
+            description=(
+                "Hand off for tools not on this agent because Sir rarely uses "
+                "them. Use whenever the request needs one of: "
+                + ", ".join(names)
+                + ". Pass his request as task."
+            ),
+        )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         """Catch instant commands before Gemini replies (IRONMAN fast path).
