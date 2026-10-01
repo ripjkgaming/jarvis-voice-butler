@@ -1516,9 +1516,7 @@ class Assistant(Agent):
         # Rare tools he keeps using are promoted onto the router.
         promoted = tool_usage.promote(PROMOTABLE_RARE_IDS)
         router = [
-            t
-            for t in all_tools
-            if t.id not in RARE_SYSTEM_TOOL_IDS or t.id in promoted
+            t for t in all_tools if t.id not in RARE_SYSTEM_TOOL_IDS or t.id in promoted
         ]
         seen_ids = {t.id for t in router}
         router += [
@@ -1566,6 +1564,30 @@ class Assistant(Agent):
         # each twice and LiveKit raises "duplicate function name".
         _wrap_tools_with_timing(self.tools)
 
+    async def _goodnight(self, text: str) -> bool:
+        """ "Goodnight" -> fixed farewell + armed lock watcher (src/goodnight.py).
+
+        Any other spoken turn while a lock is pending cancels it: talking to
+        Jarvis again is input. Returns True when the turn was fully handled."""
+        import goodnight
+
+        if not goodnight.enabled():
+            return False
+        if not goodnight.is_goodnight(text):
+            goodnight.cancel()
+            return False
+        with contextlib.suppress(Exception):
+            goodnight.arm()
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action(
+                "goodnight", "armed: lock after 5 min idle, if nothing is coding"
+            )
+        with contextlib.suppress(Exception):
+            self.session.say(goodnight.farewell())
+        return True
+
     def _more_tools_handoff(self, names: list[str]):
         """The one tool that reaches every demoted (unused-lately) tool."""
 
@@ -1612,13 +1634,15 @@ class Assistant(Agent):
         try:
             from intent import fast_path
 
-            if not fast_path.enabled():
-                return
             text = ""
             try:
                 text = new_message.text_content or ""
             except Exception:
                 text = ""
+            if await self._goodnight(text):
+                raise StopResponse()
+            if not fast_path.enabled():
+                return
             hit = await fast_path.match_async(text)
             if hit is None:
                 return
@@ -1742,6 +1766,11 @@ async def my_agent(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    # A new call means Sir is back: drop any pending goodnight lock.
+    with contextlib.suppress(Exception):
+        import goodnight
+
+        goodnight.cancel()
     # Start the isolated Needle worker now so its model is loaded by the
     # first turn (a native crash there only kills the child, never this job).
     try:
