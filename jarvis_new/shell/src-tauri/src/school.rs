@@ -402,6 +402,10 @@ fn start_keeper() {
         }
         let extra = MENU_EXTRA_NOW.load(Ordering::SeqCst);
         load_kwin_named(&with_panel_thickness(&keeper_script(primary.as_deref(), extra)), KEEPER_NAME);
+        // Switched back to normal while it loaded: don't leave it running.
+        if !is_school() {
+            unload_kwin_named(KEEPER_NAME);
+        }
     });
 }
 
@@ -412,6 +416,91 @@ fn stop_keeper() {
 
 fn run_kwin(script: &str) {
     run_kwin_named(script, "jarvis_school_dock");
+}
+
+/// Run a school-mode KWin script (one that pins the window above everything)
+/// only while school mode is still on. Every such script is started from a
+/// thread that slept first (compositor settle, transition steps); if Sir
+/// switched back to normal in the meantime a late one would re-pin the HUD
+/// above all windows after the restore had cleared it. That was the "stuck
+/// always on top after school mode" bug.
+fn run_school_kwin(script: &str, name: &str) {
+    if !is_school() {
+        return;
+    }
+    run_kwin_named(script, name);
+}
+
+/// KWin script that makes the normal HUD a normal window again: not kept
+/// above, back in the taskbar/switcher/pager, on one desktop. Touches only
+/// the HUD ("Jarvis" exactly, so never the school strip) and never moves or
+/// resizes it. Idempotent, so it is safe to run repeatedly. Pure.
+pub fn normalize_script() -> String {
+    format!(
+        "for (const w of workspace.windowList()) {{\n\
+           if (w.caption !== \"{hud}\") continue;\n\
+           if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) continue;\n\
+           w.keepAbove = false; w.skipTaskbar = false; w.skipPager = false; w.skipSwitcher = false; w.onAllDesktops = false;\n\
+         }}\n",
+        hud = HUD_TITLE
+    )
+}
+
+/// Rules list without `id`. Pure.
+pub fn rules_without(existing: &str, id: &str) -> String {
+    existing
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != id)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Remove a KWin window rule from the active list and reload rules, so a
+/// forced "keep above" can never outlive the mode that wanted it. Fail-soft.
+pub(crate) fn uninstall_rule(rule_id: &str) {
+    let read = std::process::Command::new("kreadconfig6")
+        .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
+        .output();
+    let existing = match read {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        Err(_) => return, // not Plasma
+    };
+    let rules = rules_without(&existing, rule_id);
+    if rules == existing {
+        return; // already gone
+    }
+    let write = |group: &str, key: &str, value: &str| {
+        let _ = std::process::Command::new("kwriteconfig6")
+            .args(["--file", "kwinrulesrc", "--group", group, "--key", key, value])
+            .output();
+    };
+    let count = if rules.is_empty() { 0 } else { rules.split(',').count() };
+    write("General", "count", &count.to_string());
+    write("General", "rules", &rules);
+    let _ = std::process::Command::new("dbus-send")
+        .args(["--session", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+        .output();
+}
+
+/// Put the HUD back to a normal, not-always-on-top window: drop the school
+/// rule, clear every pin KWin holds, and clear Tauri's own flag. Only ever
+/// acts in normal mode. Fail-soft; blocks for the script's lifetime, so
+/// call it from a thread.
+pub fn heal_normal_mode(app: Option<&AppHandle>) {
+    if is_school() {
+        return;
+    }
+    uninstall_rule(RULE_ID);
+    if is_school() {
+        return;
+    }
+    run_kwin_named(&normalize_script(), "jarvis_hud_normalize");
+    if let Some(win) = app.and_then(|a| a.get_webview_window(crate::commands::OVERLAY_LABEL)) {
+        if !is_school() {
+            let _ = win.set_always_on_top(false);
+        }
+    }
 }
 
 /// KWin script filling the work area (screen minus panels) with the HUD,
@@ -438,6 +527,9 @@ pub fn fill_work_area_at_boot() {
         return;
     }
     std::thread::spawn(|| {
+        // A previous run may have died in school mode with the HUD pinned
+        // above everything: normal mode never starts that way.
+        heal_normal_mode(None);
         const NAME: &str = "jarvis_boot_fill";
         if load_kwin_named(&boot_fill_script(), NAME) {
             std::thread::sleep(std::time::Duration::from_secs(20));
@@ -740,7 +832,7 @@ pub fn school_stage(
                     std::thread::sleep(std::time::Duration::from_millis(UNFRAME_SETTLE_MS));
                 }
                 let primary = primary_output_name();
-                run_kwin_named(&cover_script(cover, primary.as_deref(), content), "jarvis_school_cover");
+                run_school_kwin(&cover_script(cover, primary.as_deref(), content), "jarvis_school_cover");
             });
         }
         "dock" => {
@@ -750,7 +842,10 @@ pub fn school_stage(
             strip_window_props(&app, false);
             std::thread::spawn(|| {
                 let primary = primary_output_name();
-                run_kwin(&with_panel_thickness(&kwin_script(true, None, primary.as_deref())));
+                run_school_kwin(
+                    &with_panel_thickness(&kwin_script(true, None, primary.as_deref())),
+                    "jarvis_school_dock",
+                );
             });
             start_keeper();
         }
@@ -882,7 +977,10 @@ pub fn apply(app: &AppHandle) {
         // Let the compositor map the resized window before docking it.
         std::thread::sleep(std::time::Duration::from_millis(400));
         let primary = primary_output_name();
-        run_kwin(&with_panel_thickness(&kwin_script(true, None, primary.as_deref())));
+        run_school_kwin(
+            &with_panel_thickness(&kwin_script(true, None, primary.as_deref())),
+            "jarvis_school_dock",
+        );
     });
     start_keeper();
 }
@@ -966,15 +1064,74 @@ fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, s
         }
     }
     let restore = geom.map(|g| (g.x, g.y, g.width, g.height));
+    let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(settle_ms));
+        // The school rule forces "keep above": drop it before un-pinning.
+        uninstall_rule(RULE_ID);
+        if is_school() {
+            return; // school mode came back on while we waited
+        }
         run_kwin(&kwin_script(false, restore, None));
+        // Late school scripts (compositor settle, a transition step) or
+        // KWin re-applying a rule can re-pin the HUD after the restore
+        // above. Re-clear after each of them could have landed, so
+        // returning to normal always ends not-always-on-top.
+        for delay_ms in NORMALIZE_PASSES_MS {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            if is_school() {
+                return;
+            }
+            heal_normal_mode(Some(&app));
+        }
     });
 }
+
+/// Delays (ms) of the follow-up clean-ups after leaving school mode.
+const NORMALIZE_PASSES_MS: [u64; 3] = [600, 1500, 3500];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_unpins_only_the_hud() {
+        let s = normalize_script();
+        assert!(s.contains("w.keepAbove = false"));
+        assert!(s.contains("w.caption !== \"Jarvis\""));
+        assert!(s.contains("resourceClass"));
+        // Never the school strip, and never moves or resizes anything.
+        assert!(!s.contains(STRIP_TITLE));
+        assert!(!s.contains("frameGeometry"));
+        assert!(!s.contains("keepAbove = true"));
+    }
+
+    #[test]
+    fn restore_script_always_unpins() {
+        for restore in [None, Some((1, 2, 1280, 720))] {
+            let s = kwin_script(false, restore, None);
+            assert!(s.contains("keepAbove = false") && !s.contains("keepAbove = true"));
+        }
+    }
+
+    #[test]
+    fn rules_without_removes_only_ours() {
+        assert_eq!(rules_without("a,jarvis-school-strip,b", RULE_ID), "a,b");
+        assert_eq!(rules_without(RULE_ID, RULE_ID), "");
+        assert_eq!(rules_without("a,b", RULE_ID), "a,b");
+        assert_eq!(rules_without("", RULE_ID), "");
+        // Round trip with the installer.
+        assert_eq!(rules_without(&rules_with_ours("x"), RULE_ID), "x");
+    }
+
+    #[test]
+    fn school_scripts_never_run_in_normal_mode() {
+        SCHOOL.store(false, Ordering::SeqCst);
+        // Would shell out to dbus-send if it ran; in normal mode it must
+        // return before touching KWin at all.
+        run_school_kwin("w.keepAbove = true;", "jarvis_test_never_loaded");
+        assert!(!is_school());
+    }
 
     #[test]
     fn disk_mode_parses() {
