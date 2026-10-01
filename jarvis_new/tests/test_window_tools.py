@@ -30,14 +30,20 @@ async def test_list_and_focus(monkeypatch) -> None:
     )
     out = await WindowTools.list_windows(WindowTools(), None)  # type: ignore[arg-type]
     assert out["say"] == "2 open: Spotify (active); Code"
+    from system import window_ctl
+
+    monkeypatch.setattr(kwin_windows, "available", lambda env=None: True)
+    monkeypatch.setattr(window_ctl, "active_title", lambda: "Spotify Premium")
+    monkeypatch.setattr(window_ctl.time, "sleep", lambda s: None)
     monkeypatch.setattr(
         kwin_windows,
         "act",
-        lambda action, q: ("Spotify Premium", 1) if action == "focus" else None,
+        lambda action, q, run=None: ("Spotify Premium", 1) if action == "focus" else None,
     )
     said = await WindowTools.focus_window(WindowTools(), None, title="spotify")  # type: ignore[arg-type]
     assert said["say"] == "Spotify Premium is in front."
-    monkeypatch.setattr(kwin_windows, "act", lambda action, q: None)
+    monkeypatch.setattr(kwin_windows, "act", lambda action, q, run=None: None)
+    monkeypatch.setattr(window_ctl.shutil, "which", lambda n: None)
     with pytest.raises(ToolError):
         await WindowTools.focus_window(WindowTools(), None, title="nothing")  # type: ignore[arg-type]
 
