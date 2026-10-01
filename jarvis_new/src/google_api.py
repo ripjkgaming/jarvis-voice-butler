@@ -15,6 +15,7 @@ import contextlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -216,6 +217,33 @@ def save_token(saved: dict, account: str = "personal") -> None:
         pass
 
 
+#: In-memory access tokens, {key: (token, monotonic expiry)}. Google access
+#: tokens live ~1h; refreshing on every tool call cost a network round trip
+#: (a few hundred ms) before each Gmail/Calendar/Drive request.
+_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+_TOKEN_MARGIN_S = 120.0
+
+
+def cached_token(key: str) -> str | None:
+    hit = _TOKEN_CACHE.get(key)
+    if hit and time.monotonic() < hit[1]:
+        return hit[0]
+    return None
+
+
+def cache_token(key: str, token: str, expires_in: object) -> None:
+    try:
+        ttl = float(expires_in) - _TOKEN_MARGIN_S
+    except (TypeError, ValueError):
+        return  # no stated lifetime: never reuse
+    if ttl > 0:
+        _TOKEN_CACHE[key] = (token, time.monotonic() + ttl)
+
+
+def clear_token_cache() -> None:
+    _TOKEN_CACHE.clear()
+
+
 def access_token(opener=None, account: str = "personal") -> str:
     """Fresh access token via the refresh-token grant. Raises GoogleError."""
     saved = _load_token(account)
@@ -226,6 +254,9 @@ def access_token(opener=None, account: str = "personal") -> str:
                 "scripts/google_auth.py --account school."
             )
         raise GoogleError(SETUP_HINT)
+    cache_key = f"{normalize_account(account)}:{saved['refresh_token']}"
+    if opener is None and (hit := cached_token(cache_key)):
+        return hit
     client_id, client_secret = client_creds()
     payload = urllib.parse.urlencode(
         {
@@ -255,6 +286,8 @@ def access_token(opener=None, account: str = "personal") -> str:
         raise GoogleError("Google sign-in expired, Sir — please reconnect it.")
     saved["token"] = token  # best-effort cache for next time
     save_token(saved, account)
+    if opener is None:
+        cache_token(cache_key, token, fresh.get("expires_in"))
     return token
 
 

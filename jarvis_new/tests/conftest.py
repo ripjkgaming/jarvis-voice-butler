@@ -131,3 +131,15 @@ def _placeholder_model_keys(request, monkeypatch):
     for name, value in _PLACEHOLDER_KEYS.items():
         if not os.environ.get(name):
             monkeypatch.setenv(name, value)
+
+
+@pytest.fixture(autouse=True)
+def _clear_google_token_cache():
+    try:
+        import google_api
+    except Exception:
+        yield
+        return
+    google_api.clear_token_cache()
+    yield
+    google_api.clear_token_cache()

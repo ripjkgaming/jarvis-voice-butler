@@ -105,15 +105,23 @@ def focus(
             break
     if not title:
         return False, f"I can't find a window matching {tries[0][:60]}, Sir."
-    sleep(settle_s)
-    now = active()
-    # Confirm only when the desktop actually reports the front window: a
-    # reading that shares nothing with the match means it didn't come forward.
-    if (
-        now
-        and not (_tokens(title) & _tokens(now))
-        and not (_tokens(tries[0]) & _tokens(now))
-    ):
+    # Poll instead of one fixed settle: a window that is already in front
+    # confirms on the first 50ms tick (was a flat 400ms on every switch).
+    step = 0.05
+    now = ""
+    for _ in range(max(1, round(settle_s / step))):
+        sleep(step)
+        now = active()
+        # Confirm only when the desktop actually reports the front window: a
+        # reading that shares nothing with the match means it hasn't come
+        # forward (yet); an unreadable desktop is accepted, as before.
+        if (
+            not now
+            or (_tokens(title) & _tokens(now))
+            or (_tokens(tries[0]) & _tokens(now))
+        ):
+            break
+    else:
         return (
             False,
             f"I asked for {title[:60]}, but {now[:60]} is still in front, Sir.",

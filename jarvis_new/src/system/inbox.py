@@ -193,6 +193,11 @@ def _gmail_access_token() -> str:
     """
     saved = _read_json(GMAIL_TOKEN, None)
     if isinstance(saved, dict) and saved.get("refresh_token"):
+        import google_api
+
+        cache_key = f"gmail:{saved['refresh_token']}"
+        if hit := google_api.cached_token(cache_key):
+            return hit  # ~1h lifetime: skip the refresh round trip
         payload = urllib.parse.urlencode(
             {
                 "client_id": saved.get("client_id", ""),
@@ -220,6 +225,7 @@ def _gmail_access_token() -> str:
             GMAIL_TOKEN.write_text(json.dumps(saved))
         except Exception:
             pass
+        google_api.cache_token(cache_key, token, fresh.get("expires_in"))
         return token
     try:
         import google_api
@@ -1099,11 +1105,19 @@ class InboxTools:
         parts: list[str] = []
         import contextlib
 
-        with contextlib.suppress(ToolError):
-            parts.append((await self.weather_now(context))["say"])
-        with contextlib.suppress(ToolError):
-            heads = await self.news_digest(context, "", 3)
-            parts.append(heads["say"])
+        # Weather and headlines are independent network calls: run them
+        # together (the briefing took their sum, now it takes the slower one).
+        weather, heads = await asyncio.gather(
+            self.weather_now(context),
+            self.news_digest(context, "", 3),
+            return_exceptions=True,
+        )
+        for got in (weather, heads):
+            if isinstance(got, ToolError):
+                continue
+            if isinstance(got, BaseException):
+                raise got
+            parts.append(got["say"])
         try:
             from system.daily import day_events, format_day, load_school_events
 

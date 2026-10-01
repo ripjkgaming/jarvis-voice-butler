@@ -168,3 +168,29 @@ async def test_play_media_show_leaves_window_in_front(monkeypatch) -> None:
     tools = core.SystemTools()
     await core.SystemTools.play_media(tools, None, "", show=True)  # type: ignore[arg-type]
     assert restored == [] and not tools._tasks
+
+
+def test_focus_confirms_on_first_poll_without_the_flat_settle(monkeypatch) -> None:
+    monkeypatch.setattr(kwin_windows, "available", lambda env=None: False)
+    slept = []
+    ok, _ = window_ctl.focus(
+        "spotify",
+        run=lambda a, **k: _run_ok(a),
+        which=lambda n: "/x",
+        active=lambda: "Spotify Premium",
+        sleep=slept.append,
+    )
+    assert ok and sum(slept) < 0.1
+
+
+def test_focus_waits_for_a_slow_window_to_come_forward(monkeypatch) -> None:
+    monkeypatch.setattr(kwin_windows, "available", lambda env=None: False)
+    readings = iter(["Kate", "Kate", "Spotify Premium"])
+    ok, _ = window_ctl.focus(
+        "spotify",
+        run=lambda a, **k: _run_ok(a),
+        which=lambda n: "/x",
+        active=lambda: next(readings),
+        sleep=lambda s: None,
+    )
+    assert ok
