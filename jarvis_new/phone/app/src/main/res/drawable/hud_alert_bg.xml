@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SOS active: red wash over the HUD backdrop with a red hairline. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/hud_window_bg" />
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/hud_alert_wash" />
+            <stroke android:width="2dp" android:color="@color/hud_alert" />
+        </shape>
+    </item>
+</layer-list>

@@ -1,4 +1,7 @@
-# JarvisLink — Jarvis phone app (Android)
+# JarvisLink 3.0: Jarvis phone app (Android)
+
+3.0 is a functionality and reliability rebuild with a deliberately plain UI
+(restyle pending). See PARITY.md for the class and view-id map.
 
 Companion app for the Jarvis PC voice butler. Talks to the PC over
 **Tailscale** (tailnet IP + bearer token) — never expose the bridge to

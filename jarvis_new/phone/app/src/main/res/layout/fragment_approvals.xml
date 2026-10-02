@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical" android:padding="16dp"
-    android:background="@drawable/hud_panel"
-    android:layout_width="match_parent" android:layout_height="match_parent">
-    <TextView android:text="Pending approvals (on this phone — the server queue needs a bridge endpoint)."
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@+id/approvals_list"
-        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
-    <Button android:id="@+id/approvals_demo" android:text="Demo approval"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-</LinearLayout>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="4dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Pending approvals" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/approvals_empty" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <LinearLayout android:id="@+id/approvals_container" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+            <Button android:id="@+id/approvals_btn_demo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Create test request" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Alerts tab: SOS last-known location (runtime-granted, fail-soft) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -39,13 +40,14 @@
     </queries>
 
     <application
+        android:name=".JarvisApp"
         android:label="JarvisLink"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.JarvisLink"
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -65,26 +67,26 @@
         </activity>
 
         <service
-            android:name=".LinkService"
+            android:name=".svc.LinkService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- Realtime voice call mic holder (join -> hangup). -->
+        <!-- Realtime voice call mic holder (join -> hangup). Non-sticky. -->
         <service
-            android:name=".VoiceCallService"
+            android:name=".svc.VoiceCallService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
         <!-- On-device "Jarvis" hotword loop (restart + backoff). -->
         <service
-            android:name=".HotwordService"
+            android:name=".svc.HotwordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
         <!-- Locked-screen one-shot voice: shows over the keyguard, never
              opens the app. -->
         <activity
-            android:name=".OneShotVoiceActivity"
+            android:name=".ui.OneShotVoiceActivity"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
@@ -92,7 +94,7 @@
 
         <!-- One-tap Approve/Deny from the notification shade. -->
         <receiver
-            android:name=".ApprovalReceiver"
+            android:name=".svc.ApprovalReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="dev.jarvis.link.APPROVAL_DECIDE" />
@@ -102,7 +104,7 @@
         <!-- System assistant entry point: BIND_VOICE_INTERACTION lets the
              OS bind this when the user picks Jarvis as digital assistant. -->
         <service
-            android:name=".JarvisInteractionService"
+            android:name=".svc.JarvisInteractionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION">
             <intent-filter>
@@ -115,7 +117,7 @@
 
         <!-- Assistant session host (voice plate UI). System-bound only. -->
         <service
-            android:name=".JarvisSessionService"
+            android:name=".svc.JarvisSessionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION" />
 
@@ -124,7 +126,7 @@
              The intent-filter advertises it for recognition availability
              queries (SpeechRecognizer.isRecognitionAvailable). -->
         <service
-            android:name=".JarvisRecognitionService"
+            android:name=".svc.JarvisRecognitionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION">
             <intent-filter>
@@ -133,7 +135,7 @@
         </service>
 
         <receiver
-            android:name=".BootReceiver"
+            android:name=".svc.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
