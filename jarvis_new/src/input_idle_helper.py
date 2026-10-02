@@ -47,6 +47,23 @@ def main(argv: list[str]) -> int:
         return 2
     path = Path(argv[1])
     timeout_s = int(argv[2]) if len(argv) > 2 else 300
+    # One helper per state file. Several Jarvis processes call
+    # ensure_helper(), and an exiting helper unlinks the shared file, so the
+    # others saw "unknown" and each spawned another (three ran at once).
+    import fcntl
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = open(path.with_suffix(".lock"), "w")  # noqa: SIM115 - held for life
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0  # another helper already reports
+    import signal
+
+    def _term(_sig, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _term)
     try:
         from pywayland.client import Display
         from pywayland.protocol.ext_idle_notify_v1 import ExtIdleNotifierV1
@@ -124,4 +141,16 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        code = main(sys.argv)
+    except BaseException:  # e.g. the compositor dropped the connection
+        import traceback
+
+        traceback.print_exc()
+        code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Skip interpreter finalization: pywayland's cffi finalizers destroyed
+    # wl_proxy objects after the display was gone and segfaulted on every
+    # exit (coredump 2 Oct, wl_map_insert_at in _Py_Finalize).
+    os._exit(code)
