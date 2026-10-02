@@ -5614,3 +5614,15 @@ html.stx-scan .jarvis-background {
     scroll-behavior: auto !important;
   }
 }
+
+/* Ambient particle canvas: positioned here, not only inline. Tauri adds a
+ * nonce to style-src, which makes the webview drop prerendered style=""
+ * attributes; a static canvas then took the HUD grid's first row and pushed
+ * the whole STARK HUD halfway down the screen (2 Oct). */
+canvas[data-ambient-particles] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
