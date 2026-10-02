@@ -27,6 +27,7 @@ import {
 } from '@/lib/bridge';
 import { useSharedPoll } from '@/lib/shared-poll';
 import { invoke, isTauri } from '@/lib/tauri';
+import { voiceCaptionFrom } from '@/lib/voice-caption';
 import type { VoiceLink } from '@/lib/voice-link';
 import './school-theme.css';
 
@@ -53,7 +54,7 @@ function useStreamLine(): Line | null {
   const inCall = useRoom(500) !== null;
   const live = useLiveCaption(inCall, 500);
   const captions = useCaptions(inCall);
-  const latestAt = captions.at(-1)?.ts;
+  const latestAt = Math.max(captions.at(-1)?.ts ?? 0, live?.ts ?? 0) || undefined;
   const [expiredAt, setExpiredAt] = useState<number | null>(null);
   useEffect(() => {
     if (!inCall || latestAt === undefined) return;
@@ -62,15 +63,12 @@ function useStreamLine(): Line | null {
     return () => clearTimeout(timer);
   }, [inCall, latestAt]);
   return useMemo(() => {
-    if (!inCall) return null;
-    if (live && !live.done && live.text.trim()) {
-      return { who: 'Jarvis', text: live.text, key: `l${live.id}` };
-    }
-    const last = captions.at(-1);
-    return last && last.ts !== expiredAt && Date.now() / 1000 - last.ts < CAPTION_FRESH_S
-      ? { who: last.role === 'sir' ? 'Sir' : 'Jarvis', text: last.text, key: `c${last.ts}` }
+    if (!inCall || expiredAt === latestAt) return null;
+    const line = voiceCaptionFrom(captions, live, Date.now() / 1000, CAPTION_FRESH_S);
+    return line
+      ? { who: line.role === 'sir' ? 'Sir' : 'Jarvis', text: line.text, key: line.key }
       : null;
-  }, [inCall, live, captions, expiredAt]);
+  }, [inCall, live, captions, expiredAt, latestAt]);
 }
 
 /** Running system activities (downloads, research, builds), max two. */

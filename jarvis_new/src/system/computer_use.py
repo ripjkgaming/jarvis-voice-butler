@@ -159,7 +159,7 @@ def _worker():
     from system.codex_worker import CodexWorker
 
     return CodexWorker(
-        model=os.environ.get("JARVIS_COMPUTER_USE_MODEL", "gpt-5.6-terra"),
+        model=os.environ.get("JARVIS_COMPUTER_USE_MODEL", "gpt-6-luna"),
         effort=os.environ.get("JARVIS_COMPUTER_USE_EFFORT", "low"),
         binary=os.environ.get("JARVIS_CODEX_BIN") or None,
         timeout=Limits.from_env().turn_timeout,

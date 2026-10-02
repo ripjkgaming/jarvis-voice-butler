@@ -6,21 +6,53 @@ import './voice-link.css';
 
 const STAGES = ['REQUEST', 'VOICE RELAY', 'AGENT LINK'];
 
-/** Reticle layers move as complete SVGs: no per-frame React work, canvas
- * resampling, or animated SVG filter that repaints the whole reactor. */
-export function VoiceLinkReticle({ link }: { link: VoiceLink }) {
+/** Pause both normal and compact ornaments when detached from view. Native
+ * shell hiding also sets hud-hidden; document visibility covers browser tabs. */
+function useLinkVisibility() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
+    let intersects = true;
+    const sync = () => {
+      node.dataset.visible = String(intersects && !document.hidden);
+    };
     const observer = new IntersectionObserver(([entry]) => {
-      node.dataset.visible = String(entry.isIntersecting);
+      intersects = entry.isIntersecting;
+      sync();
     });
+    sync();
     observer.observe(node);
-    return () => observer.disconnect();
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+    };
   }, []);
+  return ref;
+}
+
+/** Reticle layers move as complete SVGs: no per-frame React work, canvas
+ * resampling, or animated SVG filter that repaints the whole reactor. */
+export function VoiceLinkReticle({ link }: { link: VoiceLink }) {
+  const ref = useLinkVisibility();
   return (
     <div ref={ref} className="vlink-reticle" data-phase={link.phase} aria-hidden="true">
+      <svg className="vlink-reticle__sectors" viewBox="-300 -300 600 600">
+        {STAGES.map((stage, i) => (
+          <g
+            key={stage}
+            transform={`rotate(${i * 120 - 142})`}
+            data-stage={i < link.step ? 'done' : i === link.step ? 'current' : 'waiting'}
+          >
+            <path d="M182 0A182 182 0 0 1-44 176.6" />
+            <path d="M190 0h6 M-45.9 184.4l-1.5 5.8" />
+          </g>
+        ))}
+      </svg>
+      <svg key={link.phase} className="vlink-reticle__arrival" viewBox="-300 -300 600 600">
+        <path d="M-200-30v-22h22 M200-30v-22h-22 M-200 30v22h22 M200 30v22h-22" />
+      </svg>
       <svg className="vlink-reticle__pulse" viewBox="-300 -300 600 600">
         <circle r="152" />
       </svg>
@@ -44,22 +76,38 @@ export function VoiceLinkReticle({ link }: { link: VoiceLink }) {
 /** Real completed stages, never a time-derived progress bar. The moving
  * signal is intentionally indeterminate and stops the moment setup ends. */
 export function VoiceLinkRail({ link, compact = false }: { link: VoiceLink; compact?: boolean }) {
-  if (link.phase === 'idle') return null;
+  const ref = useLinkVisibility();
+  const interrupted = link.phase === 'failed' || link.phase === 'stalled';
   return (
     <div
+      ref={ref}
       className="vlink-rail"
+      hidden={link.phase === 'idle'}
       data-phase={link.phase}
       data-compact={compact}
       data-voice-link={link.phase}
-      role="status"
-      aria-live="polite"
+      role={compact ? 'status' : undefined}
+      aria-live={compact ? 'polite' : undefined}
+      aria-atomic={compact ? true : undefined}
     >
+      <span className="vlink-beacon" aria-hidden="true">
+        <svg viewBox="-18 -18 36 36">
+          <circle r="14" strokeDasharray="19 10.32" />
+          <circle r="9" strokeDasharray="2 7.42" />
+        </svg>
+        <i />
+      </span>
       <span className="vlink-signal" aria-hidden="true">
         <i />
         <i />
         <i />
       </span>
-      {compact ? (
+      {!compact && interrupted ? (
+        <span className="vlink-copy">
+          <b>NUMPAD ENTER</b>
+          <span>RETRY VOICE LINK</span>
+        </span>
+      ) : compact ? (
         <span className="vlink-copy">
           <b>{link.word}</b>
           <span>{link.detail}</span>

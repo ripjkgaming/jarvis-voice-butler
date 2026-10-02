@@ -22,6 +22,7 @@ export type VoiceLink = {
 const READY_MS = 1100;
 const ACK_MS = 10000;
 const STALE_MS = 45000;
+const SLOW_MS = 8000;
 const IDLE: VoiceLink = {
   phase: 'idle',
   word: '',
@@ -84,10 +85,34 @@ export function voiceLinkFrom(
   }
   const until = stamp * 1000 + STALE_MS;
   if (now >= until) return make('stalled', 'CHECKING LINK', 'NO RECENT CONNECTION UPDATE', -1);
+  // A slower wait changes the explanation, never the completed stage. Use one
+  // wall-clock boundary, not a timer that repeatedly updates elapsed seconds.
+  const slowAt = stamp * 1000 + SLOW_MS;
+  const slow = now >= slowAt;
+  const next = slow ? until : slowAt;
   if (stage === 'dispatch')
-    return make('agent', 'CONTACTING JARVIS', 'WAITING FOR THE AGENT AUDIO LINK', 2, until);
-  if (['check', 'auth', 'connect', 'uplink'].includes(stage))
-    return make('relay', 'ESTABLISHING LINK', 'CONNECTING YOUR VOICE CHANNEL', 1, until);
+    return make(
+      'agent',
+      'CONTACTING JARVIS',
+      slow ? 'STILL WAITING FOR THE AGENT AUDIO LINK' : 'WAITING FOR THE AGENT AUDIO LINK',
+      2,
+      next
+    );
+  if (['check', 'auth', 'connect', 'uplink'].includes(stage)) {
+    const details: Record<string, string> = {
+      check: 'CHECKING THE VOICE SERVICE',
+      auth: 'AUTHENTICATING YOUR VOICE CHANNEL',
+      connect: 'CONNECTING YOUR VOICE CHANNEL',
+      uplink: 'CONNECTING THE MICROPHONE UPLINK',
+    };
+    return make(
+      'relay',
+      'ESTABLISHING LINK',
+      slow ? 'STILL CONNECTING YOUR VOICE CHANNEL' : details[stage],
+      1,
+      next
+    );
+  }
   if (['wake', 'verify', 'capture', 'transcribe'].includes(stage)) {
     const detail =
       stage === 'capture'

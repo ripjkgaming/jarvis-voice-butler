@@ -3,14 +3,13 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import { useSaid } from '@/lib/hud-say';
+import { voiceCaptionFrom } from '@/lib/voice-caption';
 
 /** Words kept in the live line's DOM; older ones scroll off the top anyway. */
 const LIVE_WORDS = 60;
 /** Live-line poll while Jarvis is speaking vs. between lines. */
 const LIVE_FAST_MS = 100;
 const LIVE_IDLE_MS = 300;
-
-type LogLine = { ts: number; role: string; text: string };
 
 /** Latest conversation line, single line + mini wave strip.
  *
@@ -31,24 +30,19 @@ export function LiveCaption() {
   const liveRaw = useLiveCaption(inCall, speaking ? LIVE_FAST_MS : LIVE_IDLE_MS);
   useEffect(() => setSpeaking(!!liveRaw && !liveRaw.done), [liveRaw]);
   const live = inCall ? liveRaw : null;
-  const logLine = useMemo<LogLine | null>(() => {
-    const last = captions.at(-1);
-    // Fresh (2 min) lines only: stale greetings must not linger.
-    return inCall && last && Date.now() / 1000 - last.ts < 120 ? last : null;
-  }, [captions, inCall]);
-
-  // Live wins while Jarvis is speaking, and after he finishes until a
-  // newer log line (Sir talking, the next turn) supersedes it.
-  const showLive = !said && live && live.text && (!live.done || live.ts >= (logLine?.ts ?? 0));
-
-  const role = said ? 'typed' : showLive ? 'jarvis' : logLine?.role === 'sir' ? 'sir' : 'jarvis';
+  const line = useMemo(
+    () => (inCall ? voiceCaptionFrom(captions, live) : null),
+    [captions, inCall, live]
+  );
+  const showLive = !said && line?.live;
+  const role = said ? 'typed' : (line?.role ?? 'jarvis');
 
   let body: ReactNode;
   if (showLive) {
-    const words = live.text.split(' ');
+    const words = line.text.split(' ');
     const start = Math.max(0, words.length - LIVE_WORDS);
     body = (
-      <p key={live.id} className="hud-caption__text hud-caption__text--live">
+      <p key={line.key} className="hud-caption__text hud-caption__text--live">
         <span>
           Jarvis:{' '}
           {words.slice(start).map((word, i) => (
@@ -63,9 +57,7 @@ export function LiveCaption() {
   } else {
     const text =
       said ??
-      (inCall && logLine
-        ? `${logLine.role === 'sir' ? 'Sir' : 'Jarvis'}: ${logLine.text}`
-        : 'Listening, Sir…');
+      (line ? `${line.role === 'sir' ? 'Sir' : 'Jarvis'}: ${line.text}` : 'Listening, Sir…');
     body = (
       <p key={text} className="hud-caption__text">
         {text}

@@ -75,7 +75,10 @@ async def run(url, folder):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         context = await browser.new_context(
-            viewport=SCHOOL.NORMAL, device_scale_factor=2
+            viewport=SCHOOL.NORMAL,
+            device_scale_factor=2,
+            record_video_dir=str(folder / "video"),
+            record_video_size=SCHOOL.NORMAL,
         )
         page = await context.new_page()
         desktop = VoiceDesktop(page)
@@ -89,13 +92,30 @@ async def run(url, folder):
         assert desktop.summons == 1, "Repeated summon duplicated a starting call"
         await page.wait_for_timeout(400)
         await phase(page, "request")  # native acceptance is not agent readiness
+        await page.screenshot(path=str(folder / "main-acquiring-dpr2.png"))
         desktop.stage("connect", fresh=True)
         await phase(page, "relay")
+        await page.wait_for_timeout(300)
+        await page.screenshot(path=str(folder / "main-relay-dpr2.png"))
         desktop.stage("dispatch", ago=18)
         await phase(page, "agent")
         assert await page.locator(".hud").get_attribute("data-jstate") == "idle"
         assert await page.get_by_text("CONTACTING JARVIS", exact=True).count() == 1
         assert not await page.get_by_text("LISTENING", exact=True).count()
+        assert (
+            await page.get_by_text(
+                "STILL WAITING FOR THE AGENT AUDIO LINK", exact=True
+            ).count()
+            == 1
+        )
+        assert (
+            await page.locator('.vlink-reticle__sectors [data-stage="done"]').count()
+            == 2
+        )
+        assert (
+            await page.locator('.vlink-reticle__sectors [data-stage="current"]').count()
+            == 1
+        )
         await page.screenshot(path=str(folder / "main-agent-link-dpr2.png"))
         # Expired server boot must not transform an observed pending room into listening.
         desktop.room = {"ok": True, "room": "mock-voice", "waking": False, "boot": None}
@@ -125,6 +145,9 @@ async def run(url, folder):
         desktop.summon_ok = False
         await page.keyboard.press("NumpadEnter")
         await phase(page, "failed")
+        assert not await page.locator(".vlink-stages").count(), (
+            "Failure still showed a pending stage list"
+        )
         await page.screenshot(path=str(folder / "main-link-unavailable.png"))
         desktop.summon_ok = True
         desktop.hang = True
@@ -132,6 +155,7 @@ async def run(url, folder):
         await phase(page, "request")
         await page.wait_for_timeout(10200)
         await phase(page, "stalled")
+        await page.screenshot(path=str(folder / "main-stalled-dpr2.png"))
         desktop.hang = False
         prior = desktop.summons
         await page.keyboard.press("NumpadEnter")
@@ -193,6 +217,26 @@ async def run(url, folder):
         await phase(page, "agent")
         assert await page.locator('.vlink-rail[data-compact="true"]').count() == 1
         await page.screenshot(path=str(folder / "school-agent-link-dpr2.png"))
+        await page.evaluate(
+            "() => {Object.defineProperty(document, 'hidden', {configurable:true, value:true}); document.dispatchEvent(new Event('visibilitychange'));}"
+        )
+        assert (
+            await page.locator(".vlink-beacon svg").evaluate(
+                "n => getComputedStyle(n).animationPlayState"
+            )
+            == "paused"
+        )
+        await page.evaluate(
+            "() => {delete document.hidden; document.dispatchEvent(new Event('visibilitychange'));}"
+        )
+        await page.emulate_media(reduced_motion="reduce")
+        assert (
+            await page.locator(".vlink-beacon svg").evaluate(
+                "n => getComputedStyle(n).animationName"
+            )
+            == "none"
+        )
+        await page.emulate_media(reduced_motion="no-preference")
         await page.get_by_role("button", name="Calendar", exact=True).click()
         assert (
             await page.get_by_role("button", name="Calendar", exact=True).get_attribute(
@@ -208,6 +252,7 @@ async def run(url, folder):
         await phase(page, "request")
         desktop.stage("online", fresh=True)
         await phase(page, "ready")
+        await page.screenshot(path=str(folder / "school-ready-dpr2.png"))
         await page.wait_for_timeout(1250)
         await phase(page, "idle")
         assert not desktop.errors, desktop.errors
@@ -231,6 +276,9 @@ async def run(url, folder):
                         "reduced motion",
                         "school continuity",
                         "menu hit targets",
+                        "slow-wait explanation without fake progress",
+                        "school hidden and reduced-motion pause",
+                        "failure replaces pending stage list",
                     ],
                     "dpr": 2,
                     "screenshots": str(folder),

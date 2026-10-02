@@ -2,9 +2,9 @@
 
 Idle state costs nothing cloud-side: the laptop mic is monitored
 locally by openWakeWord (fully offline, no account, no key) and no
-room exists until the keyword fires. On wake the client says
-"Loading in, Sir." with the local voice ($0), mints a token that dispatches
-the worker into a fresh room, streams the mic, and plays the agent
+room exists until the keyword fires. On wake the client shows the HUD,
+mints a token that dispatches the worker into a fresh room, preserves
+the opening microphone audio until the agent joins, and plays the agent
 back. When the agent hangs up (60s of silence) the room closes and
 we return to listening.
 
@@ -49,13 +49,24 @@ SPEECH_DROP = 0.3
 BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
 OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
 WAKE_MODEL = "hey_jarvis"
-# Spoken the instant the wake word fires (normal mode), while the call
-# spins up: the room and agent take a few seconds, so it says so.
+# Legacy direct-stream rewake acknowledgement. Buffered calls use the HUD
+# while joining so this local speech cannot contaminate their first turn.
 ACK_LINE = "Loading in, Sir."
 # Max chars of a typed seed that may ride a talk summon into the call.
 # Spoken openers are short; anything longer belongs in /chat text mode.
 TALK_TEXT_MAX = 500
 AGENT_JOIN_TIMEOUT = 25.0
+MIC_READY_SETTLE_S = 0.3
+# Retain a complete supported join wait without trimming the first words.
+# At 48 kHz mono int16 this queue holds at most about 2.9 MB.
+MIC_BUFFER_MAX_S = 30.0
+MIC_QUEUE_MAX_BLOCKS = int(MIC_BUFFER_MAX_S * MIC_RATE / BLOCKSIZE)
+# Detection trails the keyword. A short tail saves an immediate question's
+# onset without replaying the full wake phrase as a second user turn.
+NORMAL_PREROLL_BLOCKS = 5  # 160 ms; school mode keeps its full 1.5 s ring
+# Only digital zero is safe to trim without another speech detector. Keep
+# an endpoint-sized gap, then discard queued excess silence to catch up.
+MIC_CATCHUP_SILENCE_S = 0.6
 SCHOOL_CONFIRM_S = 2.5  # audio after a school-mode wake checked for "hey Jarvis"
 IDENTITY = "jarvis-master"
 # In-call "hey Jarvis" restarts the call only when it has gone stale: the
@@ -132,8 +143,34 @@ def drain_queue(queue: asyncio.Queue) -> int:
         try:
             queue.get_nowait()
         except asyncio.QueueEmpty:
+            queue.mic_overflowed = False
             return n
         n += 1
+
+
+def enqueue_mic_block(queue: asyncio.Queue, raw: bytes) -> None:
+    """Bound capture memory without silently losing the start of a request."""
+    try:
+        queue.put_nowait(raw)
+    except asyncio.QueueFull:
+        # The consumer aborts this capture rather than treating the remaining
+        # tail as a complete command. Never evict the first words to make room.
+        queue.mic_overflowed = True
+
+
+def mic_buffer_failed(queue: asyncio.Queue) -> bool:
+    """Report a broken capture locally; never ask the model to act on it."""
+    if not getattr(queue, "mic_overflowed", False):
+        return False
+    logger.warning("microphone buffer exceeded; retry required")
+    with contextlib.suppress(Exception):
+        from hud_events import caption
+
+        caption(
+            "jarvis",
+            "The microphone buffer filled before I could listen. Please try again.",
+        )
+    return True
 
 
 def room_has_active_call(identities: list[str]) -> bool:
@@ -488,6 +525,9 @@ class WakeClient:
         # asyncio mic loops and the hotword loop.
         self._mic_lock = threading.Lock()
         self._muted = False
+        self._mute_epoch = 0
+        self._capture_loop = None
+        self._capture_queue = None
         self._in_call = False
         # PTT talk request (HUD NumpadEnter / shell talk via wake.sock).
         # Set from the socket thread, consumed by the hotword loop, which
@@ -514,7 +554,19 @@ class WakeClient:
 
     def set_muted(self, muted: bool) -> None:
         with self._mic_lock:
+            newly_muted = bool(muted) and not self._muted
             self._muted = bool(muted)
+            if newly_muted:
+                self._mute_epoch = getattr(self, "_mute_epoch", 0) + 1
+        if newly_muted:
+            talk_event = getattr(self, "_talk_event", None)
+            if talk_event is not None:
+                talk_event.clear()
+            loop = getattr(self, "_capture_loop", None)
+            queue = getattr(self, "_capture_queue", None)
+            if loop is not None and queue is not None:
+                with contextlib.suppress(RuntimeError):
+                    loop.call_soon_threadsafe(drain_queue, queue)
 
     def _set_in_call(self, in_call: bool) -> None:
         with self._mic_lock:
@@ -687,15 +739,25 @@ class WakeClient:
         import sounddevice as sd
 
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=MIC_QUEUE_MAX_BLOCKS)
+        self._capture_loop, self._capture_queue = loop, queue
+
+        def _enqueue(raw: bytes, epoch: int) -> None:
+            if self.muted or epoch != getattr(self, "_mute_epoch", 0):
+                return
+            enqueue_mic_block(queue, raw)
 
         def _audio_callback(indata, frames, time_info, status) -> None:
             if status:
                 logger.warning("mic status: %s", status)
             if not self._listen_queue_live:
                 return
+            with self._mic_lock:
+                if self._muted:
+                    return
+                epoch = getattr(self, "_mute_epoch", 0)
             with contextlib.suppress(Exception):
-                loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
+                loop.call_soon_threadsafe(_enqueue, bytes(indata), epoch)
 
         with sd.RawInputStream(
             samplerate=MIC_RATE,
@@ -720,6 +782,7 @@ class WakeClient:
             ring: collections.deque = collections.deque(
                 maxlen=int(1.5 * MIC_RATE / BLOCKSIZE)
             )
+            ring_epoch = getattr(self, "_mute_epoch", 0)
             if _school.is_school():
                 # Warm the Whisper worker so the first school wake is quick.
                 loop.run_in_executor(None, self._spotter.transcribe, np.zeros(16000, np.int16))
@@ -743,6 +806,15 @@ class WakeClient:
 
             while True:
                 raw = await queue.get()
+                if mic_buffer_failed(queue):
+                    drain_queue(queue)
+                    ring.clear()
+                    pending16 = np.zeros(0, dtype=np.int16)
+                    continue
+                if ring_epoch != getattr(self, "_mute_epoch", 0):
+                    ring.clear()
+                    pending16 = np.zeros(0, dtype=np.int16)
+                    ring_epoch = getattr(self, "_mute_epoch", 0)
                 # Zero-copy int16 view, vector decimate 48k->16k (was a
                 # per-sample int.from_bytes Python loop + list copies).
                 block = np.frombuffer(raw, dtype=np.int16)
@@ -751,6 +823,7 @@ class WakeClient:
                 ring.append(raw)
                 pending16 = np.concatenate([pending16, block[::3][:512]])
                 if self.muted:
+                    ring.clear()
                     self._talk_event.clear()  # never summon while muted
                     pending16 = pending16[-OWW_FRAME:]  # bounded while deaf
                     continue  # tray/HUD mute: deaf but still listening locally
@@ -761,12 +834,16 @@ class WakeClient:
                     self._talk_event.clear()
                     pending16 = np.zeros(0, dtype=np.int16)
                     logger.warning("PTT talk requested")
-                    if not self._pending_announce:
-                        self._play_ack()  # announcements open silently
+                    mark_hud_waking()
                     summon_overlay()
                     if not self._in_call:
-                        await self._summon_with_rewake()
+                        await self._summon_with_rewake(
+                            mic_queue=queue,
+                            preroll=list(ring)[-NORMAL_PREROLL_BLOCKS:],
+                            preserve_join_audio=True,
+                        )
                         drain_queue(queue)
+                        ring.clear()
                         with contextlib.suppress(Exception):
                             model.reset()
                     continue
@@ -832,9 +909,13 @@ class WakeClient:
                                 logger.warning("school wake ignored (not addressed): %r", text[:80])
                             ring.clear()
                         else:
-                            self._play_ack()
-                            await self._summon_with_rewake()
+                            await self._summon_with_rewake(
+                                mic_queue=queue,
+                                preroll=list(ring)[-NORMAL_PREROLL_BLOCKS:],
+                                preserve_join_audio=True,
+                            )
                         drain_queue(queue)
+                        ring.clear()
                         pending16 = np.zeros(0, dtype=np.int16)
                         # openWakeWord keeps its own recent-audio buffer: a
                         # stale "hey Jarvis" in it re-fired after the call.
@@ -878,8 +959,16 @@ class WakeClient:
         call), ack and summon a fresh one."""
         while await self._summon_session(**kwargs):
             logger.warning("hey Jarvis in a stale call: starting a fresh one")
-            kwargs = {}
-            self._play_ack()
+            if kwargs.get("preserve_join_audio"):
+                # The wake detector consumed the old keyword already. Keep
+                # this same input and retain the next question during rejoin.
+                kwargs = {
+                    "mic_queue": kwargs["mic_queue"],
+                    "preserve_join_audio": True,
+                }
+            else:
+                kwargs = {}
+                self._play_ack()
             summon_overlay()
 
     @staticmethod
@@ -891,11 +980,16 @@ class WakeClient:
             speak.speak_local(text)
 
     async def _summon_session(
-        self, reason: str = "wake", mic_queue=None, preroll: list | None = None
+        self,
+        reason: str = "wake",
+        mic_queue=None,
+        preroll: list | None = None,
+        preserve_join_audio: bool = False,
     ) -> bool:
         """Run one call. True when it ended by an in-call rewake."""
         from livekit import rtc
 
+        capture_epoch = getattr(self, "_mute_epoch", 0)
         # Never layer a second Jarvis over an ongoing call (an earlier
         # summon that hasn't hung up yet). The HUD stays visible either
         # way: "hey Jarvis" always summons the UI.
@@ -984,7 +1078,14 @@ class WakeClient:
                 rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
             )
             mic_task = asyncio.create_task(
-                self._pump_queue(source, mic_queue, agent_ready, preroll or [])
+                self._pump_queue(
+                    source,
+                    mic_queue,
+                    agent_ready,
+                    preroll or [],
+                    preserve_join_audio,
+                    capture_epoch,
+                )
                 if mic_queue is not None
                 else self._pump_mic(source)
             )
@@ -1149,37 +1250,119 @@ class WakeClient:
                 break
         return out
 
-    async def _pump_queue(self, source, queue, agent_ready, preroll: list) -> None:
-        """School-mode mic: forward the listen loop's own queue (backlog
-        since the wake word first, then live) instead of a second stream.
+    async def _pump_queue(
+        self,
+        source,
+        queue,
+        agent_ready,
+        preroll: list,
+        preserve_join_audio: bool = False,
+        capture_epoch: int | None = None,
+    ) -> None:
+        """Forward the existing capture stream once the agent can hear it.
 
-        Waits for the agent first: frames published before it subscribes
-        are dropped by LiveKit (live test: only "France" of "what is the
-        capital of France" arrived). The queue keeps filling meanwhile.
+        Normal calls replay the short onset tail and everything captured
+        during join exactly once. School calls discard the join backlog:
+        their opening question has already been sent as text.
         """
+        import numpy as np
         from livekit import rtc
 
-        with contextlib.suppress(TimeoutError):
+        if capture_epoch is None:
+            capture_epoch = getattr(self, "_mute_epoch", 0)
+        try:
             await asyncio.wait_for(agent_ready.wait(), AGENT_JOIN_TIMEOUT)
-        await asyncio.sleep(0.3)  # let the agent's input stream attach
-        # Drop what piled up while the call connected (the question already
-        # went in as text): replaying it made live follow-ups seconds late.
-        while not queue.empty():
-            queue.get_nowait()
+        except TimeoutError:
+            return
+        await asyncio.sleep(MIC_READY_SETTLE_S)  # agent input stream attachment
+        if preserve_join_audio and mic_buffer_failed(queue):
+            return
+        if self.muted or capture_epoch != getattr(self, "_mute_epoch", 0):
+            preroll = []
+        initial = list(preroll)
+        if preserve_join_audio:
+            while not queue.empty():
+                initial.append(queue.get_nowait())
+        else:
+            drain_queue(queue)
+        replay_epoch = getattr(self, "_mute_epoch", 0)
         # Real-time pace: Gemini runs in manual-activity mode and only keeps
         # audio between the agent's VAD start/end, so a burst replay put
         # most of the question outside that window ("What is the cap").
-        t0 = time.monotonic()
-        for n, raw in enumerate(preroll, 1):
+        next_frame_at = time.monotonic()
+        silent_s = 0.0
+        silence_gap = MIC_CATCHUP_SILENCE_S
+        with contextlib.suppress(ValueError):
+            silence_gap = max(
+                silence_gap,
+                float(os.environ.get("JARVIS_VAD_MIN_SILENCE", "0") or "0") + 0.05,
+            )
+        with contextlib.suppress(ValueError):
+            # SDK endpointing is measured from the last speech sample, so
+            # retain the larger delay rather than adding the two waits.
+            silence_gap = max(
+                silence_gap,
+                float(os.environ.get("JARVIS_ENDPOINT_DELAY", "0") or "0") + 0.05,
+            )
+
+        async def forward(raw: bytes, *, backlog: bool) -> None:
+            nonlocal next_frame_at, silent_s
+            duration = len(raw) / (2 * MIC_RATE)
+            if preserve_join_audio and not any(raw):
+                if silent_s >= silence_gap and backlog:
+                    return
+                silent_s += duration
+            else:
+                silent_s = 0.0
+            # PCM duration, not fixed block size: short frames must keep
+            # their natural timing as well. Never accelerate speech.
+            now = time.monotonic()
+            if now - next_frame_at > duration:
+                next_frame_at = now
             await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
-            ahead = t0 + n * BLOCKSIZE / MIC_RATE - time.monotonic()
+            next_frame_at += duration
+            ahead = next_frame_at - time.monotonic()
             if ahead > 0:
                 await asyncio.sleep(ahead)
+
+        for index, raw in enumerate(initial):
+            if self.muted or replay_epoch != getattr(self, "_mute_epoch", 0):
+                break  # never replay speech buffered before a mute
+            if preserve_join_audio and mic_buffer_failed(queue):
+                return
+            await forward(raw, backlog=index + 1 < len(initial) or not queue.empty())
+        initial.clear()
+        # Buffered keyword audio is never scored again. Only new audio can
+        # request a stale-call restart, just like the former second stream.
+        model = self._model if preserve_join_audio else None
+        if model is not None:
+            with contextlib.suppress(Exception):
+                model.reset()
+        pending16 = np.zeros(0, dtype=np.int16)
+        hot_run = 0
         while True:
             raw = await queue.get()
+            if preserve_join_audio and mic_buffer_failed(queue):
+                return
             if self.muted:
                 continue
-            await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+            if preserve_join_audio:
+                await forward(raw, backlog=not queue.empty())
+            else:
+                await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+            if model is None or self._rewake is None:
+                continue
+            pending16 = np.concatenate(
+                [pending16, np.frombuffer(raw, dtype=np.int16)[::3]]
+            )
+            scores, pending16 = score_frames(model, pending16)
+            for score in scores:
+                hot_run = hot_run + 1 if score >= REWAKE_THRESHOLD else 0
+                quiet = time.monotonic() - self._last_agent_voice
+                if should_rewake(hot_run, quiet):
+                    logger.warning("in-call wake (%.2f), agent quiet %.0fs", score, quiet)
+                    self._rewake.set()
+                    return
 
     async def _play_agent(self, track) -> None:
         """Play frames in order while mic/call callbacks remain responsive."""

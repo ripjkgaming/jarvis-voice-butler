@@ -6,6 +6,7 @@ import { type JarvisState } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import { type BridgeSys } from '@/lib/bridge';
 import { useSaid } from '@/lib/hud-say';
+import { voiceCaptionFrom } from '@/lib/voice-caption';
 import { type VoiceLink } from '@/lib/voice-link';
 import s from './stark.module.css';
 
@@ -59,29 +60,28 @@ export function Caption() {
   const liveRaw = useLiveCaption(inCall, speaking ? 100 : 300);
   useEffect(() => setSpeaking(!!liveRaw && !liveRaw.done), [liveRaw]);
   const live = inCall ? liveRaw : null;
-  const last = useMemo(() => {
-    const l = captions.at(-1);
-    return inCall && l && Date.now() / 1000 - l.ts < 120 ? l : null;
-  }, [captions, inCall]);
-  const showLive = !said && live && live.text && (!live.done || live.ts >= (last?.ts ?? 0));
+  const line = useMemo(
+    () => (inCall ? voiceCaptionFrom(captions, live) : null),
+    [captions, inCall, live]
+  );
 
   let who: string | null = null;
   let body: ReactNode = null;
   if (said) {
     who = 'ECHO';
     body = said;
-  } else if (showLive) {
+  } else if (line?.live) {
     who = 'JARVIS';
-    const words = live.text.split(' ');
+    const words = line.text.split(' ');
     const start = Math.max(0, words.length - LIVE_WORDS);
     body = words.slice(start).map((w, i) => (
       <span key={start + i} className={s.captionWord}>
         {w}{' '}
       </span>
     ));
-  } else if (last) {
-    who = last.role === 'sir' ? 'SIR' : 'JARVIS';
-    body = last.text;
+  } else if (line) {
+    who = line.role === 'sir' ? 'SIR' : 'JARVIS';
+    body = line.text;
   }
   return (
     <div className={s.caption} data-who={who ?? 'none'} aria-live="polite">

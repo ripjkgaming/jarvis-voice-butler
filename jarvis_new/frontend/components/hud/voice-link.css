@@ -29,6 +29,32 @@
 .vlink-reticle__orbit {
   animation: vlink-orbit 5.8s linear infinite;
 }
+.vlink-reticle[data-phase='request'] .vlink-reticle__orbit {
+  animation-duration: 8s;
+}
+.vlink-reticle[data-phase='relay'] .vlink-reticle__orbit {
+  animation-duration: 4.2s;
+}
+.vlink-reticle[data-phase='agent'] .vlink-reticle__counter {
+  animation-duration: 6.4s;
+}
+.vlink-reticle__sectors g {
+  opacity: 0.12;
+  transition: opacity 240ms ease-out;
+}
+.vlink-reticle__sectors [data-stage='done'] {
+  opacity: 0.65;
+}
+.vlink-reticle__sectors [data-stage='current'] {
+  opacity: 1;
+  stroke-width: 2.5;
+}
+.vlink-reticle__arrival {
+  animation: vlink-arrival 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.vlink-reticle[data-phase='request'] .vlink-reticle__counter {
+  opacity: 0.3;
+}
 .vlink-reticle__counter {
   animation: vlink-orbit 9s linear infinite reverse;
   opacity: 0.62;
@@ -60,6 +86,7 @@
 .vlink-reticle[data-phase='ready'] .vlink-reticle__orbit,
 .vlink-reticle[data-phase='ready'] .vlink-reticle__counter {
   opacity: 0.3;
+  animation-play-state: paused;
 }
 .vlink-reticle[data-phase='idle'] *,
 .vlink-reticle[data-phase='failed'] *,
@@ -80,6 +107,33 @@
   font-size: 10px;
   letter-spacing: 0.12em;
   pointer-events: none;
+}
+.vlink-rail[hidden] {
+  display: none;
+}
+.vlink-beacon {
+  display: none;
+  position: relative;
+  flex: 0 0 30px;
+  height: 30px;
+}
+.vlink-beacon svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  animation: vlink-orbit 5.8s linear infinite;
+}
+.vlink-beacon > i {
+  position: absolute;
+  inset: 12px;
+  background: currentColor;
+  box-shadow: 0 0 9px #5fe3ff80;
+  transform: rotate(45deg);
+  animation: vlink-breathe 1.6s ease-in-out infinite;
 }
 .vlink-stages {
   display: flex;
@@ -182,6 +236,38 @@
   min-width: 0;
   width: 100%;
 }
+.vlink-rail[data-compact='true'] .vlink-beacon {
+  display: block;
+}
+.vlink-rail[data-compact='true'] .vlink-signal {
+  flex-basis: 36px;
+  width: 36px;
+}
+.vlink-rail[data-phase='relay'] .vlink-beacon svg {
+  animation-duration: 4.2s;
+}
+.vlink-rail[data-phase='ready'] .vlink-beacon *,
+.vlink-rail[data-phase='failed'] .vlink-beacon *,
+.vlink-rail[data-phase='stalled'] .vlink-beacon * {
+  animation: none;
+}
+.vlink-rail[data-phase='ready'] .vlink-beacon > i {
+  inset: 10px 11px 12px;
+  background: none;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  box-shadow: none;
+}
+.vlink-rail[data-phase='failed'] .vlink-beacon > i,
+.vlink-rail[data-phase='stalled'] .vlink-beacon > i {
+  inset: 10px 14px;
+  transform: none;
+  box-shadow: none;
+}
+.vlink-rail[data-visible='false'] *,
+.vlink-rail[hidden] * {
+  animation-play-state: paused !important;
+}
 .vlink-copy {
   display: flex;
   align-items: center;
@@ -205,6 +291,19 @@
 @keyframes vlink-orbit {
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes vlink-arrival {
+  from {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+  45% {
+    opacity: 0.85;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.4;
   }
 }
 @keyframes vlink-acquire {

@@ -6,6 +6,7 @@ import os
 import random
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -474,9 +475,10 @@ SCHOOL_BARE_REPLY = "Yes, Sir?"
 # the HUD drops back to idle and the wake word listens again (the 180 s
 # engaged budget kept calls open while room chatter reset it).
 NORMAL_FOLLOW_UP_S = 15.0
-# Longest Sir's "speaking" may hold the window without Jarvis ever
-# answering: steady room noise flips VAD to speaking and held it forever.
-FOLLOW_UP_HOLD_CAP_S = 20.0
+# Continuous sound can keep local VAD speaking without ending a turn.
+# Ask for a pause before the bounded hold ends; never commit possible noise.
+FOLLOW_UP_PAUSE_PROMPT_S = 20.0
+FOLLOW_UP_HOLD_CAP_S = 60.0
 
 
 def _normal_follow_up_s() -> float:
@@ -500,17 +502,26 @@ async def _school_follow_up(
 ) -> None:
     """End the call a listening window after Jarvis's last reply.
 
-    School mode uses FOLLOW_UP_S (normal wake calls pass ``window``). The
-    window reopens whenever Sir starts speaking or Jarvis thinks or
-    speaks; a pending tool call holds it open. The first window is a bit
-    longer (the question may still be arriving through the pre-roll).
-    Sir "speaking" holds it at most FOLLOW_UP_HOLD_CAP_S unless Jarvis
-    answers: noise must never keep the call (and the wake word) hostage.
+    School mode uses FOLLOW_UP_S (normal wake calls pass ``window``).
+    User speech and agent work hold the idle deadline open, including
+    activity already underway when this watcher starts. A natural speech
+    end starts a fresh window once Jarvis is also idle. Continuous audio
+    gets a pause prompt, then a bounded hold; it is never forcibly sent
+    to the model. Pending tools and agent work still prevent hangup.
     """
     import latency
     import school
 
-    state = {"deadline": clock() + first, "held": None, "agent_busy": False}
+    user_state = str(getattr(session, "user_state", "listening"))
+    agent_state = str(getattr(session, "agent_state", "listening"))
+    started_at = clock()
+    speech_started_at = started_at if user_state == "speaking" else None
+    deadline = (
+        None
+        if user_state == "speaking" or agent_state in ("thinking", "speaking")
+        else started_at + first
+    )
+    pause_prompted = False
 
     def _window() -> float:
         # A confirmation question waits longer for Sir's answer.
@@ -518,44 +529,84 @@ async def _school_follow_up(
             return school.CONFIRM_WAIT_S
         return window if window is not None else school.FOLLOW_UP_S
 
+    def _update_deadline() -> None:
+        nonlocal deadline
+        if user_state == "speaking" or agent_state in ("thinking", "speaking"):
+            deadline = None
+        elif deadline is None:
+            deadline = clock() + _window()
+
     def _agent(ev) -> None:
-        new = str(getattr(ev, "new_state", ""))
-        if new in ("thinking", "speaking"):
-            state["deadline"] = None
-            state["held"] = None
-            state["agent_busy"] = True
-        elif new == "listening":
-            state["agent_busy"] = False
-            if state["deadline"] is None:
-                state["deadline"] = clock() + _window()
+        nonlocal agent_state
+        agent_state = str(getattr(ev, "new_state", agent_state))
+        _update_deadline()
 
     def _user(ev) -> None:
+        nonlocal user_state, speech_started_at, pause_prompted
         new = str(getattr(ev, "new_state", ""))
+        if new == user_state or new not in ("speaking", "listening", "away"):
+            return
+        user_state = new
         if new == "speaking":
-            state["deadline"] = None
-            if state["held"] is None:
-                state["held"] = clock()
-        elif new == "listening" and state["deadline"] is None:
-            state["deadline"] = clock() + _window()
+            speech_started_at = clock()
+        else:
+            speech_started_at = None
+        pause_prompted = False
+        _update_deadline()
+
+    def _caption(line: str) -> None:
+        with contextlib.suppress(Exception):
+            from hud_events import caption
+
+            caption("jarvis", line)
 
     session.on("agent_state_changed", _agent)
     session.on("user_state_changed", _user)
-    while True:
-        await asyncio.sleep(tick)
-        now = clock()
-        d = state["deadline"]
-        held = state["held"]
-        expired = d is not None and now >= d
-        stuck = (
-            d is None
-            and held is not None
-            and not state["agent_busy"]
-            and now - held >= FOLLOW_UP_HOLD_CAP_S
-        )
-        if (expired or stuck) and latency.TRACKER.pending == 0:
+    try:
+        while True:
+            await asyncio.sleep(tick)
+            now = clock()
+            held = now - speech_started_at if speech_started_at is not None else 0.0
+            if (
+                speech_started_at is not None
+                and held >= FOLLOW_UP_PAUSE_PROMPT_S
+                and not pause_prompted
+            ):
+                pause_prompted = True
+                _caption(
+                    "Still hearing continuous sound, Sir. Please pause briefly "
+                    "so I can finish listening."
+                )
+            expired = deadline is not None and now >= deadline
+            stuck = speech_started_at is not None and held >= FOLLOW_UP_HOLD_CAP_S
+            if (
+                (expired or stuck)
+                and agent_state not in ("thinking", "speaking")
+                and latency.TRACKER.pending == 0
+            ):
+                if stuck:
+                    _caption(
+                        "The audio stayed continuous, so I'm returning to standby. "
+                        "Please try again after a brief pause, Sir."
+                    )
+                    with contextlib.suppress(Exception):
+                        from system import log_action
+
+                        log_action(
+                            "voice-input",
+                            "follow-up closed reason=continuous-audio "
+                            f"speech_s={held:.1f} cap_s={FOLLOW_UP_HOLD_CAP_S:.1f}",
+                        )
+                with contextlib.suppress(Exception):
+                    await session.aclose()
+                return
+    finally:
+        for event, callback in (
+            ("agent_state_changed", _agent),
+            ("user_state_changed", _user),
+        ):
             with contextlib.suppress(Exception):
-                await session.aclose()
-            return
+                session.off(event, callback)
 
 
 def _briefing_instructions(raw: str) -> str:
@@ -756,6 +807,48 @@ async def _reply_or_say(
     except Exception:
         with __import__("contextlib").suppress(Exception):
             await session.say(fallback)
+
+
+async def _say_with_caption(
+    session: AgentSession, line: str, caption: Callable[[str, str], None]
+) -> bool:
+    """Handle an announcement without captioning failed or interrupted speech."""
+    try:
+        speech = session.say(line)
+        await speech
+        # An interruption already handed the conversation to the user.
+        # Do not overwrite their partial caption or trigger a greeting retry.
+        if speech.interrupted:
+            return True
+        # LiveKit resolves failed SpeechHandles normally; the generation
+        # error is available only through exception() after completion.
+        if speech.exception() is not None:
+            return False
+    except Exception:
+        return False
+    with contextlib.suppress(Exception):
+        caption("jarvis", line)
+    return True
+
+
+async def _greet_with_retry(
+    session: AgentSession,
+    caption: Callable[[str, str], None],
+    *,
+    budget_aside: str = "",
+) -> None:
+    """Give the realtime scheduler one retry when the greeting fails."""
+    line = "Good day, Sir. What do you require?"
+    if await _say_with_caption(session, f"{line}{budget_aside}", caption):
+        return
+    await asyncio.sleep(2.0)
+    # A retry uses generate_reply on Gemini, which ends its current input
+    # activity. Never cut off a request or a response that started meanwhile.
+    if getattr(session, "user_state", None) == "speaking" or getattr(
+        session, "agent_state", None
+    ) in ("thinking", "speaking"):
+        return
+    await _say_with_caption(session, line, caption)
 
 
 def _pipeline_name() -> str:
@@ -2466,22 +2559,13 @@ async def my_agent(ctx: JobContext):
     async def _say(line: str) -> bool:
         # Captioned on success: say() alone emits no message event, so
         # without this the overlay never shows proactive speech.
-        try:
-            await session.say(line)
-        except Exception:
-            return False
-        with contextlib.suppress(Exception):
-            _hud_caption("jarvis", line)
-        return True
+        return await _say_with_caption(session, line, _hud_caption)
 
     async def _greet() -> None:
         # One retry: the realtime speech scheduler is occasionally not up
         # on the first say ("skipping new realtime generation"), which
         # used to mute the whole call.
-        if await _say(f"Good day, Sir. What do you require?{_budget_aside()}"):
-            return
-        await asyncio.sleep(2.0)
-        await _say("Good day, Sir. What do you require?")
+        await _greet_with_retry(session, _hud_caption, budget_aside=_budget_aside())
 
     # Join gate: a wake summons IS the engagement (the spoken words were
     # spent on the offline detector and never arrive as a transcript, so

@@ -32,8 +32,8 @@ class FakeProcess:
         self.stdin = FakeStdin(self)
         self.returncode = None
         self.killed = False
-        self.models = ["gpt-5.6-terra"]
-        self.actual_model = "gpt-5.6-terra"
+        self.models = ["gpt-6-luna"]
+        self.actual_model = "gpt-6-luna"
         self.account_type = "chatgpt"
         self.notifications = []
         self.final_text = '{"action":"wait"}'
@@ -180,14 +180,14 @@ async def test_stable_thread_isolated_proposals_and_schema(
     requests = [m for m in server.messages if m.get("method") == "thread/start"]
     assert len(requests) == 1
     start = requests[0]["params"]
-    assert start["model"] == "gpt-5.6-terra"
+    assert start["model"] == "gpt-6-luna"
     assert start["allowProviderModelFallback"] is False
     assert start["environments"] == start["dynamicTools"] == []
     assert start["config"]["mcp_servers"]["unsafe.local"]["enabled"] is False
     turns = [m["params"] for m in server.messages if m.get("method") == "turn/start"]
     assert all(turn["threadId"] == "stable-thread" for turn in turns)
     assert all(
-        turn["model"] == "gpt-5.6-terra"
+        turn["model"] == "gpt-6-luna"
         and turn["environments"] == []
         and turn["effort"] == "low"
         for turn in turns
@@ -490,7 +490,7 @@ async def test_installed_cli_exposes_no_tools_to_local_fake_provider(tmp_path):
             3,
             "thread/start",
             {
-                "model": "gpt-5.6-terra",
+                "model": "gpt-6-luna",
                 "modelProvider": "jarvis_offline_probe",
                 "allowProviderModelFallback": False,
                 "cwd": str(tmp_path),
@@ -515,7 +515,7 @@ async def test_installed_cli_exposes_no_tools_to_local_fake_provider(tmp_path):
             "turn/start",
             {
                 "threadId": started["thread"]["id"],
-                "model": "gpt-5.6-terra",
+                "model": "gpt-6-luna",
                 "effort": "low",
                 "environments": [],
                 "input": [
@@ -533,7 +533,7 @@ async def test_installed_cli_exposes_no_tools_to_local_fake_provider(tmp_path):
         payload, has_auth = await asyncio.wait_for(captured, 20)
         assert not has_auth, "Offline fake provider must never receive authentication"
         assert not payload.get("tools"), "Proposal-only configuration exposed tools"
-        assert payload["model"] == "gpt-5.6-terra"
+        assert payload["model"] == "gpt-6-luna"
         assert any(
             part.get("type") == "input_image"
             for item in payload["input"]

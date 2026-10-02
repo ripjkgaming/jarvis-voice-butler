@@ -49,6 +49,22 @@ test('online is a short decoration and never delays readiness', () => {
   assert.equal(link.joining, false);
   assert.equal(voiceLinkFrom(raw('online'), null, 100_101).phase, 'idle');
 });
+test('a slow join explains the wait without advancing or restarting progress', () => {
+  const first = voiceLinkFrom(raw('dispatch'), null, now);
+  assert.equal(first.until, 107_000);
+  const slow = voiceLinkFrom(raw('dispatch'), null, 107_000);
+  assert.equal(slow.phase, 'agent');
+  assert.equal(slow.step, first.step);
+  assert.match(slow.detail, /STILL WAITING/);
+  assert.equal(slow.until, 144_000);
+  assert.equal(voiceLinkFrom(raw('dispatch'), null, 144_000).phase, 'stalled');
+  assert.equal(voiceLinkFrom(raw('online'), null, 99_001).phase, 'ready');
+});
+test('relay explanations describe the observed operation', () => {
+  assert.match(voiceLinkFrom(raw('auth'), null, now).detail, /AUTHENTICATING/);
+  assert.match(voiceLinkFrom(raw('uplink'), null, now).detail, /MICROPHONE UPLINK/);
+  assert.match(voiceLinkFrom(raw('connect'), null, 108_000).detail, /STILL CONNECTING/);
+});
 test('an older room generation cannot acknowledge a new local request', () => {
   const request = { at: now, baseline: 95, failed: false };
   assert.equal(voiceLinkFrom(raw('online'), request, now).phase, 'request');

@@ -194,7 +194,7 @@ For advanced customization, see the [complete frontend guide](https://docs.livek
 ### Visual computer use
 
 Jarvis's system specialist can delegate bounded desktop navigation to a headless,
-authenticated Codex worker using `gpt-5.6-terra` by default, with status/cancel
+authenticated Codex worker using `gpt-6-luna` by default, with status/cancel
 tools and no silent model fallback. See [computer-use setup and limits](docs/computer-use.md)
 for configuration, supported surfaces, safeguards and isolated test commands.
 Live model accuracy and latency have not been benchmarked.

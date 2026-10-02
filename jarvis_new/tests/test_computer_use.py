@@ -9,6 +9,26 @@ import pytest
 from system.computer_use import ComputerUseService, ComputerUseTools, Limits
 
 
+def test_computer_worker_defaults_to_luna_without_changing_effort(monkeypatch):
+    from system.computer_use import _worker
+
+    monkeypatch.delenv("JARVIS_COMPUTER_USE_MODEL", raising=False)
+    monkeypatch.delenv("JARVIS_COMPUTER_USE_EFFORT", raising=False)
+    worker = _worker()
+    assert worker.model == "gpt-6-luna"
+    assert worker.effort == "low"
+
+
+def test_computer_worker_preserves_explicit_model_and_effort(monkeypatch):
+    from system.computer_use import _worker
+
+    monkeypatch.setenv("JARVIS_COMPUTER_USE_MODEL", "gpt-6-luna")
+    monkeypatch.setenv("JARVIS_COMPUTER_USE_EFFORT", "high")
+    worker = _worker()
+    assert worker.model == "gpt-6-luna"
+    assert worker.effort == "high"
+
+
 def decision(obs="obs-0", *, action=None, status="action", **changes):
     return {
         "status": status,

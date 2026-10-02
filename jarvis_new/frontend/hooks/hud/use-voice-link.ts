@@ -25,6 +25,16 @@ export function useVoiceLink(muted: boolean | null) {
   );
   const live = useCallState()?.live ?? false;
 
+  useEffect(
+    () => () => {
+      // Native promises cannot be aborted, but their completion must not update
+      // a controller which has gone away (including Strict Mode remounts).
+      sequence.current += 1;
+      busy.current = false;
+    },
+    []
+  );
+
   useEffect(() => {
     const first = raw?.boot?.[0]?.[1];
     if (

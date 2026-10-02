@@ -1,7 +1,7 @@
 # Computer use
 
 Jarvis can delegate a visual task in an already-open desktop app to an installed,
-authenticated Codex CLI worker. The default executor is **`gpt-5.6-terra` with
+authenticated Codex CLI worker. The default executor is **`gpt-6-luna` with
 `low` reasoning**. The voice agent remains the planner; the worker proposes one
 JSON action from the latest screenshot and Python validates and performs it.
 It never silently substitutes Astra or another model.
@@ -28,7 +28,7 @@ Set these in Jarvis's environment, not in the user's global Codex configuration:
 | --- | --- | --- |
 | `JARVIS_LOCAL` | existing setting | Must be `1`; cloud deployments cannot control a PC. |
 | `JARVIS_COMPUTER_USE` | `1` | Set `0` to disable starting workers. |
-| `JARVIS_COMPUTER_USE_MODEL` | `gpt-5.6-terra` | Exact executor model, verified against the CLI model catalog. |
+| `JARVIS_COMPUTER_USE_MODEL` | `gpt-6-luna` | Exact executor model, verified against the CLI model catalog. |
 | `JARVIS_COMPUTER_USE_EFFORT` | `low` | Must be supported by that exact model. |
 | `JARVIS_CODEX_BIN` | `codex` on PATH, then the installed app bundle | Optional explicit CLI executable. |
 | `JARVIS_COMPUTER_USE_MAX_STEPS` | `12` | Input limit, clamped to 1–30; a tool request can lower it. |
@@ -153,7 +153,10 @@ sandbox isolation, cancellation during spawning/capture/input/cleanup, model
 unavailability/rerouting, bounded output, ownership, time/step/stall limits and
 agent registration.
 
-On 2026-10-02 a separate read-only preflight verified the installed ChatGPT login,
+The default was changed to `gpt-6-luna` at the user’s request on 2026-10-02;
+reasoning remains `low` and the same isolation and per-action validation apply.
+
+Earlier on 2026-10-02 a separate read-only preflight verified the installed ChatGPT login,
 `gpt-5.6-terra` catalog entry with image input and low effort, and ephemeral thread
 creation. **No live model turn, desktop input, microphone call or visual-accuracy
 benchmark was run.** Live entitlement, task success rate and latency remain
@@ -161,4 +164,4 @@ unverified. The current unit tests cannot establish those.
 
 Official references: [Codex app-server](https://learn.chatgpt.com/docs/app-server),
 [headless CLI/authentication](https://learn.chatgpt.com/docs/non-interactive-mode),
-[GPT-5.6 Terra modalities](https://developers.openai.com/api/docs/models/gpt-5.6-terra).
+[GPT-6 Luna modalities](https://developers.openai.com/api/docs/models/gpt-6-luna).

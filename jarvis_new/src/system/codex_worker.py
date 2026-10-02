@@ -109,7 +109,7 @@ class CodexWorker:
     def __init__(
         self,
         *,
-        model: str = "gpt-5.6-terra",
+        model: str = "gpt-6-luna",
         binary: str | None = None,
         effort: str = "low",
         timeout: float = 45.0,
