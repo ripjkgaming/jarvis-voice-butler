@@ -33,6 +33,10 @@ from system import LocalSystemError, log_action, require_local
 from system.core import DATA_DIR, TODOS_PATH
 
 GMAIL_TOKEN = Path.home() / "jarvis" / "data" / "gmail_token.json"
+GMAIL_RECONNECT_HINT = (
+    "Gmail sign-in expired, Sir. Reconnect it by running "
+    "scripts/gmail_connect.py and approving in the browser."
+)
 NEWS_CACHE_TTL = 15 * 60
 WEATHER_CACHE_TTL = 30 * 60
 
@@ -214,8 +218,15 @@ def _gmail_access_token() -> str:
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 fresh = json.loads(r.read().decode())
+        except urllib.error.HTTPError as exc:
+            if exc.code in (400, 401):
+                # invalid_grant: refresh token expired or revoked (Google
+                # expires them after 7 days while the OAuth app is in
+                # "Testing"). Only a browser re-consent fixes it.
+                raise ToolError(GMAIL_RECONNECT_HINT) from exc
+            raise ToolError(f"Gmail is unreachable right now ({exc}).") from exc
         except Exception as exc:
-            raise ToolError(f"Gmail sign-in expired ({exc}). Reconnect it.") from exc
+            raise ToolError(f"Gmail is unreachable right now ({exc}).") from exc
         token = fresh.get("access_token", "")
         if not token:
             raise ToolError("Gmail sign-in expired. Reconnect it.")
@@ -760,6 +771,12 @@ class InboxTools:
             raise ToolError(str(exc)) from exc
         saved = _read_json(GMAIL_TOKEN, None)
         if isinstance(saved, dict) and saved.get("refresh_token"):
+            # Prove the refresh token still works: a saved but revoked token
+            # used to read as "connected" while every inbox call failed.
+            try:
+                await asyncio.to_thread(_gmail_access_token)
+            except ToolError as exc:
+                return {"say": str(exc)}
             account = saved.get("account", "")
             scopes = saved.get("scopes", ["gmail.readonly"])
             can_send = any("send" in str(s) for s in scopes)

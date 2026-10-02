@@ -49,11 +49,28 @@ def test_silence_does_not_hold_and_continuous_noise_has_hard_cap():
         now[0] = at / 2
         meter._process(frame(1200))
     assert not meter.holding(60)
-    now[0] = 62
+    for at in (60.5, 61, 61.5, 62):
+        now[0] = at
+        meter._process(frame(0))
+    now[0] = 62.1
     meter._process(frame(1200))
-    assert meter.holding(62), "a real quiet gap permits a new bounded hold"
+    assert meter.holding(62.1), "a real quiet gap permits a new bounded hold"
     meter._close()
-    assert not meter.holding(62)
+    assert not meter.holding(62.1)
+
+
+def test_steady_loud_room_stops_reading_as_speech_but_voice_on_top_does():
+    """Canteen babble at a constant level is noise within seconds; a
+    voice clearly above it still counts as activity."""
+    now = [0.0]
+    meter = agent._InputActivity(clock=lambda: now[0])
+    for step in range(1, 201):  # 10 s of steady 2400 RMS room noise
+        now[0] = step / 20
+        meter._process(frame(2400))
+    assert not meter.active(now[0], grace=0.1)
+    now[0] += 0.05
+    meter._process(frame(9000))  # ~11.5 dB over the room
+    assert meter.active(now[0], grace=0.1)
 
 
 class Session:

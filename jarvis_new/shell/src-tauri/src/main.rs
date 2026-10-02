@@ -150,6 +150,14 @@ fn main() {
                 });
             }
 
+            // Bare launch (login autostart, app menu): the overlay is
+            // `visible: false` in tauri.conf.json, so without this the HUD
+            // only lived in the tray until summoned. School mode already
+            // re-docked the strip above, so leave that alone.
+            if std::env::args().nth(1).is_none() && !school::is_school() {
+                tray::show_overlay(app.handle());
+            }
+
             // v1 update check (checks only, never installs): one boot-time
             // pass, fail-soft. A staged newer version surfaces as a tray
             // note + notification; the placeholder feed just yields

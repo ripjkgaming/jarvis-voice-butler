@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -7,7 +8,6 @@ from wake_client import (
     OWW_FRAME,
     clear_hud_room,
     clear_hud_waking,
-    downsample_48k_to_16k,
     drain_queue,
     extract_talk_text,
     frame_16k_chunks,
@@ -28,19 +28,6 @@ from wake_client import (
     wake_socket_path,
     wake_threshold,
 )
-
-
-def test_downsample_takes_every_third_sample() -> None:
-    frame = list(range(1536))
-    down = downsample_48k_to_16k(frame)
-    assert len(down) == 512
-    assert down[0] == 0
-    assert down[1] == 3
-    assert down[-1] == 1533
-
-
-def test_downsample_short_frame_is_safe() -> None:
-    assert downsample_48k_to_16k([10, 20, 30]) == [10]
 
 
 def test_summon_room_names_are_unique() -> None:
@@ -199,7 +186,8 @@ async def test_summon_joins_without_deferral(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Wake joins immediately now: the HUD is receive-only (no mic in the
-    webview), so there is no race to defer — one call check, then join."""
+    webview), so there is no race to defer — one call check, run alongside
+    the join (it is a Cloud round trip)."""
     import wake_client
     from wake_client import WakeClient
 
@@ -214,6 +202,7 @@ async def test_summon_joins_without_deferral(
             return deco
 
         async def connect(self, *args, **kwargs):
+            await asyncio.sleep(0)  # the network yields; the check runs
             raise _ReachedConnectError("reached-connect")
 
         async def disconnect(self):
@@ -564,3 +553,43 @@ def test_cleared_hud_log_cannot_leak_into_next_ptt(monkeypatch, tmp_path):
     hud_stage("check")  # PTT begins at the call guard, without a hotword.
     log = json.loads((tmp_path / HUD_WAKING_FILE).read_text())["log"]
     assert [s for s, _ in log] == ["check"]
+
+
+@pytest.mark.asyncio
+async def test_summon_stays_out_when_check_finds_a_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The overlapped check still keeps the mic off an existing call."""
+    import wake_client
+    from wake_client import WakeClient
+
+    events: list[str] = []
+
+    class _Participant:
+        async def publish_track(self, *a, **k):
+            events.append("publish")
+
+    class _FakeRoom:
+        local_participant = _Participant()
+
+        def on(self, *args, **kwargs):
+            return lambda fn: fn
+
+        async def connect(self, *args, **kwargs):
+            events.append("connect")
+
+        async def disconnect(self):
+            events.append("disconnect")
+
+    async def _busy(_creds: dict) -> bool:
+        return True
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(wake_client, "active_call_exists", _busy)
+    monkeypatch.setattr(wake_client, "summon_overlay", lambda: None)
+    import livekit.rtc
+
+    monkeypatch.setattr(livekit.rtc, "Room", _FakeRoom)
+    client = WakeClient()
+    assert await client._summon_session() is False
+    assert events == ["connect", "disconnect"]

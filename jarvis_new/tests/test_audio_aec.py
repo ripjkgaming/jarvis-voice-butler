@@ -74,3 +74,47 @@ def test_engage_noop_on_headset_and_never_raises(monkeypatch) -> None:
 
     monkeypatch.setattr(audio_aec, "_pactl", boom)
     assert audio_aec.engage().startswith("error")
+
+
+SGET = """Simple mixer control 'Dmic0',0
+  Capabilities: cvolume cswitch
+  Front Left: Capture 68 [97%] [18.00dB] [on]
+  Front Right: Capture 68 [97%] [18.00dB] [on]
+"""
+
+
+def test_parse_control_db() -> None:
+    assert audio_aec.parse_control_db(SGET) == 18.0
+    assert audio_aec.parse_control_db("no gain here") is None
+
+
+def test_dmic_gain_env(monkeypatch) -> None:
+    monkeypatch.delenv("JARVIS_DMIC_GAIN_DB", raising=False)
+    assert audio_aec.dmic_gain_db() == 0.0
+    monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "6")
+    assert audio_aec.dmic_gain_db() == 6.0
+    monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "off")
+    assert audio_aec.dmic_gain_db() is None
+
+
+def test_headroom_lowers_but_never_raises(monkeypatch) -> None:
+    calls = []
+    monkeypatch.delenv("JARVIS_DMIC_GAIN_DB", raising=False)
+    monkeypatch.setattr(audio_aec, "_dmic_card", lambda: "1")
+
+    def fake(*args):
+        calls.append(args)
+        return SGET if args[2] == "sget" else ""
+
+    monkeypatch.setattr(audio_aec, "_amixer", fake)
+    assert audio_aec.set_mic_headroom() == "lowered to 0 dB"
+    assert calls[-1] == ("-c", "1", "sset", "Dmic0", "0dB")
+
+    calls.clear()
+    monkeypatch.setattr(audio_aec, "_amixer", lambda *a: SGET.replace("18.00", "-3.00"))
+    assert audio_aec.set_mic_headroom() == "kept (-3 dB)"
+
+
+def test_headroom_never_raises(monkeypatch) -> None:
+    monkeypatch.setattr(audio_aec, "_dmic_card", lambda: (_ for _ in ()).throw(OSError("x")))
+    assert audio_aec.set_mic_headroom().startswith("error")

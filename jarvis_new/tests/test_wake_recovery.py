@@ -352,7 +352,10 @@ async def test_preflight_failure_or_cancel_clears_join_log(
     if outcome == "token_error":
         monkeypatch.setattr(wake_client, "mint_summon_token", mint)
     call = asyncio.create_task(h.client._summon_session())
-    await asyncio.wait_for(checking.wait(), 1)
+    if outcome != "token_error":
+        # The call check runs alongside token + connect; a token that fails
+        # synchronously cancels it before it ever starts.
+        await asyncio.wait_for(checking.wait(), 1)
     if outcome == "cancel":
         call.cancel()
     expected = {

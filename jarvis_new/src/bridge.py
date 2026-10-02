@@ -505,10 +505,22 @@ def _play_media(query: str) -> dict:
     url = _youtube_url(query) if query else _YT_PLAYLIST
     brave = _which("brave-browser") or _which("brave")
     argv = [brave, "--new-window", url] if brave else ["xdg-open", url]
+    # Music plays in the background: remember Sir's window and the Brave
+    # windows already open, then minimize the new one once it maps.
+    from system import window_ctl
+
+    before = window_ctl.brave_window_ids()
+    previous = window_ctl.active_title() if before is not None else ""
     try:
         _spawn_desktop(argv)
     except OSError as exc:
         return _tool_result(False, error=str(exc)[:200])
+    if before is not None:
+        Thread(
+            target=window_ctl.background_new_brave,
+            args=(before, previous),
+            daemon=True,
+        ).start()
     return _tool_result(True, query=query, url=url)
 
 

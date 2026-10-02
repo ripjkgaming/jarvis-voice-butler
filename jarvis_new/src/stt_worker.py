@@ -16,11 +16,13 @@ def main() -> int:
     import numpy as np
     from faster_whisper import WhisperModel
 
+    # base.en + 4 threads + no timestamps: a 3.5 s school-wake question
+    # went from ~1.2 s to ~0.6 s on the i5-13420H with the same text.
     model = WhisperModel(
-        os.environ.get("JARVIS_SPOT_MODEL", "base"),
+        os.environ.get("JARVIS_SPOT_MODEL", "base.en"),
         device="cpu",
         compute_type="int8",
-        cpu_threads=2,
+        cpu_threads=int(os.environ.get("JARVIS_SPOT_THREADS", "4")),
     )
     stdin, stdout = sys.stdin.buffer, sys.stdout.buffer
     while True:
@@ -37,6 +39,7 @@ def main() -> int:
                 beam_size=1,
                 vad_filter=False,
                 condition_on_previous_text=False,
+                without_timestamps=True,
                 # Bias toward the wake name: tiny Whisper heard Sir's "hey
                 # Jarvis" as "he's nervous" and school mode ignored him.
                 hotwords="Jarvis",

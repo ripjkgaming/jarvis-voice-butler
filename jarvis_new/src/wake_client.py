@@ -229,11 +229,6 @@ def load_livekit_env(path: Path | None = None) -> dict[str, str]:
     return found
 
 
-def downsample_48k_to_16k(frame_48k) -> list[int]:
-    """Decimate one 1536-sample mic block to Porcupine's 512-frame. Pure."""
-    return [int(x) for x in frame_48k[::3][:512]]
-
-
 def summon_room_name(now: float | None = None) -> str:
     """Unique room per summon so stale sessions never collide. Pure."""
     return f"jarvis-{int(now if now is not None else time.time())}"
@@ -543,6 +538,10 @@ class WakeClient:
         self._model = None
         self._rewake: asyncio.Event | None = None
         self._last_agent_voice = 0.0
+        from talk_gate import TalkOverGate, gate_enabled
+
+        # Ducks room noise and echo while Jarvis speaks (see talk_gate).
+        self._talk_gate = TalkOverGate() if gate_enabled() else None
         # False while a plain call runs: the listen loop's queue is unread
         # then, and buffering a whole call's audio grew it without bound.
         self._listen_queue_live = True
@@ -719,6 +718,7 @@ class WakeClient:
         # stream opens (streams bind to the default devices at open time).
         import audio_aec
 
+        logger.warning("mic: %s", await asyncio.to_thread(audio_aec.set_mic_headroom))
         logger.warning("aec: %s", await asyncio.to_thread(audio_aec.engage))
         self.start_mic_control()
         self._render_ack()
@@ -737,6 +737,7 @@ class WakeClient:
     async def _listen_loop(self, model) -> None:
         import numpy as np
         import sounddevice as sd
+        from audio_dsp import Downsampler48to16, downsample_48k_to_16k
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue(maxsize=MIC_QUEUE_MAX_BLOCKS)
@@ -747,7 +748,14 @@ class WakeClient:
                 return
             enqueue_mic_block(queue, raw)
 
+        # Local neural noise suppression, once, where blocks enter the
+        # queue: the wake word, join buffer and live call all hear it.
+        from mic_clean import make_cleaner
+
+        cleaner = make_cleaner(BLOCKSIZE)
+
         def _audio_callback(indata, frames, time_info, status) -> None:
+            nonlocal cleaner
             if status:
                 logger.warning("mic status: %s", status)
             if not self._listen_queue_live:
@@ -756,8 +764,16 @@ class WakeClient:
                 if self._muted:
                     return
                 epoch = getattr(self, "_mute_epoch", 0)
+            blocks = [bytes(indata)]
+            if cleaner is not None:
+                try:
+                    blocks = cleaner.process(blocks[0])
+                except Exception as exc:
+                    logger.warning("noise suppression failed, raw mic: %s", exc)
+                    cleaner = None
             with contextlib.suppress(Exception):
-                loop.call_soon_threadsafe(_enqueue, bytes(indata), epoch)
+                for block in blocks:
+                    loop.call_soon_threadsafe(_enqueue, block, epoch)
 
         with sd.RawInputStream(
             samplerate=MIC_RATE,
@@ -767,6 +783,7 @@ class WakeClient:
             callback=_audio_callback,
         ):
             pending16 = np.zeros(0, dtype=np.int16)
+            down16 = Downsampler48to16()
             import keyword_spot as _spot
             import school as _school
 
@@ -821,7 +838,8 @@ class WakeClient:
                 if block.size < BLOCKSIZE:
                     continue
                 ring.append(raw)
-                pending16 = np.concatenate([pending16, block[::3][:512]])
+                block16 = down16.process(block)
+                pending16 = np.concatenate([pending16, block16])
                 if self.muted:
                     ring.clear()
                     self._talk_event.clear()  # never summon while muted
@@ -848,7 +866,7 @@ class WakeClient:
                             model.reset()
                     continue
                 if segmenter is not None and not self._in_call and not _school.is_school():
-                    for seg in segmenter.feed(block[::3][:512]):
+                    for seg in segmenter.feed(block16):
                         if not spot_state["busy"]:
                             spot_state["busy"] = True
                             task = asyncio.create_task(_check_daddy(seg))
@@ -881,8 +899,8 @@ class WakeClient:
                             heard = list(ring) + await self._record_question(
                                 queue, max(levels, default=0.0), min(levels, default=None)
                             )
-                            pcm16 = np.concatenate(
-                                [np.frombuffer(b, dtype=np.int16)[::3] for b in heard]
+                            pcm16 = downsample_48k_to_16k(
+                                np.frombuffer(b"".join(heard), dtype=np.int16)
                             )
                             hud_stage("transcribe")
                             text = await loop.run_in_executor(
@@ -940,6 +958,22 @@ class WakeClient:
         except Exception as exc:
             logger.warning("ack playback failed: %s", exc)
 
+    def _gate_mic(self, raw: bytes, now: float) -> bytes:
+        """Talk-over gate on one outgoing call block; raw on any failure."""
+        gate = getattr(self, "_talk_gate", None)
+        if gate is None or not raw:
+            return raw
+        try:
+            import numpy as np
+
+            block = np.frombuffer(raw, dtype=np.int16)
+            out = gate.process(block, now)
+            return raw if out is block else out.tobytes()
+        except Exception as exc:
+            logger.warning("talk gate failed, disabled: %s", exc)
+            self._talk_gate = None
+            return raw
+
     @staticmethod
     def _bytes_to_int16(raw: bytes):
         import numpy as np
@@ -995,11 +1029,10 @@ class WakeClient:
         # way: "hey Jarvis" always summons the UI.
         try:
             hud_stage("check")
-            if await active_call_exists(self._creds):
-                logger.warning("already in a call; staying out")
-                clear_hud_waking()
-                summon_overlay()
-                return False
+            # The double-call check is a LiveKit Cloud round trip (0.4-0.85 s
+            # measured 2 Oct). Run it alongside token + connect and only act
+            # on it before the mic goes live, instead of serially up front.
+            call_check = asyncio.create_task(active_call_exists(self._creds))
 
             # Consume one typed seed (text→voice trigger): delivered as the
             # opening user turn once the agent joins, then forgotten. Taken
@@ -1033,6 +1066,7 @@ class WakeClient:
             # Cancellation before an RTC room exists must not leave the HUD
             # presenting an abandoned call check/authentication as live work.
             clear_hud_waking()
+            call_check.cancel()
             raise
         disconnected = asyncio.Event()
         agent_audio: asyncio.Queue = asyncio.Queue()
@@ -1053,7 +1087,7 @@ class WakeClient:
         self._last_agent_voice = time.monotonic()
         if mic_queue is None:
             self._listen_queue_live = False
-        call_tasks: set[asyncio.Task] = set()
+        call_tasks: set[asyncio.Task] = {call_check}
         source = None
         try:
             hud_stage("connect")
@@ -1063,6 +1097,11 @@ class WakeClient:
                 if announce_text:
                     self._speak_fallback(announce_text)
                 raise
+            if await call_check:
+                # The finally below leaves the room and clears the HUD.
+                logger.warning("already in a call; staying out")
+                summon_overlay()
+                return False
             logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
             publish_hud_room(room_name)
             self._set_in_call(True)
@@ -1175,6 +1214,7 @@ class WakeClient:
         """
         import numpy as np
         import sounddevice as sd
+        from audio_dsp import Downsampler48to16
         from livekit import rtc
 
         loop = asyncio.get_running_loop()
@@ -1184,11 +1224,24 @@ class WakeClient:
             with contextlib.suppress(Exception):
                 model.reset()
         pending16 = np.zeros(0, dtype=np.int16)
+        down16 = Downsampler48to16()
         hot_run = 0
+        from mic_clean import make_cleaner
+
+        cleaner = make_cleaner(960)
 
         def _callback(indata, frames, time_info, status) -> None:
+            nonlocal cleaner
+            blocks = [bytes(indata)]
+            if cleaner is not None:
+                try:
+                    blocks = cleaner.process(blocks[0])
+                except Exception as exc:
+                    logger.warning("noise suppression failed, raw mic: %s", exc)
+                    cleaner = None
             with contextlib.suppress(Exception):
-                loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
+                for block in blocks:
+                    loop.call_soon_threadsafe(queue.put_nowait, block)
 
         with sd.RawInputStream(
             samplerate=MIC_RATE,
@@ -1202,6 +1255,7 @@ class WakeClient:
                 if self.muted:
                     continue
                 samples = len(raw) // 2
+                raw = self._gate_mic(raw, time.monotonic())
                 frame = rtc.AudioFrame(raw, MIC_RATE, 1, samples)
                 # Awaited: newer livekit made capture_frame a coroutine and
                 # fire-and-forget silently drops every mic frame (the agent
@@ -1211,7 +1265,7 @@ class WakeClient:
                     continue
                 # 960 samples at 48k decimate exactly to 320 at 16k.
                 block = np.frombuffer(raw, dtype=np.int16)
-                pending16 = np.concatenate([pending16, block[::3]])
+                pending16 = np.concatenate([pending16, down16.process(block)])
                 scores, pending16 = score_frames(model, pending16)
                 for score in scores:
                     hot_run = hot_run + 1 if score >= REWAKE_THRESHOLD else 0
@@ -1266,6 +1320,7 @@ class WakeClient:
         their opening question has already been sent as text.
         """
         import numpy as np
+        from audio_dsp import Downsampler48to16
         from livekit import rtc
 
         if capture_epoch is None:
@@ -1319,6 +1374,7 @@ class WakeClient:
             now = time.monotonic()
             if now - next_frame_at > duration:
                 next_frame_at = now
+            raw = self._gate_mic(raw, now)
             await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
             next_frame_at += duration
             ahead = next_frame_at - time.monotonic()
@@ -1339,6 +1395,7 @@ class WakeClient:
             with contextlib.suppress(Exception):
                 model.reset()
         pending16 = np.zeros(0, dtype=np.int16)
+        down16 = Downsampler48to16()
         hot_run = 0
         while True:
             raw = await queue.get()
@@ -1349,11 +1406,12 @@ class WakeClient:
             if preserve_join_audio:
                 await forward(raw, backlog=not queue.empty())
             else:
-                await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+                gated = self._gate_mic(raw, time.monotonic())
+                await source.capture_frame(rtc.AudioFrame(gated, MIC_RATE, 1, len(gated) // 2))
             if model is None or self._rewake is None:
                 continue
             pending16 = np.concatenate(
-                [pending16, np.frombuffer(raw, dtype=np.int16)[::3]]
+                [pending16, down16.process(np.frombuffer(raw, dtype=np.int16))]
             )
             scores, pending16 = score_frames(model, pending16)
             for score in scores:
@@ -1383,6 +1441,10 @@ class WakeClient:
                 samples = self._bytes_to_int16(pcm)
                 if samples.size and int(abs(samples).max()) > 500:
                     self._last_agent_voice = time.monotonic()
+                gate = getattr(self, "_talk_gate", None)
+                if gate is not None and samples.size:
+                    rms = float((samples.astype("float32") ** 2).mean() ** 0.5)
+                    gate.note_playback(rms, time.monotonic())
                 if _school_quiet():
                     samples = (samples.astype("float32") * _school_gain()).astype("int16")
                 await output.write(samples, frame.sample_rate)

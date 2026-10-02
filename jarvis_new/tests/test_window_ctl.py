@@ -194,3 +194,24 @@ def test_focus_waits_for_a_slow_window_to_come_forward(monkeypatch) -> None:
         sleep=lambda s: None,
     )
     assert ok
+
+
+def test_background_new_brave_minimizes_only_the_new_window(monkeypatch) -> None:
+    from system import kwin_windows
+
+    calls = []
+    seen = iter([{"old"}, {"old"}, {"old", "new"}])
+    monkeypatch.setattr(window_ctl, "brave_window_ids", lambda **k: next(seen))
+    monkeypatch.setattr(kwin_windows, "act_on", lambda a, u, **k: calls.append((a, u)))
+    monkeypatch.setattr(window_ctl, "restore", lambda t, **k: calls.append(("restore", t)))
+    ok = window_ctl.background_new_brave({"old"}, "Konsole", sleep=lambda s: None)
+    assert ok
+    assert calls == [("minimize", "new"), ("restore", "Konsole")]
+
+
+def test_background_new_brave_gives_up_when_nothing_opens(monkeypatch) -> None:
+    from system import kwin_windows
+
+    monkeypatch.setattr(window_ctl, "brave_window_ids", lambda **k: {"old"})
+    monkeypatch.setattr(kwin_windows, "act_on", lambda *a, **k: pytest.fail("minimized"))
+    assert not window_ctl.background_new_brave({"old"}, sleep=lambda s: None, wait_s=1)

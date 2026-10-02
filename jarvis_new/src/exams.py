@@ -70,6 +70,11 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
+def _now() -> dt.datetime:
+    """Wall clock on `_today()`'s date (tests pin the date via `_today`)."""
+    return dt.datetime.combine(_today(), dt.datetime.now().time())
+
+
 def _clean(e: dict, source: str = "") -> dict | None:
     """Normalise one exam record, or None when it has no valid date/title."""
     title = " ".join(str(e.get("title") or "").split())[:120]
@@ -189,14 +194,55 @@ def exams() -> list[dict]:
     return sorted(seen.values(), key=lambda e: (e["date"], e["start"] or "99:99"))
 
 
-def upcoming(today: dt.date | None = None, days: int | None = None) -> list[dict]:
-    today = today or _today()
+#: Assumed length of an exam with a start time but no end time.
+DEFAULT_EXAM_MIN = 120
+
+
+def _exam_end(e: dict, day: dt.datetime) -> dt.datetime | None:
+    """When an exam on `day`'s date finishes, or None without a start time."""
+    if not e.get("start"):
+        return None
+    h, m = (int(x) for x in e["start"].split(":"))
+    start = day.replace(hour=h, minute=m, second=0, microsecond=0)
+    if e.get("end"):
+        eh, em = (int(x) for x in e["end"].split(":"))
+        return day.replace(hour=eh, minute=em, second=0, microsecond=0)
+    return start + dt.timedelta(minutes=DEFAULT_EXAM_MIN)
+
+
+def finished(e: dict, now: dt.datetime) -> bool:
+    """True once a dated exam is over: an earlier day, or today past its end."""
+    today = now.date().isoformat()
+    if e["date"] != today:
+        return e["date"] < today
+    end = _exam_end(e, now)
+    return end is not None and end <= now
+
+
+def upcoming(
+    today: dt.date | None = None,
+    days: int | None = None,
+    now: dt.datetime | None = None,
+) -> list[dict]:
+    """Exams from `today` on. Live calls (no `today`) also drop papers that
+    already finished earlier today: "next exam" at 5pm must not name the
+    8:30am paper."""
+    if now is None and today is None:
+        now = _now()
+    today = today or now.date()
     last = (today + dt.timedelta(days=days)).isoformat() if days is not None else "9999"
-    return [e for e in exams() if today.isoformat() <= e["date"] <= last]
+    return [
+        e
+        for e in exams()
+        if today.isoformat() <= e["date"] <= last
+        and not (now is not None and finished(e, now))
+    ]
 
 
-def next_exam(today: dt.date | None = None) -> dict | None:
-    rows = upcoming(today)
+def next_exam(
+    today: dt.date | None = None, now: dt.datetime | None = None
+) -> dict | None:
+    rows = upcoming(today, now=now)
     return rows[0] if rows else None
 
 
@@ -242,10 +288,6 @@ def describe(e: dict, today: dt.date | None = None) -> str:
     return f"{e['title']}, {day}{when}{until}{where} ({_in_days(days_until(e, today))})"
 
 
-#: Assumed length of an exam with a start time but no end time.
-DEFAULT_EXAM_MIN = 120
-
-
 def current_exam(now: dt.datetime | None = None) -> dict | None:
     """The exam Sir is sitting right now (start <= now < end), else None.
 
@@ -259,11 +301,7 @@ def current_exam(now: dt.datetime | None = None) -> dict | None:
             continue
         h, m = (int(x) for x in e["start"].split(":"))
         start = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if e.get("end"):
-            eh, em = (int(x) for x in e["end"].split(":"))
-            end = now.replace(hour=eh, minute=em, second=0, microsecond=0)
-        else:
-            end = start + dt.timedelta(minutes=DEFAULT_EXAM_MIN)
+        end = _exam_end(e, now)
         if start <= now < end:
             return {**e, "until": end.strftime("%H:%M")}
     return None
@@ -279,10 +317,11 @@ def busy_days(rows: list[dict]) -> list[str]:
 
 def summary(today: dt.date | None = None, days: int = 30) -> str:
     """Short spoken overview of the next `days` of exams."""
-    today = today or _today()
-    rows = upcoming(today, days)
+    now = None if today else _now()
+    today = today or now.date()
+    rows = upcoming(today, days, now=now)
     if not rows:
-        nxt = next_exam(today)
+        nxt = next_exam(today, now=now)
         return (
             f"No exams in the next {days} days. Next: {describe(nxt, today)}."
             if nxt
@@ -305,8 +344,9 @@ def summary(today: dt.date | None = None, days: int = 30) -> str:
 
 def briefing_line(today: dt.date | None = None) -> str:
     """One line for the morning briefing ('' when nothing within two weeks)."""
-    today = today or _today()
-    rows = upcoming(today, 14)
+    now = None if today else _now()
+    today = today or now.date()
+    rows = upcoming(today, 14, now=now)
     if not rows:
         return ""
     first = rows[0]

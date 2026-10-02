@@ -262,6 +262,17 @@ def _voice_chain() -> list:
     return models or list(VOICE_MODEL_CHAIN)
 
 
+def _gemini_silence_ms() -> int:
+    """Quiet (ms) before Gemini ends Sir's turn (JARVIS_GEMINI_SILENCE_MS,
+    default 500). Pure (env only)."""
+    try:
+        return max(
+            200, int(os.environ.get("JARVIS_GEMINI_SILENCE_MS", "").strip() or 500)
+        )
+    except ValueError:
+        return 500
+
+
 def _voice_model(model_id: str):
     """One chain link with that generation's thinking rules. Pure-ish.
 
@@ -288,9 +299,14 @@ def _voice_model(model_id: str):
         # live microphone background as continuous speech, withholding
         # activity_end and all transcripts for over 40 seconds. Native
         # detection is verified with this model and does not need that gate.
+        # End-of-speech is tuned for speed: with the server defaults a final
+        # transcript landed 4-7 s after the partial (captions.log, 2 Oct),
+        # and Jarvis only answers on the final.
         realtime_input_config=genai_types.RealtimeInputConfig(
             automatic_activity_detection=genai_types.AutomaticActivityDetection(
-                disabled=False
+                disabled=False,
+                end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_HIGH,
+                silence_duration_ms=_gemini_silence_ms(),
             )
         ),
         tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
@@ -488,18 +504,32 @@ class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
 
     Native Gemini speech-start arrives when it generates a response, after
     the utterance. This small, independent meter protects a person starting
-    near an idle deadline. It stores only timestamps, never audio, and never
-    commits a turn, interrupts output, or changes the SDK's user state.
+    near an idle deadline. It stores only timestamps and one noise-floor
+    level, never audio, and never commits a turn, interrupts output, or
+    changes the SDK's user state.
+
+    Activity is relative to the room: a frame counts only when it clears
+    MIN_RMS and sits ABOVE_FLOOR_DB over a tracked noise floor. The floor
+    falls quickly in pauses and rises at most FLOOR_RISE_DB_S, so steady
+    loud rooms (canteen babble, fans) stop reading as talking after a few
+    seconds instead of holding every call to the 60 s cap.
     """
 
     QUIET_GAP_S = 0.75
     MIN_RMS = 200.0
+    ABOVE_FLOOR_DB = 9.0
+    FLOOR_RISE_DB_S = 3.0
+    FLOOR_FALL_TAU_S = 0.5
 
     def __init__(self, *, clock=time.monotonic):
         self._clock = clock
         self._enabled = True
         self.started_at: float | None = None
         self.last_active_at: float | None = None
+        self._min_floor_db = 20 * math.log10(self.MIN_RMS) - self.ABOVE_FLOOR_DB
+        # Start from a quiet-room assumption; the room teaches the rest.
+        self.floor_db = self._min_floor_db
+        self._floor_at: float | None = None
 
     @property
     def enabled(self) -> bool:
@@ -515,8 +545,14 @@ class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
             # audio loop. This observes the source before RoomIO's AGC.
             samples = frame.data[:: max(1, math.ceil(len(frame.data) / 64))]
             rms = math.sqrt(sum(value * value for value in samples) / len(samples))
-            if rms >= self.MIN_RMS:
-                now = self._clock()
+            now = self._clock()
+            level_db = 20 * math.log10(max(rms, 1.0))
+            loud = (
+                rms >= self.MIN_RMS
+                and level_db >= self.floor_db + self.ABOVE_FLOOR_DB
+            )
+            self._track_floor(level_db, now)
+            if loud:
                 if (
                     self.last_active_at is None
                     or now - self.last_active_at > self.QUIET_GAP_S
@@ -524,6 +560,16 @@ class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
                     self.started_at = now
                 self.last_active_at = now
         return frame
+
+    def _track_floor(self, level_db: float, now: float) -> None:
+        dt = 0.0 if self._floor_at is None else min(max(now - self._floor_at, 0.0), 0.5)
+        self._floor_at = now
+        if level_db > self.floor_db:
+            self.floor_db = min(level_db, self.floor_db + self.FLOOR_RISE_DB_S * dt)
+        else:
+            fall = 1.0 - math.exp(-dt / self.FLOOR_FALL_TAU_S) if dt else 0.0
+            self.floor_db -= (self.floor_db - level_db) * fall
+        self.floor_db = max(self.floor_db, self._min_floor_db)
 
     def active(self, now: float, *, grace: float = QUIET_GAP_S) -> bool:
         return (
@@ -927,14 +973,37 @@ async def _say_with_caption(
     return True
 
 
+async def _sir_already_talking(session, window_s: float) -> bool:
+    """Poll the input meter for up to window_s; True as soon as Sir speaks."""
+    deadline = time.monotonic() + window_s
+    while True:
+        if getattr(session, "user_state", None) == "speaking" or _input_activity_holds(
+            session, grace=0.3
+        ):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(0.05)
+
+
 async def _greet_with_retry(
     session: AgentSession,
     caption: Callable[[str, str], None],
     *,
     budget_aside: str = "",
+    listen_first_s: float = 0.0,
 ) -> None:
-    """Give the realtime scheduler one retry when the greeting fails."""
+    """Give the realtime scheduler one retry when the greeting fails.
+
+    listen_first_s: on a wake call the wake client replays what Sir said
+    around the hotword. A greeting sent over that audio stalled ~3 s, got
+    cancelled, or answered INSTEAD of his question (reproduced live on
+    gemini-3.8-live, 2 Oct). So listen first and stay quiet if he is
+    already talking: Gemini answers him directly.
+    """
     line = "Good day, Sir. What do you require?"
+    if listen_first_s > 0 and await _sir_already_talking(session, listen_first_s):
+        return
     if await _say_with_caption(session, f"{line}{budget_aside}", caption):
         return
     await asyncio.sleep(2.0)
@@ -947,6 +1016,12 @@ async def _greet_with_retry(
     ):
         return
     await _say_with_caption(session, line, caption)
+
+
+#: Wake calls listen this long for replayed speech before greeting: the
+#: wake client's replay starts MIC_READY_SETTLE_S (0.3 s) after the agent
+#: joins, plus network and meter latency.
+_WAKE_LISTEN_S = 1.0
 
 
 def _pipeline_name() -> str:
@@ -2654,7 +2729,12 @@ async def my_agent(ctx: JobContext):
         # One retry: the realtime speech scheduler is occasionally not up
         # on the first say ("skipping new realtime generation"), which
         # used to mute the whole call.
-        await _greet_with_retry(session, _hud_caption, budget_aside=_budget_aside())
+        await _greet_with_retry(
+            session,
+            _hud_caption,
+            budget_aside=_budget_aside(),
+            listen_first_s=_WAKE_LISTEN_S if _wake else 0.0,
+        )
 
     # Join gate: a wake summons IS the engagement (the spoken words were
     # spent on the offline detector and never arrive as a transcript, so

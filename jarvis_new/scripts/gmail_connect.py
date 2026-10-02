@@ -2,7 +2,10 @@
 """One-time Gmail connect: browser OAuth -> ~/jarvis/data/gmail_token.json.
 
 Usage:
-    uv run python scripts/gmail_connect.py --client-id ID --client-secret SECRET
+    uv run python scripts/gmail_connect.py [--client-id ID --client-secret SECRET]
+
+Without flags it reuses the client id/secret from the existing Gmail or
+Google token (same Cloud project), so a reconnect is one command.
 
 Opens Google's consent page in your browser (or prints the URL), listens on
 loopback for the approval, exchanges the code for a refresh token, and saves
@@ -32,10 +35,19 @@ SCOPE = " ".join(SCOPES)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--client-id", required=True)
-    ap.add_argument("--client-secret", required=True)
+    ap.add_argument("--client-id", default="")
+    ap.add_argument("--client-secret", default="")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    if not (args.client_id and args.client_secret):
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+        from google_api import client_creds
+
+        args.client_id, args.client_secret = client_creds()
+    if not (args.client_id and args.client_secret):
+        raise SystemExit("No OAuth client found. Pass --client-id and --client-secret.")
 
     code_box: dict[str, str] = {}
     done = threading.Event()
@@ -71,8 +83,8 @@ def main() -> None:
     print(auth_url)
     with contextlib.suppress(Exception):
         webbrowser.open(auth_url)
-    print("Waiting for approval (60s)...")
-    if not done.wait(timeout=60):
+    print("Waiting for approval (120s)...")
+    if not done.wait(timeout=120):
         raise SystemExit("Timed out. Re-run and approve faster, Sir.")
     server.shutdown()
     code = code_box.get("code", [""])[0]

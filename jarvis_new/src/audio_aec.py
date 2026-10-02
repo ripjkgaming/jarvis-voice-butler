@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
+from pathlib import Path
 
 logger = logging.getLogger("jarvis.aec")
 
@@ -28,6 +30,16 @@ AEC_ARGS = (
     "analog_gain_control=0 digital_gain_control=1 noise_suppression=1 "
     "high_pass_filter=1 voice_detection=1"
 )
+
+
+#: ALSA control for the built-in digital mic array's hardware gain (SOF).
+DMIC_CONTROL = "Dmic0"
+#: Default hardware gain cap. The driver ships at +18 dB, which clips about
+#: 20% of samples even in a quiet room; clipped speech can't be recovered
+#: downstream, while the canceller's digital gain control (and the agent's
+#: AGC) restore level losslessly. 0 dB keeps ~20 dB of headroom for a loud
+#: canteen.
+DMIC_GAIN_DB = 0.0
 
 
 def _pactl(*args: str) -> str:
@@ -132,4 +144,66 @@ def release() -> str:
                 _pactl("unload-module", parts[0])
         return "released"
     except Exception as exc:
+        return f"error ({exc})"
+
+
+def dmic_gain_db() -> float | None:
+    """Hardware mic gain cap from JARVIS_DMIC_GAIN_DB; None = leave it. Pure."""
+    raw = os.environ.get("JARVIS_DMIC_GAIN_DB", "").strip().lower()
+    if raw in ("off", "none", "keep"):
+        return None
+    try:
+        return float(raw) if raw else DMIC_GAIN_DB
+    except ValueError:
+        return DMIC_GAIN_DB
+
+
+def parse_control_db(sget: str) -> float | None:
+    """Highest channel gain in dB from `amixer sget` output. Pure."""
+    values = [float(m) for m in re.findall(r"\[(-?\d+(?:\.\d+)?)dB\]", sget)]
+    return max(values) if values else None
+
+
+def _amixer(*args: str) -> str:
+    out = subprocess.run(
+        ["amixer", *args], capture_output=True, text=True, timeout=5, check=True
+    )
+    return out.stdout
+
+
+def _dmic_card() -> str | None:
+    try:
+        cards = re.findall(r"^\s*(\d+)\s*\[", Path("/proc/asound/cards").read_text(), re.M)
+    except OSError:
+        return None
+    for card in cards:
+        try:
+            if f"'{DMIC_CONTROL}'" in _amixer("-c", card, "scontrols"):
+                return card
+        except Exception:
+            continue
+    return None
+
+
+def set_mic_headroom() -> str:
+    """Lower the built-in mic's hardware gain to the cap (never raises it).
+
+    Runs before any stream opens. A gain Sir set lower by hand is kept.
+    Returns a short reason-coded status. Never raises.
+    """
+    try:
+        target = dmic_gain_db()
+        if target is None:
+            return "skipped (off)"
+        card = _dmic_card()
+        if card is None:
+            return "skipped (no dmic control)"
+        current = parse_control_db(_amixer("-c", card, "sget", DMIC_CONTROL))
+        if current is not None and current <= target:
+            return f"kept ({current:g} dB)"
+        _amixer("-c", card, "sset", DMIC_CONTROL, f"{target:g}dB")
+        logger.warning("mic gain %s dB -> %g dB (headroom)", current, target)
+        return f"lowered to {target:g} dB"
+    except Exception as exc:
+        logger.warning("mic headroom unavailable: %s", exc)
         return f"error ({exc})"

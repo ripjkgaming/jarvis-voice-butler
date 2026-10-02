@@ -20,6 +20,7 @@ def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_STUDY_PLAN", str(tmp_path / "plan.json"))
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr(exams, "_today", lambda: TODAY)
+    monkeypatch.setattr(exams, "_now", lambda: dt.datetime.combine(TODAY, dt.time(7, 0)))
     return tmp_path
 
 
@@ -170,6 +171,7 @@ def test_shipped_timetable(home, monkeypatch) -> None:
         str(Path(__file__).resolve().parent.parent / "data" / "exams.json"),
     )
     monkeypatch.setattr(exams, "_today", lambda: dt.date(2026, 9, 30))
+    monkeypatch.setattr(exams, "_now", lambda: dt.datetime(2026, 9, 30, 9, 0))
     rows = exams.exams()
     assert len(rows) == 18
     nxt = exams.next_exam()
@@ -207,3 +209,18 @@ def test_current_exam(home) -> None:
     assert exams.current_exam(dt.datetime(2026, 10, 1, 11, 30)) is None
     assert exams.current_exam(dt.datetime(2026, 10, 1, 15, 0))["until"] == "15:30"
     assert exams.current_exam(dt.datetime(2026, 10, 2, 10, 45)) is None
+
+
+def test_next_exam_skips_paper_finished_earlier_today(home) -> None:
+    exams.add({"title": "Economics P2", "date": "2026-10-01", "start": "08:30", "end": "10:00"})
+    exams.add({"title": "Biology P2", "date": "2026-10-01", "start": "13:30"})
+    exams.add({"title": "Hindi P1", "date": "2026-10-05", "start": "08:30"})
+    morning = dt.datetime(2026, 10, 1, 8, 0)
+    assert exams.next_exam(now=morning)["title"] == "Economics P2"
+    afternoon = dt.datetime(2026, 10, 1, 12, 0)
+    assert exams.next_exam(now=afternoon)["title"] == "Biology P2"
+    # No end time: assumed DEFAULT_EXAM_MIN long, so over by 5pm.
+    evening = dt.datetime(2026, 10, 1, 17, 0)
+    assert exams.next_exam(now=evening)["title"] == "Hindi P1"
+    # A date-only query keeps the whole day.
+    assert exams.next_exam(TODAY)["title"] == "Economics P2"

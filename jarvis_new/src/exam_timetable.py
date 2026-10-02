@@ -102,13 +102,46 @@ def by_day(rows: list[dict]) -> dict[dt.date, list[dict]]:
     return out
 
 
-def answer(rows: list[dict], when: str = "today", today: dt.date | None = None) -> str:
-    """Spoken answer for today/tomorrow/next/all/a date/a weekday. Pure."""
-    today = today or dt.date.today()
-    days = by_day([r for r in rows if r["date"] >= today])
-    if not days:
-        return "No exams left on the timetable, Sir."
+def _now() -> dt.datetime:
+    """Wall clock (tests pin it)."""
+    return dt.datetime.now()
+
+
+def answer(
+    rows: list[dict],
+    when: str = "today",
+    today: dt.date | None = None,
+    now: dt.datetime | None = None,
+) -> str:
+    """Spoken answer for today/tomorrow/next/all/a date/a weekday. Pure.
+
+    Papers that already ended today are dropped (a 5pm "next exam" must not
+    name the 8:30am paper). Live calls (no `today`) use the wall clock;
+    passing only `today` keeps the whole day, for tests and date lookups.
+    """
+    if now is None and today is None:
+        now = _now()
+    today = today or now.date()
+    now_min = now.hour * 60 + now.minute if now is not None else -1
+    done = [
+        r for r in rows if r["date"] == today and max(r["end"], r["start"]) <= now_min
+    ]
+    days = by_day([r for r in rows if r["date"] >= today and r not in done])
     w = (when or "today").strip().lower()
+    if not days:
+        if done:
+            return "Today's papers are done and nothing is left on the timetable, Sir."
+        return "No exams left on the timetable, Sir."
+    if done and w in ("", "today"):
+        finished = ", ".join(r["title"] for r in done)
+        if today in days:
+            return f"Already done: {finished}. Still to come: " + describe_day(
+                today, days[today]
+            )
+        nxt = min(days)
+        return f"Today's papers are done, Sir ({finished}). Next: " + describe_day(
+            nxt, days[nxt]
+        )
     if w in ("all", "week", "everything", "upcoming", "full"):
         return " ".join(describe_day(d, days[d]) for d in sorted(days))[:1400]
     target: dt.date | None = None

@@ -75,6 +75,24 @@ async def test_exam_times_tool(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr(daily, "DATA_DIR", tmp_path)
     (tmp_path / ex.DATA_NAME).write_text(MD)
-    monkeypatch.setattr(ex.dt, "date", type("D", (dt.date,), {"today": staticmethod(lambda: TODAY)}))
+    monkeypatch.setattr(ex, "_now", lambda: dt.datetime(2026, 9, 30, 9, 0))
     out = await daily.DailyTools.exam_times(daily.DailyTools(), None, when="today")
     assert "Physics P6" in out["say"] and "free" in out["say"]
+
+
+def test_next_skips_papers_already_finished_today() -> None:
+    # Friday 5pm: all three Friday papers are over, "next" is Monday.
+    rows = ex.parse_timetable(MD, TODAY)
+    now = dt.datetime(2026, 10, 2, 17, 0)
+    say = ex.answer(rows, "next", now=now)
+    assert "Economics" not in say and say.startswith("Next: Mon 05 Oct")
+    today = ex.answer(rows, "today", now=now)
+    assert today.startswith("Today's papers are done, Sir (Economics P2")
+    assert "Mon 05 Oct" in today
+
+
+def test_today_mid_day_lists_done_and_remaining() -> None:
+    rows = ex.parse_timetable(MD, TODAY)
+    say = ex.answer(rows, "today", now=dt.datetime(2026, 10, 2, 10, 30))
+    assert say.startswith("Already done: Economics P2. Still to come: Fri 02 Oct:")
+    assert "Economics P1 11:30am" in say

@@ -20,6 +20,15 @@ def _isolated_browser_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.fixture(autouse=True)
+def _no_real_window_minimize(monkeypatch: pytest.MonkeyPatch) -> None:
+    """play_media minimizes the Brave window it opens via KWin; tests must
+    never touch Sir's real windows (None = not on Plasma)."""
+    from system import window_ctl
+
+    monkeypatch.setattr(window_ctl, "brave_window_ids", lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_actions_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep test tool calls out of Sir's real ~/.jarvis/actions.log (the
     HUD activity feed tails it)."""
@@ -42,6 +51,9 @@ def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "0")
     # Sir's shipped exam timetable stays out of tests unless one opts in.
     monkeypatch.setenv("JARVIS_EXAM_SCHEDULE", "/nonexistent/exams.json")
+    # Mic capture tests check exact samples; the neural denoiser (whose
+    # models live in ~/.jarvis/models) stays off unless a test opts in.
+    monkeypatch.setenv("JARVIS_DENOISE", "off")
 
 
 @pytest.fixture(autouse=True)

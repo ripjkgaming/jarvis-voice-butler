@@ -384,6 +384,17 @@ async def _return_to(title: str) -> None:
         pass
 
 
+async def _background_player(before: set[str], previous: str) -> None:
+    """Minimize the new player window; fall back to refocusing `previous`."""
+    from system import window_ctl
+
+    with contextlib.suppress(Exception):
+        if await asyncio.to_thread(window_ctl.background_new_brave, before, previous):
+            return
+        if previous:
+            await _return_to(previous)
+
+
 def _source(context) -> str:
     """Who is calling: the instant fast path (no RunContext) or Gemini."""
     return "fast" if context is None else "model"
@@ -925,6 +936,11 @@ class SystemTools:
             brave = shutil.which("brave-browser") or shutil.which("brave")
             if brave is None:
                 raise ToolError("Brave is not installed on this system.")
+            before = (
+                None
+                if show or display
+                else await asyncio.to_thread(window_ctl.brave_window_ids)
+            )
             argv = [brave, "--new-window", url]
             launch_env = None
             if display:
@@ -943,7 +959,11 @@ class SystemTools:
             action_guard.settle(
                 "play_media", {"query": query}, _source(context), True, say
             )
-            if previous:
+            if before is not None:
+                _bg = asyncio.create_task(_background_player(before, previous))
+                self._tasks.add(_bg)
+                _bg.add_done_callback(self._tasks.discard)
+            elif previous:
                 _bg = asyncio.create_task(_return_to(previous))
                 self._tasks.add(_bg)
                 _bg.add_done_callback(self._tasks.discard)

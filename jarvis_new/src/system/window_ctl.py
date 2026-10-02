@@ -135,3 +135,52 @@ def restore(title: str, **kw) -> bool:
         return False
     ok, _ = focus(title.strip()[:80], **kw)
     return ok
+
+
+def brave_window_ids(run=subprocess.run) -> set[str] | None:
+    """KWin uuids of open Brave windows, or None off Plasma Wayland."""
+    try:
+        from system import kwin_windows
+
+        if not kwin_windows.available():
+            return None
+        return {uuid for uuid, _ in kwin_windows.find("brave", run=run)}
+    except Exception:
+        return None
+
+
+def background_new_brave(
+    before: set[str],
+    previous: str = "",
+    run=subprocess.run,
+    sleep=time.sleep,
+    wait_s: float = 10.0,
+    render_s: float = 1.2,
+) -> bool:
+    """Minimize the Brave window(s) opened since `before` -> True if any.
+
+    A music launch must not cover what Sir is doing. Refocusing his old
+    window alone was unreliable (the HUD is often "previous", and Brave
+    grabs focus late), so wait for the new window, let its tab render once
+    (Chromium defers media in a never-shown tab), then minimize it: audio
+    keeps playing. `previous` is refocused afterwards. Never raises.
+    """
+    try:
+        from system import kwin_windows
+
+        new: list[str] = []
+        for _ in range(max(1, int(wait_s / 0.25))):
+            sleep(0.25)
+            new = sorted((brave_window_ids(run=run) or set()) - before)
+            if new:
+                break
+        if not new:
+            return False
+        sleep(render_s)
+        for uuid in new:
+            kwin_windows.act_on("minimize", uuid, run=run)
+        if previous:
+            restore(previous, run=run, sleep=sleep)
+        return True
+    except Exception:
+        return False

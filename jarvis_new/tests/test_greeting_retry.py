@@ -212,3 +212,27 @@ async def test_native_greeting_retry_waits_for_pcm_before_provider_speech_event(
     await agent._greet_with_retry(session, lambda *args: None)
     assert attempts == ["Good day, Sir. What do you require?"]
     assert session.user_state == "listening"
+
+
+@pytest.mark.asyncio
+async def test_wake_greeting_stays_quiet_when_sir_is_already_talking(monkeypatch):
+    attempts = []
+    session = SimpleNamespace(
+        say=lambda line: attempts.append(line) or _completed_speech(),
+        user_state="listening",
+    )
+    monkeypatch.setattr(agent, "_input_activity_holds", lambda *a, **k: True)
+    await agent._greet_with_retry(session, lambda *a: None, listen_first_s=1.0)
+    assert attempts == []
+
+
+@pytest.mark.asyncio
+async def test_wake_greeting_speaks_after_a_quiet_listen(monkeypatch):
+    attempts = []
+    session = SimpleNamespace(
+        say=lambda line: attempts.append(line) or _completed_speech(),
+        user_state="listening",
+    )
+    monkeypatch.setattr(agent, "_input_activity_holds", lambda *a, **k: False)
+    await agent._greet_with_retry(session, lambda *a: None, listen_first_s=0.1)
+    assert attempts == ["Good day, Sir. What do you require?"]
