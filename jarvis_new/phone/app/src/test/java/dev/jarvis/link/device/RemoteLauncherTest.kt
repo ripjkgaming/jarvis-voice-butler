@@ -1,4 +1,4 @@
-package dev.jarvis.link
+package dev.jarvis.link.device
 
 import android.content.Context
 import org.json.JSONObject
