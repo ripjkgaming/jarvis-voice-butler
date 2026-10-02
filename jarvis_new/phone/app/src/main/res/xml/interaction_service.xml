@@ -3,7 +3,7 @@
      JarvisSessionService, with JarvisRecognitionService transcribing
      utterances via bridge /talk. Keyguard launch stays off in v1. -->
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:sessionService="dev.jarvis.link.JarvisSessionService"
-    android:recognitionService="dev.jarvis.link.JarvisRecognitionService"
+    android:sessionService="dev.jarvis.link.svc.JarvisSessionService"
+    android:recognitionService="dev.jarvis.link.svc.JarvisRecognitionService"
     android:supportsAssist="true"
     android:supportsLaunchVoiceAssistFromKeyguard="false" />
