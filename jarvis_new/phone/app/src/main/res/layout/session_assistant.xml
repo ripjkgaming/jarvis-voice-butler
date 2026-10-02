@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="?android:attr/colorBackground">
+    <TextView android:id="@+id/session_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Jarvis" android:textStyle="bold" />
+    <TextView android:id="@+id/session_transcript" android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <Button android:id="@+id/session_listen" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Listen" />
+    <Button android:id="@+id/session_close" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Close" />
+</LinearLayout>

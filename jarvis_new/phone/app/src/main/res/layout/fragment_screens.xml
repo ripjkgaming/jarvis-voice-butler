@@ -1,28 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent">
-<LinearLayout android:orientation="vertical" android:padding="16dp"
-    android:background="@drawable/hud_panel"
-    android:layout_width="match_parent" android:layout_height="wrap_content">
-    <ImageView android:id="@+id/screens_shot"
-        android:layout_width="match_parent" android:layout_height="200dp"
-        android:scaleType="fitCenter"
-        android:background="@drawable/hud_panel" android:padding="6dp" />
-    <LinearLayout android:id="@+id/screens_outputs" android:orientation="horizontal"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <Button android:id="@+id/screens_capture" android:text="Capture PC screen"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <Button android:id="@+id/screens_state" android:text="Display state"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <Button android:id="@+id/screens_off" android:text="Screens off"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <Button android:id="@+id/screens_on" android:text="Screens on"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <Button android:id="@+id/screens_type" android:text="Type text…"
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <TextView android:id="@+id/screens_status" android:text=""
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <TextView android:text="Tap-to-click needs a desktop pointer endpoint (not in the bridge yet)."
-        android:layout_width="match_parent" android:layout_height="wrap_content" />
-</LinearLayout>
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Display" android:textStyle="bold" />
+        <RadioGroup android:id="@+id/screens_outputs" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/screens_btn_capture" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screenshot" />
+            <Button android:id="@+id/screens_btn_refresh" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Refresh displays" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/screens_btn_off" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens off" />
+            <Button android:id="@+id/screens_btn_on" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens on" />
+        </LinearLayout>
+        <TextView android:id="@+id/screens_notice" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        <ImageView android:id="@+id/screens_image" android:layout_width="match_parent" android:layout_height="240dp" android:scaleType="fitCenter" android:contentDescription="Latest PC screenshot" />
+    </LinearLayout>
 </ScrollView>
