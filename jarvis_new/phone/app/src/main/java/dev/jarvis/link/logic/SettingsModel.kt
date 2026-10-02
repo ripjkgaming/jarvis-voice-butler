@@ -141,17 +141,27 @@ class SettingsModel(
         update { it.copy(offline = on, notice = if (on) "Offline: bridge calls are held." else "Online.") }
     }
 
-    /** Guest mode locks the PC when switched on; switching off leaves it locked. */
+    /**
+     * Guest mode locks the PC when switched on; switching off leaves it
+     * locked. The lock is sent while still in owner mode (guests are not
+     * allowed to call `lock`), then guest mode takes effect.
+     */
     fun setGuest(on: Boolean) {
-        prefs.guestMode = on
-        update { it.copy(guest = on, notice = if (on) "Guest mode on: cold and limited." else "Guest mode off.") }
-        if (on) {
-            launch {
-                val r = io { actions.lock() }
-                update {
-                    it.copy(notice = if (r is Outcome.Fail) "Guest mode on, but the PC could not be locked: ${r.message}"
-                    else "Guest mode on: PC locked.")
-                }
+        if (!on) {
+            prefs.guestMode = false
+            update { it.copy(guest = false, notice = "Guest mode off.") }
+            return
+        }
+        update { it.copy(notice = "Locking the PC...") }
+        launch {
+            val r = io { actions.lock() }
+            prefs.guestMode = true
+            update {
+                it.copy(
+                    guest = true,
+                    notice = if (r is Outcome.Fail) "Guest mode on, but the PC could not be locked: ${r.message}"
+                    else "Guest mode on: PC locked.",
+                )
             }
         }
     }

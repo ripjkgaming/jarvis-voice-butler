@@ -71,14 +71,14 @@ class TelemetryReporter(
     fun onBatteryChanged(sample: BatterySample) {
         val prev = lastCharging
         lastCharging = sample.charging
-        if (prev != null && prev != sample.charging && users > 0) scope.launch { push() }
+        if (prev != null && prev != sample.charging && users > 0) scope.launch { push(sample) }
     }
 
-    /** One immediate push (also used by tests). */
-    suspend fun push() {
+    /** One immediate push of [fresh] (or the current battery reading). */
+    suspend fun push(fresh: BatterySample? = null) {
         val c = config()
         if (c.offline || !c.configured) return
-        val sample = battery() ?: return
+        val sample = fresh ?: battery() ?: return
         lastCharging = sample.charging
         val r = withContext(io) { attempt { bridge.postTelemetry(sample) } }
         _state.value = when (r) {

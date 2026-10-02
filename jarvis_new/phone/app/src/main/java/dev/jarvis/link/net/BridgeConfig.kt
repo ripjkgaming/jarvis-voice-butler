@@ -27,6 +27,9 @@ data class BridgeConfig(
         else -> null
     }
 
+    /** Result of cleaning user input from the host field. */
+    data class HostInput(val host: String, val port: Int?)
+
     val configured: Boolean get() = problem() == null
 
     /** `host:port` for messages. */
@@ -53,9 +56,6 @@ data class BridgeConfig(
 
         /** IPv6 literals need brackets inside a URL. */
         fun hostForUrl(h: String): String = if (h.contains(':')) "[$h]" else h
-
-        /** Result of cleaning user input from the host field. */
-        data class HostInput(val host: String, val port: Int?)
 
         /**
          * Clean what a person pastes into the host field: strips a scheme,

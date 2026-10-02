@@ -16,7 +16,11 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val input = v.findViewById<EditText>(R.id.home_input)
         v.onClick(R.id.home_btn_refresh) { m.refreshLink() }
         v.onClick(R.id.home_btn_send) {
-            m.send(input.text.toString())
+            m.send(input.text.toString(), instant = false)
+            input.text.clear()
+        }
+        v.onClick(R.id.home_btn_instant) {
+            m.send(input.text.toString(), instant = true)
             input.text.clear()
         }
         v.onClick(R.id.home_btn_talk) {
@@ -51,6 +55,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         v.text(R.id.home_log).text = formatMessages(s.messages.takeLast(8))
         v.button(R.id.home_btn_talk).text = if (s.recording) "Stop" else "Talk"
         v.button(R.id.home_btn_send).isEnabled = !s.busy
+        v.button(R.id.home_btn_instant).isEnabled = !s.busy
         v.button(R.id.home_btn_talk).isEnabled = !s.busy || s.recording
         v.button(R.id.home_btn_lock).isEnabled = !s.guest && !s.busy
         v.button(R.id.home_btn_unlock).isEnabled = !s.guest && !s.busy

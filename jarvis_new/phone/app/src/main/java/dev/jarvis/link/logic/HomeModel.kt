@@ -83,11 +83,16 @@ class HomeModel(
 
     // ── Prompt box: instant route first, chat fallback ───────────
 
-    fun send(text: String) {
+    /**
+     * [instant] false = ordinary chat (`/chat`, which still executes spoken
+     * commands). true = `/route` first (milliseconds, no LLM) with chat as
+     * the fallback; the bridge may answer with a clarifying question.
+     */
+    fun send(text: String, instant: Boolean = false) {
         if (current.busy) return
         update { it.copy(busy = true, notice = "Sending...") }
         launch {
-            when (val r = io { messenger.send(text, instant = true) }) {
+            when (val r = io { messenger.send(text, instant) }) {
                 is Outcome.Ok -> update {
                     it.copy(
                         busy = false,
@@ -96,7 +101,7 @@ class HomeModel(
                         notice = when {
                             r.value.summoned -> "Voice call summoned; the answer comes spoken."
                             r.value.warning != null && r.value.text.isEmpty() -> r.value.warning
-                            r.value.viaRoute -> "Instant command"
+                            r.value.viaRoute -> "Instant reply"
                             else -> "Done"
                         },
                     )
