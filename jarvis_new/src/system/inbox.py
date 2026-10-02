@@ -19,6 +19,7 @@ import base64
 import datetime
 import html
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -674,9 +675,14 @@ def open_meteo_line(city: str) -> str:
     if not results:
         raise ToolError(f"I could not find '{city}' on the map.")
     g = results[0]
+    return open_meteo_at(str(g.get("name", city))[:60], g["latitude"], g["longitude"])
+
+
+def open_meteo_at(name: str, lat: float, lon: float) -> str:
+    """Weather line for fixed coordinates via Open-Meteo (no key)."""
     wx_raw = _http_get(
         "https://api.open-meteo.com/v1/forecast?"
-        f"latitude={g['latitude']}&longitude={g['longitude']}"
+        f"latitude={lat}&longitude={lon}"
         "&current=temperature_2m,weather_code,wind_speed_10m&wind_speed_unit=kmh",
         timeout=10.0,
     )
@@ -684,8 +690,24 @@ def open_meteo_line(city: str) -> str:
         current = json.loads(wx_raw.decode()).get("current") or {}
     except Exception as exc:
         raise ToolError(f"Weather lookup failed ({exc}).") from exc
-    name = str(g.get("name", city))[:60]
     return format_open_meteo(name, current)
+
+
+#: Sir's default weather location. IP lookup put him in a 7 degree city
+#: (VPN exit), so "what's the weather" is pinned here unless he names a
+#: place. Override with JARVIS_WEATHER_PLACE / _LAT / _LON.
+HOME_WEATHER = ("Central Singapore", 1.3048, 103.8318)
+
+
+def home_weather() -> tuple[str, float, float]:
+    """(name, lat, lon) for unnamed weather requests. Pure (env only)."""
+    name, lat, lon = HOME_WEATHER
+    try:
+        lat = float(os.environ.get("JARVIS_WEATHER_LAT", "") or lat)
+        lon = float(os.environ.get("JARVIS_WEATHER_LON", "") or lon)
+    except ValueError:
+        lat, lon = HOME_WEATHER[1], HOME_WEATHER[2]
+    return (os.environ.get("JARVIS_WEATHER_PLACE", "").strip() or name), lat, lon
 
 
 def ip_city() -> str:
@@ -1062,14 +1084,14 @@ class InboxTools:
         """Current weather one-liner (Open-Meteo, wttr.in fallback, 30-min cache).
 
         Args:
-            city: City name, or empty for IP-based location.
+            city: City name, or empty for Sir's home (Central Singapore).
         """
         try:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
         city = (city or "").strip()[:60]
-        key = re.sub(r"[^a-z0-9]+", "_", (city or "auto").lower())[:30]
+        key = re.sub(r"[^a-z0-9]+", "_", (city or "home").lower())[:30]
         cache = DATA_DIR / f"weather-{key}.txt"
         try:
             if (
@@ -1090,16 +1112,17 @@ class InboxTools:
                 except ToolError as exc:
                     errors.append(str(exc))
         else:
-            # No city: wttr IP lookup first, then IP city -> Open-Meteo.
-            try:
-                line = await asyncio.to_thread(wttr_line, "auto")
-            except ToolError as exc:
-                errors.append(str(exc))
+            # No city: Sir's home location (never IP: a VPN moves it).
+            name, lat, lon = home_weather()
+            for attempt in (
+                lambda: open_meteo_at(name, lat, lon),
+                lambda: wttr_line(f"{lat},{lon}"),
+            ):
                 try:
-                    guessed = await asyncio.to_thread(ip_city)
-                    line = await asyncio.to_thread(open_meteo_line, guessed)
-                except ToolError as exc2:
-                    errors.append(str(exc2))
+                    line = await asyncio.to_thread(attempt)
+                    break
+                except ToolError as exc:
+                    errors.append(str(exc))
         if not line:
             raise ToolError(
                 errors[-1] if errors else "Weather is unavailable right now."

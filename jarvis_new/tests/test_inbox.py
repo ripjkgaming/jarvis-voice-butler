@@ -217,22 +217,47 @@ async def test_weather_falls_back_to_open_meteo(
 
 
 @pytest.mark.asyncio
-async def test_weather_auto_uses_ip_city_then_open_meteo(
+async def test_weather_unnamed_uses_home_not_ip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """No city = Central Singapore. IP lookup put Sir in Germany (VPN exit)."""
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr("system.inbox.DATA_DIR", tmp_path)
+    monkeypatch.setattr(inbox_mod, "ip_city", lambda: pytest.fail("used IP location"))
+    seen = []
+    monkeypatch.setattr(
+        inbox_mod,
+        "open_meteo_at",
+        lambda name, lat, lon: seen.append((name, lat, lon)) or f"{name}: 28°C Overcast",
+    )
+    result = await InboxTools.weather_now(InboxTools(), None, city="")  # type: ignore[arg-type]
+    assert result["say"] == "Central Singapore: 28°C Overcast"
+    assert seen == [("Central Singapore", 1.3048, 103.8318)]
+
+
+@pytest.mark.asyncio
+async def test_weather_home_falls_back_to_wttr_with_coordinates(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr("system.inbox.DATA_DIR", tmp_path)
     monkeypatch.setattr(
         inbox_mod,
-        "wttr_line",
-        lambda city: (_ for _ in ()).throw(
-            ToolError("Weather is unavailable right now.")
-        ),
+        "open_meteo_at",
+        lambda *a: (_ for _ in ()).throw(ToolError("Weather lookup failed (x).")),
     )
-    monkeypatch.setattr(inbox_mod, "ip_city", lambda: "Leeds")
-    monkeypatch.setattr(inbox_mod, "open_meteo_line", lambda city: f"{city}: 15°C Rain")
+    monkeypatch.setattr(inbox_mod, "wttr_line", lambda place: f"wttr {place}")
     result = await InboxTools.weather_now(InboxTools(), None, city="")  # type: ignore[arg-type]
-    assert "Leeds" in result["say"]
+    assert result["say"] == "wttr 1.3048,103.8318"
+
+
+def test_home_weather_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JARVIS_WEATHER_PLACE", "Tampines")
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "1.35")
+    monkeypatch.setenv("JARVIS_WEATHER_LON", "103.94")
+    assert inbox_mod.home_weather() == ("Tampines", 1.35, 103.94)
+    monkeypatch.setenv("JARVIS_WEATHER_LAT", "nope")
+    assert inbox_mod.home_weather()[1:] == (1.3048, 103.8318)
 
 
 def test_ip_city_parses_ipinfo(monkeypatch: pytest.MonkeyPatch) -> None:
