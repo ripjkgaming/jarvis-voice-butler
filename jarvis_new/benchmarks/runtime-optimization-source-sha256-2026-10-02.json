@@ -1,0 +1,28 @@
+{
+  "baseline_ref": "29112f4029c84e0d9eb7b283883964672da1cb1b",
+  "date_sgt": "2026-10-02",
+  "files": {
+    "src/agent.py": "760a48f2c6006fbcdc54121f43f1ed5b5b6cefd8cb57d40ad9641adfbbfb0246",
+    "src/local_voice.py": "afb13428f3165e3f1b33179277f3c9a7510849af42a99ca1a2447aab2374a33c",
+    "src/proactive/watcher.py": "4ddd9875501b8704bcd033533fefb03de7e3aa53df231ec88c692b2a9f5f80f8",
+    "src/second_brain.py": "f6303dc8932b6acc1954106b46193db42cf690c3bf6b5ec2ac4ecc84e7647071",
+    "src/system/files_tools.py": "5e5d4c21ff0c4fd7fc9649d5f1024b9843321004a81ef58336e2f2ba8b70c15b",
+    "src/system/pentest.py": "53ebae477e9ffd5969a8af2354274226e3c0b0421f32bc8f8b0b2b1b0a73cebe",
+    "tests/test_voice_job_cleanup.py": "fce254f66b6f6e585b1b53e2483bcd55bdecbfd82c61c1748ef80a97c469ac33",
+    "tests/test_local_voice_lifecycle.py": "dcd33d1b73a8037b7a80e7f16e5ebbf6b3c85dd0db0bff8d2bab5f6fef535d46",
+    "tests/test_proactive_watcher_responsiveness.py": "6234349ebca0941d5d15aa7b28f69ab49fe625b80bfccc6490d17aae093cb5cc",
+    "tests/test_file_search_responsiveness.py": "828ce3d0fd245881620e1a1f8edd7d901f43fa6ed0b6de303f7fcb1afa8de340",
+    "tests/test_pentest_cancellation.py": "3e06cf5b6f0d06a8e9c8136205bf346d63a2f121954234140ff3ee27aad0e32c",
+    "scripts/file_search_benchmark.py": "7eb4c903078df36e19a1253523ec5c6f84e96c332c8e09efb062bc6fa8ce5440",
+    "scripts/piper_lifecycle_benchmark.py": "bc84820c72d7bd0c3f9928651e5d85b628b4bd90b749acedd6785ec95da4e821",
+    "scripts/proactive_watcher_benchmark.py": "d6795afcb8d9bb2341273313dd3c53d96b72e5180d89d6a2f156263e5229a7d4",
+    "benchmarks/file-search-before-2026-10-02.json": "5cc5f9d39cc17fd80522801557f139a7aefb394f45528712515830ca06edd0d5",
+    "benchmarks/file-search-after-2026-10-02.json": "df31b9e21549609bb3e52ce4388aa5b148cd70efd6d7a0c736f9df6c6d998d0a",
+    "benchmarks/proactive-watcher-before-2026-10-02.json": "6275bdfb3ee724fa050ee57cc013a7d8ada6fbaade5f32fd4ace316d0fd6e897",
+    "benchmarks/proactive-watcher-after-2026-10-02.json": "b9f6629eaec330a39cee6a7e89f3a28a590805f993002b5adba13e623b2a8e31",
+    "benchmarks/piper-lifecycle-2026-10-02.json": "81203dd0b71e2b67ed9fe1dc2085d14c1a227fa2e07a1475fbab668ed8f7b799",
+    "benchmarks/startup-import-2026-10-02.json": "fb67824d2ab62920cf45791f2cc14e634e57957572746de90e4e8307df328d2f",
+    "benchmarks/runtime-optimization-2026-10-02.md": "4e7afc129982e2f4daa2535b63fed5b1bba2dbba5efcee9c92307abd5cd7ca59",
+    "benchmarks/pentest-pipe-cleanup-2026-10-02.json": "993d669ba45addd67bdab287a565e6b039b115dd7640d123a466b4cb1e1aa77a"
+  }
+}

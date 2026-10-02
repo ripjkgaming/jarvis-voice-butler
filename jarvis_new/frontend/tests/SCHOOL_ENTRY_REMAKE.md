@@ -1,5 +1,9 @@
 # School entry remake — 1–2 October 2026
 
+The subsequent [cinematic entry refinement](SCHOOL_ENTRY_CINEMATIC.md) replaces
+the choreography and records its own matched evidence. This document retains
+the original remake and pixel-identical optimization results as historical QA.
+
 Normal → school now contracts the actual STARK HUD into its reactor, transports
 that core when a monitor change is necessary, and fabricates the school bar from
 expanding blueprint rails and interlocking plates. Two luminous seams reveal the

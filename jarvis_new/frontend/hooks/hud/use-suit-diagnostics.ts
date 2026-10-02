@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { refreshWindowGeometry, useWindowGeometry } from '@/hooks/hud/use-window-geometry';
 import { bridgePost } from '@/lib/bridge';
+import { coverHud } from '@/lib/hud-overlay';
 import { type SuitCommandCursor, consumeSuitCommand } from '@/lib/suit-diagnostics';
 import { invoke, isTauri } from '@/lib/tauri';
 
@@ -22,7 +23,13 @@ export function useSuitDiagnostics(
   const focusReset = useRef<Promise<unknown> | null>(null);
   const initialModeSeen = useRef(false);
   const transition = useRef(transitioning);
-  transition.current = transitioning;
+  const modeGeneration = useRef(0);
+  const wasTransitioning = useRef(transitioning);
+  // A native signal can precede the transition prop by one render. Keep its
+  // geometry ownership until the transition has actually started and ended.
+  if (transitioning) transition.current = true;
+  else if (wasTransitioning.current) transition.current = false;
+  wasTransitioning.current = transitioning;
   const { height } = useWindowGeometry();
   const barHeight = useRef(48);
   if (school && height > 0 && height <= 140) barHeight.current = height;
@@ -66,43 +73,47 @@ export function useSuitDiagnostics(
     // A webview reload mounts hidden diagnostics, but its native school
     // surface can still be expanded. Restore the bar once on initial mode
     // discovery; ordinary later polls and transitions retain their geometry.
-    if (mode === 'school' && !opened && !transitioning && isTauri()) {
+    if (
+      mode === 'school' &&
+      !opened &&
+      !transition.current &&
+      modeGeneration.current === 0 &&
+      isTauri()
+    ) {
       void invoke('school_menu', { extra: 0 })
         .catch(() => undefined)
         .finally(refreshWindowGeometry);
     }
   }, [mode, opened, transitioning]);
   useEffect(() => {
-    const onMode = () => {
+    const onMode = (event: Event) => {
       // Native transition owns geometry from this signal onward. Its canvas
       // must never compete with a diagnostics menu-close resize.
-      transition.current = true;
+      modeGeneration.current += 1;
+      // Expand is also the native cancellation signal. Do not wait for a
+      // transitioning=true render that a rapid cancellation can skip entirely.
+      transition.current = (event as CustomEvent).detail !== 'expand' || wasTransitioning.current;
       setOpened(false);
     };
     window.addEventListener('jarvis-school', onMode);
     return () => window.removeEventListener('jarvis-school', onMode);
   }, []);
 
-  const visible = opened && !transitioning;
+  const visible = opened && !transition.current;
   useLayoutEffect(() => {
     if (!visible) return;
     const root = document.documentElement;
     root.dataset.suitOpen = 'true';
-    root.classList.add('suit-open');
-    const surfaces = Array.from(document.querySelectorAll<HTMLElement>('.hud, .sbar-root'));
-    const previous = surfaces.map((surface) => surface.inert);
-    for (const surface of surfaces) surface.inert = true;
+    const release = coverHud();
     return () => {
       delete root.dataset.suitOpen;
-      root.classList.remove('suit-open');
-      surfaces.forEach((surface, index) => {
-        surface.inert = previous[index];
-      });
+      release();
     };
   }, [visible, school]);
 
   useEffect(() => {
     if (!visible || !school || !isTauri()) return;
+    const generation = modeGeneration.current;
     let current = true;
     let focusLease: number | null = null;
     const releaseFocus = (lease: number) => {
@@ -115,10 +126,11 @@ export function useSuitDiagnostics(
     void invoke('school_menu', { extra })
       .then(async () => {
         await focusReset.current;
-        if (!current || transition.current) return;
+        if (!current || transition.current || generation !== modeGeneration.current) return;
         const lease = await invoke<number | null>('suit_focus', { active: true, lease: null });
         if (typeof lease !== 'number') return;
-        if (!current || transition.current) releaseFocus(lease);
+        if (!current || transition.current || generation !== modeGeneration.current)
+          releaseFocus(lease);
         else focusLease = lease;
       })
       .catch(() => undefined)
@@ -130,8 +142,9 @@ export function useSuitDiagnostics(
   }, [visible, school, request]);
   useEffect(() => {
     if (!visible || !school || !isTauri()) return;
+    const generation = modeGeneration.current;
     return () => {
-      if (!transition.current) {
+      if (!transition.current && generation === modeGeneration.current) {
         void invoke('school_menu', { extra: 0 })
           .catch(() => undefined)
           .finally(refreshWindowGeometry);
@@ -139,5 +152,5 @@ export function useSuitDiagnostics(
     };
   }, [visible, school]);
 
-  return { open: visible, close, barHeight: barHeight.current };
+  return { open: visible, close, barHeight: barHeight.current, focusReset };
 }

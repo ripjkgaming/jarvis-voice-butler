@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+paper_project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$paper_project_dir"
+exec uv run --no-sync python -m paper_market "$@"

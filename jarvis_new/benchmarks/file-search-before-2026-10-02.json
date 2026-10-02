@@ -1,0 +1,126 @@
+{
+  "label": "baseline29112f4",
+  "python": "3.14.6 (main, Jun 11 2026, 00:00:00) [GCC 16.1.1 20260515 (Red Hat 16.1.1-2)]",
+  "fixture_nodes": 20000,
+  "fixture_sha256": "9dce2a0e5a1a30221a1de28e8f1392aaa4c0018a102c957289692b8c685a016c",
+  "result_sha256": "ac0bd2416ac3e831be587fa1fb1bbd0947315ef81ca18688357ebcf67a097180",
+  "source_sha256": {
+    "src/second_brain.py": "767a43a9e5026dedf96880e8e9bd0b58094fb222b969ca1ffd095f9447e48fb5",
+    "src/system/files_tools.py": "31aefa57292a0987021efd2a3949efecffc04b90c039997545117be9e1da30bd"
+  },
+  "rows": [
+    {
+      "query": "engineering notes",
+      "wall_ms": 504.5903169957455,
+      "max_loop_lag_ms": 502.67861300421646
+    },
+    {
+      "query": "engineering-notes-00001.md",
+      "wall_ms": 617.0879639976192,
+      "max_loop_lag_ms": 615.1461719932267
+    },
+    {
+      "query": "md",
+      "wall_ms": 60.7704849971924,
+      "max_loop_lag_ms": 58.82886799413245
+    },
+    {
+      "query": "engineering notes",
+      "wall_ms": 579.4393269970897,
+      "max_loop_lag_ms": 577.4954299999517
+    },
+    {
+      "query": "engineering-notes-00001.md",
+      "wall_ms": 650.1533660048153,
+      "max_loop_lag_ms": 648.2050229973975
+    },
+    {
+      "query": "md",
+      "wall_ms": 37.38170800352236,
+      "max_loop_lag_ms": 35.43087600014405
+    },
+    {
+      "query": "engineering notes",
+      "wall_ms": 504.59390000469284,
+      "max_loop_lag_ms": 502.64998799725436
+    },
+    {
+      "query": "engineering-notes-00001.md",
+      "wall_ms": 607.3006440055906,
+      "max_loop_lag_ms": 605.3534249953809
+    },
+    {
+      "query": "md",
+      "wall_ms": 38.870848999067675,
+      "max_loop_lag_ms": 36.925455999560654
+    },
+    {
+      "query": "engineering notes",
+      "wall_ms": 486.0225380034535,
+      "max_loop_lag_ms": 484.075217006146
+    },
+    {
+      "query": "engineering-notes-00001.md",
+      "wall_ms": 694.8780980019365,
+      "max_loop_lag_ms": 692.9378839999554
+    },
+    {
+      "query": "md",
+      "wall_ms": 35.262427998532075,
+      "max_loop_lag_ms": 33.31088500312762
+    },
+    {
+      "query": "engineering notes",
+      "wall_ms": 516.9392239986337,
+      "max_loop_lag_ms": 515.0192400037195
+    },
+    {
+      "query": "engineering-notes-00001.md",
+      "wall_ms": 640.0672550007585,
+      "max_loop_lag_ms": 638.1240779960062
+    },
+    {
+      "query": "md",
+      "wall_ms": 34.75320400320925,
+      "max_loop_lag_ms": 32.81170700251823
+    }
+  ],
+  "summary": {
+    "engineering notes": {
+      "wall_ms": {
+        "n": 5,
+        "p50": 504.59390000469284,
+        "p95": 579.4393269970897
+      },
+      "max_loop_lag_ms": {
+        "n": 5,
+        "p50": 502.67861300421646,
+        "p95": 577.4954299999517
+      }
+    },
+    "engineering-notes-00001.md": {
+      "wall_ms": {
+        "n": 5,
+        "p50": 640.0672550007585,
+        "p95": 694.8780980019365
+      },
+      "max_loop_lag_ms": {
+        "n": 5,
+        "p50": 638.1240779960062,
+        "p95": 692.9378839999554
+      }
+    },
+    "md": {
+      "wall_ms": {
+        "n": 5,
+        "p50": 37.38170800352236,
+        "p95": 60.7704849971924
+      },
+      "max_loop_lag_ms": {
+        "n": 5,
+        "p50": 35.43087600014405,
+        "p95": 58.82886799413245
+      }
+    }
+  }
+}

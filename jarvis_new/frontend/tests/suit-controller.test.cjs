@@ -22,17 +22,21 @@ function fixture({ deferFocus = false, deferReset = false } = {}) {
   react.useLayoutEffect = react.useEffect;
   const model = { exports: {} };
   vm.runInNewContext(compile('lib/suit-diagnostics.ts'), model);
+  const document = { documentElement: root, querySelectorAll: () => surfaces };
+  const overlay = { exports: {}, document };
+  vm.runInNewContext(compile('lib/hud-overlay.ts'), overlay);
   const deps = {
     react,
     '@/hooks/hud/use-window-geometry': { useWindowGeometry: () => geometry, refreshWindowGeometry: () => {} },
     '@/lib/suit-diagnostics': model.exports,
+    '@/lib/hud-overlay': overlay.exports,
     '@/lib/tauri': { isTauri: () => true, invoke: (name, args) => { calls.push({ name, ...args }); if (name === 'suit_focus' && args.active) return deferFocus ? new Promise(resolve => focusPending.push(resolve)) : Promise.resolve(123); if (name === 'suit_focus' && !args.active && args.lease === null && deferReset) return new Promise(resolve => resetPending.push(resolve)); return Promise.resolve(null); } },
     '@/lib/bridge': { bridgePost: (url, body) => new Promise(resolve => posts.push({ url, body, resolve })) },
   };
   const scope = { exports: {}, require: name => { assert.ok(deps[name], name); return deps[name]; },
     Date: { now: () => 1000 },
     window: { screen: { availHeight: 1080 }, addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) },
-    document: { documentElement: root, querySelectorAll: () => surfaces },
+    document,
   };
   vm.runInNewContext(compile('hooks/hud/use-suit-diagnostics.ts'), scope);
   function render() { let turns = 0; do { assert.ok(++turns < 20, 'Effect loop'); dirty = false; index = 0; result = scope.exports.useSuitDiagnostics(command, school, transitioning, mode); const pending = effects; effects = []; pending.forEach(fn => fn()); } while (dirty); return result; }
@@ -40,7 +44,7 @@ function fixture({ deferFocus = false, deferReset = false } = {}) {
   return { get calls() { return calls.filter(call => call.name === "school_menu"); }, get focusCalls() { return calls.filter(call => call.name === "suit_focus"); }, posts, focusPending, resetPending, root, classes, surfaces, listeners,
     get result() { return result; },
     update(next = {}) { if ('command' in next) command = next.command; if ('school' in next) school = next.school; if ('transitioning' in next) transitioning = next.transitioning; if ('height' in next) geometry = { height: next.height }; if ('mode' in next) mode = next.mode; return render(); },
-    signal() { listeners.get('jarvis-school')?.(); },
+    signal(phase = 'collapse') { listeners.get('jarvis-school')?.({ detail: phase }); },
     async flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); return render(); },
     unmount() { cells.forEach(cell => cell.cleanup?.()); },
   };
@@ -75,6 +79,73 @@ test('school transition dismisses without stealing native geometry', () => {
   f.signal(); f.update({ transitioning: true });
   assert.equal(f.result.open, false); assert.equal(f.calls.length, 1); assert.equal(f.classes.size, 0);
   f.update({ transitioning: false, school: false, height: 900 }); assert.equal(f.result.open, false);
+});
+test('native mode signal protects geometry before the transition prop catches up', async () => {
+  const f = fixture(); f.update({ school: true, height: 64, command: cmd(1) });
+  await f.flush();
+  f.signal(); f.update();
+  assert.equal(f.result.open, false); assert.equal(f.calls.length, 1);
+  assert.equal(f.focusCalls.at(-1).active, false); assert.equal(f.focusCalls.at(-1).lease, 123);
+  f.update({ command: cmd(2) }); assert.equal(f.result.open, false); assert.equal(f.calls.length, 1);
+  f.update({ transitioning: true });
+  f.update({ transitioning: false });
+  assert.equal(f.result.open, true); assert.equal(f.calls.at(-1).extra, 720);
+});
+for (const intermediateRender of [false, true]) {
+  test(`rapid mode cancellation permits a fresh suit command${intermediateRender ? ' after an intervening idle render' : ' with batched signals'}`, () => {
+    const f = fixture();
+    f.signal('collapse');
+    if (intermediateRender) f.update();
+    f.signal('expand');
+    f.update({ command: cmd(1) });
+    assert.equal(f.result.open, true);
+    assert.equal(f.calls.length, 0);
+  });
+}
+test('rapid mode cancellation dismisses school suit and releases focus without collapsing native geometry', async () => {
+  const f = fixture(); f.update({ school: true, height: 64, command: cmd(1) });
+  await f.flush();
+  f.signal('collapse'); f.signal('expand');
+  f.update({ school: false, height: 900 });
+  assert.equal(f.result.open, false);
+  assert.equal(f.calls.length, 1); assert.equal(f.calls[0].extra, 720);
+  assert.deepEqual(f.focusCalls.filter(call => !call.active && call.lease !== null).map(call => call.lease), [123]);
+  assert.equal(f.classes.size, 0);
+  assert.deepEqual(f.surfaces.map(surface => surface.inert), [false, true]);
+  f.update({ command: cmd(2) });
+  assert.equal(f.result.open, true); assert.equal(f.calls.length, 1);
+});
+test('rapid mode cancellation releases a late suit focus lease before cleanup renders', async () => {
+  const f = fixture({ deferFocus: true }); f.update({ school: true, height: 64, command: cmd(1) });
+  await f.flush();
+  f.signal('collapse'); f.signal('expand');
+  f.focusPending[0](606);
+  for (let i = 0; i < 16; i++) await Promise.resolve();
+  assert.deepEqual(f.focusCalls.filter(call => !call.active && call.lease !== null).map(call => call.lease), [606]);
+  f.update({ school: false, height: 900 });
+  assert.equal(f.result.open, false); assert.equal(f.calls.length, 1);
+  f.update({ command: cmd(2) });
+  assert.equal(f.result.open, true); assert.equal(f.calls.length, 1);
+});
+test('rapid mode cancellation prevents focus acquisition when the shared reset later completes', async () => {
+  const f = fixture({ deferReset: true }); f.update({ school: true, height: 64, command: cmd(1) });
+  await f.flush();
+  f.signal('collapse'); f.signal('expand');
+  f.resetPending[0](null);
+  for (let i = 0; i < 16; i++) await Promise.resolve();
+  assert.ok(f.focusCalls.every(call => !call.active));
+  f.update({ school: false, height: 900 });
+  assert.equal(f.result.open, false); assert.equal(f.calls.length, 1);
+  f.update({ command: cmd(2) });
+  assert.equal(f.result.open, true);
+});
+test('an expand signal during a committed transition keeps a fresh suit command hidden until completion', () => {
+  const f = fixture();
+  f.signal('collapse'); f.update({ transitioning: true });
+  f.signal('expand'); f.update({ command: cmd(1) });
+  assert.equal(f.result.open, false); assert.equal(f.calls.length, 0);
+  f.update({ transitioning: false });
+  assert.equal(f.result.open, true); assert.equal(f.calls.length, 0);
 });
 test('fresh voice command during transition waits for its completion', () => {
   const f = fixture(); f.update({ transitioning: true, command: cmd(1) });
@@ -122,4 +193,22 @@ test('first canonical school snapshot collapses an orphaned expanded reload once
 test('initial normal mode and an in-progress transition never trigger reload geometry cleanup', () => {
   const normal = fixture(); normal.update({ mode: 'normal' }); normal.update({ mode: 'school' }); assert.equal(normal.calls.length, 0);
   const transition = fixture(); transition.update({ mode: 'school', transitioning: true }); transition.update({ transitioning: false }); assert.equal(transition.calls.length, 0);
+});
+test('a mode signal before the first canonical school snapshot suppresses reload cleanup', () => {
+  const f = fixture();
+  f.signal();
+  f.update({ mode: 'school', school: true, height: 784 });
+  assert.equal(f.result.open, false);
+  assert.equal(f.calls.length, 0);
+  f.update({ transitioning: true });
+  f.update({ transitioning: false, height: 64 });
+  assert.equal(f.calls.length, 0);
+});
+test('a stale initial school snapshot after rapid cancellation cannot collapse the native handoff', () => {
+  const f = fixture();
+  f.signal('collapse'); f.signal('expand');
+  f.update({ mode: 'school', school: true, height: 784 });
+  assert.equal(f.result.open, false); assert.equal(f.calls.length, 0);
+  f.update({ mode: 'normal', school: false, height: 900, command: cmd(1) });
+  assert.equal(f.result.open, true); assert.equal(f.calls.length, 0);
 });

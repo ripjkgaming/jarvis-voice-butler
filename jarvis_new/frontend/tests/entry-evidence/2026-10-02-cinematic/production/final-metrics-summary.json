@@ -1,0 +1,333 @@
+{
+  "environment": "isolated production static export; headless Chromium; mocked native and bridge",
+  "method": "Separate unrecorded contexts; 400ms settle after hydration; three cases; paired source order alternates by repetition and case",
+  "timing_window": "Final acceptance paired samples ran after the coordinator reported backend pytest completion and PID824056 was confirmed absent. Normal background system/application load remained.",
+  "cases": [
+    {
+      "dpr": 1,
+      "cross_monitor": false,
+      "baseline": {
+        "elapsed_ms_median": 4168.87,
+        "elapsed_ms_per_run": [
+          4175.22,
+          4168.87,
+          4150.14
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.7,
+          16.8,
+          16.7
+        ],
+        "max_frame_ms_per_run": [
+          16.8,
+          16.8,
+          16.8
+        ],
+        "estimated_dropped_60hz_per_run": [
+          0,
+          0,
+          0
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ]
+      },
+      "final": {
+        "elapsed_ms_median": 3399.86,
+        "elapsed_ms_per_run": [
+          3412.69,
+          3399.86,
+          3397.86
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.8,
+          16.8,
+          16.8
+        ],
+        "max_frame_ms_per_run": [
+          33.4,
+          33.4,
+          33.4
+        ],
+        "estimated_dropped_60hz_per_run": [
+          2,
+          4,
+          3
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "dpr": 2,
+      "cross_monitor": false,
+      "baseline": {
+        "elapsed_ms_median": 4234.39,
+        "elapsed_ms_per_run": [
+          4234.39,
+          4240.94,
+          4215.3
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.8,
+          16.8,
+          16.8
+        ],
+        "max_frame_ms_per_run": [
+          33.3,
+          33.3,
+          33.2
+        ],
+        "estimated_dropped_60hz_per_run": [
+          1,
+          2,
+          1
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ]
+      },
+      "final": {
+        "elapsed_ms_median": 3449.06,
+        "elapsed_ms_per_run": [
+          3459.11,
+          3433.58,
+          3449.06
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.8,
+          16.8,
+          16.8
+        ],
+        "max_frame_ms_per_run": [
+          49.9,
+          33.4,
+          50
+        ],
+        "estimated_dropped_60hz_per_run": [
+          5,
+          5,
+          8
+        ],
+        "gaps_over_34ms_per_run": [
+          1,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "dpr": 1,
+      "cross_monitor": true,
+      "baseline": {
+        "elapsed_ms_median": 6500.91,
+        "elapsed_ms_per_run": [
+          6500.91,
+          6504.14,
+          6494.47
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.8,
+          16.7,
+          16.7
+        ],
+        "max_frame_ms_per_run": [
+          16.8,
+          16.8,
+          16.8
+        ],
+        "estimated_dropped_60hz_per_run": [
+          0,
+          0,
+          0
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ]
+      },
+      "final": {
+        "elapsed_ms_median": 5474.18,
+        "elapsed_ms_per_run": [
+          5479.72,
+          5474.18,
+          5454.07
+        ],
+        "median_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "p95_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.8
+        ],
+        "max_frame_ms_per_run": [
+          33.4,
+          33.4,
+          33.3
+        ],
+        "estimated_dropped_60hz_per_run": [
+          2,
+          2,
+          3
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "limits": [
+    "Synthetic Chromium scheduling does not establish native WebKit/KWin FPS.",
+    "The cross-monitor fixture includes a 900ms delayed window move.",
+    "Entry callback cost is CPU-side submission, not GPU completion or compositor cost.",
+    "The shared host retains normal background system/application load."
+  ],
+  "order": [
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 1
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 1
+    },
+    {
+      "source": "final",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 1
+    },
+    {
+      "source": "baseline",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 1
+    },
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 1
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 1
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 2
+    },
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 2
+    },
+    {
+      "source": "baseline",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 2
+    },
+    {
+      "source": "final",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 2
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 2
+    },
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 2
+    },
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 3
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 3
+    },
+    {
+      "source": "final",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 3
+    },
+    {
+      "source": "baseline",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 3
+    },
+    {
+      "source": "baseline",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 3
+    },
+    {
+      "source": "final",
+      "dpr": 1,
+      "cross_monitor": true,
+      "repetition": 3
+    }
+  ]
+}

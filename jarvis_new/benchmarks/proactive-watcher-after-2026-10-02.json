@@ -1,0 +1,49 @@
+{
+  "label": "after",
+  "kind": "injected 120ms upower subprocess; no real process, sensor, audio or model",
+  "rows": [
+    {
+      "wall_ms": 121.20495099952677,
+      "max_loop_lag_ms": 0.8454499988583848
+    },
+    {
+      "wall_ms": 120.54034999891883,
+      "max_loop_lag_ms": 0.5921830019797198
+    },
+    {
+      "wall_ms": 120.50614199688425,
+      "max_loop_lag_ms": 1.450711999903433
+    },
+    {
+      "wall_ms": 120.32002500200178,
+      "max_loop_lag_ms": 1.091724000114482
+    },
+    {
+      "wall_ms": 120.32432300475193,
+      "max_loop_lag_ms": 0.4628979954286478
+    },
+    {
+      "wall_ms": 120.35632200422697,
+      "max_loop_lag_ms": 0.3833099985495209
+    },
+    {
+      "wall_ms": 120.39713199919788,
+      "max_loop_lag_ms": 0.7471110006445087
+    },
+    {
+      "wall_ms": 120.4144679941237,
+      "max_loop_lag_ms": 0.5667180016171187
+    },
+    {
+      "wall_ms": 120.58168800285785,
+      "max_loop_lag_ms": 0.6057869981741533
+    },
+    {
+      "wall_ms": 120.35712999932002,
+      "max_loop_lag_ms": 0.7727359993150458
+    }
+  ],
+  "median_max_loop_lag_ms": 0.676448999409331,
+  "max_loop_lag_ms": 1.450711999903433,
+  "median_wall_ms": 120.40579999666079
+}

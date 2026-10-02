@@ -16,6 +16,9 @@ Endpoints (all JSON):
     GET  /sys       cpu load + memory + home-disk (Linux /proc; degraded
                    JSON elsewhere instead of crashing)
     GET  /config    sanitized config surface for a settings screen
+    GET  /insights/usage  exact ccusage tracker JSON (?range=today|week|month|all,
+                         timezone=Asia/Singapore); read-only local proxy
+    GET  /paper-market   paper-market snapshot; read-only local proxy
     POST /mic       {"muted": bool} -> proxied to the wake_client listener
                    on $JARVIS_HOME/wake.sock (2s timeout); 503 fail-soft
                    {"ok": false} when the listener is absent
@@ -2886,11 +2889,15 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _send_bytes(self, code: int, content_type: str, raw: bytes) -> None:
+    def _send_bytes(
+        self, code: int, content_type: str, raw: bytes, *, no_store: bool = False
+    ) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        if no_store:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -3161,6 +3168,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
+        if parsed.path in ("/insights/usage", "/paper-market"):
+            import insights_proxy
+
+            # Each request already runs in a ThreadingHTTPServer worker; a
+            # slow local report must not stall voice/health/control requests.
+            reader = (
+                insights_proxy.usage
+                if parsed.path == "/insights/usage"
+                else insights_proxy.paper_market
+            )
+            code, raw = reader(parsed.query)
+            self._send_bytes(code, "application/json; charset=utf-8", raw, no_store=True)
+            return
         route, qs = parsed.path, parse_qs(parsed.query)
         if route == "/health":
             self._send(

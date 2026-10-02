@@ -8,6 +8,7 @@ import { SchoolTransition, useSchoolTransition } from '@/components/hud/school-t
 import { StarkHud } from '@/components/stark/stark-hud';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
+import { useInsights } from '@/hooks/hud/use-insights';
 import {
   JARVIS_COLORS,
   MUTED_COLOR,
@@ -24,6 +25,9 @@ type Props = {
 };
 
 const SuitDiagnostics = dynamic(() => import('@/components/suit/suit-diagnostics'), { ssr: false });
+const InsightsDrawer = dynamic(() => import('@/components/insights/insights-drawer'), {
+  ssr: false,
+});
 
 /** Pause every CSS animation while the window is hidden/minimised. */
 function useHiddenPause(): void {
@@ -156,10 +160,19 @@ export function HudShell({ children }: Props) {
     sys?.mode
   );
   const { open: suitOpen, close: closeSuit } = suit;
+  const insights = useInsights(school.bar, tx !== null || ret !== null, suitOpen, suit.focusReset);
+  const { visible: insightsOpen, close: closeInsights } = insights;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (insightsOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeInsights();
+        }
+        return;
+      }
       if (suitOpen) {
         // Also handle the short lazy-module load before the dialog installs
         // its own focus trap. Escape must never hide the whole shell here.
@@ -187,13 +200,20 @@ export function HudShell({ children }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleMode, toggleMute, suitOpen, closeSuit]);
+  }, [toggleMode, toggleMute, suitOpen, closeSuit, insightsOpen, closeInsights]);
 
   const returning = ret !== null;
   const pooling = tx !== null && barH !== null;
   // STARK OS HUD (components/stark): one layout for dual and solo.
   const hudView = (
-    <StarkHud sys={sys} solo={isSolo} jarvis={jarvis} muted={muted} link={link}>
+    <StarkHud
+      sys={sys}
+      solo={isSolo}
+      jarvis={jarvis}
+      muted={muted}
+      link={link}
+      onInsights={insights.open}
+    >
       {children}
     </StarkHud>
   );
@@ -251,7 +271,8 @@ export function HudShell({ children }: Props) {
             muted={muted}
             link={link}
             leaving={school.leaving}
-            diagnosticsOpen={suit.open}
+            diagnosticsOpen={suit.open || insights.visible}
+            onInsights={insights.open}
           />
         </div>
       ) : hudOn ? (
@@ -259,6 +280,16 @@ export function HudShell({ children }: Props) {
       ) : null}
       {suit.open && (
         <SuitDiagnostics onClose={suit.close} school={school.bar} barHeight={suit.barHeight} />
+      )}
+      {insights.visible && (
+        <InsightsDrawer
+          tab={insights.tab}
+          onTab={insights.open}
+          onClose={insights.close}
+          school={school.bar}
+          barHeight={insights.barHeight}
+          returnFocus={insights.returnFocus.current}
+        />
       )}
     </>
   );

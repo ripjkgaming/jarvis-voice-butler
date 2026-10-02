@@ -1,0 +1,153 @@
+{
+  "environment": "isolated Next development server; headless Chromium; native/bridge mocked; same fixed frontend source except two entry files",
+  "source_head": "29112f4029c84e0d9eb7b283883964672da1cb1b",
+  "cases": [
+    {
+      "dpr": 1,
+      "cross_monitor": false,
+      "baseline": {
+        "runs": 3,
+        "elapsed_ms_median": 4210.59,
+        "p95_frame_ms_per_run": [
+          16.8,
+          16.7,
+          16.7
+        ],
+        "estimated_dropped_60hz_per_run": [
+          1,
+          0,
+          0
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ],
+        "task_ms_median": 997.13,
+        "script_ms_median": 142.37
+      },
+      "after": {
+        "runs": 3,
+        "elapsed_ms_median": 3446.51,
+        "p95_frame_ms_per_run": [
+          33.3,
+          33.3,
+          33.4
+        ],
+        "estimated_dropped_60hz_per_run": [
+          15,
+          14,
+          28
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          8
+        ],
+        "task_ms_median": 744.26,
+        "script_ms_median": 115.74
+      }
+    },
+    {
+      "dpr": 2,
+      "cross_monitor": false,
+      "baseline": {
+        "runs": 3,
+        "elapsed_ms_median": 4273.89,
+        "p95_frame_ms_per_run": [
+          16.7,
+          16.8,
+          16.8
+        ],
+        "estimated_dropped_60hz_per_run": [
+          2,
+          2,
+          5
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          1
+        ],
+        "task_ms_median": 2073.41,
+        "script_ms_median": 140.92
+      },
+      "after": {
+        "runs": 3,
+        "elapsed_ms_median": 3568.25,
+        "p95_frame_ms_per_run": [
+          33.4,
+          33.3,
+          33.4
+        ],
+        "estimated_dropped_60hz_per_run": [
+          31,
+          27,
+          27
+        ],
+        "gaps_over_34ms_per_run": [
+          7,
+          4,
+          4
+        ],
+        "task_ms_median": 1548.0,
+        "script_ms_median": 120.54
+      }
+    },
+    {
+      "dpr": 1,
+      "cross_monitor": true,
+      "baseline": {
+        "runs": 3,
+        "elapsed_ms_median": 6482.87,
+        "p95_frame_ms_per_run": [
+          16.7,
+          16.7,
+          16.7
+        ],
+        "estimated_dropped_60hz_per_run": [
+          0,
+          0,
+          0
+        ],
+        "gaps_over_34ms_per_run": [
+          0,
+          0,
+          0
+        ],
+        "task_ms_median": 1103.41,
+        "script_ms_median": 146.66
+      },
+      "after": {
+        "runs": 3,
+        "elapsed_ms_median": 5587.39,
+        "p95_frame_ms_per_run": [
+          16.8,
+          33.3,
+          33.3
+        ],
+        "estimated_dropped_60hz_per_run": [
+          15,
+          20,
+          25
+        ],
+        "gaps_over_34ms_per_run": [
+          1,
+          2,
+          5
+        ],
+        "task_ms_median": 985.78,
+        "script_ms_median": 135.91
+      }
+    }
+  ],
+  "limitations": [
+    "Development/headless Chromium is not production/native WebKit/KWin performance.",
+    "Whole-app durations are intentional choreography plus mocked geometry waits; cross-monitor injects a 900ms move.",
+    "Canvas submission timing excludes GPU completion and compositor cost.",
+    "Perspective snapshot has worse sampled frame pacing than baseline despite shorter duration and lower renderer cost.",
+    "Some baseline warmup/early sampling overlapped an unrelated file-search CPU benchmark; live background app/system workload remains.",
+    "Screenshots/video are separate runs; phase stills freeze only captured entry RAF; video is uninterrupted at Playwright recording cadence.",
+    "A Next.js dev indicator appears in screenshots; smoke wrapper hides only that portal because it intercepts clicks in 64px viewport."
+  ]
+}

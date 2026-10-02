@@ -1,6 +1,14 @@
 'use client';
 
-import { type CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { ICON_MISS_TTL_MS, bridgeAppIcon, bridgeGet, bridgeLaunch, bridgePost } from '@/lib/bridge';
 
@@ -141,10 +149,12 @@ function LauncherMenu({
   pinned,
   onClose,
   ambientActive,
+  extras,
 }: {
   pinned: { desktop: string; name: string }[];
   onClose: () => void;
   ambientActive: boolean;
+  extras?: ReactNode;
 }) {
   const [apps, setApps] = useState<App[] | null>(appsCache);
   const [cat, setCat] = useState('all');
@@ -174,6 +184,7 @@ function LauncherMenu({
     <div className="smenu smenu--launcher" role="menu" aria-label="Apps">
       <AmbientParticles variant="menu" active={ambientActive} className="smenu__ambient" />
       <MenuHead title="APPLICATIONS" meta={apps ? `${shown.length} APPS` : 'LOADING'} />
+      {extras}
       {pinned.length ? (
         <div className="smenu__pinned" aria-label="Pinned applications">
           {pinned.map((p) => (
@@ -504,12 +515,14 @@ export function MenuLayer({
   pinned,
   onClose,
   active = true,
+  launcherExtras,
 }: {
   menu: MenuKind;
   closing: boolean;
   pinned: { desktop: string; name: string }[];
   onClose: () => void;
   active?: boolean;
+  launcherExtras?: ReactNode;
 }) {
   useEffect(() => {
     // Only once the pointer has been in the window: a menu opened by voice
@@ -547,7 +560,12 @@ export function MenuLayer({
       }}
     >
       {menu === 'launcher' ? (
-        <LauncherMenu pinned={pinned} onClose={onClose} ambientActive={active && !closing} />
+        <LauncherMenu
+          pinned={pinned}
+          onClose={onClose}
+          ambientActive={active && !closing}
+          extras={launcherExtras}
+        />
       ) : null}
       {menu === 'quick' ? <QuickMenu ambientActive={active && !closing} /> : null}
       {menu === 'calendar' ? <CalendarMenu ambientActive={active && !closing} /> : null}

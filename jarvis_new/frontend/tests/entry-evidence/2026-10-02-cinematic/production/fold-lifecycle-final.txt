@@ -1,0 +1,112 @@
+TAP version 13
+# Subtest: the frozen HUD attaches before pending geometry; reversal suppresses late IPC continuation
+ok 1 - the frozen HUD attaches before pending geometry; reversal suppresses late IPC continuation
+  ---
+  duration_ms: 63.153022
+  type: 'test'
+  ...
+# Subtest: the frozen HUD folds on one affine surface about its reactor without relayout, then detaches
+ok 2 - the frozen HUD folds on one affine surface about its reactor without relayout, then detaches
+  ---
+  duration_ms: 27.094992
+  type: 'test'
+  ...
+# Subtest: reduced motion saves the original decorated HUD geometry before direct docking
+ok 3 - reduced motion saves the original decorated HUD geometry before direct docking
+  ---
+  duration_ms: 1.716145
+  type: 'test'
+  ...
+# Subtest: stalled initial native is bounded, clears stale return geometry and ignores late settlement
+ok 4 - stalled initial native is bounded, clears stale return geometry and ignores late settlement
+  ---
+  duration_ms: 82.620024
+  type: 'test'
+  ...
+# Subtest: stalled initial bridge is bounded, clears stale return geometry and ignores late settlement
+ok 5 - stalled initial bridge is bounded, clears stale return geometry and ignores late settlement
+  ---
+  duration_ms: 85.953137
+  type: 'test'
+  ...
+# Subtest: unavailable entry canvas (noContext) docks safely and releases transition state
+ok 6 - unavailable entry canvas (noContext) docks safely and releases transition state
+  ---
+  duration_ms: 1.916211
+  type: 'test'
+  ...
+# Subtest: unavailable entry canvas (contextThrows) docks safely and releases transition state
+ok 7 - unavailable entry canvas (contextThrows) docks safely and releases transition state
+  ---
+  duration_ms: 2.08343
+  type: 'test'
+  ...
+# Subtest: equal-size monitor transfer stays transparent until a fresh destination acknowledgement
+ok 8 - equal-size monitor transfer stays transparent until a fresh destination acknowledgement
+  ---
+  duration_ms: 35.67581
+  type: 'test'
+  ...
+# Subtest: offscreen entry suspends all RAF work and resumes without skipping drawn time
+ok 9 - offscreen entry suspends all RAF work and resumes without skipping drawn time
+  ---
+  duration_ms: 25.171746
+  type: 'test'
+  ...
+# Subtest: changing hide during entry docks once and cannot revive the completed renderer
+ok 10 - changing hide during entry docks once and cannot revive the completed renderer
+  ---
+  duration_ms: 78.273648
+  type: 'test'
+  ...
+# Subtest: changing reduce during entry docks once and cannot revive the completed renderer
+ok 11 - changing reduce during entry docks once and cannot revive the completed renderer
+  ---
+  duration_ms: 77.429952
+  type: 'test'
+  ...
+# Subtest: the revealed interactive bar stays unclipped during a delayed dock acknowledgement
+ok 12 - the revealed interactive bar stays unclipped during a delayed dock acknowledgement
+  ---
+  duration_ms: 13.819369
+  type: 'test'
+  ...
+# Subtest: stalled docking and missing viewport acknowledgement have a bounded completion
+ok 13 - stalled docking and missing viewport acknowledgement have a bounded completion
+  ---
+  duration_ms: 96.629673
+  type: 'test'
+  ...
+# Subtest: reversal while docking suppresses a late completion callback
+ok 14 - reversal while docking suppresses a late completion callback
+  ---
+  duration_ms: 83.250906
+  type: 'test'
+  ...
+# Subtest: return-to-school arrival preserves the saved normal HUD rectangle
+ok 15 - return-to-school arrival preserves the saved normal HUD rectangle
+  ---
+  duration_ms: 12.548026
+  type: 'test'
+  ...
+# Subtest: reversal during pending monitor IPC cannot replay arrival, docking or readiness callbacks
+ok 16 - reversal during pending monitor IPC cannot replay arrival, docking or readiness callbacks
+  ---
+  duration_ms: 93.572041
+  type: 'test'
+  ...
+# Subtest: the overall deadline releases an entry whose animation frames never arrive
+ok 17 - the overall deadline releases an entry whose animation frames never arrive
+  ---
+  duration_ms: 83.232386
+  type: 'test'
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1358.899423

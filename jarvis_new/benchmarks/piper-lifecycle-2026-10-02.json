@@ -1,0 +1,47 @@
+{
+  "benchmark": "Piper fake-native lifecycle",
+  "baseline_ref": "29112f4029c84e0d9eb7b283883964672da1cb1b",
+  "limits": "Fake model only; no audio device, model weights, network or real synthesis latency measured.",
+  "before": {
+    "source_sha256": "2948def0b755fe0f47e90f4d091bd00b5e14d5675f5f1aef85142cfc121dd156",
+    "interruption": {
+      "cancelled_utterances": 5,
+      "current_utterances": 1,
+      "native_workers_before_release": 6,
+      "peak_concurrent_inferences": 6,
+      "native_inference_calls": 6,
+      "obsolete_queued_inferences": 4,
+      "model_loads": 1
+    },
+    "concurrent_preload": {
+      "simultaneous_callers": 2,
+      "model_loads": 2
+    },
+    "close": {
+      "native_workers_before_release": 1,
+      "close_returned_before_native_completion": true,
+      "model_reference_cleared_before_native_completion": true
+    }
+  },
+  "after": {
+    "source_sha256": "afb13428f3165e3f1b33179277f3c9a7510849af42a99ca1a2447aab2374a33c",
+    "interruption": {
+      "cancelled_utterances": 5,
+      "current_utterances": 1,
+      "native_workers_before_release": 1,
+      "peak_concurrent_inferences": 1,
+      "native_inference_calls": 2,
+      "obsolete_queued_inferences": 0,
+      "model_loads": 1
+    },
+    "concurrent_preload": {
+      "simultaneous_callers": 2,
+      "model_loads": 1
+    },
+    "close": {
+      "native_workers_before_release": 1,
+      "close_returned_before_native_completion": false,
+      "model_reference_cleared_before_native_completion": false
+    }
+  }
+}

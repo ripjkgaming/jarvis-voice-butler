@@ -1,0 +1,920 @@
+{
+  "source": "final 97c1294bb2d364f396ff25a97a23ad9b7f4c38b530370bb2bcd0fdc26fc99b07 renderer; 7740551ea23ffb7d78670a0badc95eb12429414f4a1b30acb2f49897e7ab8727 transition",
+  "css": ".stx-snapshot { contain: layout style paint; isolation: isolate; backface-visibility: hidden; } .stx-snapshot * { will-change:auto !important; }",
+  "method": "Two control and two variant runs at each DPR, ABBA/BAAB order; isolated development Chromium, no recording/readback.",
+  "results": [
+    {
+      "kind": "performance",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 1,
+      "elapsed_ms": 3437.9,
+      "frames": {
+        "frames": 188,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 50,
+        "gaps_over_34ms": 1,
+        "estimated_dropped_60hz": 15
+      },
+      "entry_callback_ms": {
+        "samples": 186,
+        "median": 0.2,
+        "p95": 0.4,
+        "max": 0.6
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 27,
+          "median": 0.2,
+          "p95": 0.4,
+          "max": 0.6
+        },
+        "compress": {
+          "samples": 30,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.6
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "forge": {
+          "samples": 54,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.3
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.1,
+          "p95": 0.2,
+          "max": 0.3
+        }
+      },
+      "task_ms": 840.02,
+      "script_ms": 113.45,
+      "layouts": 16,
+      "style_recalculations": 78,
+      "probe": {
+        "entryFrames": 185,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 193,
+            "draws": 3908,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 99
+          },
+          {
+            "phase": "geometry",
+            "at": 1560.6000000014901
+          },
+          {
+            "phase": "aperture",
+            "at": 1582.6000000014901
+          },
+          {
+            "phase": "compress",
+            "at": 2020.7000000029802
+          },
+          {
+            "phase": "geometry",
+            "at": 2771.60000000149
+          },
+          {
+            "phase": "descent",
+            "at": 2778.5
+          },
+          {
+            "phase": "forge",
+            "at": 3537.2000000029802
+          },
+          {
+            "phase": "reveal",
+            "at": 4437.70000000298
+          },
+          {
+            "phase": "dock",
+            "at": 4921
+          },
+          {
+            "phase": null,
+            "at": 4946.20000000298
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": false
+    },
+    {
+      "kind": "performance",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 2,
+      "elapsed_ms": 3512.17,
+      "frames": {
+        "frames": 186,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 66.7,
+        "gaps_over_34ms": 2,
+        "estimated_dropped_60hz": 21
+      },
+      "entry_callback_ms": {
+        "samples": 183,
+        "median": 0.2,
+        "p95": 0.5,
+        "max": 1.7
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 27,
+          "median": 0.3,
+          "p95": 0.5,
+          "max": 1.7
+        },
+        "compress": {
+          "samples": 26,
+          "median": 0.45,
+          "p95": 0.6,
+          "max": 0.9
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.5
+        },
+        "forge": {
+          "samples": 55,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.1,
+          "p95": 0.3,
+          "max": 0.3
+        }
+      },
+      "task_ms": 1020.9,
+      "script_ms": 139.92,
+      "layouts": 17,
+      "style_recalculations": 76,
+      "probe": {
+        "entryFrames": 182,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 190,
+            "draws": 3836,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 89.69999999552965
+          },
+          {
+            "phase": "geometry",
+            "at": 1748.8999999985099
+          },
+          {
+            "phase": "aperture",
+            "at": 1793.8999999985099
+          },
+          {
+            "phase": "compress",
+            "at": 2236.1999999955297
+          },
+          {
+            "phase": "geometry",
+            "at": 3023
+          },
+          {
+            "phase": "descent",
+            "at": 3030.1999999955297
+          },
+          {
+            "phase": "forge",
+            "at": 3782.5999999940395
+          },
+          {
+            "phase": "reveal",
+            "at": 4699.29999999702
+          },
+          {
+            "phase": "dock",
+            "at": 5182.89999999851
+          },
+          {
+            "phase": null,
+            "at": 5209.29999999702
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": true
+    },
+    {
+      "kind": "performance",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 3,
+      "elapsed_ms": 3414.06,
+      "frames": {
+        "frames": 190,
+        "median_ms": 16.7,
+        "p95_ms": 33.2,
+        "max_ms": 33.4,
+        "gaps_over_34ms": 0,
+        "estimated_dropped_60hz": 12
+      },
+      "entry_callback_ms": {
+        "samples": 188,
+        "median": 0.2,
+        "p95": 0.4,
+        "max": 0.7
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 27,
+          "median": 0.2,
+          "p95": 0.5,
+          "max": 0.7
+        },
+        "compress": {
+          "samples": 32,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.5
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.3
+        },
+        "forge": {
+          "samples": 54,
+          "median": 0.15,
+          "p95": 0.3,
+          "max": 0.5
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.1,
+          "p95": 0.2,
+          "max": 0.2
+        }
+      },
+      "task_ms": 778.35,
+      "script_ms": 109.85,
+      "layouts": 16,
+      "style_recalculations": 80,
+      "probe": {
+        "entryFrames": 187,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 195,
+            "draws": 3967,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 87
+          },
+          {
+            "phase": "geometry",
+            "at": 1652.8000000044703
+          },
+          {
+            "phase": "aperture",
+            "at": 1679.1000000014901
+          },
+          {
+            "phase": "compress",
+            "at": 2112.3000000044703
+          },
+          {
+            "phase": "geometry",
+            "at": 2846.89999999851
+          },
+          {
+            "phase": "descent",
+            "at": 2852.89999999851
+          },
+          {
+            "phase": "forge",
+            "at": 3612.10000000149
+          },
+          {
+            "phase": "reveal",
+            "at": 4512.39999999851
+          },
+          {
+            "phase": "dock",
+            "at": 4995.60000000149
+          },
+          {
+            "phase": null,
+            "at": 5018.80000000447
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": true
+    },
+    {
+      "kind": "performance",
+      "dpr": 1,
+      "cross_monitor": false,
+      "repetition": 4,
+      "elapsed_ms": 3501.26,
+      "frames": {
+        "frames": 187,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 66.7,
+        "gaps_over_34ms": 1,
+        "estimated_dropped_60hz": 20
+      },
+      "entry_callback_ms": {
+        "samples": 184,
+        "median": 0.2,
+        "p95": 0.5,
+        "max": 0.8
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 27,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.8
+        },
+        "compress": {
+          "samples": 27,
+          "median": 0.3,
+          "p95": 0.5,
+          "max": 0.7
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.2,
+          "p95": 0.4,
+          "max": 0.4
+        },
+        "forge": {
+          "samples": 55,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.5
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.1,
+          "p95": 0.2,
+          "max": 0.2
+        }
+      },
+      "task_ms": 860.5,
+      "script_ms": 128.06,
+      "layouts": 16,
+      "style_recalculations": 75,
+      "probe": {
+        "entryFrames": 183,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 191,
+            "draws": 3861,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 77.60000000149012
+          },
+          {
+            "phase": "geometry",
+            "at": 1552.7000000029802
+          },
+          {
+            "phase": "aperture",
+            "at": 1597.6000000014901
+          },
+          {
+            "phase": "compress",
+            "at": 2036.6000000014901
+          },
+          {
+            "phase": "geometry",
+            "at": 2804.39999999851
+          },
+          {
+            "phase": "descent",
+            "at": 2812.10000000149
+          },
+          {
+            "phase": "forge",
+            "at": 3569.60000000149
+          },
+          {
+            "phase": "reveal",
+            "at": 4486.5
+          },
+          {
+            "phase": "dock",
+            "at": 4969.70000000298
+          },
+          {
+            "phase": null,
+            "at": 4994.39999999851
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": false
+    },
+    {
+      "kind": "performance",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 1,
+      "elapsed_ms": 3495.5,
+      "frames": {
+        "frames": 184,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 50,
+        "gaps_over_34ms": 1,
+        "estimated_dropped_60hz": 22
+      },
+      "entry_callback_ms": {
+        "samples": 181,
+        "median": 0.2,
+        "p95": 0.3,
+        "max": 1.1
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 26,
+          "median": 0.2,
+          "p95": 0.5,
+          "max": 1.1
+        },
+        "compress": {
+          "samples": 25,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.5
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.1,
+          "p95": 0.3,
+          "max": 0.3
+        },
+        "forge": {
+          "samples": 55,
+          "median": 0.1,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.2,
+          "p95": 0.2,
+          "max": 0.3
+        }
+      },
+      "task_ms": 1653.41,
+      "script_ms": 119.34,
+      "layouts": 16,
+      "style_recalculations": 73,
+      "probe": {
+        "entryFrames": 180,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 188,
+            "draws": 3785,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 77
+          },
+          {
+            "phase": "geometry",
+            "at": 1623.5
+          },
+          {
+            "phase": "aperture",
+            "at": 1673.2000000029802
+          },
+          {
+            "phase": "compress",
+            "at": 2107.8000000044703
+          },
+          {
+            "phase": "geometry",
+            "at": 2858.5
+          },
+          {
+            "phase": "descent",
+            "at": 2867.39999999851
+          },
+          {
+            "phase": "forge",
+            "at": 3624.39999999851
+          },
+          {
+            "phase": "reveal",
+            "at": 4541
+          },
+          {
+            "phase": "dock",
+            "at": 5024.39999999851
+          },
+          {
+            "phase": null,
+            "at": 5052.80000000447
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": true
+    },
+    {
+      "kind": "performance",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 2,
+      "elapsed_ms": 3494.74,
+      "frames": {
+        "frames": 187,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 33.4,
+        "gaps_over_34ms": 0,
+        "estimated_dropped_60hz": 22
+      },
+      "entry_callback_ms": {
+        "samples": 180,
+        "median": 0.2,
+        "p95": 0.3,
+        "max": 0.6
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 26,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.5
+        },
+        "compress": {
+          "samples": 24,
+          "median": 0.25,
+          "p95": 0.4,
+          "max": 0.5
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.6
+        },
+        "forge": {
+          "samples": 55,
+          "median": 0.1,
+          "p95": 0.2,
+          "max": 0.3
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.6
+        }
+      },
+      "task_ms": 1678.56,
+      "script_ms": 108.87,
+      "layouts": 11,
+      "style_recalculations": 69,
+      "probe": {
+        "entryFrames": 179,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 187,
+            "draws": 3761,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 81.70000000298023
+          },
+          {
+            "phase": "geometry",
+            "at": 1623.1000000014901
+          },
+          {
+            "phase": "aperture",
+            "at": 1691.6000000014901
+          },
+          {
+            "phase": "compress",
+            "at": 2139.7000000029802
+          },
+          {
+            "phase": "geometry",
+            "at": 2872
+          },
+          {
+            "phase": "descent",
+            "at": 2880.89999999851
+          },
+          {
+            "phase": "forge",
+            "at": 3637.89999999851
+          },
+          {
+            "phase": "reveal",
+            "at": 4555
+          },
+          {
+            "phase": "dock",
+            "at": 5038.20000000298
+          },
+          {
+            "phase": null,
+            "at": 5078.10000000149
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": false
+    },
+    {
+      "kind": "performance",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 3,
+      "elapsed_ms": 3753.25,
+      "frames": {
+        "frames": 173,
+        "median_ms": 16.7,
+        "p95_ms": 50,
+        "max_ms": 66.7,
+        "gaps_over_34ms": 15,
+        "estimated_dropped_60hz": 51
+      },
+      "entry_callback_ms": {
+        "samples": 165,
+        "median": 0.2,
+        "p95": 0.5,
+        "max": 1.2
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 18,
+          "median": 0.35,
+          "p95": 1.2,
+          "max": 1.2
+        },
+        "compress": {
+          "samples": 22,
+          "median": 0.3,
+          "p95": 0.6,
+          "max": 0.6
+        },
+        "descent": {
+          "samples": 45,
+          "median": 0.3,
+          "p95": 0.4,
+          "max": 0.4
+        },
+        "forge": {
+          "samples": 54,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "reveal": {
+          "samples": 26,
+          "median": 0.2,
+          "p95": 0.3,
+          "max": 0.3
+        }
+      },
+      "task_ms": 1989.08,
+      "script_ms": 160.51,
+      "layouts": 9,
+      "style_recalculations": 61,
+      "probe": {
+        "entryFrames": 164,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 172,
+            "draws": 3454,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 100
+          },
+          {
+            "phase": "geometry",
+            "at": 1802.1000000014901
+          },
+          {
+            "phase": "aperture",
+            "at": 1872.2000000029802
+          },
+          {
+            "phase": "compress",
+            "at": 2329.39999999851
+          },
+          {
+            "phase": "geometry",
+            "at": 3276.7000000029802
+          },
+          {
+            "phase": "descent",
+            "at": 3290.10000000149
+          },
+          {
+            "phase": "forge",
+            "at": 4035.60000000149
+          },
+          {
+            "phase": "reveal",
+            "at": 4944
+          },
+          {
+            "phase": "dock",
+            "at": 5456.39999999851
+          },
+          {
+            "phase": null,
+            "at": 5498.89999999851
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": false
+    },
+    {
+      "kind": "performance",
+      "dpr": 2,
+      "cross_monitor": false,
+      "repetition": 4,
+      "elapsed_ms": 3488.82,
+      "frames": {
+        "frames": 184,
+        "median_ms": 16.7,
+        "p95_ms": 33.3,
+        "max_ms": 50,
+        "gaps_over_34ms": 1,
+        "estimated_dropped_60hz": 22
+      },
+      "entry_callback_ms": {
+        "samples": 181,
+        "median": 0.2,
+        "p95": 0.4,
+        "max": 0.7
+      },
+      "entry_callback_ms_by_phase": {
+        "aperture": {
+          "samples": 26,
+          "median": 0.2,
+          "p95": 0.4,
+          "max": 0.7
+        },
+        "compress": {
+          "samples": 25,
+          "median": 0.2,
+          "p95": 0.4,
+          "max": 0.4
+        },
+        "descent": {
+          "samples": 46,
+          "median": 0.2,
+          "p95": 0.4,
+          "max": 0.5
+        },
+        "forge": {
+          "samples": 55,
+          "median": 0.1,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "reveal": {
+          "samples": 29,
+          "median": 0.1,
+          "p95": 0.3,
+          "max": 0.3
+        }
+      },
+      "task_ms": 1596.75,
+      "script_ms": 119.51,
+      "layouts": 16,
+      "style_recalculations": 73,
+      "probe": {
+        "entryFrames": 180,
+        "pendingEntry": 0,
+        "canvases": [
+          {
+            "id": 1,
+            "clears": 188,
+            "draws": 3804,
+            "connected": false,
+            "running": "false"
+          }
+        ],
+        "phases": [
+          {
+            "phase": null,
+            "at": 114.5
+          },
+          {
+            "phase": "geometry",
+            "at": 1704
+          },
+          {
+            "phase": "aperture",
+            "at": 1751
+          },
+          {
+            "phase": "compress",
+            "at": 2190.1999999955297
+          },
+          {
+            "phase": "geometry",
+            "at": 2941.5999999940395
+          },
+          {
+            "phase": "descent",
+            "at": 2950.0999999940395
+          },
+          {
+            "phase": "forge",
+            "at": 3706.6999999955297
+          },
+          {
+            "phase": "reveal",
+            "at": 4623.5999999940395
+          },
+          {
+            "phase": "dock",
+            "at": 5106.89999999851
+          },
+          {
+            "phase": null,
+            "at": 5132.5999999940395
+          }
+        ]
+      },
+      "moves": [],
+      "containment_variant": true
+    }
+  ],
+  "disposition": "Discarded: no consistent substantial improvement; no source changes adopted. DPR2 control had one outlier, while the ordinary control matched the variant pacing."
+}

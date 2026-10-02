@@ -1,0 +1,54 @@
+from __future__ import annotations
+import asyncio,importlib.util,json
+from functools import partial
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+from urllib.parse import urlparse
+from playwright.async_api import async_playwright
+ROOT=Path('/mnt/data/jarvis-voice-butler/jarvis_new/frontend')
+SPEC=importlib.util.spec_from_file_location('cinematic',ROOT/'tests/school-entry-cinematic-evidence.py')
+E=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(E)
+PRIVATE=Path('/tmp/jarvis-entry-production-20261002-67z8d31s')
+OUTPUT=ROOT/'tests/entry-evidence/2026-10-02-cinematic/production/pose-comparison'
+async def main():
+ OUTPUT.mkdir(parents=True,exist_ok=True)
+ exports={'perspective':PRIVATE/'candidate-out','affine':PRIVATE/'frontend/out'}
+ servers={label:ThreadingHTTPServer(('127.0.0.1',0),partial(E.ENTRY.SCHOOL.QuietHandler,directory=str(path))) for label,path in exports.items()}
+ for server in servers.values():Thread(target=server.serve_forever,daemon=True).start()
+ urls={label:f'http://127.0.0.1:{server.server_port}' for label,server in servers.items()}
+ origins={urlparse(url).netloc for url in urls.values()}
+ original=E.ENTRY.EvidenceDesktop.install
+ async def install(desktop):
+  async def route_request(route):
+   if urlparse(route.request.url).netloc in origins:await route.continue_()
+   else:await route.abort()
+  await desktop.page.route('**/*',route_request)
+  await original(desktop)
+  await desktop.page.add_init_script(E.COST_PROBE)
+ E.ENTRY.EvidenceDesktop.install=install
+ report={'environment':'private production exports; headless Chromium; native and bridge mocked','exports':{k:str(v) for k,v in exports.items()},'results':[]}
+ try:
+  async with async_playwright() as p:
+   browser=await p.chromium.launch(headless=True)
+   try:
+    for label,url in urls.items():
+     for fraction in (.2,.45,.65):
+      context,page,desktop=await E.ENTRY.create_page(browser,url,dpr=1)
+      try:
+       await E.ENTRY.dark_desktop(context,page)
+       await page.evaluate('target=>armEntryCapture(target)',{'phase':'compress','duration':720,'fraction':fraction})
+       await desktop.signal('collapse')
+       await page.wait_for_function('window.entryCaptureResult',timeout=15000)
+       result=await page.evaluate('entryCaptureResult');result['label']=label
+       result['quality']=await E.ENTRY.canvas_quality(page)
+       result['file']=f'{label}-compress-{round(fraction*100):02d}.png'
+       await page.screenshot(path=str(OUTPUT/result['file']))
+       assert not desktop.errors,desktop.errors
+       report['results'].append(result)
+       (OUTPUT/'report.json').write_text(json.dumps(report,indent=2)+'\n')
+      finally:await context.close()
+   finally:await browser.close()
+ finally:
+  for server in servers.values():server.shutdown();server.server_close()
+asyncio.run(main())

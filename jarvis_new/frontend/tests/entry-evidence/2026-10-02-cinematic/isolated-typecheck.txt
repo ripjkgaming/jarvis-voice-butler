@@ -1,0 +1,5 @@
+PASS
+Command: node node_modules/typescript/bin/tsc --noEmit --incremental false
+Directory: /tmp/jarvis-entry-cinematic-dev-wxr4_23h/frontend
+Exit: 0
+Source hashes: school-entry-scene.ts 97c1294bb2d364f396ff25a97a23ad9b7f4c38b530370bb2bcd0fdc26fc99b07; school-transition.tsx 7740551ea23ffb7d78670a0badc95eb12429414f4a1b30acb2f49897e7ab8727

@@ -82,6 +82,7 @@ class ProactiveWatcher:
         self._failures = 0
         self._in_tick = False
         self._task: asyncio.Task | None = None
+        self._snapshot_task: asyncio.Task[TelemetrySnapshot] | None = None
 
     def _note(self, reason: str, detail: str = "") -> None:
         with contextlib.suppress(Exception):
@@ -96,14 +97,32 @@ class ProactiveWatcher:
             with contextlib.suppress(Exception):
                 await self._speak_fn(line)
 
+    def _snapshot_done(self, task: asyncio.Task[TelemetrySnapshot]) -> None:
+        # A cancelled tick abandons its result, but its blocking sensor read
+        # still runs. Observe errors even when nobody is awaiting it anymore.
+        if not task.cancelled():
+            task.exception()
+        if self._snapshot_task is task:
+            self._snapshot_task = None
+
     async def _tick(self, now: float) -> None:
         if self._in_tick:
             self._note("overlap-skip", "previous tick still speaking")
             return
+        if self._snapshot_task is not None:
+            self._note("overlap-skip", "previous sensor read still running")
+            return
         self._in_tick = True
         try:
             try:
-                snap = self._snapshot_fn()
+                # upower may take its full timeout. Keep it off the voice
+                # loop and retain one worker across stop/restart cancellation;
+                # the abandoned tick can never publish its stale snapshot.
+                self._snapshot_task = asyncio.create_task(
+                    asyncio.to_thread(self._snapshot_fn)
+                )
+                self._snapshot_task.add_done_callback(self._snapshot_done)
+                snap = await asyncio.shield(self._snapshot_task)
             except Exception:
                 self._failures += 1
                 self._note("snapshot-error", f"failures={self._failures}")

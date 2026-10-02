@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from livekit.agents import tts, utils
@@ -132,6 +135,15 @@ class PiperTTS(tts.TTS):
         self._length_scale = resolve_length_scale(length_scale)
         self._voice = None
         self._lock = asyncio.Lock()
+        # Async cancellation cannot stop a native inference already running.
+        # Keep all model loads/renders/releases on one worker so interrupted
+        # utterances cannot overlap or exhaust the shared asyncio executor.
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="jarvis-piper"
+        )
+        self._closed = False
+        self._pending_work: set[threading.Event] = set()
+        self._close_task: asyncio.Task | None = None
 
     @property
     def model(self) -> str:
@@ -141,7 +153,11 @@ class PiperTTS(tts.TTS):
     def provider(self) -> str:
         return "piper-local"
 
-    def _get_voice(self):
+    def _get_voice(self, *, cancelled: threading.Event | None = None):
+        if self._closed:
+            raise RuntimeError("Piper voice is closed")
+        if cancelled is not None and cancelled.is_set():
+            return None
         if self._voice is None:
             if not self._model_path.exists():
                 raise RuntimeError(
@@ -163,21 +179,63 @@ class PiperTTS(tts.TTS):
                 logger.warning("keeping default sample rate 22050: bad rate %r", rate)
         return self._voice
 
-    def _render_sentence(self, sentence: str) -> bytes:
+    def _render_sentence(
+        self, sentence: str, *, cancelled: threading.Event | None = None
+    ) -> bytes:
         """Render one sentence to 16-bit PCM bytes (blocking; run in thread)."""
         from piper import SynthesisConfig
 
-        voice = self._get_voice()
+        voice = self._get_voice(cancelled=cancelled)
+        if (
+            voice is None
+            or self._closed
+            or (cancelled is not None and cancelled.is_set())
+        ):
+            return b""
         config = SynthesisConfig(
             speaker_id=self._speaker_id,
             length_scale=self._length_scale,
         )
         out = bytearray()
-        for chunk in voice.synthesize(sentence, syn_config=config):
-            data = chunk.audio_int16_bytes
-            if data:
-                out += data
+        chunks = voice.synthesize(sentence, syn_config=config)
+        try:
+            for chunk in chunks:
+                if self._closed or (cancelled is not None and cancelled.is_set()):
+                    break
+                data = chunk.audio_int16_bytes
+                if data:
+                    out += data
+        finally:
+            close = getattr(chunks, "close", None)
+            if close is not None:
+                close()
         return bytes(out)
+
+    async def _run_worker(self, function, *args):
+        if self._closed:
+            raise RuntimeError("Piper voice is closed")
+        cancelled = threading.Event()
+        self._pending_work.add(cancelled)
+        context = contextvars.copy_context()
+
+        def invoke():
+            # A timed-out/cancelled queued utterance must never start inference.
+            if self._closed or cancelled.is_set():
+                return None
+            return function(*args, cancelled=cancelled)
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    self._executor, context.run, invoke
+                ),
+                RENDER_TIMEOUT_S,
+            )
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            cancelled.set()
+            raise
+        finally:
+            self._pending_work.discard(cancelled)
 
     def synthesize(
         self,
@@ -195,7 +253,32 @@ class PiperTTS(tts.TTS):
         return _PiperSynthesizeStream(tts=self, conn_options=conn_options)
 
     async def aclose(self) -> None:
-        self._voice = None
+        if self._close_task is None:
+            self._closed = True
+            for cancelled in self._pending_work:
+                cancelled.set()
+            self._close_task = asyncio.create_task(self._close())
+        try:
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            # Model disposal must not race a native call, even if shutdown is
+            # cancelled repeatedly. New utterances are already refused.
+            while not self._close_task.done():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.shield(self._close_task)
+            self._close_task.result()
+            raise
+
+    async def _close(self) -> None:
+        def release_voice():
+            self._voice = None
+
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                self._executor, release_voice
+            )
+        finally:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
 
 class _PiperSynthesizeStream(tts.SynthesizeStream):
@@ -211,9 +294,7 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
         # Preload so the emitter below uses the voice's real rate.
         # Missing model: _render_sentence raises helpfully per text.
         with contextlib.suppress(RuntimeError):
-            await asyncio.wait_for(
-                asyncio.to_thread(plugin._get_voice), RENDER_TIMEOUT_S
-            )
+            await plugin._run_worker(plugin._get_voice)
         output_emitter.initialize(
             request_id=utils.shortuuid(),
             sample_rate=plugin.sample_rate,
@@ -230,9 +311,8 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
                     if buffer.strip():
                         output_emitter.start_segment(segment_id=utils.shortuuid())
                         for sentence in sentence_split(buffer):
-                            pcm = await asyncio.wait_for(
-                                asyncio.to_thread(plugin._render_sentence, sentence),
-                                RENDER_TIMEOUT_S,
+                            pcm = await plugin._run_worker(
+                                plugin._render_sentence, sentence
                             )
                             if pcm:
                                 output_emitter.push(pcm)
@@ -245,9 +325,7 @@ class _PiperChunkedStream(tts.ChunkedStream):
         plugin: PiperTTS = self._tts  # type: ignore[assignment]
         sentences = sentence_split(self._input_text)
         if sentences:
-            await asyncio.wait_for(
-                asyncio.to_thread(plugin._get_voice), RENDER_TIMEOUT_S
-            )
+            await plugin._run_worker(plugin._get_voice)
         output_emitter.initialize(
             request_id=utils.shortuuid(),
             sample_rate=plugin.sample_rate,
@@ -256,10 +334,7 @@ class _PiperChunkedStream(tts.ChunkedStream):
         )
         async with plugin._lock:
             for sentence in sentences:
-                pcm = await asyncio.wait_for(
-                    asyncio.to_thread(plugin._render_sentence, sentence),
-                    RENDER_TIMEOUT_S,
-                )
+                pcm = await plugin._run_worker(plugin._render_sentence, sentence)
                 if pcm:
                     output_emitter.push(pcm)
         output_emitter.flush()

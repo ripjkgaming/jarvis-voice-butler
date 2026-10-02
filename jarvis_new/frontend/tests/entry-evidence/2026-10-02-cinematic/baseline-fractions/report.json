@@ -1,0 +1,139 @@
+{
+  "stage": "baseline",
+  "url": "http://127.0.0.1:4059",
+  "environment": "isolated Next dev source; headless Chromium; mocked native and bridge",
+  "limits": [
+    "Development build and synthetic headless timing; not production or native WebKit/KWin FPS.",
+    "Entry callback timing is JavaScript submission time, not GPU raster/compositor time.",
+    "Separate capture transitions are paused for stills; video and performance run freely.",
+    "Both stages reuse the same source tree except the two entry implementation files."
+  ],
+  "results": [
+    {
+      "kind": "fraction_stills",
+      "samples": [
+        {
+          "phase": "compress",
+          "duration": 820,
+          "fraction": 0.2,
+          "drawnElapsedMs": 166.5999999999999,
+          "sampledFraction": 0.20317073170731698,
+          "quality": {
+            "phase": "compress",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 23318,
+            "peakAlpha": 255,
+            "snapshots": 1,
+            "pointerEvents": "none"
+          },
+          "file": "entry-compress-20.png"
+        },
+        {
+          "phase": "compress",
+          "duration": 820,
+          "fraction": 0.45,
+          "drawnElapsedMs": 383.3000000000002,
+          "sampledFraction": 0.46743902439024415,
+          "quality": {
+            "phase": "compress",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 22902,
+            "peakAlpha": 255,
+            "snapshots": 1,
+            "pointerEvents": "none"
+          },
+          "file": "entry-compress-45.png"
+        },
+        {
+          "phase": "compress",
+          "duration": 820,
+          "fraction": 0.65,
+          "drawnElapsedMs": 533.1999999999998,
+          "sampledFraction": 0.6502439024390242,
+          "quality": {
+            "phase": "compress",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 13864,
+            "peakAlpha": 255,
+            "snapshots": 1,
+            "pointerEvents": "none"
+          },
+          "file": "entry-compress-65.png"
+        },
+        {
+          "phase": "forge",
+          "duration": 1100,
+          "fraction": 0.15,
+          "drawnElapsedMs": 166.60000000000036,
+          "sampledFraction": 0.15145454545454579,
+          "quality": {
+            "phase": "forge",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 56006,
+            "peakAlpha": 255,
+            "snapshots": 0,
+            "pointerEvents": "none"
+          },
+          "file": "entry-forge-15.png"
+        },
+        {
+          "phase": "forge",
+          "duration": 1100,
+          "fraction": 0.35,
+          "drawnElapsedMs": 400,
+          "sampledFraction": 0.36363636363636365,
+          "quality": {
+            "phase": "forge",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 96840,
+            "peakAlpha": 255,
+            "snapshots": 0,
+            "pointerEvents": "none"
+          },
+          "file": "entry-forge-35.png"
+        },
+        {
+          "phase": "forge",
+          "duration": 1100,
+          "fraction": 0.6,
+          "drawnElapsedMs": 666.5999999999999,
+          "sampledFraction": 0.6059999999999999,
+          "quality": {
+            "phase": "forge",
+            "width": 1600,
+            "height": 900,
+            "cssWidth": 1600,
+            "cssHeight": 900,
+            "dpr": 1,
+            "visiblePixels": 104150,
+            "peakAlpha": 255,
+            "snapshots": 0,
+            "pointerEvents": "none"
+          },
+          "file": "entry-forge-60.png"
+        }
+      ],
+      "method": "Capture-only RAF freeze at first frame crossing requested clamped drawn-clock fraction."
+    }
+  ]
+}

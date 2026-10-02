@@ -753,11 +753,12 @@ def search(query: str, limit: int = 8, graph: dict | None = None) -> list[dict]:
         if not isinstance(graph, dict):
             return []
         limit = max(1, min(50, int(limit or 8)))
-        scored = [
-            (_score(query, n), n)
-            for n in graph.get("nodes", []) or []
-            if isinstance(n, dict) and _score(query, n) > 0
-        ]
+        scored = []
+        for node in graph.get("nodes", []) or []:
+            if isinstance(node, dict):
+                score = _score(query, node)
+                if score > 0:
+                    scored.append((score, node))
         scored.sort(key=lambda pair: (-pair[0], pair[1].get("label", "")))
         return [n for _, n in scored[:limit]]
     except Exception:

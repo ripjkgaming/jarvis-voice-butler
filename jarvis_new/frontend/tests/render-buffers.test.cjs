@@ -84,7 +84,16 @@ const pool = (changes = {}) => ({
   ...changes,
 });
 const scene = (api) => ({ rim: api.buildRim(640, 360), pool: pool() });
-const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const digest = (value) => {
+  // Node 22/24 differ in fractional powers by up to 3.6e-15 here. Keep
+  // subpixel geometry/opacity precision without hashing those runtime bits.
+  const serialized = JSON.stringify(value, (_key, item) => {
+    if (typeof item !== 'number') return item;
+    assert.ok(Number.isFinite(item), 'renderer command numbers must be finite');
+    return Number(item.toFixed(9));
+  });
+  return createHash('sha256').update(serialized).digest('hex');
+};
 
 function tracerCommands(api) {
   const frames = [];
@@ -123,10 +132,11 @@ function poolCommands(api) {
 }
 
 // Fixed command-stream goldens captured before buffer reuse. They cover every
-// style, gradient, path command and exact coordinate, including frame sequences.
+// style, gradient, path command and coordinate, including frame sequences.
+// Numeric values are rounded to 1e-9; command order, strings and state stay exact.
 // They do not load a second renderer or depend on a saved development checkout.
-const TRACER_GOLDEN = '1d60e47c931fedca09d03cdfbfc6986bdc812ef0d818ad30a56465d089c163ce';
-const POOL_GOLDEN = '3e0bb0234dde8a8c3e5eb8098b0af054bd4e0683f717020edf8d8fddf8c34d5d';
+const TRACER_GOLDEN = '27a55ab14968ace3e3b2842b8d50f257aef3254b46571af51b472852adec6135';
+const POOL_GOLDEN = 'b00d46a1a52610fa431d8e98528ec0953f47069f0ca02a936d96e6a46ce5f0af';
 const api = loadRenderer();
 
 test('tracer command streams preserve both directions, long tails and landing boundaries', () => {
@@ -135,6 +145,22 @@ test('tracer command streams preserve both directions, long tails and landing bo
 
 test('pool command streams preserve fractional endpoints, insets, resizes and arrival easing', () => {
   assert.equal(digest(poolCommands(api)), POOL_GOLDEN);
+});
+
+test('normalized goldens still detect subpixel geometry, opacity, styles and command order', () => {
+  const commands = tracerCommands(api).find((frame) => frame[5].length > 0)[5];
+  const original = digest(commands);
+  const changes = {
+    geometry: (changed) => { changed.find(([name]) => name === 'lineTo')[1] += 1e-6; },
+    opacity: (changed) => { changed.find(([name, key]) => name === 'set' && key === 'globalAlpha')[2] += 1e-6; },
+    style: (changed) => { changed.find(([name, key]) => name === 'set' && key === 'strokeStyle')[2] = '#22d3ef'; },
+    order: (changed) => { [changed[0], changed[1]] = [changed[1], changed[0]]; },
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    const changed = structuredClone(commands);
+    change(changed);
+    assert.notEqual(digest(changed), original, `${name} changes must affect the golden`);
+  }
 });
 
 test('tracers allocate only when visible and reuse double-precision coordinates', () => {

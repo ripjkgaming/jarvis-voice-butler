@@ -1,0 +1,333 @@
+{
+  "kind": "Fresh interpreter import only; warm OS filesystem caches; no job, room, device, browser or model inference. -X importtime adds overhead. Does not establish join/first-audio latency.",
+  "python": "3.14.6 (main, Jun 11 2026, 00:00:00) [GCC 16.1.1 20260515 (Red Hat 16.1.1-2)]",
+  "rows": [
+    {
+      "wall_ms": 1742.3416870005894,
+      "top_cumulative": [
+        {
+          "self_ms": 1.6,
+          "cumulative_ms": 1322.805,
+          "module": "agent"
+        },
+        {
+          "self_ms": 0.353,
+          "cumulative_ms": 745.935,
+          "module": "livekit.agents"
+        },
+        {
+          "self_ms": 0.088,
+          "cumulative_ms": 742.227,
+          "module": "livekit.agents.cli"
+        },
+        {
+          "self_ms": 0.325,
+          "cumulative_ms": 742.139,
+          "module": "livekit.agents.cli.cli"
+        },
+        {
+          "self_ms": 0.192,
+          "cumulative_ms": 497.412,
+          "module": "livekit.agents.voice"
+        },
+        {
+          "self_ms": 1.304,
+          "cumulative_ms": 469.59,
+          "module": "livekit.agents.voice.io"
+        },
+        {
+          "self_ms": 0.915,
+          "cumulative_ms": 395.766,
+          "module": "livekit.agents.voice.agent"
+        },
+        {
+          "self_ms": 0.255,
+          "cumulative_ms": 368.995,
+          "module": "livekit.agents.inference"
+        },
+        {
+          "self_ms": 0.157,
+          "cumulative_ms": 347.978,
+          "module": "google.genai"
+        },
+        {
+          "self_ms": 1.654,
+          "cumulative_ms": 343.449,
+          "module": "livekit.agents.inference.llm"
+        },
+        {
+          "self_ms": 0.811,
+          "cumulative_ms": 341.795,
+          "module": "openai"
+        },
+        {
+          "self_ms": 166.407,
+          "cumulative_ms": 305.208,
+          "module": "google.genai.types"
+        }
+      ]
+    },
+    {
+      "wall_ms": 1725.0384090002626,
+      "top_cumulative": [
+        {
+          "self_ms": 2.255,
+          "cumulative_ms": 1302.705,
+          "module": "agent"
+        },
+        {
+          "self_ms": 0.308,
+          "cumulative_ms": 740.816,
+          "module": "livekit.agents"
+        },
+        {
+          "self_ms": 0.1,
+          "cumulative_ms": 738.084,
+          "module": "livekit.agents.cli"
+        },
+        {
+          "self_ms": 0.337,
+          "cumulative_ms": 737.985,
+          "module": "livekit.agents.cli.cli"
+        },
+        {
+          "self_ms": 0.186,
+          "cumulative_ms": 495.57,
+          "module": "livekit.agents.voice"
+        },
+        {
+          "self_ms": 1.6,
+          "cumulative_ms": 470.912,
+          "module": "livekit.agents.voice.io"
+        },
+        {
+          "self_ms": 0.92,
+          "cumulative_ms": 399.658,
+          "module": "livekit.agents.voice.agent"
+        },
+        {
+          "self_ms": 0.13,
+          "cumulative_ms": 375.278,
+          "module": "livekit.agents.inference"
+        },
+        {
+          "self_ms": 0.171,
+          "cumulative_ms": 362.459,
+          "module": "google.genai"
+        },
+        {
+          "self_ms": 1.324,
+          "cumulative_ms": 347.156,
+          "module": "livekit.agents.inference.llm"
+        },
+        {
+          "self_ms": 0.654,
+          "cumulative_ms": 345.833,
+          "module": "openai"
+        },
+        {
+          "self_ms": 176.007,
+          "cumulative_ms": 315.303,
+          "module": "google.genai.types"
+        }
+      ]
+    },
+    {
+      "wall_ms": 1765.7269880000968,
+      "top_cumulative": [
+        {
+          "self_ms": 1.708,
+          "cumulative_ms": 1338.13,
+          "module": "agent"
+        },
+        {
+          "self_ms": 0.275,
+          "cumulative_ms": 782.368,
+          "module": "livekit.agents"
+        },
+        {
+          "self_ms": 0.089,
+          "cumulative_ms": 779.824,
+          "module": "livekit.agents.cli"
+        },
+        {
+          "self_ms": 0.274,
+          "cumulative_ms": 779.735,
+          "module": "livekit.agents.cli.cli"
+        },
+        {
+          "self_ms": 0.181,
+          "cumulative_ms": 520.02,
+          "module": "livekit.agents.voice"
+        },
+        {
+          "self_ms": 1.231,
+          "cumulative_ms": 494.181,
+          "module": "livekit.agents.voice.io"
+        },
+        {
+          "self_ms": 0.906,
+          "cumulative_ms": 424.776,
+          "module": "livekit.agents.voice.agent"
+        },
+        {
+          "self_ms": 0.133,
+          "cumulative_ms": 399.428,
+          "module": "livekit.agents.inference"
+        },
+        {
+          "self_ms": 1.164,
+          "cumulative_ms": 374.17,
+          "module": "livekit.agents.inference.llm"
+        },
+        {
+          "self_ms": 0.553,
+          "cumulative_ms": 373.006,
+          "module": "openai"
+        },
+        {
+          "self_ms": 0.16,
+          "cumulative_ms": 356.315,
+          "module": "google.genai"
+        },
+        {
+          "self_ms": 169.875,
+          "cumulative_ms": 309.174,
+          "module": "google.genai.types"
+        }
+      ]
+    },
+    {
+      "wall_ms": 1829.5552849958767,
+      "top_cumulative": [
+        {
+          "self_ms": 2.447,
+          "cumulative_ms": 1382.464,
+          "module": "agent"
+        },
+        {
+          "self_ms": 0.297,
+          "cumulative_ms": 792.437,
+          "module": "livekit.agents"
+        },
+        {
+          "self_ms": 0.098,
+          "cumulative_ms": 788.98,
+          "module": "livekit.agents.cli"
+        },
+        {
+          "self_ms": 0.325,
+          "cumulative_ms": 788.883,
+          "module": "livekit.agents.cli.cli"
+        },
+        {
+          "self_ms": 0.216,
+          "cumulative_ms": 513.92,
+          "module": "livekit.agents.voice"
+        },
+        {
+          "self_ms": 1.308,
+          "cumulative_ms": 489.055,
+          "module": "livekit.agents.voice.io"
+        },
+        {
+          "self_ms": 0.974,
+          "cumulative_ms": 410.801,
+          "module": "livekit.agents.voice.agent"
+        },
+        {
+          "self_ms": 0.151,
+          "cumulative_ms": 382.198,
+          "module": "livekit.agents.inference"
+        },
+        {
+          "self_ms": 0.153,
+          "cumulative_ms": 381.772,
+          "module": "google.genai"
+        },
+        {
+          "self_ms": 1.285,
+          "cumulative_ms": 357.227,
+          "module": "livekit.agents.inference.llm"
+        },
+        {
+          "self_ms": 0.57,
+          "cumulative_ms": 355.943,
+          "module": "openai"
+        },
+        {
+          "self_ms": 183.804,
+          "cumulative_ms": 336.894,
+          "module": "google.genai.types"
+        }
+      ]
+    },
+    {
+      "wall_ms": 1809.109873000125,
+      "top_cumulative": [
+        {
+          "self_ms": 2.448,
+          "cumulative_ms": 1360.892,
+          "module": "agent"
+        },
+        {
+          "self_ms": 0.343,
+          "cumulative_ms": 752.006,
+          "module": "livekit.agents"
+        },
+        {
+          "self_ms": 0.118,
+          "cumulative_ms": 749.226,
+          "module": "livekit.agents.cli"
+        },
+        {
+          "self_ms": 0.338,
+          "cumulative_ms": 749.108,
+          "module": "livekit.agents.cli.cli"
+        },
+        {
+          "self_ms": 0.251,
+          "cumulative_ms": 490.579,
+          "module": "livekit.agents.voice"
+        },
+        {
+          "self_ms": 1.373,
+          "cumulative_ms": 466.44,
+          "module": "livekit.agents.voice.io"
+        },
+        {
+          "self_ms": 0.921,
+          "cumulative_ms": 389.441,
+          "module": "livekit.agents.voice.agent"
+        },
+        {
+          "self_ms": 0.151,
+          "cumulative_ms": 376.45,
+          "module": "google.genai"
+        },
+        {
+          "self_ms": 0.13,
+          "cumulative_ms": 361.76,
+          "module": "livekit.agents.inference"
+        },
+        {
+          "self_ms": 1.186,
+          "cumulative_ms": 337.819,
+          "module": "livekit.agents.inference.llm"
+        },
+        {
+          "self_ms": 0.518,
+          "cumulative_ms": 336.633,
+          "module": "openai"
+        },
+        {
+          "self_ms": 176.045,
+          "cumulative_ms": 322.749,
+          "module": "google.genai.types"
+        }
+      ]
+    }
+  ],
+  "median_wall_ms": 1765.7269880000968,
+  "command": "PYTHONPATH=src uv run python -X importtime -c \"import agent\" (private JARVIS_HOME; credentials/display removed; dotenv/Needle/local actions disabled)"
+}

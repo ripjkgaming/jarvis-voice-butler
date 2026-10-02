@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "final_transition_sha256": "59ea8aabfb483adc4a982be32a00d74affd143f076acecce22bb6087529bd36f",
+  "final_renderer_sha256": "97c1294bb2d364f396ff25a97a23ad9b7f4c38b530370bb2bcd0fdc26fc99b07",
+  "source_integrity_files": 173,
+  "changed_from_baseline": [
+    "components/hud/school-transition.tsx",
+    "lib/school-entry-scene.ts"
+  ],
+  "final_export_files": 55,
+  "balanced_timing_samples": 18,
+  "samples_per_source_per_case": 3,
+  "focused_lifecycle_groups": 8,
+  "school_smoke_scenarios": 7,
+  "phase_stills": 10,
+  "fraction_stills": 6,
+  "uninterrupted_video": "final-validation/media/normal-to-school.webm",
+  "private_servers_and_browsers_stopped": true,
+  "browser_performance_slot_released": true,
+  "private_source_preserved": "/tmp/jarvis-entry-production-20261002-67z8d31s/frontend",
+  "shared_next_out_shell_ui_touched": false,
+  "native_build_or_live_app_change": false,
+  "historical_perspective_evidence_preserved": true,
+  "continuity_checks": "Renderer unchanged from SHA 97c1294b; the four previously passed exact RGBA endpoint checks still apply.",
+  "limits": [
+    "Headless Chromium software-compositor evidence is not native WebKit/KWin FPS.",
+    "Final paired timings followed backend pytest completion; ordinary shared-host background load remained.",
+    "P95 matches baseline range; final still has occasional extra late frames, especially DPR2."
+  ]
+}

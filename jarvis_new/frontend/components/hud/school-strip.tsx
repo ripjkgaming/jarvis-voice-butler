@@ -13,6 +13,8 @@ import {
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { AppIcon, MENU_EXTRA, type MenuKind, MenuLayer } from '@/components/hud/school-menus';
 import { VoiceLinkRail } from '@/components/hud/voice-link';
+import { InsightsLaunchers } from '@/components/insights/insights-launchers';
+import type { InsightsTab } from '@/hooks/hud/use-insights';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import { refreshWindowGeometry, useWindowGeometry } from '@/hooks/hud/use-window-geometry';
@@ -643,6 +645,7 @@ export function SchoolStrip({
   muted,
   leaving = false,
   diagnosticsOpen = false,
+  onInsights,
   link,
 }: {
   sys: BridgeSys | null;
@@ -651,6 +654,7 @@ export function SchoolStrip({
   /** School mode is ending: fold the bar back into its line. */
   leaving?: boolean;
   diagnosticsOpen?: boolean;
+  onInsights: (tab: InsightsTab) => void;
   link: VoiceLink;
 }) {
   const line = useStreamLine();
@@ -715,6 +719,7 @@ export function SchoolStrip({
           pinned={sys?.launchers ?? []}
           onClose={close}
           active={!leaving}
+          launcherExtras={<InsightsLaunchers onOpen={onInsights} menu />}
         />
       ) : (
         <div className="smenu-spacer" onClick={menu ? close : undefined} />

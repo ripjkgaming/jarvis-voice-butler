@@ -1,0 +1,328 @@
+TAP version 13
+# Subtest: a stalled frame advances at most 34 ms; negative deltas never rewind
+ok 1 - a stalled frame advances at most 34 ms; negative deltas never rewind
+  ---
+  duration_ms: 108.256612
+  type: 'test'
+  ...
+# Subtest: concurrent tweens update together before their frame is painted
+ok 2 - concurrent tweens update together before their frame is painted
+  ---
+  duration_ms: 18.55205
+  type: 'test'
+  ...
+# Subtest: settle waits for three actual frames, not its initial condition check
+ok 3 - settle waits for three actual frames, not its initial condition check
+  ---
+  duration_ms: 17.040034
+  type: 'test'
+  ...
+# Subtest: wait times out even when no animation frames arrive
+ok 4 - wait times out even when no animation frames arrive
+  ---
+  duration_ms: 12.971724
+  type: 'test'
+  ...
+# Subtest: a stalled tween finishes at its endpoint after its real-time safety cap
+ok 5 - a stalled tween finishes at its endpoint after its real-time safety cap
+  ---
+  duration_ms: 15.275232
+  type: 'test'
+  ...
+# Subtest: reversal disposal releases pending work and prevents further updates
+ok 6 - reversal disposal releases pending work and prevents further updates
+  ---
+  duration_ms: 9.290284
+  type: 'test'
+  ...
+# Subtest: the frozen HUD attaches before pending geometry; reversal suppresses late IPC continuation
+ok 7 - the frozen HUD attaches before pending geometry; reversal suppresses late IPC continuation
+  ---
+  duration_ms: 119.122092
+  type: 'test'
+  ...
+# Subtest: the frozen HUD folds on one affine surface about its reactor without relayout, then detaches
+ok 8 - the frozen HUD folds on one affine surface about its reactor without relayout, then detaches
+  ---
+  duration_ms: 41.43535
+  type: 'test'
+  ...
+# Subtest: reduced motion saves the original decorated HUD geometry before direct docking
+ok 9 - reduced motion saves the original decorated HUD geometry before direct docking
+  ---
+  duration_ms: 2.005864
+  type: 'test'
+  ...
+# Subtest: stalled initial native is bounded, clears stale return geometry and ignores late settlement
+ok 10 - stalled initial native is bounded, clears stale return geometry and ignores late settlement
+  ---
+  duration_ms: 91.480789
+  type: 'test'
+  ...
+# Subtest: stalled initial bridge is bounded, clears stale return geometry and ignores late settlement
+ok 11 - stalled initial bridge is bounded, clears stale return geometry and ignores late settlement
+  ---
+  duration_ms: 95.964566
+  type: 'test'
+  ...
+# Subtest: unavailable entry canvas (noContext) docks safely and releases transition state
+ok 12 - unavailable entry canvas (noContext) docks safely and releases transition state
+  ---
+  duration_ms: 1.640154
+  type: 'test'
+  ...
+# Subtest: unavailable entry canvas (contextThrows) docks safely and releases transition state
+ok 13 - unavailable entry canvas (contextThrows) docks safely and releases transition state
+  ---
+  duration_ms: 1.858559
+  type: 'test'
+  ...
+# Subtest: equal-size monitor transfer stays transparent until a fresh destination acknowledgement
+ok 14 - equal-size monitor transfer stays transparent until a fresh destination acknowledgement
+  ---
+  duration_ms: 35.587598
+  type: 'test'
+  ...
+# Subtest: offscreen entry suspends all RAF work and resumes without skipping drawn time
+ok 15 - offscreen entry suspends all RAF work and resumes without skipping drawn time
+  ---
+  duration_ms: 32.872317
+  type: 'test'
+  ...
+# Subtest: changing hide during entry docks once and cannot revive the completed renderer
+ok 16 - changing hide during entry docks once and cannot revive the completed renderer
+  ---
+  duration_ms: 90.619846
+  type: 'test'
+  ...
+# Subtest: changing reduce during entry docks once and cannot revive the completed renderer
+ok 17 - changing reduce during entry docks once and cannot revive the completed renderer
+  ---
+  duration_ms: 95.57308
+  type: 'test'
+  ...
+# Subtest: the revealed interactive bar stays unclipped during a delayed dock acknowledgement
+ok 18 - the revealed interactive bar stays unclipped during a delayed dock acknowledgement
+  ---
+  duration_ms: 16.097643
+  type: 'test'
+  ...
+# Subtest: stalled docking and missing viewport acknowledgement have a bounded completion
+ok 19 - stalled docking and missing viewport acknowledgement have a bounded completion
+  ---
+  duration_ms: 112.637389
+  type: 'test'
+  ...
+# Subtest: reversal while docking suppresses a late completion callback
+ok 20 - reversal while docking suppresses a late completion callback
+  ---
+  duration_ms: 79.530665
+  type: 'test'
+  ...
+# Subtest: return-to-school arrival preserves the saved normal HUD rectangle
+ok 21 - return-to-school arrival preserves the saved normal HUD rectangle
+  ---
+  duration_ms: 14.161284
+  type: 'test'
+  ...
+# Subtest: reversal during pending monitor IPC cannot replay arrival, docking or readiness callbacks
+ok 22 - reversal during pending monitor IPC cannot replay arrival, docking or readiness callbacks
+  ---
+  duration_ms: 90.524117
+  type: 'test'
+  ...
+# Subtest: the overall deadline releases an entry whose animation frames never arrive
+ok 23 - the overall deadline releases an entry whose animation frames never arrive
+  ---
+  duration_ms: 81.845885
+  type: 'test'
+  ...
+# Subtest: all phases reuse native-DPR sprites and seeded storage without frame-time gradients
+ok 24 - all phases reuse native-DPR sprites and seeded storage without frame-time gradients
+  ---
+  duration_ms: 209.534174
+  type: 'test'
+  ...
+# Subtest: cross-monitor core leaves and receives through opposite facing edges in every direction
+ok 25 - cross-monitor core leaves and receives through opposite facing edges in every direction
+  ---
+  duration_ms: 83.230835
+  type: 'test'
+  ...
+# Subtest: native viewport resizes reuse the glow atlas until DPR changes
+ok 26 - native viewport resizes reuse the glow atlas until DPR changes
+  ---
+  duration_ms: 77.621094
+  type: 'test'
+  ...
+# Subtest: compression anchors reactor and descent lands precisely on target taskbar center
+ok 27 - compression anchors reactor and descent lands precisely on target taskbar center
+  ---
+  duration_ms: 52.752773
+  type: 'test'
+  ...
+# Subtest: articulated wings seat on the exact inset/bar rectangle and final reveal is transparent
+ok 28 - articulated wings seat on the exact inset/bar rectangle and final reveal is transparent
+  ---
+  duration_ms: 31.567623
+  type: 'test'
+  ...
+# Subtest: wing panels hinge above the dock before locking inside its final rectangle
+ok 29 - wing panels hinge above the dock before locking inside its final rectangle
+  ---
+  duration_ms: 36.323372
+  type: 'test'
+  ...
+# Subtest: seeking through another phase cannot leave geometry behind on a repeated pose
+ok 30 - seeking through another phase cannot leave geometry behind on a repeated pose
+  ---
+  duration_ms: 40.821596
+  type: 'test'
+  ...
+# Subtest: bounded progress is deterministic and disposal releases backing pixels
+ok 31 - bounded progress is deterministic and disposal releases backing pixels
+  ---
+  duration_ms: 29.147008
+  type: 'test'
+  ...
+# Subtest: equal-size monitor moves require a fresh nonce reporting the destination coordinates
+ok 32 - equal-size monitor moves require a fresh nonce reporting the destination coordinates
+  ---
+  duration_ms: 286.596666
+  type: 'test'
+  ...
+# Subtest: return acknowledgement requires the saved screen and a fully resized viewport
+ok 33 - return acknowledgement requires the saved screen and a fully resized viewport
+  ---
+  duration_ms: 75.524937
+  type: 'test'
+  ...
+# Subtest: a pending report keeps its nonce; a newer primary is taken from the fresh report
+ok 34 - a pending report keeps its nonce; a newer primary is taken from the fresh report
+  ---
+  duration_ms: 57.115996
+  type: 'test'
+  ...
+# Subtest: stalled native measurement is bounded and its late resolution cannot restart polling
+ok 35 - stalled native measurement is bounded and its late resolution cannot restart polling
+  ---
+  duration_ms: 51.52321
+  type: 'test'
+  ...
+# Subtest: stalled geometry response is bounded and a late valid report cannot acknowledge arrival
+ok 36 - stalled geometry response is bounded and a late valid report cannot acknowledge arrival
+  ---
+  duration_ms: 27.652572
+  type: 'test'
+  ...
+# Subtest: reversal cancels pending retries and never measures the destination afterward
+ok 37 - reversal cancels pending retries and never measures the destination afterward
+  ---
+  duration_ms: 39.541439
+  type: 'test'
+  ...
+# Subtest: unavailable geometry fails safely on its real-time deadline without extra measurements
+ok 38 - unavailable geometry fails safely on its real-time deadline without extra measurements
+  ---
+  duration_ms: 37.467006
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when cover-at is unavailable
+ok 39 - return recovers and releases UI/RAF when cover-at is unavailable
+  ---
+  duration_ms: 302.657671
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when restore is unavailable
+ok 40 - return recovers and releases UI/RAF when restore is unavailable
+  ---
+  duration_ms: 139.071777
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when measure is unavailable
+ok 41 - return recovers and releases UI/RAF when measure is unavailable
+  ---
+  duration_ms: 81.580799
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when geometry is unavailable
+ok 42 - return recovers and releases UI/RAF when geometry is unavailable
+  ---
+  duration_ms: 57.920092
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when no-context is unavailable
+ok 43 - return recovers and releases UI/RAF when no-context is unavailable
+  ---
+  duration_ms: 44.188385
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when context-throws is unavailable
+ok 44 - return recovers and releases UI/RAF when context-throws is unavailable
+  ---
+  duration_ms: 32.008077
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when scan-restore is unavailable
+ok 45 - return recovers and releases UI/RAF when scan-restore is unavailable
+  ---
+  duration_ms: 45.852723
+  type: 'test'
+  ...
+# Subtest: return recovers and releases UI/RAF when rejected-cover is unavailable
+ok 46 - return recovers and releases UI/RAF when rejected-cover is unavailable
+  ---
+  duration_ms: 41.677859
+  type: 'test'
+  ...
+# Subtest: unmount cancels a stalled return without a late restore or callback
+ok 47 - unmount cancels a stalled return without a late restore or callback
+  ---
+  duration_ms: 25.541225
+  type: 'test'
+  ...
+# Subtest: late cover-at settlement cannot restart a completed return
+ok 48 - late cover-at settlement cannot restart a completed return
+  ---
+  duration_ms: 33.513328
+  type: 'test'
+  ...
+# Subtest: late measure settlement cannot restart a completed return
+ok 49 - late measure settlement cannot restart a completed return
+  ---
+  duration_ms: 26.195792
+  type: 'test'
+  ...
+# Subtest: late geometry settlement cannot restart a completed return
+ok 50 - late geometry settlement cannot restart a completed return
+  ---
+  duration_ms: 27.980495
+  type: 'test'
+  ...
+# Subtest: late restore settlement cannot restart a completed return
+ok 51 - late restore settlement cannot restart a completed return
+  ---
+  duration_ms: 25.626707
+  type: 'test'
+  ...
+# Subtest: the overall deadline releases a return whose animation frames stop
+ok 52 - the overall deadline releases a return whose animation frames stop
+  ---
+  duration_ms: 31.245202
+  type: 'test'
+  ...
+# Subtest: successful null native replies retain sink, draft and scan before completing
+ok 53 - successful null native replies retain sink, draft and scan before completing
+  ---
+  duration_ms: 31.398268
+  type: 'test'
+  ...
+1..53
+# tests 53
+# suites 0
+# pass 53
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1688.811274

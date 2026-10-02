@@ -1,0 +1,25 @@
+from __future__ import annotations
+import asyncio,importlib.util
+from argparse import Namespace
+from functools import partial
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+from urllib.parse import urlparse
+ROOT=Path('/mnt/data/jarvis-voice-butler/jarvis_new/frontend')
+SPEC=importlib.util.spec_from_file_location('school',ROOT/'tests/school-mode-smoke.py')
+S=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(S)
+EXPORT=Path('/tmp/jarvis-entry-production-20261002-67z8d31s/frontend/out')
+server=ThreadingHTTPServer(('127.0.0.1',0),partial(S.QuietHandler,directory=str(EXPORT)))
+Thread(target=server.serve_forever,daemon=True).start()
+URL=f'http://127.0.0.1:{server.server_port}'
+original=S.Desktop.install
+async def install(desktop):
+ async def route_request(route):
+  if urlparse(route.request.url).netloc==urlparse(URL).netloc:await route.continue_()
+  else:await route.abort()
+ await desktop.page.route('**/*',route_request)
+ await original(desktop)
+S.Desktop.install=install
+try:asyncio.run(S.run(Namespace(screenshots=None,cross_only=False),URL))
+finally:server.shutdown();server.server_close()

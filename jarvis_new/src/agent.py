@@ -1862,6 +1862,11 @@ async def my_agent(ctx: JobContext):
         with contextlib.suppress(Exception):
             _vad = await asyncio.to_thread(silero.VAD.load, **vad_kwargs())
     session = _session_for_pipeline(turn_handling, vad=_vad)
+    # AgentSession closes its streams, but leaves provider plugins owned by
+    # the caller. Drain this job's native voice worker at job shutdown even
+    # when startup fails or the closed session remains referenced.
+    if isinstance(session.tts, PiperTTS):
+        ctx.add_shutdown_callback(session.tts.aclose)
     # NOTE: local-pipeline expressive mode stays off (see _session_for_pipeline):
     # expressive=True needs a markup-capable TTS such as Fish Audio.
     # _session_tts() returns local Piper by default.

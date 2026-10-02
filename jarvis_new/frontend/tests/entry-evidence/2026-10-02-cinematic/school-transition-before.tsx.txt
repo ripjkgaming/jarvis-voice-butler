@@ -1,0 +1,690 @@
+'use client';
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { frameClock, runTimers } from '@/lib/animation-clock';
+import { type SchoolGeom, bridgeSchoolGeom } from '@/lib/bridge';
+import { type EntryPhase, createEntryScene } from '@/lib/school-entry-scene';
+import { invoke, isTauri } from '@/lib/tauri';
+
+export { frameClock, runTimers } from '@/lib/animation-clock';
+
+// The return keeps its existing packet choreography and shared geometry helpers.
+export const UPLINK_MS = 520;
+export const DOWNLINK_MS = 560;
+export const BAR_RADIUS = 8;
+const FALLBACK_BAR_PX = 48;
+
+export type HudRect = {
+  frame: number[];
+  content: number[];
+  screen: number[];
+  primary?: number[];
+};
+const HUD_RECT_KEY = 'jarvis.school.hudRect';
+function saveHudRect(rect: HudRect) {
+  try {
+    localStorage.setItem(HUD_RECT_KEY, JSON.stringify(rect));
+  } catch {
+    // The native restore retains its own safe fallback if storage is unavailable.
+  }
+}
+export function loadHudRect(): HudRect | null {
+  try {
+    const r = JSON.parse(localStorage.getItem(HUD_RECT_KEY) ?? 'null');
+    const ok = (a: unknown) => Array.isArray(a) && a.length === 4 && a.every(Number.isFinite);
+    return r && ok(r.frame) && ok(r.content) && ok(r.screen) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+export type SchoolTx = {
+  kind: 'collapse' | 'arrive';
+  id: number;
+  snapshot: HTMLElement | null;
+  origin: [number, number];
+};
+
+/** Capture one native-resolution HUD at its current pose before React changes
+ * faces. The frozen copy contains no React effects or active voice connection. */
+function freezeHud(): Pick<SchoolTx, 'snapshot' | 'origin'> {
+  const hud = document.querySelector<HTMLElement>('.hud');
+  const reactor = hud?.querySelector('[aria-label="Voice core"] svg');
+  const rect = reactor?.getBoundingClientRect();
+  const origin: [number, number] = rect
+    ? [rect.left + rect.width / 2, rect.top + rect.height / 2]
+    : [window.innerWidth / 2, window.innerHeight / 2];
+  if (!hud || document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    return { snapshot: null, origin };
+
+  const nodes = [hud, ...hud.querySelectorAll<HTMLElement | SVGElement>('*')];
+  const indices = new Map<Element, number>(nodes.map((node, i) => [node, i]));
+  const poses = new Map<number, Map<string, string>>();
+  for (const animation of hud.getAnimations({ subtree: true })) {
+    const effect = animation.effect;
+    if (!(effect instanceof KeyframeEffect) || !effect.target) continue;
+    const index = indices.get(effect.target);
+    if (index === undefined) continue;
+    const pose = poses.get(index) ?? new Map<string, string>();
+    const computed = getComputedStyle(effect.target);
+    for (const frame of effect.getKeyframes()) {
+      for (const key of Object.keys(frame)) {
+        if (['offset', 'computedOffset', 'easing', 'composite'].includes(key)) continue;
+        const property = key.replace(/[A-Z]/g, (v) => `-${v.toLowerCase()}`);
+        pose.set(property, computed.getPropertyValue(property));
+      }
+    }
+    poses.set(index, pose);
+  }
+  const snapshot = document.createElement('div');
+  snapshot.className = 'stx-snapshot';
+  snapshot.inert = true;
+  const copy = hud.cloneNode(true) as HTMLElement;
+  const copied = [copy, ...copy.querySelectorAll<HTMLElement | SVGElement>('*')];
+  poses.forEach((pose, i) => {
+    copied[i].style.setProperty('animation', 'none', 'important');
+    pose.forEach((value, property) => copied[i].style.setProperty(property, value, 'important'));
+  });
+  const canvases = copy.querySelectorAll('canvas');
+  hud.querySelectorAll('canvas').forEach((source, i) => {
+    const target = canvases[i];
+    if (!target) return;
+    target.width = source.width;
+    target.height = source.height;
+    try {
+      target.getContext('2d')?.drawImage(source, 0, 0);
+    } catch {
+      // A tainted external canvas cannot be copied; all native HUD layers remain.
+    }
+  });
+  copy.style.width = `${window.innerWidth}px`;
+  copy.style.height = `${window.innerHeight}px`;
+  snapshot.style.transformOrigin = `${origin[0]}px ${origin[1]}px`;
+  snapshot.appendChild(copy);
+  return { snapshot, origin };
+}
+
+export function useSchoolTransition() {
+  const [tx, setTx] = useState<SchoolTx | null>(null);
+  const [barH, setBarH] = useState<number | null>(null);
+  const [barInset, setBarInset] = useState(0);
+  const serial = useRef(0);
+  useEffect(() => {
+    const onSignal = (event: Event) => {
+      const phase = String((event as CustomEvent).detail);
+      if (phase === 'collapse' || phase === 'arrive') {
+        setBarH(null);
+        setTx({
+          kind: phase,
+          id: ++serial.current,
+          ...(phase === 'collapse'
+            ? freezeHud()
+            : {
+                snapshot: null,
+                origin: [window.innerWidth / 2, window.innerHeight * 0.42] as [number, number],
+              }),
+        });
+      } else if (phase === 'expand' || phase === 'return') {
+        setTx(null);
+        setBarH(null);
+      }
+    };
+    window.addEventListener('jarvis-school', onSignal);
+    return () => window.removeEventListener('jarvis-school', onSignal);
+  }, []);
+  const done = useCallback(() => setTx(null), []);
+  const showBar = useCallback((height: number, inset: number) => {
+    setBarInset(inset);
+    setBarH(height);
+  }, []);
+  return { tx, barH, barInset, showBar, done };
+}
+
+export type Seg = { x0: number; y0: number; x1: number; y1: number; a: number };
+
+export const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const easeInOut = (u: number) => 0.5 - 0.5 * Math.cos(Math.PI * u);
+export const easeOut = (u: number) => 1 - (1 - u) ** 3;
+export const easeIn = (u: number) => u * u * u;
+export const smooth = (e0: number, e1: number, v: number) => {
+  const t = clamp01((v - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
+};
+
+export function rgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [95, 227, 255];
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+export function drawSeg(ctx: CanvasRenderingContext2D, s: Seg, c: string) {
+  if (s.a <= 0.001) return;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = c;
+  for (const [width, alpha] of [
+    [14, 0.07],
+    [6, 0.18],
+    [2, 1],
+  ] as const) {
+    ctx.globalAlpha = alpha * s.a;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(s.x0, s.y0);
+    ctx.lineTo(s.x1, s.y1);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.8 * s.a;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(s.x0, s.y0);
+  ctx.lineTo(s.x1, s.y1);
+  ctx.stroke();
+}
+
+/** One fluid tracer: a tapering, gently rippling tail behind a bright
+ *  head. Marks it landed (and feeds the pool) when it reaches the end. */
+export type Dir = 'left' | 'right' | 'up' | 'down';
+
+/** One packet of the beam between monitors: a streak (sometimes carrying a
+ *  glyph) moving from `a` to `b`, accelerating out (uplink) or settling in
+ *  (downlink). */
+export type Packet = {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  t0: number;
+  dur: number;
+  out: boolean;
+  glyph: string | null;
+  size: number;
+  /** Optional bend (quadratic control point): the packet curves through
+   *  the middle instead of flying straight. */
+  cx?: number;
+  cy?: number;
+};
+
+const GLYPHS = '0101100110ABCDEF#';
+const PACKETS = 150;
+const glyph = () => (Math.random() < 0.28 ? GLYPHS[(Math.random() * GLYPHS.length) | 0] : null);
+const vec = (d: Dir): [number, number] =>
+  d === 'left' ? [-1, 0] : d === 'right' ? [1, 0] : d === 'up' ? [0, -1] : [0, 1];
+
+/** Lines dissolving into packets that race off the screen's `dir` edge. */
+export function uplink(segs: Seg[], dir: Dir, w: number, h: number, now: number): Packet[] {
+  const [dx, dy] = vec(dir);
+  const out: Packet[] = [];
+  for (let i = 0; i < PACKETS && segs.length; i++) {
+    const s = segs[i % segs.length];
+    const f = Math.random();
+    const ax = s.x0 + (s.x1 - s.x0) * f;
+    const ay = s.y0 + (s.y1 - s.y0) * f;
+    // Straight out through the edge, lanes drifting a little.
+    const reach = dx ? (dx > 0 ? w - ax : ax) + 120 : (dy > 0 ? h - ay : ay) + 120;
+    const drift = (Math.random() - 0.5) * 60;
+    out.push({
+      ax,
+      ay,
+      bx: ax + dx * reach + (dx ? 0 : drift),
+      by: ay + dy * reach + (dy ? 0 : drift),
+      t0: now + Math.random() * UPLINK_MS * 0.8,
+      dur: 300 + Math.random() * 260,
+      out: true,
+      glyph: glyph(),
+      size: 0.6 + Math.random(),
+    });
+  }
+  return out;
+}
+
+/** Packets pouring in through the edge opposite `dir` (they travel toward
+ *  `dir`) and packing onto `seg`. */
+export function downlink(seg: Seg, dir: Dir, w: number, h: number, now: number): Packet[] {
+  const [dx, dy] = vec(dir);
+  const out: Packet[] = [];
+  for (let i = 0; i < PACKETS; i++) {
+    const f = Math.random();
+    const bx = seg.x0 + (seg.x1 - seg.x0) * f;
+    const by = seg.y0 + (seg.y1 - seg.y0) * f;
+    const spread = (Math.random() - 0.5) * (dx ? h : w) * 0.5;
+    out.push({
+      ax: dx ? (dx > 0 ? -60 - Math.random() * 160 : w + 60 + Math.random() * 160) : bx + spread,
+      ay: dy ? (dy > 0 ? -60 - Math.random() * 160 : h + 60 + Math.random() * 160) : by + spread,
+      bx,
+      by,
+      t0: now + Math.random() * DOWNLINK_MS * 0.55,
+      dur: 340 + Math.random() * 220,
+      out: false,
+      glyph: glyph(),
+      size: 0.6 + Math.random(),
+    });
+  }
+  return out;
+}
+
+const packetAt = (p: Packet, u: number, out: [number, number]): void => {
+  if (p.cx !== undefined && p.cy !== undefined) {
+    const e = easeInOut(u);
+    const k = 1 - e;
+    out[0] = k * k * p.ax + 2 * k * e * p.cx + e * e * p.bx;
+    out[1] = k * k * p.ay + 2 * k * e * p.cy + e * e * p.by;
+    return;
+  }
+  const e = p.out ? u ** 2.2 : easeOut(u);
+  out[0] = p.ax + (p.bx - p.ax) * e;
+  out[1] = p.ay + (p.by - p.ay) * e;
+};
+
+/** All packets still in flight: a streak whose length follows its speed,
+ *  a bright head, and its glyph riding along. */
+export function drawPackets(ctx: CanvasRenderingContext2D, ps: Packet[], now: number, c: string) {
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = c;
+  ctx.fillStyle = c;
+  ctx.font = '600 9px ui-monospace, monospace';
+  const head: [number, number] = [0, 0];
+  const tail: [number, number] = [0, 0];
+  for (const p of ps) {
+    const u = (now - p.t0) / p.dur;
+    if (u <= 0 || u >= 1) continue;
+    packetAt(p, u, head);
+    packetAt(p, Math.max(0, u - 0.12), tail);
+    const [x, y] = head;
+    const [tx, ty] = tail;
+    const fade = p.out ? 1 - u * 0.3 : Math.min(1, u * 3);
+    ctx.globalAlpha = 0.18 * fade;
+    ctx.lineWidth = 4 * p.size;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.globalAlpha = 0.85 * fade;
+    ctx.lineWidth = 1.1 * p.size;
+    ctx.stroke();
+    if (p.glyph) {
+      ctx.globalAlpha = 0.9 * fade;
+      ctx.fillText(p.glyph, x + 3, y - 3);
+    }
+  }
+}
+
+/** When the last packet in `ps` lands (ms timestamp). */
+export const beamEnd = (ps: Packet[]) => Math.max(0, ...ps.map((p) => p.t0 + p.dur));
+
+/* ------------------------------ the run ------------------------------ */
+
+export const stage = (name: string, nonce?: string, rect?: number[]) =>
+  isTauri()
+    ? invoke('school_stage', {
+        stage: name,
+        nonce,
+        rect: rect?.map((v) => Math.round(v)),
+      }).catch(() => undefined)
+    : Promise.resolve(undefined);
+
+/** A viewport resize cannot distinguish equally sized monitors. Ask KWin
+ * for a new snapshot after every move, and after every mismatched report,
+ * before drawing the arrival. The real-time cap also bounds stalled IPC. */
+export async function waitForSchoolScreen(
+  target: SchoolGeom['out'] | 'primary',
+  alive: () => boolean,
+  capMs = 2500
+): Promise<SchoolGeom | null> {
+  let stopped = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const active = () => !stopped && alive();
+  const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 70));
+  const read = async (): Promise<SchoolGeom | null> => {
+    while (active()) {
+      const nonce = Math.random().toString(36).slice(2, 12);
+      await stage('measure', nonce);
+      while (active()) {
+        const geom = await bridgeSchoolGeom(nonce).catch(() => null);
+        if (!active()) return null;
+        if (geom) {
+          const dest = target === 'primary' ? geom.primary : target;
+          const onScreen = (['x', 'y', 'w', 'h'] as const).every(
+            (axis) => Math.abs(geom.out[axis] - dest[axis]) <= 2
+          );
+          const fullSize =
+            Math.abs(window.innerWidth - dest.w) <= 2 && Math.abs(window.innerHeight - dest.h) <= 2;
+          if (onScreen && fullSize) return geom;
+          // This nonce describes the old position forever; request a fresh
+          // measurement once the compositor has had another chance to move.
+          break;
+        }
+        await pause();
+      }
+      if (active()) await pause();
+    }
+    return null;
+  };
+  const deadline = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => {
+      stopped = true;
+      resolve(null);
+    }, capMs);
+  });
+  try {
+    return await Promise.race([read(), deadline]);
+  } finally {
+    stopped = true;
+    clearTimeout(timeout);
+  }
+}
+
+/** Aperture → reactor compression → courier → descent → blueprint assembly.
+ * Native geometry acknowledgements separate the visual stages. Only this
+ * transition owns a frame loop, and it runs only while there is visible motion. */
+export function SchoolTransition({
+  tx,
+  color,
+  onBar,
+  onDone,
+}: {
+  tx: SchoolTx;
+  color: string;
+  onBar: (height: number, inset: number) => void;
+  onDone: () => void;
+}) {
+  const layer = useRef<HTMLDivElement>(null);
+  const overlay = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const colorRef = useRef(color);
+  colorRef.current = color;
+
+  // useLayoutEffect puts the captured HUD back before the first post-signal paint,
+  // including while the asynchronous compositor measurement is still pending.
+  useLayoutEffect(() => {
+    if (tx.snapshot) layer.current?.appendChild(tx.snapshot);
+    return () => tx.snapshot?.remove();
+  }, [tx]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const host = overlay.current;
+    if (!canvas || !host) return;
+    const root = document.documentElement;
+    root.classList.add('school-tx', 'school-entry');
+    const scene = createEntryScene(canvas, colorRef.current);
+    const clock = frameClock();
+    let alive = true;
+    let finishing = false;
+    let measured = false;
+    let inView = true;
+    let moving = false;
+    let raf = 0;
+    let phase: EntryPhase = 'aperture';
+    let progress = 0;
+    let coreX = tx.origin[0];
+    let coreY = tx.origin[1];
+    let bar = FALLBACK_BAR_PX;
+    let inset = 0;
+    let direction: Dir = 'left';
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let fast = !scene || media.matches || document.hidden;
+    const active = () => alive && !finishing;
+    const { sleep, tween } = runTimers(clock, active);
+    // Includes stalled IPC, rather than starting the deadline after it returns.
+    const bounded = async <T,>(work: Promise<T>, ms: number): Promise<T | null> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          work,
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), ms);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const advance = (name: string, nonce?: string, rect?: number[]) =>
+      active() ? bounded(stage(name, nonce, rect), 1800) : Promise.resolve(null);
+    const resize = () => {
+      if (!active()) return;
+      scene?.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
+    };
+    resize();
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      canvas.dataset.entryRunning = 'false';
+    };
+    const visible = () => active() && moving && inView && !document.hidden && !media.matches;
+    const frame = (now: number) => {
+      raf = 0;
+      if (!visible()) {
+        stop();
+        return;
+      }
+      clock.tick(now);
+      if (!visible()) {
+        stop();
+        return;
+      }
+      scene?.draw(phase, progress, coreX, coreY, bar, inset, direction);
+      raf = requestAnimationFrame(frame);
+    };
+    const sync = () => {
+      if (visible()) {
+        if (!raf) raf = requestAnimationFrame(frame);
+        canvas.dataset.entryRunning = 'true';
+      } else stop();
+    };
+    const quiet = () => {
+      moving = false;
+      sync();
+      scene?.clear();
+      host.dataset.entryPhase = 'geometry';
+    };
+    const finishDock = async () => {
+      if (!active()) return;
+      finishing = true;
+      moving = false;
+      stop();
+      clock.dispose();
+      scene?.clear();
+      tx.snapshot?.remove();
+      host.dataset.entryPhase = 'dock';
+      root.style.setProperty('--school-entry-reveal', '0%');
+      if (!alive) return;
+      await bounded(stage('dock'), 1800);
+      // Keep the transition face until the viewport actually docks. A stalled
+      // shell still has its own generation-guarded watchdog and panel keeper.
+      const start = performance.now();
+      while (alive && window.innerHeight >= 300 && performance.now() - start < 2000)
+        await sleep(30);
+      if (alive) onDone();
+    };
+    const visibility = () => {
+      if (document.hidden || media.matches) fast = true;
+      sync();
+      if (fast && measured) void finishDock();
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      sync();
+    });
+    observer.observe(host);
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', visibility);
+    media.addEventListener('change', visibility);
+    const deadline = setTimeout(() => void finishDock(), 15000);
+
+    const animate = async (next: EntryPhase, ms: number, update?: (p: number) => void) => {
+      if (!active()) return;
+      phase = next;
+      progress = 0;
+      moving = true;
+      host.dataset.entryPhase = next;
+      sync();
+      await tween(
+        ms,
+        (p) => {
+          progress = p;
+          update?.(p);
+        },
+        (p) => p
+      );
+      if (!active()) return;
+      // Paint the endpoint before the next geometry command clears the surface.
+      if (visible()) scene?.draw(phase, 1, coreX, coreY, bar, inset, direction);
+    };
+    const measure = () =>
+      bounded(
+        (async () => {
+          const nonce = Math.random().toString(36).slice(2, 12);
+          await advance('measure', nonce);
+          while (active()) {
+            const geom = await bridgeSchoolGeom(nonce).catch(() => null);
+            if (geom) return geom;
+            await sleep(70);
+          }
+          return null;
+        })(),
+        1600
+      );
+    const run = async () => {
+      let geom = await measure();
+      if (!active()) return;
+      let offsetX = 0;
+      let offsetY = 0;
+      if (tx.kind === 'collapse' && geom) {
+        const decoration = Math.max(0, geom.hud.h - window.innerHeight);
+        offsetX = geom.hud.x;
+        offsetY = geom.hud.y + decoration;
+        saveHudRect({
+          frame: [geom.out.x + geom.hud.x, geom.out.y + geom.hud.y, geom.hud.w, geom.hud.h],
+          content: [
+            geom.out.x + offsetX,
+            geom.out.y + offsetY,
+            geom.hud.w,
+            geom.hud.h - decoration,
+          ],
+          screen: [geom.out.x, geom.out.y, geom.out.w, geom.out.h],
+          primary: [geom.primary.x, geom.primary.y, geom.primary.w, geom.primary.h],
+        });
+      }
+      if (tx.kind === 'collapse' && !geom) {
+        try {
+          localStorage.removeItem(HUD_RECT_KEY);
+        } catch {
+          /* storage unavailable */
+        }
+      }
+      measured = true;
+      if (fast || !geom) {
+        await finishDock();
+        return;
+      }
+      bar = geom.panel >= 24 ? geom.panel : FALLBACK_BAR_PX;
+      inset = geom.panel >= 24 ? Math.max(0, geom.inset ?? 0) : 0;
+      if (tx.kind === 'collapse') {
+        await advance('unframe', undefined, [
+          geom.out.x + offsetX,
+          geom.out.y + offsetY,
+          geom.hud.w,
+          geom.hud.h - Math.max(0, geom.hud.h - window.innerHeight),
+        ]);
+        if (!active()) return;
+        await animate('aperture', 560);
+        await animate('compress', 820, (p) => {
+          if (!tx.snapshot) return;
+          const eased = p * p * (3 - 2 * p);
+          tx.snapshot.style.transform = `scale(${1 - 0.965 * eased})`;
+          tx.snapshot.style.opacity = `${1 - smooth(0.48, 0.96, p)}`;
+        });
+        if (!active()) return;
+        tx.snapshot?.remove();
+        quiet();
+        await advance('cover');
+        if (!active()) return;
+        const covered = await waitForSchoolScreen(geom.out, active);
+        if (!active()) return;
+        if (!covered) {
+          await finishDock();
+          return;
+        }
+        coreX += offsetX;
+        coreY += offsetY;
+        geom = covered;
+        resize();
+        if (!geom.same && geom.dir) {
+          direction = geom.dir;
+          await animate('transfer-out', 640);
+          if (!active()) return;
+          quiet();
+          await advance('primary');
+          if (!active()) return;
+          const arrived = await waitForSchoolScreen('primary', active);
+          if (!active()) return;
+          if (!arrived) {
+            await finishDock();
+            return;
+          }
+          geom = arrived;
+          resize();
+          coreX = window.innerWidth / 2;
+          coreY = window.innerHeight * 0.42;
+          await animate('transfer-in', 720);
+        }
+      } else {
+        quiet();
+        await advance('primary');
+        if (!active()) return;
+        const arrived = await waitForSchoolScreen('primary', active);
+        if (!active()) return;
+        if (!arrived) {
+          await finishDock();
+          return;
+        }
+        geom = arrived;
+        resize();
+        coreX = window.innerWidth / 2;
+        coreY = window.innerHeight * 0.42;
+        await animate('aperture', 560);
+        await animate('compress', 820);
+      }
+      if (!active()) return;
+      bar = geom.panel >= 24 ? geom.panel : FALLBACK_BAR_PX;
+      inset = geom.panel >= 24 ? Math.max(0, geom.inset ?? 0) : 0;
+      await animate('descent', 960);
+      await animate('forge', 1100);
+      if (!active()) return;
+      root.style.setProperty('--school-entry-reveal', '50%');
+      onBar(bar, inset);
+      await animate('reveal', 620, (p) =>
+        root.style.setProperty('--school-entry-reveal', `${(1 - easeOut(p)) * 50}%`)
+      );
+      if (active()) await finishDock();
+    };
+    void run().catch(() => {
+      if (active()) void finishDock();
+    });
+    return () => {
+      alive = false;
+      clearTimeout(deadline);
+      stop();
+      clock.dispose();
+      observer.disconnect();
+      window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', visibility);
+      media.removeEventListener('change', visibility);
+      scene?.dispose();
+      tx.snapshot?.remove();
+      root.style.removeProperty('--school-entry-reveal');
+      root.classList.remove('school-tx', 'school-entry');
+    };
+  }, [tx, onBar, onDone]);
+
+  return (
+    <div ref={overlay} className="stx stx-entry" data-entry-phase="geometry" aria-hidden="true">
+      <div ref={layer} className="stx-capture" />
+      <canvas ref={canvasRef} className="stx-canvas" data-entry-running="false" />
+    </div>
+  );
+}

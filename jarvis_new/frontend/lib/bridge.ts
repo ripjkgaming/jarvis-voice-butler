@@ -7,6 +7,7 @@
  *  loopback. Outside Tauri (plain-browser dev) it falls back to
  *  unauthenticated 127.0.0.1:4317. Every call is fail-soft (null/[]).
  */
+import type { PaperMarketSnapshot } from '@/lib/paper-market';
 import type { SuitCommand } from '@/lib/suit-diagnostics';
 import { bridgeInfo, isTauri } from '@/lib/tauri';
 
@@ -44,24 +45,34 @@ function getEndpoint(): Promise<BridgeEndpoint> {
   return endpoint;
 }
 
-async function getJson<T>(path: string): Promise<T | null> {
+async function getJson<T>(
+  path: string,
+  timeoutMs = path === '/school/geom' ? 1000 : 5000,
+  options?: { signal?: AbortSignal }
+): Promise<T | null> {
   const controller = new AbortController();
   // A hung GET must release the shared poller's inFlight latch. Geometry
   // has a tighter budget because a transition is waiting on its nonce.
-  const timeout = setTimeout(() => controller.abort(), path === '/school/geom' ? 1000 : 5000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  options?.signal?.addEventListener('abort', abort, { once: true });
+  if (options?.signal?.aborted) controller.abort();
   try {
     const { url, token } = await getEndpoint();
+    if (controller.signal.aborted) return null;
     const res = await fetch(`${url}${path}`, {
       signal: controller.signal,
       cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     if (!res.ok) return null;
-    return (await res.json()) as T;
+    const json = (await res.json()) as T;
+    return controller.signal.aborted ? null : json;
   } catch {
     return null;
   } finally {
     clearTimeout(timeout);
+    options?.signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -285,8 +296,20 @@ export async function bridgeSummon(): Promise<boolean> {
 }
 
 /** Generic authenticated GET for feature clients (lib/projects.ts). */
-export function bridgeGet<T>(path: string): Promise<T | null> {
-  return getJson<T>(path);
+export function bridgeGet<T>(
+  path: string,
+  timeoutMs?: number,
+  options?: { signal?: AbortSignal }
+): Promise<T | null> {
+  return getJson<T>(path, timeoutMs, options);
+}
+
+/** Local paper ledger only; the bridge never forwards mutation endpoints. */
+export function bridgePaperMarket(
+  options?: AbortSignal | { signal?: AbortSignal }
+): Promise<PaperMarketSnapshot | null> {
+  const signal = options && 'aborted' in options ? options : options?.signal;
+  return bridgeGet<PaperMarketSnapshot>('/paper-market', 15000, { signal });
 }
 
 /** Generic authenticated POST (JSON in, JSON out). Null on any failure;

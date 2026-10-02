@@ -3,6 +3,8 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { VoiceLinkRail } from '@/components/hud/voice-link';
+import { InsightsLaunchers } from '@/components/insights/insights-launchers';
+import type { InsightsTab } from '@/hooks/hud/use-insights';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { type BridgeSys } from '@/lib/bridge';
 import { type VoiceLink } from '@/lib/voice-link';
@@ -173,6 +175,7 @@ export function StarkHud({
   muted,
   children,
   link,
+  onInsights,
 }: {
   sys: BridgeSys | null;
   solo: boolean;
@@ -180,6 +183,7 @@ export function StarkHud({
   muted: boolean | null;
   children?: ReactNode;
   link: VoiceLink;
+  onInsights: (tab: InsightsTab) => void;
 }) {
   const m = useMemo(() => metricsFrom(sys), [sys]);
   const history = useHistory(m, sys);
@@ -193,6 +197,7 @@ export function StarkHud({
         <Reactor m={m} link={link} />
       </div>
       <StateReadout jarvis={jarvis} muted={muted} link={link} />
+      <InsightsLaunchers onOpen={onInsights} />
       <VoiceLinkRail link={link} />
       <Caption />
       <Research sys={sys} />

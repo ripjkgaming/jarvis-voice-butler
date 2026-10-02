@@ -320,7 +320,10 @@ class FilesTools:
         else:
             hits = await self._via_locate(query, kind, limit)
             if not hits:
-                hits = self._via_brain(query, kind, limit)
+                # Loading and fuzzy-scoring the index can take hundreds of ms.
+                # Keep voice/control callbacks responsive during the read-only
+                # lookup; cancelled calls never publish its eventual results.
+                hits = await asyncio.to_thread(self._via_brain, query, kind, limit)
             if not hits:
                 hits = await self._via_find(query, kind, limit)
             say_q = query[:60]
@@ -492,7 +495,7 @@ class FilesTools:
         try:
             import second_brain
 
-            for n in second_brain.search(name, 10):
+            for n in await asyncio.to_thread(second_brain.search, name, 10):
                 if n.get("type") == "folder" and n.get("path"):
                     rp = resolve_safe(n["path"])
                     if rp is not None and rp.is_dir():

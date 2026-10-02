@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "isolated_typecheck": true,
+  "source_integrity_files": 173,
+  "changed_source_files": [
+    "components/hud/school-transition.tsx",
+    "lib/school-entry-scene.ts"
+  ],
+  "entry_after_groups": 20,
+  "school_smoke_scenarios": 7,
+  "final_fraction_stills": 6,
+  "candidate_exact_endpoint_checks": 4,
+  "candidate_endpoint_pixels": 14400000,
+  "private_server_stopped": true,
+  "private_source_preserved": "/tmp/jarvis-entry-cinematic-dev-wxr4_23h/frontend",
+  "live_app_touched": false,
+  "native_build_or_restart": false,
+  "notes": [
+    "Smoke hides only Next.js developer portal to prevent it intercepting school-bar clicks. Initial obstruction log retained.",
+    "Containment/flattening variant discarded without source change."
+  ]
+}

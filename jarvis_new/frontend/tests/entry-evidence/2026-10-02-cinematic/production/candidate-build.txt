@@ -1,0 +1,36 @@
+   ▲ Next.js 15.5.18
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 15.7s
+   Linting and checking validity of types ...
+
+./components/agents-ui/agent-audio-visualizer-aura.tsx
+34:12  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/agents-ui/agent-audio-visualizer-radial.tsx
+162:6  Warning: React Hook useMemo has an unnecessary dependency: '_barCount'. Either exclude it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/7) ...
+   Generating static pages (1/7)
+   Generating static pages (3/7)
+   Generating static pages (5/7)
+ ✓ Generating static pages (7/7)
+   Finalizing page optimization ...
+   Collecting build traces ...
+   Exporting (0/2) ...
+ ✓ Exporting (2/2)
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                     187 kB         290 kB
+├ ○ /_not-found                            360 B         104 kB
+├ ○ /drafts                              3.63 kB         107 kB
+└ ○ /projects                            7.73 kB         112 kB
++ First Load JS shared by all             104 kB
+  ├ chunks/540-428d259112dc7541.js       46.8 kB
+  ├ chunks/66d6a983-0ad4cadce2c6c4b1.js  54.4 kB
+  └ other shared chunks (total)          2.55 kB
+
+
+○  (Static)  prerendered as static content

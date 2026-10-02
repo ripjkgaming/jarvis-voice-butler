@@ -322,3 +322,152 @@ test('hook path changes and disabled renders never expose the previous endpoint 
   hooks.unmount();
   assert.equal(p.timers.size, 0);
 });
+
+function trackedController() {
+  const controller = new AbortController();
+  const signal = controller.signal;
+  const listeners = new Set();
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = (name, fn, options) => {
+    if (name === 'abort') listeners.add(fn);
+    add(name, fn, options);
+  };
+  signal.removeEventListener = (name, fn, options) => {
+    if (name === 'abort') listeners.delete(fn);
+    remove(name, fn, options);
+  };
+  return { controller, signal, listeners };
+}
+
+test('a custom GET timeout covers its response body and removes the external abort listener', async () => {
+  const external = trackedController();
+  let internalSignal;
+  const f = bridgeFixture({ fetch: async (_url, { signal }) => {
+    internalSignal = signal;
+    return { ok: true, json: () => pendingUntilAbort(signal) };
+  } });
+  const request = f.bridgeGet('/insights/usage', 275, { signal: external.signal });
+  await f.advance(274);
+  assert.equal(internalSignal.aborted, false);
+  assert.equal(external.listeners.size, 1);
+  await f.advance(1);
+  assert.equal(await request, null);
+  assert.equal(internalSignal.aborted, true);
+  assert.equal(external.signal.aborted, false);
+  assert.equal(external.listeners.size, 0);
+  assert.equal(f.timers.size, 0);
+});
+
+for (const timing of ['before request', 'during discovery']) {
+  test(`an external abort ${timing} prevents fetch after native discovery resolves`, async () => {
+    const external = trackedController();
+    let resolveDiscovery;
+    const requests = [];
+    const f = bridgeFixture({
+      tauri: true,
+      bridgeInfo: () => new Promise(resolve => { resolveDiscovery = resolve; }),
+      fetch: async (url, options) => { requests.push({ url, options }); return response({ ok: true }); },
+    });
+    if (timing === 'before request') external.controller.abort();
+    const request = f.bridgeGet('/insights/usage', 12000, { signal: external.signal });
+    await flush();
+    if (timing === 'during discovery') external.controller.abort();
+    resolveDiscovery({ url: 'http://bridge.test', token: 'test-token' });
+    assert.equal(await request, null);
+    assert.equal(requests.length, 0);
+    assert.equal(external.listeners.size, 0);
+    assert.equal(f.timers.size, 0);
+    assert.equal((await f.bridgeGet('/sys')).ok, true);
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer test-token');
+  });
+}
+
+test('external cancellation aborts an in-flight GET and the next request can recover', async () => {
+  const external = trackedController();
+  let internalSignal, calls = 0;
+  const f = bridgeFixture({ fetch: (_url, { signal }) => {
+    calls++;
+    internalSignal = signal;
+    return calls === 1 ? pendingUntilAbort(signal) : Promise.resolve(response({ recovered: true }));
+  } });
+  const request = f.bridgeGet('/insights/usage', 12000, { signal: external.signal });
+  await flush();
+  external.controller.abort();
+  assert.equal(await request, null);
+  assert.equal(internalSignal.aborted, true);
+  assert.equal(f.timers.size, 0);
+  assert.equal(external.listeners.size, 0);
+  assert.equal((await f.bridgeGet('/insights/usage')).recovered, true);
+});
+
+test('cancellation during response parsing discards a body that completes after abort', async () => {
+  const external = trackedController();
+  let resolveBody;
+  const f = bridgeFixture({ fetch: async () => ({
+    ok: true,
+    json: () => new Promise(resolve => { resolveBody = resolve; }),
+  }) });
+  const request = f.bridgeGet('/insights/usage', 12000, { signal: external.signal });
+  await flush();
+  external.controller.abort();
+  resolveBody({ stale: true });
+  assert.equal(await request, null);
+  assert.equal(external.listeners.size, 0);
+  assert.equal(f.timers.size, 0);
+});
+
+test('a successful GET removes its timeout and external abort listener', async () => {
+  const external = trackedController();
+  let internalSignal;
+  const f = bridgeFixture({ fetch: async (_url, { signal }) => {
+    internalSignal = signal;
+    return response({ ok: true });
+  } });
+  assert.equal((await f.bridgeGet('/insights/usage', 12000, { signal: external.signal })).ok, true);
+  assert.equal(external.listeners.size, 0);
+  assert.equal(f.timers.size, 0);
+  external.controller.abort();
+  assert.equal(internalSignal.aborted, false);
+});
+
+test('paper market uses the authenticated read-only route and its 15-second deadline', async () => {
+  const requests = [];
+  const f = bridgeFixture({
+    tauri: true,
+    bridgeInfo: async () => ({ url: 'http://bridge.test', token: 'paper-token' }),
+    fetch: (url, options) => {
+      requests.push({ url, options });
+      return pendingUntilAbort(options.signal);
+    },
+  });
+  const request = f.bridgePaperMarket();
+  await f.advance(14999);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'http://bridge.test/paper-market');
+  assert.equal(requests[0].options.method, undefined);
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer paper-token');
+  assert.equal(requests[0].options.signal.aborted, false);
+  await f.advance(1);
+  assert.equal(await request, null);
+  assert.equal(requests[0].options.signal.aborted, true);
+  assert.equal(f.timers.size, 0);
+});
+
+for (const form of ['raw signal', 'options object']) {
+  test(`paper market forwards the caller ${form} through response parsing`, async () => {
+    const external = trackedController();
+    let internalSignal;
+    const f = bridgeFixture({ fetch: async (_url, { signal }) => {
+      internalSignal = signal;
+      return { ok: true, json: () => pendingUntilAbort(signal) };
+    } });
+    const request = f.bridgePaperMarket(form === 'raw signal' ? external.signal : { signal: external.signal });
+    await flush();
+    external.controller.abort();
+    assert.equal(await request, null);
+    assert.equal(internalSignal.aborted, true);
+    assert.equal(external.listeners.size, 0);
+    assert.equal(f.timers.size, 0);
+  });
+}

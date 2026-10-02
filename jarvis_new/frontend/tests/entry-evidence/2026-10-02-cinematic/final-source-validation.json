@@ -1,0 +1,26 @@
+{
+  "files": {
+    "components/hud/school-transition.tsx": "59ea8aabfb483adc4a982be32a00d74affd143f076acecce22bb6087529bd36f",
+    "lib/school-entry-scene.ts": "97c1294bb2d364f396ff25a97a23ad9b7f4c38b530370bb2bcd0fdc26fc99b07",
+    "tests/school-entry-scene.test.cjs": "b8cebc8c1cc124bdc4fcfffb03f40c338075b794572e7ab41d03875f448497a7",
+    "tests/school-entry-lifecycle.test.cjs": "0c5820b34f952060adf5fd5ce68754314df86370b781d215084323a7960cd8b0",
+    "tests/school-entry-cinematic-evidence.py": "f5ae67d5e35415298eb198588584907f753ede83cfcd29e173ac353219381779",
+    "tests/school-entry-cinematic-compare.py": "f77f90f64d06b059cbc7bf56adb2487b367623820fa9e28a25d755bc5504ff68"
+  },
+  "revision": "final affine refinement",
+  "focused_node_tests": {
+    "passed": 53,
+    "failed": 0,
+    "log": "production/node-tests-final.txt",
+    "complete_fold_assertions": "production/fold-lifecycle-final.txt"
+  },
+  "private_production_build": "passed",
+  "production_validation_groups": 12,
+  "production_smoke_scenarios": 7,
+  "balanced_production_timing_samples": 18,
+  "prettier_source_and_node_tests": "passed",
+  "git_diff_check": "passed",
+  "shared_production_export": "not run; coordinator-owned",
+  "native_activation": "not run; coordinator-owned",
+  "private_browser_slot": "released"
+}

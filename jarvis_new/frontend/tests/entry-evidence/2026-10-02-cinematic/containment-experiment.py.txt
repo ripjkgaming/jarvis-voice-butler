@@ -1,0 +1,33 @@
+from __future__ import annotations
+import asyncio, importlib.util, json
+from pathlib import Path
+from playwright.async_api import async_playwright
+ROOT=Path('/mnt/data/jarvis-voice-butler/jarvis_new/frontend')
+SPEC=importlib.util.spec_from_file_location('cinematic',ROOT/'tests/school-entry-cinematic-evidence.py')
+E=importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(E)
+URL='http://127.0.0.1:4059'
+CSS='.stx-snapshot { contain: layout style paint; isolation: isolate; backface-visibility: hidden; } .stx-snapshot * { will-change:auto !important; }'
+OUT=ROOT/'tests/entry-evidence/2026-10-02-cinematic/containment-experiment.json'
+async def main():
+ E.guard_network(URL)
+ create=E.ENTRY.create_page
+ enabled=False
+ async def overridden(*args,**kwargs):
+  result=await create(*args,**kwargs)
+  if enabled: await result[1].add_style_tag(content=CSS)
+  return result
+ E.ENTRY.create_page=overridden
+ report={'source':'final 97c1294bb2d364f396ff25a97a23ad9b7f4c38b530370bb2bcd0fdc26fc99b07 renderer; 7740551ea23ffb7d78670a0badc95eb12429414f4a1b30acb2f49897e7ab8727 transition','css':CSS,'method':'Two control and two variant runs at each DPR, ABBA/BAAB order; isolated development Chromium, no recording/readback.','results':[]}
+ async with async_playwright() as p:
+  browser=await p.chromium.launch(headless=True)
+  try:
+   for dpr in (1,2):
+    for repetition,variant in enumerate(([False,True,True,False] if dpr==1 else [True,False,False,True]),1):
+     enabled=variant
+     result=await E.performance(browser,URL,dpr,False,repetition)
+     result['containment_variant']=variant
+     report['results'].append(result)
+     OUT.write_text(json.dumps(report,indent=2)+'\n')
+     print(json.dumps(result),flush=True)
+  finally: await browser.close()
+asyncio.run(main())

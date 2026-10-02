@@ -1,0 +1,23 @@
+from __future__ import annotations
+import asyncio, importlib.util
+from argparse import Namespace
+from pathlib import Path
+from urllib.parse import urlparse
+ROOT=Path('/mnt/data/jarvis-voice-butler/jarvis_new/frontend')
+SPEC=importlib.util.spec_from_file_location('school',ROOT/'tests/school-mode-smoke.py')
+S=importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(S)
+URL='http://127.0.0.1:4059'
+original_ready=S.Desktop.ready
+original_install=S.Desktop.install
+async def ready(desktop):
+ await original_ready(desktop)
+ await desktop.page.add_style_tag(content='nextjs-portal { display:none !important; }')
+async def install(desktop):
+ async def route_request(route):
+  if urlparse(route.request.url).netloc=='127.0.0.1:4059': await route.continue_()
+  else: await route.abort()
+ await desktop.page.route('**/*',route_request)
+ await original_install(desktop)
+S.Desktop.ready=ready
+S.Desktop.install=install
+asyncio.run(S.run(Namespace(screenshots=None,cross_only=False),URL))

@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-05T21:00:00Z",
+  "experiment": {
+    "id": "SYNTHETIC-QA-NOT-LIVE",
+    "started_at": "2026-10-02T13:30:00Z",
+    "expires_at": "2026-10-09T13:30:00Z",
+    "initial_cash_usd": "1000.00",
+    "status": "active",
+    "model": "gpt-6-astra",
+    "effort": "high"
+  },
+  "account": {
+    "cash_usd": "425.00",
+    "equity_usd": "1022.00",
+    "total_pnl_usd": "22.00",
+    "total_return_pct": "2.20",
+    "realized_pnl_usd": "5.00",
+    "unrealized_pnl_usd": "17.00",
+    "valuation_complete": true,
+    "valuation_fresh": false,
+    "marks_as_of": "2026-10-05T14:00:00Z"
+  },
+  "market": {
+    "is_open": false,
+    "next_open_at": "2026-10-06T13:30:00Z",
+    "session_close_at": null,
+    "status": "closed"
+  },
+  "quotes": [
+    {
+      "symbol": "AAPL",
+      "price_usd": "110.00",
+      "quoted_at": "2026-10-05T14:00:00Z",
+      "age_seconds": 25200,
+      "source": "Synthetic QA feed",
+      "status": "stale",
+      "error": null
+    },
+    {
+      "symbol": "MSFT",
+      "price_usd": "185.00",
+      "quoted_at": "2026-10-05T14:00:00Z",
+      "age_seconds": 25200,
+      "source": "Synthetic QA feed",
+      "status": "stale",
+      "error": null
+    },
+    {
+      "symbol": "NVDA",
+      "price_usd": "128.00",
+      "quoted_at": "2026-10-05T14:00:00Z",
+      "age_seconds": 25200,
+      "source": "Synthetic QA feed",
+      "status": "stale",
+      "error": null
+    },
+    {
+      "symbol": "SPY",
+      "price_usd": "550.00",
+      "quoted_at": "2026-10-05T14:00:00Z",
+      "age_seconds": 25200,
+      "source": "Synthetic QA feed",
+      "status": "stale",
+      "error": null
+    },
+    {
+      "symbol": "GOOGL",
+      "price_usd": null,
+      "quoted_at": null,
+      "age_seconds": null,
+      "source": "Synthetic QA feed",
+      "status": "unavailable",
+      "error": "Synthetic missing-quote case: price is unknown."
+    }
+  ],
+  "holdings": [
+    {
+      "symbol": "AAPL",
+      "quantity": "2",
+      "average_cost_usd": "100.00",
+      "mark_price_usd": "110.00",
+      "market_value_usd": "220.00",
+      "unrealized_pnl_usd": "20.00",
+      "quote_at": "2026-10-05T14:00:00Z"
+    },
+    {
+      "symbol": "MSFT",
+      "quantity": "1",
+      "average_cost_usd": "200.00",
+      "mark_price_usd": "185.00",
+      "market_value_usd": "185.00",
+      "unrealized_pnl_usd": "-15.00",
+      "quote_at": "2026-10-05T14:00:00Z"
+    },
+    {
+      "symbol": "NVDA",
+      "quantity": "1.5",
+      "average_cost_usd": "120.00",
+      "mark_price_usd": "128.00",
+      "market_value_usd": "192.00",
+      "unrealized_pnl_usd": "12.00",
+      "quote_at": "2026-10-05T14:00:00Z"
+    }
+  ],
+  "equity_history": [
+    {
+      "at": "2026-10-02T13:30:00Z",
+      "equity_usd": "1000.00",
+      "cash_usd": "1000.00",
+      "total_pnl_usd": "0.00",
+      "valuation_complete": true
+    },
+    {
+      "at": "2026-10-02T14:00:00Z",
+      "equity_usd": "1000.00",
+      "cash_usd": "370.00",
+      "total_pnl_usd": "0.00",
+      "valuation_complete": true
+    },
+    {
+      "at": "2026-10-02T14:30:00Z",
+      "equity_usd": "1008.00",
+      "cash_usd": "370.00",
+      "total_pnl_usd": "8.00",
+      "valuation_complete": true
+    },
+    {
+      "at": "2026-10-02T15:00:00Z",
+      "equity_usd": null,
+      "cash_usd": "370.00",
+      "total_pnl_usd": null,
+      "valuation_complete": false
+    },
+    {
+      "at": "2026-10-02T15:30:00Z",
+      "equity_usd": "1016.00",
+      "cash_usd": "425.00",
+      "total_pnl_usd": "16.00",
+      "valuation_complete": true
+    },
+    {
+      "at": "2026-10-05T13:30:00Z",
+      "equity_usd": "1011.00",
+      "cash_usd": "425.00",
+      "total_pnl_usd": "11.00",
+      "valuation_complete": true
+    },
+    {
+      "at": "2026-10-05T14:00:00Z",
+      "equity_usd": "1022.00",
+      "cash_usd": "425.00",
+      "total_pnl_usd": "22.00",
+      "valuation_complete": true
+    }
+  ],
+  "decisions": [
+    {
+      "id": "qa-hold-3",
+      "at": "2026-10-05T14:00:00Z",
+      "status": "held",
+      "rationale": "Synthetic rationale: retain the three existing positions and $425 cash reserve. Gains in AAPL and NVDA offset the MSFT drawdown; no additional trade is justified by this fixture.",
+      "error": null,
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "actions": []
+    },
+    {
+      "id": "qa-sell-2",
+      "at": "2026-10-02T15:30:00Z",
+      "status": "executed",
+      "rationale": "Synthetic rationale: sell the small SPY position to demonstrate an audited realized gain. The 0.1 shares bought at $500 fill at $550, realizing $5.",
+      "error": null,
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "actions": [{ "symbol": "SPY", "side": "sell", "notional_usd": null, "quantity": "0.1" }]
+    },
+    {
+      "id": "qa-buy-1",
+      "at": "2026-10-02T14:00:00Z",
+      "status": "executed",
+      "rationale": "Synthetic rationale: allocate $630 across four initial paper positions, leaving $370 available cash. All prices and actions in this screenshot are QA data, not live performance.",
+      "error": null,
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "actions": [
+        { "symbol": "AAPL", "side": "buy", "notional_usd": "200.00", "quantity": null },
+        { "symbol": "MSFT", "side": "buy", "notional_usd": "200.00", "quantity": null },
+        { "symbol": "NVDA", "side": "buy", "notional_usd": "180.00", "quantity": null },
+        { "symbol": "SPY", "side": "buy", "notional_usd": "50.00", "quantity": null }
+      ]
+    }
+  ],
+  "fills": [
+    {
+      "id": "qa-fill-5",
+      "at": "2026-10-02T15:30:01Z",
+      "symbol": "SPY",
+      "side": "sell",
+      "quantity": "0.1",
+      "price_usd": "550.00",
+      "notional_usd": "55.00",
+      "realized_pnl_usd": "5.00"
+    },
+    {
+      "id": "qa-fill-4",
+      "at": "2026-10-02T14:00:04Z",
+      "symbol": "SPY",
+      "side": "buy",
+      "quantity": "0.1",
+      "price_usd": "500.00",
+      "notional_usd": "50.00",
+      "realized_pnl_usd": "0.00"
+    },
+    {
+      "id": "qa-fill-3",
+      "at": "2026-10-02T14:00:03Z",
+      "symbol": "NVDA",
+      "side": "buy",
+      "quantity": "1.5",
+      "price_usd": "120.00",
+      "notional_usd": "180.00",
+      "realized_pnl_usd": "0.00"
+    },
+    {
+      "id": "qa-fill-2",
+      "at": "2026-10-02T14:00:02Z",
+      "symbol": "MSFT",
+      "side": "buy",
+      "quantity": "1",
+      "price_usd": "200.00",
+      "notional_usd": "200.00",
+      "realized_pnl_usd": "0.00"
+    },
+    {
+      "id": "qa-fill-1",
+      "at": "2026-10-02T14:00:01Z",
+      "symbol": "AAPL",
+      "side": "buy",
+      "quantity": "2",
+      "price_usd": "100.00",
+      "notional_usd": "200.00",
+      "realized_pnl_usd": "0.00"
+    }
+  ],
+  "runtime": {
+    "last_cycle_at": "2026-10-05T14:00:00Z",
+    "last_cycle_status": "held",
+    "last_error": null,
+    "last_refresh_at": "2026-10-05T21:00:00Z",
+    "last_refresh_error": "Synthetic outage case: latest attempt failed; last observed prices retained.",
+    "feed": "Synthetic QA feed — no live market data",
+    "fill_policy": "Synthetic QA fills only. This fixture validates the UI and does not represent actual trades or performance.",
+    "decision_interval_seconds": 1800
+  }
+}

@@ -155,7 +155,7 @@ test('compression anchors reactor and descent lands precisely on target taskbar 
   }
 });
 
-test('blueprint matches exact inset/bar rectangle and completed reveal is entirely transparent', () => {
+test('articulated wings seat on the exact inset/bar rectangle and final reveal is transparent', () => {
   const f = fixture();
   f.scene.resize(1920, 1080, 2);
   f.calls.length = 0;
@@ -168,6 +168,40 @@ test('blueprint matches exact inset/bar rectangle and completed reveal is entire
   f.calls.length = 0;
   f.scene.draw('reveal', 1, 650, 400, 60, 8);
   assert.deepEqual(f.calls, [['clearRect', 0, 0, 1920, 1080]]);
+});
+
+test('wing panels hinge above the dock before locking inside its final rectangle', () => {
+  const f = fixture();
+  f.scene.resize(1600, 900, 2);
+  f.calls.length = 0;
+  f.scene.draw('forge', 0.3, 720, 380, 64, 8);
+  const points = f.calls.filter((c) => c[0] === 'moveTo' || c[0] === 'lineTo');
+  assert.ok(
+    points.some((c) => c[2] < 900 - 64 - 8 - 25),
+    'unfolded panels have a readable raised silhouette'
+  );
+  assert.ok(points.some((c) => c[1] < 800) && points.some((c) => c[1] > 800), 'both wings unfold');
+  f.calls.length = 0;
+  f.scene.draw('forge', 1, 720, 380, 64, 8);
+  for (const c of f.calls.filter((c) => c[0] === 'moveTo' || c[0] === 'lineTo')) {
+    assert.ok(c[1] >= 8 && c[1] <= 1592, `locked wing x remains on the dock: ${c}`);
+    assert.ok(c[2] >= 828 && c[2] <= 892, `locked wing y remains on the dock: ${c}`);
+  }
+});
+
+test('seeking through another phase cannot leave geometry behind on a repeated pose', () => {
+  const f = fixture();
+  f.scene.resize(1440, 900, 1.5);
+  for (const phase of ['aperture', 'compress', 'transfer-in', 'descent', 'forge', 'reveal']) {
+    f.calls.length = 0;
+    f.scene.draw(phase, 0.45, 620, 370, 60, 8, 'up');
+    const wanted = [...f.calls];
+    f.scene.draw('forge', 1, 620, 370, 60, 8, 'down');
+    f.scene.draw('aperture', 0.1, 620, 370, 60, 8, 'left');
+    f.calls.length = 0;
+    f.scene.draw(phase, 0.45, 620, 370, 60, 8, 'up');
+    assert.deepEqual(f.calls, wanted, phase);
+  }
 });
 
 test('bounded progress is deterministic and disposal releases backing pixels', () => {

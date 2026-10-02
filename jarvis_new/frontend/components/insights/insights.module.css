@@ -1,0 +1,246 @@
+.overlay {
+  --cyan: #5fe3ff;
+  --hot: #e2f9ff;
+  --muted: #89aaba;
+  --line: rgb(95 227 255 / 18%);
+  --gold: #ffc074;
+  position: fixed;
+  inset: 0 0 var(--insights-bar-height, 0px);
+  z-index: 1800;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(8px, 1.5vw, 24px);
+  color: var(--hot);
+  background: rgb(1 5 9 / 97%);
+  font-family: var(--font-rajdhani), system-ui, sans-serif;
+  isolation: isolate;
+}
+.dialog {
+  width: min(1380px, 100%);
+  height: min(100%, 1000px);
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  outline: none;
+  border: 1px solid rgb(95 227 255 / 45%);
+  background: linear-gradient(140deg, #071b29, #031019 60%, #051724);
+  box-shadow: 0 18px 90px #0008;
+  animation: arrive 190ms ease-out both;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.header > div {
+  flex: 1;
+}
+.eyebrow {
+  color: var(--cyan);
+  font:
+    10px var(--font-share-tech-mono),
+    monospace;
+  letter-spacing: 0.23em;
+}
+.header h1 {
+  margin: 3px 0 0;
+  font:
+    600 clamp(19px, 2vw, 27px) var(--font-orbitron),
+    sans-serif;
+  letter-spacing: 0.06em;
+}
+.context {
+  color: var(--muted);
+  font:
+    10px var(--font-share-tech-mono),
+    monospace;
+  letter-spacing: 0.14em;
+}
+.close {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  color: var(--hot);
+  background: #0b2333;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font:
+    14px var(--font-rajdhani),
+    sans-serif;
+}
+.close > span {
+  font: 22px/1 sans-serif;
+}
+.close kbd {
+  color: var(--muted);
+  font-size: 10px;
+}
+.dialog button:focus-visible,
+.launchers button:focus-visible {
+  outline: 2px solid #5fe3ff;
+  outline-offset: -3px;
+}
+.dialog button:hover {
+  background-color: #113249;
+}
+.tabs {
+  display: flex;
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+  background: #02101a;
+  padding: 0 24px;
+}
+.tabs button {
+  flex: 1;
+  max-width: 340px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 16px;
+  text-align: left;
+  color: var(--muted);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+.tabs button[aria-selected='true'] {
+  color: var(--hot);
+  background: linear-gradient(0deg, #153a4d88, transparent);
+  border-bottom-color: var(--cyan);
+}
+.tabCode {
+  color: var(--cyan);
+  font:
+    11px var(--font-share-tech-mono),
+    monospace;
+}
+.tabs b {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+}
+.tabs small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tabMark {
+  margin-left: auto;
+  color: var(--cyan);
+}
+.content {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.loading {
+  padding: 48px 24px;
+  color: var(--muted);
+  font:
+    13px var(--font-share-tech-mono),
+    monospace;
+}
+.launchers {
+  display: flex;
+  gap: 6px;
+}
+.launchers button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 10px;
+  color: #a6dcec;
+  background: #071e2c;
+  border: 1px solid #5fe3ff40;
+  font:
+    600 12px var(--font-rajdhani),
+    sans-serif;
+  letter-spacing: 0.035em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.launchers button:hover {
+  color: #e2f9ff;
+  background: #143849;
+  border-color: #5fe3ff99;
+}
+.launchers svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #5fe3ff;
+  stroke-width: 1.6;
+}
+.launchers button:last-child svg {
+  stroke: #ffc074;
+}
+.launchers[data-menu] {
+  position: relative;
+  z-index: 1;
+  padding: 10px 16px;
+  border-bottom: 1px solid #5fe3ff33;
+}
+.launchers[data-menu] button {
+  flex: 1;
+  justify-content: start;
+  padding: 9px 12px;
+  font-size: 15px;
+}
+.launchers small {
+  display: block;
+  font-size: 11px;
+  color: #89aaba;
+  font-weight: 400;
+}
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 680px) {
+  .header {
+    padding: 13px;
+    gap: 10px;
+  }
+  .context {
+    display: none;
+  }
+  .tabs {
+    padding: 0;
+  }
+  .tabs button {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .tabs small {
+    font-size: 10px;
+  }
+  .tabMark {
+    display: none;
+  }
+  .launchers {
+    gap: 4px;
+  }
+  .launchers button {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog {
+    animation: none;
+  }
+}
