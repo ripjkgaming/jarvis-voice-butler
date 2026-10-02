@@ -26,6 +26,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val micPort = v.findViewById<EditText>(R.id.settings_mic_port)
         val token = v.findViewById<EditText>(R.id.settings_token)
         fun fields() = arrayOf(host.text.toString(), port.text.toString(), micPort.text.toString(), token.text.toString())
+        v.button(R.id.settings_btn_save).emphasis(Emphasis.PRIMARY)
         v.onClick(R.id.settings_btn_save) { val f = fields(); m.save(f[0], f[1], f[2], f[3]) }
         v.onClick(R.id.settings_btn_test) { val f = fields(); m.saveAndTest(f[0], f[1], f[2], f[3]) }
         v.onClick(R.id.settings_btn_remote) { m.startRemote() }

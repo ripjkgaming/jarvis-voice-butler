@@ -9,44 +9,54 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp">
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Volume" android:textStyle="bold" />
-        <TextView android:id="@+id/control_volume_label" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <SeekBar android:id="@+id/control_volume" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="150" android:minHeight="48dp" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/control_btn_vol_down" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Vol -5" />
-            <Button android:id="@+id/control_btn_vol_up" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Vol +5" />
-            <Button android:id="@+id/control_btn_mute" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Mute" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="4dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Volume" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/control_volume_label" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <SeekBar android:id="@+id/control_volume" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="150" android:minHeight="48dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/control_btn_vol_down" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Vol -5" />
+                <Button android:id="@+id/control_btn_vol_up" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Vol +5" />
+                <Button android:id="@+id/control_btn_mute" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Mute" />
+            </LinearLayout>
         </LinearLayout>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Media" android:textStyle="bold" />
-        <TextView android:id="@+id/control_now_playing" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/control_btn_prev" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Prev" />
-            <Button android:id="@+id/control_btn_play" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Play/Pause" />
-            <Button android:id="@+id/control_btn_next" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Next" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Media" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/control_now_playing" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/control_btn_prev" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Prev" />
+                <Button android:id="@+id/control_btn_play" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Play/Pause" />
+                <Button android:id="@+id/control_btn_next" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Next" />
+            </LinearLayout>
         </LinearLayout>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Open app on PC" android:textStyle="bold" />
-        <EditText android:id="@+id/control_app_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="App or site name" android:inputType="text" android:importantForAutofill="no" />
-        <Button android:id="@+id/control_btn_open_app" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Open" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Type on PC" android:textStyle="bold" />
-        <EditText android:id="@+id/control_type_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text to type" android:inputType="textMultiLine" android:minLines="2" android:importantForAutofill="no" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/control_btn_type" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Type" />
-            <Button android:id="@+id/control_btn_enter" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Enter" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Open app on PC" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <EditText android:id="@+id/control_app_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="App or site name" android:inputType="text" android:importantForAutofill="no" />
+            <Button android:id="@+id/control_btn_open_app" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Open" />
         </LinearLayout>
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/control_btn_esc" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Esc" />
-            <Button android:id="@+id/control_btn_tab" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Tab" />
-            <Button android:id="@+id/control_btn_backspace" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Bksp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Type on PC" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <EditText android:id="@+id/control_type_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text to type" android:inputType="textMultiLine" android:minLines="2" android:importantForAutofill="no" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/control_btn_type" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Type" />
+                <Button android:id="@+id/control_btn_enter" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Enter" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/control_btn_esc" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Esc" />
+                <Button android:id="@+id/control_btn_tab" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Tab" />
+                <Button android:id="@+id/control_btn_backspace" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Bksp" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/control_btn_up" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Up" />
+                <Button android:id="@+id/control_btn_down" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Down" />
+                <Button android:id="@+id/control_btn_left" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Left" />
+                <Button android:id="@+id/control_btn_right" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Right" />
+            </LinearLayout>
         </LinearLayout>
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/control_btn_up" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Up" />
-            <Button android:id="@+id/control_btn_down" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Down" />
-            <Button android:id="@+id/control_btn_left" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Left" />
-            <Button android:id="@+id/control_btn_right" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Right" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="PC microphone" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <Button android:id="@+id/control_btn_pc_mic" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Toggle PC mic mute" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/control_notice" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <Button android:id="@+id/control_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh" />
         </LinearLayout>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="PC microphone" android:textStyle="bold" />
-        <Button android:id="@+id/control_btn_pc_mic" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Toggle PC mic mute" />
-        <TextView android:id="@+id/control_notice" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <Button android:id="@+id/control_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh" />
     </LinearLayout>
 </ScrollView>

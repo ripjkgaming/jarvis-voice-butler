@@ -36,6 +36,12 @@ class VoiceFragment : Fragment(R.layout.fragment_voice) {
             CallPhase.LIVE -> "LIVE"
             CallPhase.ERROR -> "FAULT"
         }
+        v.text(R.id.voice_state).tone(when (s.phase) {
+            CallPhase.IDLE -> Tone.NORMAL
+            CallPhase.JOINING -> Tone.WARN
+            CallPhase.LIVE -> Tone.OK
+            CallPhase.ERROR -> Tone.ALERT
+        })
         v.text(R.id.voice_detail).text = s.detail
         v.text(R.id.voice_speaking).text = when {
             s.phase != CallPhase.LIVE -> ""
@@ -43,11 +49,13 @@ class VoiceFragment : Fragment(R.layout.fragment_voice) {
             s.muted -> "Muted"
             else -> "Listening"
         }
+        v.text(R.id.voice_speaking).tone(if (s.agentSpeaking) Tone.THINK else Tone.DIM)
         v.text(R.id.voice_notice).text = s.notice
         v.text(R.id.voice_captions).text =
             s.captions.joinToString("\n") { "${it.role}: ${it.text}" }
         val active = s.phase == CallPhase.JOINING || s.phase == CallPhase.LIVE
         v.button(R.id.voice_btn_talk).text = if (active) "Hang up" else "Start call"
+        v.button(R.id.voice_btn_talk).emphasis(if (active) Emphasis.DANGER else Emphasis.PRIMARY)
         v.button(R.id.voice_btn_mute).text = if (s.muted) "Unmute" else "Mute"
         v.button(R.id.voice_btn_mute).isEnabled = s.phase == CallPhase.LIVE
         v.button(R.id.voice_btn_laptop).isEnabled = !active

@@ -9,13 +9,21 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp">
-        <Button android:id="@+id/activity_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh" />
-        <TextView android:id="@+id/activity_error" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="System" android:textStyle="bold" />
-        <TextView android:id="@+id/activity_system" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Actions (newest last)" android:textStyle="bold" />
-        <TextView android:id="@+id/activity_actions" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Captions (newest last)" android:textStyle="bold" />
-        <TextView android:id="@+id/activity_captions" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="4dp">
+            <Button android:id="@+id/activity_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Refresh" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/activity_error" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="System" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Log" android:id="@+id/activity_system" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Actions (newest last)" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Log" android:id="@+id/activity_actions" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Captions (newest last)" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Log" android:id="@+id/activity_captions" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

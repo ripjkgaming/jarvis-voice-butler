@@ -15,6 +15,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val m = graph.home
         val input = v.findViewById<EditText>(R.id.home_input)
         v.onClick(R.id.home_btn_refresh) { m.refreshLink() }
+        v.button(R.id.home_btn_send).emphasis(Emphasis.PRIMARY)
         v.onClick(R.id.home_btn_send) {
             m.send(input.text.toString(), instant = false)
             input.text.clear()
@@ -46,7 +47,14 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             Link.ONLINE -> "online"
             Link.FAILED -> "FAILED"
         } + (if (s.linkDetail.isNotEmpty()) " (${s.linkDetail})" else "")
+        v.text(R.id.home_link).tone(when (s.link) {
+            Link.ONLINE -> Tone.OK
+            Link.CHECKING -> Tone.WARN
+            Link.FAILED -> Tone.ALERT
+            Link.UNKNOWN -> Tone.NORMAL
+        })
         v.text(R.id.home_config_problem).text = s.configProblem ?: ""
+        v.text(R.id.home_config_problem).tone(Tone.WARN)
         v.text(R.id.home_battery).text =
             (s.battery?.let { "Phone battery ${it.percent}%${if (it.charging) " (charging)" else ""}" } ?: "Phone battery unknown") +
                 (if (s.guest) " | GUEST MODE" else "") + (if (s.offline) " | OFFLINE MODE" else "")

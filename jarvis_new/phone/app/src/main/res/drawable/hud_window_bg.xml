@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Near-black navy with a faint cyan bloom top-centre, like the desktop HUD backdrop. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="@color/hud_bg_raised" android:endColor="@color/hud_bg" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="420dp" android:centerX="0.5" android:centerY="0.0"
+                android:startColor="@color/hud_wash" android:endColor="@android:color/transparent" />
+        </shape>
+    </item>
+</layer-list>

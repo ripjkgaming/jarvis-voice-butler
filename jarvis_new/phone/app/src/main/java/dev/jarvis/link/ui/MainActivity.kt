@@ -7,6 +7,12 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import android.widget.TextView
+import dev.jarvis.link.logic.Link
+import kotlinx.coroutines.launch
 import com.google.android.material.tabs.TabLayout
 import dev.jarvis.link.JarvisApp
 import dev.jarvis.link.R
@@ -44,6 +50,21 @@ class MainActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
         if (savedInstanceState == null) show(selected)
+        val pill = findViewById<TextView>(R.id.main_status)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                JarvisApp.graph(this@MainActivity).home.state.collect { s ->
+                    val (label, tone) = when (s.link) {
+                        Link.ONLINE -> "ONLINE" to Tone.OK
+                        Link.CHECKING -> "LINKING" to Tone.WARN
+                        Link.FAILED -> "OFFLINE" to Tone.ALERT
+                        Link.UNKNOWN -> "STANDBY" to Tone.IDLE
+                    }
+                    pill.text = if (s.guest) "$label · GUEST" else label
+                    pill.dot(tone)
+                }
+            }
+        }
         handleIntent(intent)
     }
 

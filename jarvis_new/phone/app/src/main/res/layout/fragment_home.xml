@@ -9,31 +9,41 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp">
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Connection" android:textStyle="bold" />
-        <TextView android:id="@+id/home_link" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:id="@+id/home_config_problem" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:id="@+id/home_battery" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <Button android:id="@+id/home_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Check connection" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Command" android:textStyle="bold" />
-        <EditText android:id="@+id/home_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Type a command or question" android:inputType="textMultiLine" android:minLines="2" android:importantForAutofill="no" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/home_btn_send" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Send" />
-            <Button android:id="@+id/home_btn_instant" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Instant" />
-            <Button android:id="@+id/home_btn_talk" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Talk" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="4dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Connection" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Status" android:id="@+id/home_link" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/home_config_problem" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/home_battery" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <Button android:id="@+id/home_btn_refresh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Check connection" />
         </LinearLayout>
-        <TextView android:id="@+id/home_notice" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Last reply" android:textStyle="bold" />
-        <TextView android:id="@+id/home_reply" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="PC quick actions" android:textStyle="bold" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/home_btn_lock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Lock PC" />
-            <Button android:id="@+id/home_btn_unlock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Unlock PC" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Command" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <EditText android:id="@+id/home_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Type a command or question" android:inputType="textMultiLine" android:minLines="2" android:importantForAutofill="no" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/home_btn_send" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Send" />
+                <Button android:id="@+id/home_btn_instant" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Instant" />
+                <Button android:id="@+id/home_btn_talk" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Talk" />
+            </LinearLayout>
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/home_notice" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
         </LinearLayout>
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/home_btn_blackout" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens off" />
-            <Button android:id="@+id/home_btn_restore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens on" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Last reply" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Log" android:id="@+id/home_reply" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
         </LinearLayout>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Recent conversation" android:textStyle="bold" />
-        <TextView android:id="@+id/home_log" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="PC quick actions" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/home_btn_lock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Lock PC" />
+                <Button android:id="@+id/home_btn_unlock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Unlock PC" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/home_btn_blackout" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens off" />
+                <Button android:id="@+id/home_btn_restore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Screens on" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recent conversation" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Log" android:id="@+id/home_log" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

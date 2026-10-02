@@ -11,6 +11,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     override fun onViewCreated(v: View, state: Bundle?) {
         val m = graph.chat
         val input = v.findViewById<EditText>(R.id.chat_input)
+        v.button(R.id.chat_btn_send).emphasis(Emphasis.PRIMARY)
         v.onClick(R.id.chat_btn_send) {
             m.send(input.text.toString())
             input.text.clear()

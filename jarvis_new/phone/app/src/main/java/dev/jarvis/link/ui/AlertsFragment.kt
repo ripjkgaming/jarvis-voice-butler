@@ -1,7 +1,7 @@
 package dev.jarvis.link.ui
 
 import android.Manifest
-import android.app.AlertDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.os.Bundle
 import android.view.View
 import androidx.fragment.app.Fragment
@@ -18,7 +18,7 @@ class AlertsFragment : Fragment(R.layout.fragment_alerts) {
             ) { m.refreshLocation() }
         }
         v.onClick(R.id.alerts_btn_sos) {
-            AlertDialog.Builder(requireContext()).setTitle("Send SOS?")
+            MaterialAlertDialogBuilder(requireContext()).setTitle("Send SOS?")
                 .setMessage("Flash red, vibrate, announce, notify the PC with your last known location.")
                 .setPositiveButton("SOS") { _, _ -> m.activate() }
                 .setNegativeButton("Cancel", null).show()
@@ -31,7 +31,9 @@ class AlertsFragment : Fragment(R.layout.fragment_alerts) {
     private fun draw(v: View, s: SosState) {
         v.text(R.id.alerts_status).text = if (s.active) "SOS ACTIVE. ${s.notice}" else s.notice
         v.text(R.id.alerts_location).text = "Location: ${s.location}"
-        v.findViewById<View>(R.id.alerts_root).setBackgroundColor(if (s.active) 0xFFCC0000.toInt() else 0)
+        v.findViewById<View>(R.id.alerts_root).setBackgroundResource(if (s.active) R.drawable.hud_alert_bg else 0)
+        v.text(R.id.alerts_status).tone(if (s.active) Tone.ALERT else Tone.NORMAL)
+        v.button(R.id.alerts_btn_sos).emphasis(Emphasis.DANGER)
         v.button(R.id.alerts_btn_sos).isEnabled = !s.active
         v.button(R.id.alerts_btn_cancel).isEnabled = s.active
     }

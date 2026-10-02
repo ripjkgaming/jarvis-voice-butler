@@ -70,3 +70,19 @@ View ids follow `<screen>_<role>` (enforced by `LayoutIdsTest`).
 `net/ContractTest` reads bridge.py for every tool name, the guest list and
 size limits. `net/LiveBridgeTest` (opt-in via `JARVIS_LIVE_BRIDGE`,
 `JARVIS_LIVE_TOKEN`) runs the client against a real bridge.py.
+
+## Design (3.0 restyle)
+
+The look follows the desktop HUD (`jarvis_new/frontend/styles/globals.css`):
+near-black navy backdrop, pale-cyan Commit Mono text, Everett Light status
+lines, cyan hairline glass panels, a live link pill in the app bar, and
+state colours (green ok, amber linking, red fault, purple speaking).
+
+- Static styling lives in `res/values/themes.xml` (theme defaults for every
+  widget) plus `res/drawable/hud_*` and `res/color/hud_*`. Layouts stay
+  free of `style=` and hex colours (`LayoutIdsTest`); they only add panel
+  containers, label text appearances and button-row gaps.
+- Live styling (state colours, primary/danger button emphasis, the link
+  pill) is `ui/Hud.kt`. Empty status labels collapse after each render
+  (`ui/UiUtil.kt` `collapseEmptyLabels`).
+- No orb: the owner removed it from Jarvis.

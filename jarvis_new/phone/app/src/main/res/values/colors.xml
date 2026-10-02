@@ -1,4 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Desktop HUD palette (jarvis_new/frontend/styles/globals.css). -->
 <resources>
     <color name="ic_launcher_background">#05070D</color>
+
+    <color name="hud_bg">#010409</color>
+    <color name="hud_bg_raised">#020C16</color>
+    <color name="hud_panel">#A6010A14</color>
+    <color name="hud_field">#CC000A12</color>
+
+    <color name="hud_text">#D9F6FF</color>
+    <color name="hud_text_bright">#E0FBFF</color>
+    <color name="hud_text_dim">#7DD3FC</color>
+    <color name="hud_text_faint">#6B8FA3</color>
+
+    <color name="hud_cyan">#22D3EE</color>
+    <color name="hud_cyan_soft">#5FE3FF</color>
+    <color name="hud_line">#2E22D3EE</color>
+    <color name="hud_line_strong">#6622D3EE</color>
+    <color name="hud_wash">#1422D3EE</color>
+    <color name="hud_glow">#3322D3EE</color>
+
+    <color name="hud_ok">#22C55E</color>
+    <color name="hud_think">#A855F7</color>
+    <color name="hud_warn">#FFB347</color>
+    <color name="hud_alert">#F43F5E</color>
+    <color name="hud_alert_wash">#3DF43F5E</color>
 </resources>

@@ -3,12 +3,47 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
     android:orientation="vertical">
+    <LinearLayout
+        android:id="@+id/main_bar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="12dp">
+        <TextView
+            android:id="@+id/main_brand"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:drawableStart="@drawable/hud_label_tick"
+            android:drawablePadding="10dp"
+            android:gravity="center_vertical"
+            android:text="J.A.R.V.I.S  LINK"
+            android:textAppearance="@style/TextAppearance.Hud.Brand" />
+        <TextView
+            android:id="@+id/main_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/hud_pill"
+            android:drawableStart="@drawable/hud_dot"
+            android:drawablePadding="8dp"
+            android:gravity="center_vertical"
+            android:text="Link"
+            android:textAppearance="@style/TextAppearance.Hud.Detail" />
+    </LinearLayout>
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/main_tabs"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         app:tabMode="scrollable" />
+    <View
+        android:id="@+id/main_rule"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@drawable/hud_divider" />
     <FrameLayout
         android:id="@+id/main_content"
         android:layout_width="match_parent"

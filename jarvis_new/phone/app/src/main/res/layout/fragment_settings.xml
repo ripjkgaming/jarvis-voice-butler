@@ -9,31 +9,43 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp">
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Connection" android:textStyle="bold" />
-        <EditText android:id="@+id/settings_host" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="PC Tailscale IP or hostname" android:inputType="text" android:importantForAutofill="no" />
-        <EditText android:id="@+id/settings_port" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Bridge port (default 4317)" android:inputType="number" android:importantForAutofill="no" />
-        <EditText android:id="@+id/settings_mic_port" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Mic uplink port (default 4318)" android:inputType="number" android:importantForAutofill="no" />
-        <EditText android:id="@+id/settings_token" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Bridge token" android:inputType="textPassword" android:importantForAutofill="no" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <Button android:id="@+id/settings_btn_save" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save" />
-            <Button android:id="@+id/settings_btn_test" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save and test" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="4dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Connection" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="PC address (Tailscale)" android:textAppearance="@style/TextAppearance.Hud.Detail" />
+            <EditText android:id="@+id/settings_host" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="PC Tailscale IP or hostname" android:inputType="text" android:importantForAutofill="no" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Bridge port" android:textAppearance="@style/TextAppearance.Hud.Detail" />
+            <EditText android:id="@+id/settings_port" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Bridge port (default 4317)" android:inputType="number" android:importantForAutofill="no" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Mic uplink port" android:textAppearance="@style/TextAppearance.Hud.Detail" />
+            <EditText android:id="@+id/settings_mic_port" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Mic uplink port (default 4318)" android:inputType="number" android:importantForAutofill="no" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Bridge token" android:textAppearance="@style/TextAppearance.Hud.Detail" />
+            <EditText android:id="@+id/settings_token" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Bridge token" android:inputType="textPassword" android:importantForAutofill="no" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:baselineAligned="false" android:showDividers="middle" android:divider="@drawable/hud_gap">
+                <Button android:id="@+id/settings_btn_save" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save" />
+                <Button android:id="@+id/settings_btn_test" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save and test" />
+            </LinearLayout>
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Status" android:id="@+id/settings_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
         </LinearLayout>
-        <TextView android:id="@+id/settings_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Switches" android:textStyle="bold" />
-        <Switch android:id="@+id/settings_switch_mic_uplink" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Mic uplink to PC (remote hey Jarvis)" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_hotword" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="On-device Jarvis hotword" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_pause_music" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Pause hotword while music plays" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_tts" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Speak replies aloud" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_tts_male" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Prefer a male voice" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_autostart" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Start services at boot" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_offline" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Offline mode (hold bridge calls)" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <Switch android:id="@+id/settings_switch_guest" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Guest mode (locks PC, limits actions)" tools:ignore="UseSwitchCompatOrMaterialXml" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Remote desktop" android:textStyle="bold" />
-        <Spinner android:id="@+id/settings_spinner_remote" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:contentDescription="Remote desktop app" />
-        <Button android:id="@+id/settings_btn_remote" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Start remote session" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Permissions" android:textStyle="bold" />
-        <Button android:id="@+id/settings_btn_permissions" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Request permissions" />
-        <TextView android:id="@+id/settings_session" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
-        <TextView android:id="@+id/settings_version" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Switches" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <Switch android:id="@+id/settings_switch_mic_uplink" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Mic uplink to PC (remote hey Jarvis)" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_hotword" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="On-device Jarvis hotword" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_pause_music" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Pause hotword while music plays" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_tts" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Speak replies aloud" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_tts_male" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Prefer a male voice" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_autostart" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Start services at boot" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_offline" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Offline mode (hold bridge calls)" tools:ignore="UseSwitchCompatOrMaterialXml" />
+            <Switch android:id="@+id/settings_switch_guest" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="Guest mode (locks PC, limits actions)" tools:ignore="UseSwitchCompatOrMaterialXml" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Remote desktop" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <Spinner android:id="@+id/settings_spinner_remote" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:contentDescription="Remote desktop app" />
+            <Button android:id="@+id/settings_btn_remote" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Start remote session" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Permissions" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <Button android:id="@+id/settings_btn_permissions" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Request permissions" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/settings_session" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+            <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/settings_version" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

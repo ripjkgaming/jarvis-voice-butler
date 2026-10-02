@@ -5,18 +5,27 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="16dp">
-    <androidx.camera.view.PreviewView
-        android:id="@+id/camera_preview"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+    <!-- Live phone camera, framed as a HUD panel. -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="10dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Phone camera" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+        <androidx.camera.view.PreviewView
+            android:id="@+id/camera_preview"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_marginTop="10dp"
+        android:baselineAligned="false"
+        android:divider="@drawable/hud_gap"
+        android:orientation="horizontal"
+        android:showDividers="middle">
         <Button android:id="@+id/camera_btn_capture" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Send photo to PC" />
         <Button android:id="@+id/camera_btn_latest" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Show latest on PC" />
     </LinearLayout>
-    <TextView android:id="@+id/camera_notice" android:layout_width="match_parent" android:layout_height="wrap_content" />
-    <ImageView android:id="@+id/camera_image" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:scaleType="fitCenter" android:contentDescription="Latest frame on the PC" />
+    <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/camera_notice" android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <!-- Latest frame on the PC. -->
+    <ImageView android:id="@+id/camera_image" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="10dp" android:background="@drawable/hud_panel" android:padding="6dp" android:scaleType="fitCenter" android:contentDescription="Latest frame on the PC" />
 </LinearLayout>
