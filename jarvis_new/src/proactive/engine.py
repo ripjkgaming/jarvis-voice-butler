@@ -45,6 +45,13 @@ ACK_WINDOW_S = 120.0
 KEYS_KEEP = 600
 
 
+def _source_name(source) -> str:
+    """'mail_source.poll' instead of a bare 'poll' (every source is one)."""
+    module = str(getattr(source, "__module__", "") or "").rsplit(".", 1)[-1]
+    name = str(getattr(source, "__name__", source))
+    return f"{module}.{name}" if module else name
+
+
 @dataclass
 class Context:
     quiet: bool = False  # quiet hours (idle-gated, like notify/dnd)
@@ -267,7 +274,7 @@ class ProactiveEngine:
                 with contextlib.suppress(Exception):
                     self.log(
                         "proactive",
-                        f"source-error {getattr(source, '__name__', source)}: {type(exc).__name__}",
+                        f"source-error {_source_name(source)}: {type(exc).__name__}: {str(exc)[:80]}",
                     )
         return out
 
