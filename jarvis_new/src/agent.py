@@ -1911,6 +1911,32 @@ class Assistant(Agent):
             ),
         )
 
+    def _goal_owners(self) -> list:
+        """Tool groups a routed read goal may run on (intent/goals.py)."""
+        return [
+            getattr(self, name)
+            for name in ("inbox_tools", "exam_tools", "daily_tools", "workspace_tools")
+            if getattr(self, name, None) is not None
+        ]
+
+    async def _goal_route(self, text: str) -> tuple[str, dict, str] | None:
+        """Read goals (mail, exams, calendar, weather, news) always run their
+        tool: Gemini told Sir "I cannot access your emails" with Gmail
+        connected and never called gmail_inbox (2 Oct)."""
+        from intent import fast_path, goals
+
+        if not goals.enabled():
+            return None
+        cleaned = fast_path.clean(text)
+        subjects = await asyncio.to_thread(goals.exam_subjects)
+        hit = goals.route(cleaned, subjects)
+        if hit is None or not any(
+            getattr(type(owner), hit[0], None) is not None
+            for owner in self._goal_owners()
+        ):
+            return None
+        return hit[0], hit[1], "goal"
+
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         """Catch instant commands before Gemini replies (IRONMAN fast path).
 
@@ -1936,9 +1962,16 @@ class Assistant(Agent):
                 return
             hit = await fast_path.match_async(text)
             if hit is None:
-                return
-            tool, args, source = hit
-            ok, say = await fast_path.execute(self.system_tools, tool, args)
+                hit = await self._goal_route(text)
+                if hit is None:
+                    return
+                tool, args, source = hit
+                from intent import goals
+
+                ok, say = await goals.execute(self._goal_owners(), tool, args)
+            else:
+                tool, args, source = hit
+                ok, say = await fast_path.execute(self.system_tools, tool, args)
             with contextlib.suppress(Exception):
                 import claim_guard
 
@@ -2228,8 +2261,8 @@ async def my_agent(ctx: JobContext):
                 session.generate_reply(
                     instructions=_cg.reprompt(verdict, _cg.GUARD.user_text)
                 )
-            else:
-                session.say(_cg.fixed_line(verdict))
+            elif line := _cg.fixed_line(verdict):
+                session.say(line)
         except Exception:
             pass
 

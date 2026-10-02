@@ -119,6 +119,28 @@ _REQUEST = re.compile(
 )
 
 
+# "I cannot access your emails", "I don't have access to that", "I'm unable
+# to check": a refusal. Fine after a tool failed; a giveaway when Jarvis
+# never tried (the tools exist, Gemini just answered from nothing).
+_REFUSAL = re.compile(
+    r"\b(?:i(?:'m| am)? (?:afraid i )?(?:can't|cannot|can not|am unable to|'m unable to|"
+    r"unable to|don't have (?:access|the ability|a way)|do not have (?:access|the ability|a way)|"
+    r"have no (?:access|way)|don't know|do not know|couldn't|could not)|"
+    r"i'm afraid i (?:can't|cannot|don't|do not)|"
+    r"(?:that's|that is|it's|it is) (?:not possible|beyond me|unavailable))\b"
+)
+# Sir's turn carried a goal: a command, or a question about his own world.
+_GOAL = re.compile(
+    r"\b(?:my|me|what|what's|whats|when|where|who|which|how|any|check|show|tell|"
+    r"read|find|get|list|look|see|search|is there|are there|do i|have i)\b"
+)
+
+
+def refusal(sentence: str) -> bool:
+    """Does this sentence refuse or plead ignorance? Pure."""
+    return bool(_REFUSAL.search(_norm(sentence)))
+
+
 @dataclass
 class Verdict:
     category: str  # send / media / window / delete / create / done
@@ -209,6 +231,18 @@ class ClaimGuard:
         turn = self._turn
         if not turn.text or self._clock() - turn.at > USER_WINDOW_S:
             return None  # proactive speech / no request to answer
+        if (
+            not turn.tools_ok
+            and not turn.tools_failed
+            and _GOAL.search(_norm(turn.text))
+            and refusal(assistant_text)
+        ):
+            # "I cannot access your emails" without even trying.
+            return Verdict(
+                category="refusal",
+                claim=(assistant_text or "")[:160],
+                reason="no-tool",
+            )
         if not _REQUEST.search(_norm(turn.text)):
             return None  # chit-chat, not a command
         for category, sentence in claims(assistant_text):
@@ -240,6 +274,15 @@ GUARD = ClaimGuard()
 
 def reprompt(verdict: Verdict, user_text: str) -> str:
     """Instructions that make Jarvis actually do it, or say he can't."""
+    if verdict.category == "refusal":
+        return (
+            f'Sir asked: "{user_text[:200]}". You said "{verdict.claim}" without '
+            "calling any tool. You DO have tools for his mail, calendar, "
+            "weather, news, exams, files, apps, the web and more. Pick the "
+            "tool that serves his goal and call it now, then report only its "
+            "real result. Only if no tool exists for it, say so in one short "
+            "sentence."
+        )
     why = (
         f"the tool failed ({verdict.detail})"
         if verdict.reason == "tool-failed"
@@ -255,7 +298,9 @@ def reprompt(verdict: Verdict, user_text: str) -> str:
 
 
 def fixed_line(verdict: Verdict) -> str:
-    """Last resort: never leave a false 'done' standing."""
+    """Last resort: never leave a false 'done' standing ('' = stay quiet)."""
+    if verdict.category == "refusal":
+        return ""  # an honest "can't" after the retry needs no correction
     return (
         "Correction, Sir: I said that was done, but it wasn't. "
         "Nothing actually happened. Please ask me again."
