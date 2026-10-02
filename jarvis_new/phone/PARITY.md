@@ -1,76 +1,72 @@
-# JarvisLink ↔ jarvis_mobile feature parity
+# JarvisLink 3.0: feature parity map
 
 Native app (`jarvis_new/phone`, `dev.jarvis.link`) is the only phone app.
-Every behaviour that existed only in the Flutter app (`jarvis_mobile/`,
-read-only reference — do not modify) now lives below. Gate:
-`./gradlew testDebugUnitTest lintDebug assembleDebug` (green).
+3.0 is a rebuild with a deliberately plain UI: standard Views, no styling.
+Logic lives in testable classes (`net/`, `logic/`); fragments only render a
+state class and forward clicks. Gate:
+`./gradlew testDebugUnitTest lintDebug assembleDebug`.
 
-## Flutter → Kotlin map
+Layers: `net/` bridge contract (BridgeClient, BridgeConfig, errors, limits),
+`logic/` models (one immutable state class per screen), `device/` Android
+adapters, `svc/` foreground services and receivers, `ui/` fragments.
+`Graph` (process-wide) owns the models so rotation never loses state.
+View ids follow `<screen>_<role>` (enforced by `LayoutIdsTest`).
 
-| Flutter source | Behaviour | Kotlin provider | ✅/❌ |
-|---|---|---|---|
-| `core/voice_ctrl.dart` `connectParams` | Shape POST /token payload into connect params | `VoiceCall.kt` `connectParams` (accepts `{serverUrl,participantToken}` + `{url,token}`) | ✅ |
-| `core/voice_ctrl.dart` `CallState` | idle/joining/live/error | `VoiceCall.kt` `CallState` (IDLE/JOINING/LIVE/ERROR) | ✅ |
-| `core/voice_ctrl.dart` `join/hangup/setMuted` | Join LiveKit room, publish mic, remote audio plays, mute, hangup | `VoiceCallManager.kt` (`LiveKit.create` + `room.connect` + `setMicrophoneEnabled`) | ✅ |
-| `core/voice_ctrl.dart` speaker energy | Agent-speaking drives orb energy (1.0 → 0.45 idle) | `VoiceCallManager.kt` `ActiveSpeakersChanged` + 2s idle decay → `VoiceFragment` orb | ✅ |
-| `screens/voice_screen.dart` talk button | TALK/HANG UP + JOINING state + fault + retry text | `VoiceFragment.kt` + `fragment_voice.xml` (`btn_voice_talk`, `voice_state`, `voice_detail`) | ✅ |
-| `screens/voice_screen.dart` mute | In-call mic toggle | `VoiceFragment.kt` `btn_voice_mute` (MUTE/UNMUTE) | ✅ |
-| `screens/voice_screen.dart` transcript | Live captions below orb, 3s poll | `VoiceFragment.kt` `pullCaptions()` (GET /captions limit 8, newest last) + `voice_swipe` pull-to-refresh | ✅ |
-| `core/link_api.dart` `livekitToken` | POST /token `{room, dispatch}` | `LinkApi.kt` `livekitToken(room, dispatch)` | ✅ |
-| `core/link_api.dart` `room()` | GET /room — join the live laptop call | `LinkApi.kt` `room()` + `VoiceFragment.kt` JOIN LAPTOP CALL (`btn_voice_room`) | ✅ |
-| `core/link_api.dart` `summon` + `chat_ctrl.dart` `summonSpoken` | POST /summon, optional spoken-text seed | `LinkApi.kt` `summon(text)`; `VoiceFragment.kt` SUMMON LAPTOP + `ChatFragment.kt` long-press Jarvis bubble | ✅ |
-| `core/link_api.dart` `captions` | GET /captions?limit=N | `LinkApi.kt` `captions(limit)`; feeds in `VoiceFragment.kt` + `ActivityFragment.kt` | ✅ |
-| `core/link_api.dart` `actions` | GET /actions?limit=N | `LinkApi.kt` `actions(limit)` (pre-existing); feed in `ActivityFragment.kt` | ✅ |
-| feeds auto-refresh + pull-to-refresh | 5s poll + swipe refresh | `ActivityFragment.kt` 5s `poll` + `activity_swipe`; `VoiceFragment.kt` 3s live poll + `voice_swipe`; `ControlFragment.kt` `ctrl_swipe` → volume re-read | ✅ |
-| `core/chat_ctrl.dart` `historyOf` | Last 10 exchanges as `[role,text]` pairs | `ChatHistory.kt` `historyOf`/`toJson` (last 20 msgs, role-normalised) | ✅ |
-| `core/chat_ctrl.dart` `send`/typing | /chat threads + thinking indicator | `ChatFragment.kt` (history-aware send) — kept, history now via `ChatHistory` | ✅ |
-| `screens/chat_screen.dart` long-press | Speak a Jarvis reply via Voice | `ChatFragment.kt` long-press → POST /summon `{text}` + toast | ✅ |
-| `control_ctrl.dart` `refreshVolume`/`setVolume` | Volume slider with bridge read-back (step walk + re-read) | `ControlFragment.kt` `ctrl_volume` SeekBar + `setVolume` walk + `refreshVolume` | ✅ |
-| `control_ctrl.dart` `toggleMute` | Mute toggle | `ControlFragment.kt` `btn_vol_mute` (state-synced MUTE/UNMUTE) | ✅ |
-| `control_ctrl.dart` `media` | play/pause/next/prev + now-playing | `ControlFragment.kt` `btn_media*` + `ctrl_now_playing` | ✅ |
-| `control_ctrl.dart` `capture` | Screenshot + preview | `ControlFragment.kt` `capture()` + `img_shot` preview + `ctrl_note` | ✅ |
-| `control_ctrl.dart` `screens` | screens state/off/restore (+confirm) | `ControlFragment.kt` STATE/WAKE/SLEEP (`screens_state`/`screens_restore`/`screens_off`, SLEEP confirms) | ✅ |
-| `control_ctrl.dart` `openApp` | Open ANY app by free-text name (`open_app` tool) | `ControlFragment.kt` `edit_open_app` + `btn_open_app_go` (presets kept) | ✅ |
-| `control_ctrl.dart` `typeText`/`pressEnter` | Type text + Enter | `ControlFragment.kt` `edit_type_text` + `btn_type_send` + `btn_type_enter` | ✅ |
-| `core/theme.dart` palette | Near-black navy, cyan #5FE3FF, amber, glass 1px cyan panels, mono uppercase labels | `colors.xml` `jarvis_cyan #5FE3FF` + `jarvis_amber #FFB648`, `themes.xml` primary, `hud_panel` drawable; existing ArcReactorView/HudBackdropView reused | ✅ |
-| `widgets/hud.dart` panels/pills/scanline | Glass panels, status pills, section labels | `hud_panel`/`hud_field` drawables, HUD button/field/text styles, `fragment_voice.xml` mono labels | ✅ |
-| `widgets/orb.dart` breathing orb | Energy-driven orb hero | `ArcReactorView` (`voice_orb`, `energy`) + speaking indicator | ✅ |
-| `screens/home_screen.dart` captions tail | Latest transmissions panel | `HomeFragment.kt` stream (pre-existing) + `ActivityFragment.kt` captions feed | ✅ |
-| `screens/home_screen.dart` suit power | Phone battery pill + bridge telemetry | `HomeFragment.kt` power-core readout + `LinkApi.postTelemetry` (pre-existing) | ✅ |
-| `core/phone_telemetry.dart` | Payload/clamp/label/60s push, fail-silent | `LinkApi.telemetryPayload` + `postTelemetry` (pre-existing; unit-tested) | ✅ |
-| `core/prefs.dart` host/token | Bridge URL + bearer token persistence | `Prefs.kt` host/httpPort/token (+ session/cursor/modes) + `SettingsFragment.kt` | ✅ |
-| `main.dart` tabs | Home/Voice/Chat/Control | `Tabs.kt` + `MainActivity.kt`: Home, Voice, Chat, Control (+ all v1.3 tabs kept) | ✅ |
-| `screens/soon_screen.dart` | Unused placeholder (not in tab bar) | n/a — no behaviour to port | ✅ |
-| RECORD_AUDIO + foreground mic in call | Mic permission + foreground-service-microphone while live | `VoiceCallService.kt` (microphone type, join→hangup) + `VoiceFragment.kt` runtime RECORD_AUDIO gate; manifest perms pre-existing | ✅ |
+## Feature -> class -> screen
 
-## Kept Kotlin-only features (still working, untouched paths)
+| Feature | Logic class | Screen / ids |
+|---|---|---|
+| Voice call (LiveKit join/hangup/mute, token mint, retry, timeout, lost-call fault) | `logic/CallModel` (+ `device/LiveKitEngine`, `svc/VoiceCallService`) | Voice: `voice_btn_talk`, `voice_btn_mute`, `voice_state`, `voice_detail`, `voice_speaking` |
+| Join the live laptop call (`GET /room`, dispatch=false) | `CallModel.joinLaptop` | `voice_btn_laptop` |
+| Summon laptop (`/summon`) | `Messenger.summon` via `CallModel.summon` | `voice_btn_summon` |
+| Captions (3 s poll, chronological, newest last) | `CallModel.startPolling` | `voice_captions`, `voice_btn_refresh` |
+| Actions feed, captions, `/sys` stats (5 s poll) | `logic/ActivityModel` | Activity: `activity_actions`, `activity_captions`, `activity_system`, `activity_error`, `activity_btn_refresh` |
+| Chat with history (last 10 exchanges, persisted) | `logic/ChatModel`, `Messenger`, `Conversation`, `ChatHistory` | Chat: `chat_log`, `chat_input`, `chat_btn_send`, `chat_btn_clear`, `chat_notice` |
+| Speak a Jarvis reply on the laptop | `Messenger.speakOnLaptop` | `chat_btn_speak_laptop` |
+| Instant commands (`/route`, chat fallback) | `Messenger.send(instant=true)` | Home: `home_btn_instant` |
+| Prompt, push-to-talk `/talk` | `logic/HomeModel`, `TalkService`, `device/Audio16k` | Home: `home_input`, `home_btn_send`, `home_btn_talk`, `home_reply` |
+| Telemetry (battery, 60 s, charging flip, ref-counted) | `logic/TelemetryReporter` | Home: `home_battery` |
+| Connection status and config problems | `HomeModel.refreshLink`, `BridgeConfig.problem` | `home_link`, `home_config_problem`, `home_btn_refresh` |
+| Lock / blackout / screens on / fingerprint unlock | `logic/PcActions`, `device/Biometric` | Home: `home_btn_lock/unlock/blackout/restore` |
+| Volume (absolute `volume_set` 0..150 with read-back), mute | `logic/ControlModel` | Control: `control_volume`, `control_btn_vol_up/down`, `control_btn_mute` |
+| Media + now playing | `ControlModel.media` | `control_btn_prev/play/next`, `control_now_playing` |
+| Open app by name | `ControlModel.openApp` | `control_app_input`, `control_btn_open_app` |
+| Type text (chunked at 500) + keys | `ControlModel.typeText/pressKey` | `control_type_input`, `control_btn_type`, `control_btn_enter/esc/tab/backspace/up/down/left/right` |
+| PC mic mute | `PcActions.togglePcMic` | `control_btn_pc_mic`, `phone_btn_pc_mic` |
+| Screenshot per display, display state, off/on | `logic/ScreensModel` | Screens: `screens_outputs`, `screens_btn_capture/refresh/off/on`, `screens_image` |
+| Settings, validation, link test | `logic/SettingsModel`, `Prefs`, `BridgeConfig` | Settings: `settings_host/port/mic_port/token`, `settings_btn_save/test` |
+| Offline / guest modes (guest locks PC first) | `SettingsModel`, `GuestPolicy`, bridge `guest` stamp | `settings_switch_offline`, `settings_switch_guest` |
+| Assistant role | `svc/JarvisInteractionService`, `JarvisSessionService`, `JarvisSession` | system overlay (`session_*`) |
+| Recognition service | `svc/JarvisRecognitionService` | n/a |
+| Hotword (backoff, cooldown, mic gate) | `logic/HotwordController`, `HotwordGate`, `svc/HotwordService` | `settings_switch_hotword`, `settings_switch_pause_music` |
+| Mic uplink + remote "hey Jarvis" | `logic/MicUplink`, `svc/LinkService` | `settings_switch_mic_uplink` |
+| Wake routing (locked: one-shot, unlocked: app) | `logic/WakeRouting`, `svc/WakeRouter`, `ui/OneShotVoiceActivity` | `oneshot_*` |
+| Approvals (local queue, shade Approve/Deny) | `logic/ApprovalStore`, `svc/ApprovalReceiver` | Approvals: `approvals_container`, `approvals_btn_demo` |
+| Camera (send frame, view latest) | `logic/CameraModel`, `device/JpegShrinker` | Camera: `camera_preview`, `camera_btn_capture/latest`, `camera_image` |
+| SOS + location (+ notify PC) | `logic/SosModel`, `svc/AndroidSosEffects` | Alerts: `alerts_btn_sos/cancel/location`, `alerts_status`, `alerts_root` |
+| TTS | `device/TtsManager` | `settings_switch_tts`, `settings_switch_tts_male` |
+| Boot start | `svc/BootReceiver`, `AndroidServiceControl.ensureRunning` | `settings_switch_autostart` |
+| Dialer / SMS / WhatsApp / clipboard | `logic/PhoneModel`, `PhoneLinks` | Phone: `phone_number`, `phone_message`, `phone_btn_call/sms/whatsapp/copy/speak` |
+| Remote desktop launch | `device/RemoteLauncher`, `PcActions.remoteStart` | `settings_btn_remote`, `settings_spinner_remote` |
+| Permissions | `ui/MainActivity.requirePermissions` | `settings_btn_permissions` |
 
-Assistant role (`JarvisInteractionService`, `JarvisSession`), hotword
-(`HotwordService`, `Hotword`), recognition service
-(`JarvisRecognitionService`), approvals (`ApprovalsFragment`),
-biometric-gated unlock (Control/Phone/Home), camera
-(`CameraFragment`), SOS + location (`AlertsFragment`), screens
-per-output viewer (`ScreensFragment`), activity spend line,
-push-to-talk `/talk` (`TalkFragment`, `HomeFragment`), TTS
-(`TtsManager`, `Tts`), boot (`BootReceiver`), battery telemetry,
-offline/guest modes, dialer/SMS/WhatsApp/clipboard (`PhoneFragment`).
+## Bugs fixed in the rewrite
 
-## Deltas vs Flutter worth knowing
+- Enter key sent `Enter`; wtype only knows `Return` (always failed). Now `Keys.ENTER`.
+- Sleep used tool `screens_off`; the bridge only has `screen_off`.
+- Guest toggle sent `lock` while already guest, so the bridge refused it. Lock is sent first.
+- `GET /room` null became the string "null" and was joined as a room.
+- Captions were reversed (the bridge returns chronological, newest last).
+- Volume was step-walked; now `volume_set` with real read-back (0..150).
+- `/type` over 500 chars was rejected; now chunked. `/talk` under 0.1 s was a 400; now explained locally.
+- Notification id 3 was shared by hotword and remote launch.
+- Mic foreground services started without checking RECORD_AUDIO (crash on 14+); boot start of mic services is blocked on 14/15 (tap-notification fallback); voice call service was sticky (stale notification after process death); wake lock expired after 12 h; telemetry only ran with the mic uplink.
+- A service cannot start an activity in the background; wake now also posts a full-screen notification.
+- 401 / unreachable / timeout / wrong port / missing token each have a specific message.
+- Defaults: mic uplink and hotword now start off (opt-in after permissions).
 
-- Token shapes: Flutter reads `{serverUrl, participantToken}`; the
-  documented shape is `{url, token}`. `VoiceCall.connectParams`
-  accepts both (unit-tested).
-- `GET /room` is defined but unwired in Flutter; here it powers
-  JOIN LAPTOP CALL (joins that room with `dispatch=false`).
-- Sleep uses the existing `screens_off` tool (Flutter `control_ctrl`
-  names it `screens_off` too; Screens tab uses `screen_off` — both kept).
-- New deps: `io.livekit:livekit-android:2.28.1` (matches Flutter
-  `livekit_client ^2.13.0` protocol family; needs JitPack for its
-  `audioswitch` fork — see `settings.gradle`),
-  `androidx.swiperefreshlayout:1.1.0`,
-  `org.json:json` (unit tests only — android.jar stubs throw on JVM).
-- New tests: `VoiceCallTest` (token parsing), `ChatHistoryTest`
-  (history builder incl. bridge JSON shape). `TabsTest` updated to the
-  10-tab order. 24 tests, 0 failures.
-- `gradlew` wrapper (Gradle 8.10.2) generated so the gate command runs;
-  run with JDK 21 (`JAVA_HOME=…/jdk21`).
+## Contract tests
+
+`net/ContractTest` reads bridge.py for every tool name, the guest list and
+size limits. `net/LiveBridgeTest` (opt-in via `JARVIS_LIVE_BRIDGE`,
+`JARVIS_LIVE_TOKEN`) runs the client against a real bridge.py.
