@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from dotenv import load_dotenv
 from google.genai import types as genai_types
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -120,7 +121,8 @@ def _patch_gemini_turn_end() -> bool:
 
     def generate_reply(self, *, instructions=NOT_GIVEN, **kwargs):
         self._jarvis_audio_turn = bool(
-            self._in_user_activity
+            self._manual_activity_detection
+            and self._in_user_activity
             and instructions is NOT_GIVEN
             and not _ra._needs_reply_placeholder(self._opts.model)
         )
@@ -130,6 +132,8 @@ def _patch_gemini_turn_end() -> bool:
             self._jarvis_audio_turn = False
 
     def _send_client_event(self, event):
+        if not self._manual_activity_detection:
+            return orig_send(self, event)
         if (
             getattr(self, "_jarvis_audio_turn", False)
             and isinstance(event, _gt.LiveClientContent)
@@ -280,15 +284,13 @@ def _voice_model(model_id: str):
         # No language code: native-audio models reject explicit codes
         # and default to English anyway.
         **thinking,
-        # Endpointing is MANUAL (automatic_activity_detection.disabled):
-        # server-side VAD hears nothing for this key (zero transcripts on
-        # every call at any sensitivity — verified direct against the Live
-        # API). The framework frames turns itself from local endpointing
-        # (turn_detection="vad" + Silero below) and the plugin forwards
-        # activity_start/activity_end. Verified: manual framing answers.
+        # Let Gemini detect the spoken turn. Local Silero classified the
+        # live microphone background as continuous speech, withholding
+        # activity_end and all transcripts for over 40 seconds. Native
+        # detection is verified with this model and does not need that gate.
         realtime_input_config=genai_types.RealtimeInputConfig(
             automatic_activity_detection=genai_types.AutomaticActivityDetection(
-                disabled=True
+                disabled=False
             )
         ),
         tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
@@ -481,6 +483,86 @@ FOLLOW_UP_PAUSE_PROMPT_S = 20.0
 FOLLOW_UP_HOLD_CAP_S = 60.0
 
 
+class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
+    """Observe energy for idle timers; forward every frame unchanged.
+
+    Native Gemini speech-start arrives when it generates a response, after
+    the utterance. This small, independent meter protects a person starting
+    near an idle deadline. It stores only timestamps, never audio, and never
+    commits a turn, interrupts output, or changes the SDK's user state.
+    """
+
+    QUIET_GAP_S = 0.75
+    MIN_RMS = 200.0
+
+    def __init__(self, *, clock=time.monotonic):
+        self._clock = clock
+        self._enabled = True
+        self.started_at: float | None = None
+        self.last_active_at: float | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._enabled = value
+
+    def _process(self, frame: rtc.AudioFrame) -> rtc.AudioFrame:
+        if self.enabled and len(frame.data):
+            # At most 64 PCM samples per frame; no copy or model work on the
+            # audio loop. This observes the source before RoomIO's AGC.
+            samples = frame.data[:: max(1, math.ceil(len(frame.data) / 64))]
+            rms = math.sqrt(sum(value * value for value in samples) / len(samples))
+            if rms >= self.MIN_RMS:
+                now = self._clock()
+                if (
+                    self.last_active_at is None
+                    or now - self.last_active_at > self.QUIET_GAP_S
+                ):
+                    self.started_at = now
+                self.last_active_at = now
+        return frame
+
+    def active(self, now: float, *, grace: float = QUIET_GAP_S) -> bool:
+        return (
+            self.enabled
+            and self.last_active_at is not None
+            and 0 <= now - self.last_active_at <= grace
+        )
+
+    def holding(self, now: float, *, grace: float = QUIET_GAP_S) -> bool:
+        return (
+            self.active(now, grace=grace)
+            and self.started_at is not None
+            and now - self.started_at < FOLLOW_UP_HOLD_CAP_S
+        )
+
+    def _close(self) -> None:
+        self._enabled = False
+        self.started_at = self.last_active_at = None
+
+
+def _input_activity_holds(
+    session, *, grace: float = _InputActivity.QUIET_GAP_S
+) -> bool:
+    activity = getattr(session, "_jarvis_input_activity", None)
+    return activity is not None and activity.holding(activity._clock(), grace=grace)
+
+
+def _audio_input_options(session) -> room_io.AudioInputOptions:
+    if _pipeline_name() != "realtime":
+        return room_io.AudioInputOptions()
+    activity = _InputActivity()
+    session._jarvis_input_activity = activity
+    # The SDK's processor slot accepts generic pass-through observers too.
+    # Explicit AGC preserves the previous default when a processor is set.
+    return room_io.AudioInputOptions(
+        noise_cancellation=activity, auto_gain_control=True
+    )
+
+
 def _normal_follow_up_s() -> float:
     """Normal-mode listening window (JARVIS_FOLLOW_UP, default 15 s)."""
     try:
@@ -522,6 +604,8 @@ async def _school_follow_up(
         else started_at + first
     )
     pause_prompted = False
+    input_activity = getattr(session, "_jarvis_input_activity", None)
+    local_active = False
 
     def _window() -> float:
         # A confirmation question waits longer for Sir's answer.
@@ -566,19 +650,31 @@ async def _school_follow_up(
         while True:
             await asyncio.sleep(tick)
             now = clock()
-            held = now - speech_started_at if speech_started_at is not None else 0.0
-            if (
-                speech_started_at is not None
-                and held >= FOLLOW_UP_PAUSE_PROMPT_S
-                and not pause_prompted
-            ):
+            local_started_at = None
+            if input_activity is not None:
+                active = input_activity.active(now)
+                if active:
+                    local_started_at = input_activity.started_at
+                    deadline = None
+                elif local_active:
+                    # A natural acoustic pause starts a fresh window even
+                    # when the provider has emitted no speech event yet.
+                    pause_prompted = False
+                    deadline = None
+                    _update_deadline()
+                local_active = active
+            starts = [
+                at for at in (speech_started_at, local_started_at) if at is not None
+            ]
+            held = now - min(starts) if starts else 0.0
+            if starts and held >= FOLLOW_UP_PAUSE_PROMPT_S and not pause_prompted:
                 pause_prompted = True
                 _caption(
                     "Still hearing continuous sound, Sir. Please pause briefly "
                     "so I can finish listening."
                 )
             expired = deadline is not None and now >= deadline
-            stuck = speech_started_at is not None and held >= FOLLOW_UP_HOLD_CAP_S
+            stuck = bool(starts) and held >= FOLLOW_UP_HOLD_CAP_S
             if (
                 (expired or stuck)
                 and agent_state not in ("thinking", "speaking")
@@ -844,9 +940,11 @@ async def _greet_with_retry(
     await asyncio.sleep(2.0)
     # A retry uses generate_reply on Gemini, which ends its current input
     # activity. Never cut off a request or a response that started meanwhile.
-    if getattr(session, "user_state", None) == "speaking" or getattr(
-        session, "agent_state", None
-    ) in ("thinking", "speaking"):
+    if (
+        getattr(session, "user_state", None) == "speaking"
+        or getattr(session, "agent_state", None) in ("thinking", "speaking")
+        or _input_activity_holds(session, grace=2.0)
+    ):
         return
     await _say_with_caption(session, line, caption)
 
@@ -939,17 +1037,16 @@ def _session_for_pipeline(
     executing, and the call died as USER_INITIATED.
     """
     if _pipeline_name() == "realtime":
-        # Gemini realtime handles the voice input and output for this session.
-        # Local Silero VAD feeds turn_detection="vad" (server VAD is deaf
-        # for this key — manual activity framing, see _realtime_llm).
+        # Native speech events own both endpointing and interruptions.
+        # Explicitly disable local VAD: leaving Silero attached still lets
+        # its noise classifications change user_state and delay greetings.
         return AgentSession(
-            turn_handling=turn_handling,
-            user_away_timeout=IDLE_HANGUP_SECONDS,
-            vad=(
-                vad
-                if vad is not None
-                else (silero.VAD.load(**vad_kwargs()) if silero is not None else None)
+            turn_handling=TurnHandlingOptions(
+                turn_detection="realtime_llm",
+                interruption={"enabled": True},
             ),
+            user_away_timeout=IDLE_HANGUP_SECONDS,
+            vad=None,
         )
     if _pipeline_name() == "direct":
         # Cloud-free stack for a local livekit-server: the default
@@ -1925,23 +2022,15 @@ async def my_agent(ctx: JobContext):
     # restores the cheap local stack (budget STT + Gemini brains +
     # downloaded voice = ~$0.003/min).
     turn_handling = TurnHandlingOptions(
-        # Local VAD endpointing ("vad" + Silero): server-side turn
-        # detection is off (its VAD is deaf for this key — see
-        # _realtime_llm), so the framework frames turns itself from the
-        # local VAD and the realtime plugin forwards activity markers.
-        # (The old inference.TurnDetector is Cloud-metered and was ignored
-        # by the realtime model anyway.)
+        # The realtime factory replaces this with native model endpointing;
+        # local speech pipelines retain their own turn settings.
         turn_detection="vad" if silero is not None else None,
         # "vad" (local Silero), never "adaptive": the adaptive detector
         # dials wss://agent-gateway.livekit.cloud (401 with no Cloud
         # credentials) and retries forever. Same Cloud dependency class
         # as the old TurnDetector and QUAIL enhancement.
         interruption=barge_in("vad"),
-        # Silero already waits min_silence_duration (0.55 s) before it
-        # reports end of speech; the framework's default 0.5 s endpointing
-        # delay stacked on top of that, ~1 s of dead air before Gemini even
-        # heard the turn had ended. Silero's silence window is the guard
-        # against mid-sentence pauses, so the extra delay stays short.
+        # Local pipelines use the configured minimum silence window.
         endpointing={"min_delay": endpointing_delay()},
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
@@ -1951,7 +2040,7 @@ async def my_agent(ctx: JobContext):
     # loop if built inline (measured in agent.log). Build it in a thread
     # while nothing else needs the loop yet; _session_for_pipeline reuses it.
     _vad = None
-    if silero is not None and _pipeline_name() in ("realtime", "direct"):
+    if silero is not None and _pipeline_name() == "direct":
         with contextlib.suppress(Exception):
             _vad = await asyncio.to_thread(silero.VAD.load, **vad_kwargs())
     session = _session_for_pipeline(turn_handling, vad=_vad)
@@ -2278,7 +2367,9 @@ async def my_agent(ctx: JobContext):
             return  # one watcher waits out the work; extra firings stand down
         _hangup_watching["active"] = True
         try:
-            while not _idle_exceeded(_activity_clock["last"], time.monotonic()):
+            while not _idle_exceeded(
+                _activity_clock["last"], time.monotonic()
+            ) or _input_activity_holds(session, grace=_normal_follow_up_s()):
                 await asyncio.sleep(5.0)
             # Engaged calls belong to the presence loop now (it closes on
             # confirmed absence); the idle hangup only takes standby calls.
@@ -2395,11 +2486,9 @@ async def my_agent(ctx: JobContext):
         room=ctx.room,
         room_options=room_io.RoomOptions(
             video_input=True,
-            # No noise_cancellation: ai_coustics.audio_enhancement() runs
-            # against LiveKit Cloud Inference, which doesn't exist behind a
-            # local livekit-server — input audio silently never arrives
-            # (zero user transcripts on every call). Raw room audio it is.
-            audio_input=room_io.AudioInputOptions(),
+            # The optional activity observer passes raw audio unchanged;
+            # no cloud noise enhancement or local speech gate is involved.
+            audio_input=_audio_input_options(session),
             # Word-synced captions: the synchronizer paces text to audio
             # playout, then this tail mirrors it to the HUD word by word.
             text_output=room_io.TextOutputOptions(next_in_chain=_live_caption),
@@ -2714,6 +2803,8 @@ async def my_agent(ctx: JobContext):
                 _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
             )
             if not _idle_exceeded(_turn_clock["last"], time.monotonic(), budget):
+                continue
+            if _input_activity_holds(session, grace=_normal_follow_up_s()):
                 continue
             if str(getattr(session, "agent_state", "")) in ("thinking", "speaking"):
                 continue  # never cut a reply (or a long read-out) short

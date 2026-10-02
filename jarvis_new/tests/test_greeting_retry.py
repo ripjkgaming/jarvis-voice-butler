@@ -172,3 +172,43 @@ async def test_cancelled_greeting_is_not_retried(monkeypatch):
         )
     assert len(attempts) == 1
     assert captions == []
+
+
+@pytest.mark.asyncio
+async def test_native_greeting_retry_waits_for_pcm_before_provider_speech_event(
+    monkeypatch,
+):
+    from array import array
+
+    from livekit import rtc
+
+    attempts = []
+    now = [0.0]
+    meter = agent._InputActivity(clock=lambda: now[0])
+
+    def say(line):
+        attempts.append(line)
+        return _completed_speech(llm.RealtimeError("generation timed out"))
+
+    session = SimpleNamespace(
+        say=say,
+        user_state="listening",
+        agent_state="listening",
+        _jarvis_input_activity=meter,
+    )
+
+    async def speaking_before_native_event(delay):
+        now[0] = 2.0
+        meter._process(
+            rtc.AudioFrame(
+                data=array("h", [1200, -1200] * 400).tobytes(),
+                sample_rate=16000,
+                num_channels=1,
+                samples_per_channel=800,
+            )
+        )
+
+    monkeypatch.setattr(agent.asyncio, "sleep", speaking_before_native_event)
+    await agent._greet_with_retry(session, lambda *args: None)
+    assert attempts == ["Good day, Sir. What do you require?"]
+    assert session.user_state == "listening"
