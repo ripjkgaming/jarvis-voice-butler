@@ -49,6 +49,19 @@ const SPEED: Record<AmbientState, number> = {
   speaking: 1.25,
   muted: 0.6,
 };
+const DUST_DRIFT_PERIOD_SECONDS = 12;
+
+/** A tiny periodic drift keeps the cached dust field alive without per-dot work. */
+export function ambientDustOffset(timeSeconds: number): { x: number; y: number } {
+  const wrapped =
+    ((timeSeconds % DUST_DRIFT_PERIOD_SECONDS) + DUST_DRIFT_PERIOD_SECONDS) %
+    DUST_DRIFT_PERIOD_SECONDS;
+  const phase = (wrapped / DUST_DRIFT_PERIOD_SECONDS) * TAU;
+  return {
+    x: Math.sin(phase) * 4,
+    y: (1 - Math.cos(phase)) * 2,
+  };
+}
 
 /** Repeatable placement avoids a distracting random reset on resize. */
 function seed(i: number, salt: number): number {
@@ -66,6 +79,9 @@ export function createAmbientScene(
   const atlas = document.createElement('canvas');
   const glow = atlas.getContext('2d');
   if (!glow) return null;
+  const background = document.createElement('canvas');
+  const backgroundCtx = background.getContext('2d');
+  if (!backgroundCtx) return null;
 
   let width = 0;
   let height = 0;
@@ -76,6 +92,7 @@ export function createAmbientScene(
   let anchor: AmbientAnchor | null = null;
   let count = 0;
   let data = new Float32Array(0);
+  let drawBudgetMs = 0;
 
   const buildAtlas = () => {
     atlas.width = Math.ceil(CELL * 3 * dpr);
@@ -118,6 +135,7 @@ export function createAmbientScene(
   };
 
   const sprite = (
+    target: CanvasRenderingContext2D,
     x: number,
     y: number,
     size: number,
@@ -125,8 +143,8 @@ export function createAmbientScene(
     shape: number,
     color: number
   ) => {
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(
+    target.globalAlpha = alpha;
+    target.drawImage(
       atlas,
       shape * CELL * dpr,
       color * CELL * dpr,
@@ -139,38 +157,67 @@ export function createAmbientScene(
     );
   };
 
+  // The faint general-purpose dust field is deliberately stationary. Baking
+  // it once removes 70–150 per-particle trigonometry and sprite blits from
+  // every animation tick while the reactor orbit and edge packets still move.
+  const bakeBackground = () => {
+    background.width = canvas.width;
+    background.height = canvas.height;
+    backgroundCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    backgroundCtx.globalCompositeOperation = 'lighter';
+    const strength = state === 'muted' ? 0.55 : 1;
+    for (let i = 0; i < count; i++) {
+      const at = i * 5;
+      const a = data[at];
+      const b = data[at + 1];
+      const phase = data[at + 3];
+      const fade = Math.sin(phase * Math.PI);
+      const x = variant === 'bar' ? a * (width + 40) - 20 : a * width;
+      const y =
+        variant === 'bar'
+          ? 5 + b * Math.max(1, height - 10)
+          : ((b * (height + 24) + height + 24) % (height + 24)) - 12;
+      const shape = i % 13 === 0 ? 1 : i % 19 === 0 ? 2 : 0;
+      const color = i % 7 === 0 ? 2 : i % 5 === 0 ? 1 : 0;
+      sprite(
+        backgroundCtx,
+        x,
+        y,
+        data[at + 4],
+        (0.18 + 0.6 * fade * fade) * strength,
+        shape,
+        color
+      );
+    }
+    backgroundCtx.globalAlpha = 1;
+    backgroundCtx.globalCompositeOperation = 'source-over';
+  };
+
   const draw = (delta = 0) => {
     if (!width || !height) return;
     const dt = Math.min(34, Math.max(0, delta));
     speed += (SPEED[state] - speed) * (1 - Math.exp(-dt / 600));
     time += (dt / 1000) * speed;
+    // The field is decoration over a mostly static HUD. Cap raster work at
+    // 30 FPS; drawing it on every 60–144 Hz display tick buys little visually.
+    drawBudgetMs += dt;
+    if (dt > 0 && drawBudgetMs < 1000 / 30) return;
+    drawBudgetMs %= 1000 / 30;
     ctx.clearRect(0, 0, width, height);
     ctx.globalCompositeOperation = 'lighter';
     const strength = state === 'muted' ? 0.55 : 1;
-
-    for (let i = 0; i < count; i++) {
-      const at = i * 5;
-      const a = data[at];
-      const b = data[at + 1];
-      const c = data[at + 2];
-      const phase = (data[at + 3] + time * (0.018 + c * 0.014)) % 1;
-      const fade = Math.sin(phase * Math.PI);
-      let x: number;
-      let y: number;
-      if (variant === 'bar') {
-        x = ((a * (width + 40) + time * (13 + c * 28)) % (width + 40)) - 20;
-        y = 5 + b * Math.max(1, height - 10) + Math.sin(time * 0.45 + a * TAU) * 2;
-      } else {
-        x = a * width + Math.sin(time * (0.08 + c * 0.07) + b * TAU) * 14;
-        y =
-          ((((b * (height + 24) - time * (3 + c * 7)) % (height + 24)) + height + 24) %
-            (height + 24)) -
-          12;
-      }
-      const shape = i % 13 === 0 ? 1 : i % 19 === 0 ? 2 : 0;
-      const color = i % 7 === 0 ? 2 : i % 5 === 0 ? 1 : 0;
-      const alpha = (0.18 + 0.6 * fade * fade) * strength;
-      sprite(x, y, data[at + 4], alpha, shape, color);
+    const offset = ambientDustOffset(time);
+    // Tile only the narrow exposed edge strips as the pre-rendered dust drifts.
+    // The wrapped copies make the texture periodic with no blank edge or seam.
+    ctx.drawImage(background, offset.x, offset.y, width, height);
+    const left = offset.x > 0 ? offset.x - width : offset.x + width;
+    const top = offset.y > 0 ? offset.y - height : offset.y + height;
+    if (offset.x > 0) ctx.drawImage(background, left, offset.y, width, height);
+    if (offset.x < 0) ctx.drawImage(background, left, offset.y, width, height);
+    if (offset.y > 0) ctx.drawImage(background, offset.x, top, width, height);
+    if (offset.y < 0) ctx.drawImage(background, offset.x, top, width, height);
+    if (offset.x !== 0 && offset.y !== 0) {
+      ctx.drawImage(background, left, top, width, height);
     }
 
     if (variant === 'hud') {
@@ -192,6 +239,7 @@ export function createAmbientScene(
           ctx.stroke();
         }
         sprite(
+          ctx,
           cx + Math.cos(angle) * r,
           cy + Math.sin(angle) * r,
           12 + (i % 4) * 2,
@@ -215,7 +263,7 @@ export function createAmbientScene(
         ctx.moveTo(x, y);
         ctx.lineTo(x + (upper ? -18 : 18), y);
         ctx.stroke();
-        sprite(x, y, 16, 0.8 * strength, 0, 1);
+        sprite(ctx, x, y, 16, 0.8 * strength, 0, 1);
       }
     }
     ctx.globalAlpha = 1;
@@ -228,14 +276,17 @@ export function createAmbientScene(
       if (next === state) return;
       state = next;
       buildAtlas();
+      bakeBackground();
     },
     resize(w: number, h: number, ratio: number, nextAnchor: AmbientAnchor | null = null) {
-      const nextDpr = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+      const requestedDpr = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
       anchor = nextAnchor;
-      if (w === width && h === height && nextDpr === dpr) return;
+      if (w === width && h === height && Math.min(1.5, requestedDpr) === dpr) return;
       width = Math.max(0, w);
       height = Math.max(0, h);
-      dpr = nextDpr;
+      // Fine glow sprites upscale cleanly. Full device DPR made this large,
+      // mostly transparent canvas several times larger than the visible UI.
+      dpr = Math.min(1.5, requestedDpr);
       canvas.width = Math.max(1, Math.round(width * dpr));
       canvas.height = Math.max(1, Math.round(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -255,10 +306,12 @@ export function createAmbientScene(
           data[at + 4] = 7 + seed(i + 1, 7) * (variant === 'bar' ? 8 : 11);
         }
       }
+      bakeBackground();
       draw();
     },
     dispose() {
       atlas.width = atlas.height = 1;
+      background.width = background.height = 1;
       canvas.width = canvas.height = 1;
       data = new Float32Array(0);
       width = height = 0;

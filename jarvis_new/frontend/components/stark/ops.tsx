@@ -100,17 +100,10 @@ export function Execution({ items, index }: { items: BridgeActivity[]; index: nu
 }
 
 /** Voice panels ("show mail", "show calendar"): one frame per open panel,
- *  or a single hint line naming the commands when none is open. */
+ *  nothing when none is open. */
 export function VoicePanels({ index }: { index: number }) {
   const { shown, fresh } = usePanelsView();
-  if (shown.length === 0) {
-    return (
-      <div className={s.panelHint}>
-        <span className={s.panelHintLabel}>PANELS</span>
-        <span>SAY “SHOW MAIL” · “SHOW CALENDAR” · “SHOW TASKS”</span>
-      </div>
-    );
-  }
+  if (shown.length === 0) return null;
   return (
     <div className={s.panels}>
       {shown.map(({ name, data, leaving }, i) => {
@@ -174,7 +167,7 @@ export function parseLogLine(line: string): LogRow {
 
 /** COMMS LOG: Jarvis's own actions (actions.log), newest at the bottom.
  *  Chatty plumbing (latency, HUD mirrors, watchers) stays out of view. */
-export function CommsLog({ index }: { index: number }) {
+export function CommsLog({ index, compact = false }: { index: number; compact?: boolean }) {
   const raw = useSharedPoll<{ actions?: string[] }>('/actions?limit=80', 2000);
   const rows = useMemo(() => {
     const lines = raw?.actions ?? [];
@@ -183,16 +176,21 @@ export function CommsLog({ index }: { index: number }) {
         const tag = l.split(/\s+/)[1] ?? '';
         return !QUIET_TAGS.test(tag);
       })
-      .slice(-40)
+      .slice(compact ? -4 : -40)
       .map(parseLogLine);
-  }, [raw]);
+  }, [raw, compact]);
   const box = useRef<HTMLOListElement>(null);
   useEffect(() => {
     const el = box.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [rows]);
   return (
-    <Frame label="COMMS LOG" index={index} className={s.logFrame} bodyClassName={s.logBody}>
+    <Frame
+      label="COMMS LOG"
+      index={index}
+      className={compact ? `${s.logFrame} ${s.logCompact}` : s.logFrame}
+      bodyClassName={s.logBody}
+    >
       {rows.length === 0 ? (
         <p className={s.quiet}>Log quiet, Sir.</p>
       ) : (

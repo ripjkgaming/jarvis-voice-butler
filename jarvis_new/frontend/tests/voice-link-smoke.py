@@ -86,6 +86,33 @@ async def run(url, folder):
         await page.goto(url)
         await desktop.ready()
         await phase(page, "idle")
+        # Bare wakeword status must energize before boot details arrive.
+        desktop.room = {"ok": True, "room": None, "waking": True, "boot": None}
+        await phase(page, "request")
+        energy = page.locator("[data-reactor-energy]")
+        assert await energy.locator("..").get_attribute("data-energizing") == "true"
+        await page.wait_for_timeout(1200)
+        early_filter = await energy.evaluate("n => getComputedStyle(n).filter")
+        desktop.stage("connect", fresh=True)
+        await phase(page, "relay")
+        await page.wait_for_timeout(1600)
+        late_filter = await energy.evaluate("n => getComputedStyle(n).filter")
+        assert early_filter != late_filter, (
+            "Energy tint did not progress across boot stages"
+        )
+        await page.screenshot(path=str(folder / "reactor-energizing.png"))
+        desktop.stage("online")
+        await phase(page, "ready")
+        assert await energy.locator("..").get_attribute("data-energizing") is None
+        await page.wait_for_timeout(320)
+        await page.wait_for_function(
+            "getComputedStyle(document.querySelector('[data-reactor-energy]')).filter === 'hue-rotate(0deg) brightness(1)'",
+            timeout=1500,
+        )
+        await page.screenshot(path=str(folder / "reactor-joined.png"))
+        desktop.clear()
+        await page.wait_for_timeout(650)
+        await phase(page, "idle")
         await page.keyboard.press("NumpadEnter")
         await phase(page, "request")
         await page.keyboard.press("NumpadEnter")
@@ -206,8 +233,24 @@ async def run(url, folder):
             )
             == "none"
         )
+        assert (
+            await energy.evaluate("n => getComputedStyle(n).transitionDuration") == "0s"
+        )
+        assert (
+            await energy.evaluate("n => getComputedStyle(n, '::after').animationName")
+            == "none"
+        )
         await page.screenshot(path=str(folder / "main-reduced-motion.png"))
         await page.emulate_media(reduced_motion="no-preference")
+        desktop.muted = True
+        await page.evaluate("window.dispatchEvent(new Event('focus'))")
+        await page.wait_for_function(
+            "document.querySelector('.hud').dataset.muted === 'true'"
+        )
+        assert await energy.locator("..").get_attribute("data-energizing") is None
+        desktop.muted = False
+        await page.evaluate("window.dispatchEvent(new Event('focus'))")
+        await page.wait_for_function("!document.querySelector('.hud').dataset.muted")
         # School uses the exact same summon controller/state while preserving
         # existing menu hit targets. Geometry change is mocked; no live transition.
         desktop.mode = "school"
@@ -247,6 +290,7 @@ async def run(url, folder):
         await page.locator(".smenu").wait_for(state="visible")
         await page.screenshot(path=str(folder / "school-menu-during-link.png"))
         desktop.clear()
+        await page.wait_for_timeout(650)
         await phase(page, "idle")
         await page.keyboard.press("NumpadEnter")
         await phase(page, "request")
@@ -261,7 +305,11 @@ async def run(url, folder):
                 {
                     "ok": True,
                     "scenarios": [
-                        "immediate summon",
+                        "wakeword before boot details",
+                    "continuous reactor energizing across boot stages",
+                    "prompt reactor release on actual online",
+                    "muted and reduced-motion reactor",
+                    "immediate summon",
                         "no duplicate summon",
                         "observed stages",
                         "slow join over15s",

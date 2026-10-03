@@ -1,4 +1,4 @@
-"""Background projects: research (Claude Sonnet via Sir's Pro plan) and
+"""Background projects: research (ChatGPT via headless Codex) and
 coding (headless opencode, free Muse Spark), plus the voice-only Project
 Archive window's command bus.
 
@@ -22,12 +22,11 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
 
-import claude_cli
+import chatgpt_cli
 
 OPENCODE_MODEL = os.environ.get(
     "JARVIS_OPENCODE_MODEL", "opencode/muse-spark-1.3-contributor-free"
@@ -38,24 +37,12 @@ CODE_TIMEOUT_S = 45 * 60.0
 # for this long means the engine is stuck, so the job fails honestly.
 CODE_STALL_S = 8 * 60.0
 
-def pdf_command() -> str:
-    """Exact argv prefix the research model may run to read PDFs. Pure.
-
-    Used both for the --allowedTools scope and the RESEARCH_SYSTEM
-    instruction, so the two can never drift apart.
-    """
-    script = Path(__file__).resolve().parent / "pdf_fetch.py"
-    return f"{sys.executable} {script}"
-
-
 RESEARCH_SYSTEM = (
     "You are Jarvis's research analyst. Research the topic thoroughly with "
-    "web search and page fetches, then write a precise, well-sourced report "
-    "for Sir. Plain markdown only. "
-    "For any PDF link (a URL ending in .pdf, arxiv.org/pdf, etc.), read it "
-    f"with Bash like this: `{pdf_command()} <url>` (add `--pages A-B` to "
-    "read one section); WebFetch cannot read PDFs. Never use Bash for "
-    "anything else."
+    "native web search and page browsing, then write a precise, well-sourced "
+    "report for Sir. Plain markdown only. For PDF links, open the document "
+    "with native web browsing and read its relevant pages. If a document is "
+    "inaccessible, report that limitation and find an accessible primary source."
 )
 RESEARCH_BRIEF = """Research this in depth: {topic}
 
@@ -410,32 +397,29 @@ def parse_report(text: str) -> tuple[str, list[str]]:
 
 
 def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
-    """Start a research project on Claude Sonnet. Returns its meta."""
+    """Start a research project through headless ChatGPT. Returns its meta."""
     topic = " ".join((topic or "").split())[:2000]
-    meta = _new_meta("research", topic, topic, claude_cli.RESEARCH_MODEL)
-    # Bash is enabled so the model can read PDFs, but pre-approved only for
-    # the pdf_fetch prefix: headless -p cannot prompt, so any other Bash
-    # command is denied outright.
-    allowed = f"WebSearch,WebFetch,Bash({pdf_command()}:*)"
+    meta = _new_meta("research", topic, topic, chatgpt_cli.RESEARCH_MODEL)
+    allowed = "WebSearch,WebFetch"
 
     def work() -> None:
         if runner is not None:
-            reply, warning = claude_cli.claude_reply(
+            reply, warning = chatgpt_cli.chatgpt_reply(
                 RESEARCH_BRIEF.format(topic=topic),
-                model=claude_cli.RESEARCH_MODEL,
+                model=chatgpt_cli.RESEARCH_MODEL,
                 system=RESEARCH_SYSTEM,
-                tools="WebSearch,WebFetch,Bash",
+                tools="WebSearch,WebFetch",
                 allowed=allowed,
                 timeout=RESEARCH_TIMEOUT_S,
                 runner=runner,
             )
         else:
             progress = ResearchProgress(meta)
-            reply, warning = claude_cli.claude_stream(
+            reply, warning = chatgpt_cli.chatgpt_stream(
                 RESEARCH_BRIEF.format(topic=topic),
-                model=claude_cli.RESEARCH_MODEL,
+                model=chatgpt_cli.RESEARCH_MODEL,
                 system=RESEARCH_SYSTEM,
-                tools="WebSearch,WebFetch,Bash",
+                tools="WebSearch,WebFetch",
                 allowed=allowed,
                 timeout=RESEARCH_TIMEOUT_S,
                 on_event=progress.on_event,

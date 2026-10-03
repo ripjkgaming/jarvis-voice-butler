@@ -430,7 +430,7 @@ async def test_analyst_failure_still_replies(home) -> None:
     assert out == "sent"
 
 
-def test_openrouter_fallback_when_claude_out(home, monkeypatch) -> None:
+def test_openrouter_fallback_when_chatgpt_out(home, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_WA_OPENROUTER", "1")
     used = []
 
@@ -438,24 +438,26 @@ def test_openrouter_fallback_when_claude_out(home, monkeypatch) -> None:
         used.append(kw)
         return '{"reply": "ya bro lwk", "handoff": false}', None
 
-    parsed, warn = wa_mimic.ask_claude("prompt", chat=chat)  # JARVIS_CLAUDE=0 in tests
+    parsed, warn = wa_mimic.ask_chatgpt(
+        "prompt", chat=chat
+    )  # JARVIS_CHATGPT=0 in tests
     assert (
         warn is None
         and parsed["reply"] == "ya bro lwk"
         and parsed["model"] == "openrouter"
     )
     assert "ghost-write" in used[0]["system"]
-    jarvis, warn = wa_autoreply.ask_claude(
+    jarvis, warn = wa_autoreply.ask_chatgpt(
         "prompt", chat=lambda p, **k: ('{"reply": "Noted.", "rude": false}', None)
     )
     assert jarvis["reply"] == "Noted." and jarvis["model"] == "openrouter"
-    none, warn = wa_mimic.ask_claude("prompt", chat=lambda p, **k: ("", "HTTP 429"))
+    none, warn = wa_mimic.ask_chatgpt("prompt", chat=lambda p, **k: ("", "HTTP 429"))
     assert none is None and "HTTP 429" in warn and "disabled" in warn.lower()
 
 
 def test_openrouter_fallback_off_switch(home, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_WA_OPENROUTER", "0")
-    parsed, warn = wa_mimic.ask_claude(
+    parsed, warn = wa_mimic.ask_chatgpt(
         "p", chat=lambda p, **k: ('{"reply": "x"}', None)
     )
     assert parsed is None and "openrouter fallback disabled" in warn

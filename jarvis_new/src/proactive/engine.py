@@ -27,6 +27,7 @@ import contextlib
 import datetime
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -228,15 +229,19 @@ def _toast(signal: Signal) -> bool:
 def _hud(signal: Signal) -> bool:
     import activity
 
-    activity.start(
-        "note",
+    # Signal keys carry colons and case ("mail:18f3A..."), which the feed's
+    # id check rejects: start() then minted a random id that finish() never
+    # matched, so every mail note sat in EXECUTION as "running" forever.
+    slug = re.sub(r"[^a-z0-9-]+", "-", f"proactive-{signal.key}".lower())
+    item_id = slug.strip("-")[:64].rstrip("-")
+    started = activity.start(
+        "task",
         signal.title[:80],
         detail=signal.detail[:120] or signal.kind,
         source="jarvis",
-        item_id=f"proactive-{signal.key}"[:64],
+        item_id=item_id,
     )
-    activity.finish(f"proactive-{signal.key}"[:64], ok=True)
-    return True
+    return bool(started) and activity.finish(started, ok=True)
 
 
 class ProactiveEngine:

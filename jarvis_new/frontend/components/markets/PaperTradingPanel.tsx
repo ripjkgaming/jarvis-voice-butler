@@ -46,7 +46,7 @@ function remaining(expires: string, now: number): string {
 }
 
 /** Poll failures are visible even after a good read. Hidden panels stop polling. */
-function usePaperMarket(override: PaperMarketSnapshot | undefined, refresh: number) {
+export function usePaperMarket(override: PaperMarketSnapshot | undefined, refresh: number) {
   const [snapshot, setSnapshot] = useState<PaperMarketSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

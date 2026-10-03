@@ -8,7 +8,7 @@ Layout under the vault (~/.jarvis/vault, or JARVIS_VAULT):
 
 Capture: when a conversation has gone quiet for SESSION_GAP_S, the new
 caption lines (hud_events captions.log) plus today's projects are
-summarised by a small Claude model into that JSON shape and appended.
+summarised by a fast ChatGPT model into that JSON shape and appended.
 The sidecar also runs a nightly catch-up. Everything is redacted
 (keys, tokens, passwords) before it is written.
 
@@ -32,7 +32,6 @@ SWITCH_ENV = "JARVIS_MEMORY"
 SESSION_GAP_S = 15 * 60
 PREFS_CAP = 500
 MAX_SNIPPETS = 5
-DEFAULT_MODEL = "claude-haiku-4-5"
 
 SUMMARY_SYSTEM = (
     "You keep Sir's long-term memory for his assistant Jarvis. You get one "
@@ -214,12 +213,14 @@ def build_prompt(lines: list[dict], touched: list[str]) -> str:
 def summarise(
     lines: list[dict], touched: list[str], runner=None
 ) -> tuple[dict | None, str | None]:
-    import claude_cli
+    import chatgpt_cli
 
-    reply, warning = claude_cli.claude_reply(
+    reply, warning = chatgpt_cli.chatgpt_reply(
         build_prompt(lines, touched),
-        model=os.environ.get("JARVIS_MEMORY_MODEL", "").strip() or DEFAULT_MODEL,
+        model=os.environ.get("JARVIS_MEMORY_MODEL", "").strip()
+        or chatgpt_cli.FAST_MODEL,
         system=SUMMARY_SYSTEM,
+        reasoning=os.environ.get("JARVIS_MEMORY_REASONING", "low").strip() or "low",
         timeout=120.0,
         runner=runner,
     )

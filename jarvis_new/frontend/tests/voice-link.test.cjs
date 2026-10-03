@@ -188,3 +188,11 @@ test('legacy boot acknowledgement cannot dismiss a new wake generation', () => {
   [...timers.values()][0]();
   assert.equal(render(), null);
 });
+
+test('wakeword presence acquires immediately before a boot log arrives', () => {
+  const link = voiceLinkFrom({ waking: true, room: null, boot: null }, null, now);
+  assert.equal(link.phase, 'request');
+  assert.equal(link.joining, true);
+  assert.equal(link.step, 0);
+  assert.equal(voiceLinkFrom({ waking: false, room: null }, null, now).phase, 'idle');
+});

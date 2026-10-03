@@ -147,16 +147,16 @@ def last_failed() -> dict | None:
 
 
 def explain(job: dict, runner=None) -> tuple[str, str | None]:
-    import claude_cli
+    import chatgpt_cli
 
     try:
         log = log_path(job["id"]).read_text()[-LOG_TAIL:]
     except OSError:
         return "", "that run left no log"
     log = log.replace("<<<", "< < <").replace(">>>", "> > >")
-    reply, warning = claude_cli.claude_reply(
+    reply, warning = chatgpt_cli.chatgpt_reply(
         f"Run: {job.get('title')}\n<<<LOG_START>>>\n{log}\n<<<LOG_END>>>",
-        model=claude_cli.BACKEND_MODEL,
+        model=chatgpt_cli.BACKEND_MODEL,
         system=EXPLAIN_SYSTEM,
         timeout=120.0,
         runner=runner,

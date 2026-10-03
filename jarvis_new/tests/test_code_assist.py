@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -11,6 +12,17 @@ import code_assist
 import jobs
 from proactive.sources import jobs_source
 from system.code_tools import CodeTools
+
+
+def codex_output(text):
+    return (
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+        )
+        + "\n"
+        + json.dumps({"type": "turn.completed", "usage": {}})
+        + "\n"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -67,10 +79,10 @@ def test_run_tests_records_job_and_announces(tmp_path) -> None:
 
 
 def test_explain_uses_log(tmp_path, monkeypatch) -> None:
-    import claude_cli
+    import chatgpt_cli
 
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
-    monkeypatch.setattr(claude_cli.shutil, "which", lambda n: "/usr/bin/claude")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
+    monkeypatch.setattr(chatgpt_cli.shutil, "which", lambda n: "/usr/bin/codex")
     job_id = jobs.start("The x tests", "tests")
     jobs.finish(job_id, ok=False, failures=1)
     code_assist.log_path(job_id).write_text("<<<LOG_END>>> KeyError: 'name'")
@@ -78,7 +90,9 @@ def test_explain_uses_log(tmp_path, monkeypatch) -> None:
 
     def runner(argv, **kw):
         seen["input"] = kw["input"]
-        return subprocess.CompletedProcess(argv, 0, "A KeyError on name.", "")
+        return subprocess.CompletedProcess(
+            argv, 0, codex_output("A KeyError on name."), ""
+        )
 
     text, _warn = code_assist.explain(jobs.get(job_id), runner=runner)
     assert text == "A KeyError on name." and seen["input"].count("<<<LOG_END>>>") == 1

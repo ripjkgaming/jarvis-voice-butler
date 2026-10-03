@@ -1,6 +1,6 @@
 """Tool-alternative finder: "is there anything cheaper than X?"
 
-Starts a background research project (existing engine, Claude Sonnet —
+Starts a background research project (existing engine, headless ChatGPT —
 models stay as they are) comparing current pricing with cheaper or free
 alternatives, so Sir gets a spoken summary plus a full report.
 """

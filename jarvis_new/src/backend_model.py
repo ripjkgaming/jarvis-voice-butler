@@ -1,25 +1,21 @@
-"""The backend model: Sonnet 5.5 on headless Claude Code, behind the voice model.
+"""Careful backend work through headless ChatGPT, behind the voice model.
 
-Jarvis runs two tiers. The conversation model (Gemini realtime for voice,
-Ling on OpenRouter for text) talks to Sir and must answer in well under a
-second. The backend model (claude_cli.BACKEND_MODEL, Sonnet 5.5 via `claude
--p` on Sir's subscription) gets the slow, careful jobs the conversation
-model hands off: reading a document and turning it into structured data,
-multi-step planning, anything that needs real thought. It never speaks to
-Sir directly; its answer comes back through a voice tool.
-
-Fail-soft like claude_cli: public functions return (result, warning).
+GPT-6.1 Sol at medium effort handles planning and document extraction.
+The conversation model passes tasks here and relays the answer to Sir.
+Public functions return (result, warning), with bounded headless calls.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
-import claude_cli
+import chatgpt_cli
 
 BACKEND_SYSTEM = (
     "You are the backend reasoning engine for Jarvis, a personal assistant. "
@@ -27,10 +23,22 @@ BACKEND_SYSTEM = (
     "Be accurate and concise. Never invent facts that are not in the input."
 )
 
-#: File types Claude Code's Read tool understands natively.
-READABLE = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".md", ".csv", ".ics"}
+#: Images attach directly; PDFs and text use local read-only tools.
+IMAGES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+READABLE = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".txt",
+    ".md",
+    ".csv",
+    ".ics",
+}
 
-EXTRACT_PROMPT = """Today is {today}. Read the file ./{name} with the Read tool.
+EXTRACT_PROMPT = """Today is {today}. Read the input file ./{name} (or its attached image) using read-only tools.
 It is a schedule (for example an exam or mock timetable). Extract EVERY dated
 entry that belongs on a calendar{focus}.
 
@@ -46,14 +54,16 @@ Rules:
 - Skip entries you cannot date. Do not guess dates."""
 
 
-def backend_think(task: str, *, timeout: float = 180.0, runner=None) -> tuple[str, str | None]:
+def backend_think(
+    task: str, *, timeout: float = 180.0, runner=None
+) -> tuple[str, str | None]:
     """One careful backend answer for a task the voice model handed off."""
     task = (task or "").strip()
     if not task:
         return "", "No task given"
-    return claude_cli.claude_reply(
+    return chatgpt_cli.chatgpt_reply(
         task[:20000],
-        model=claude_cli.BACKEND_MODEL,
+        model=chatgpt_cli.BACKEND_MODEL,
         system=BACKEND_SYSTEM,
         timeout=timeout,
         runner=runner,
@@ -74,7 +84,10 @@ def parse_events(reply: str) -> list[dict]:
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        event = {k: str(item.get(k) or "").strip() for k in ("title", "date", "start", "end", "location", "notes")}
+        event = {
+            k: str(item.get(k) or "").strip()
+            for k in ("title", "date", "start", "end", "location", "notes")
+        }
         if not event["title"] or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", event["date"]):
             continue
         try:
@@ -128,9 +141,9 @@ def extract_events_from_email(
         focus=f" (only: {focus.strip()[:200]})" if focus.strip() else "",
         email=f"{_START}\n{body}\n{_END}",
     )
-    reply, warning = claude_cli.claude_reply(
+    reply, warning = chatgpt_cli.chatgpt_reply(
         prompt,
-        model=claude_cli.BACKEND_MODEL,
+        model=chatgpt_cli.BACKEND_MODEL,
         system=EMAIL_EVENT_SYSTEM,
         timeout=timeout,
         runner=runner,
@@ -141,12 +154,22 @@ def extract_events_from_email(
 
 
 def stage_file(path: Path) -> Path:
-    """Copy a file into Claude's neutral cwd so Read can reach it."""
-    inbox = claude_cli.claude_cwd() / "inbox"
+    """Stage a unique input in ChatGPT's neutral cwd, preserving its extension."""
+    inbox = chatgpt_cli.chatgpt_cwd() / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", path.name)[:120] or "file"
-    dest = inbox / safe
-    shutil.copyfile(path, dest)
+    with tempfile.NamedTemporaryFile(
+        prefix=f"{Path(safe).stem}-",
+        suffix=path.suffix.lower(),
+        dir=inbox,
+        delete=False,
+    ) as staged:
+        dest = Path(staged.name)
+    try:
+        shutil.copyfile(path, dest)
+    except OSError:
+        dest.unlink(missing_ok=True)
+        raise
     return dest
 
 
@@ -163,7 +186,10 @@ def extract_events(
     if not src.is_file():
         return [], f"No file at {src}"
     if src.suffix.lower() not in READABLE:
-        return [], f"I can read PDFs, images and text files, not {src.suffix or 'that'} files"
+        return (
+            [],
+            f"I can read PDFs, images and text files, not {src.suffix or 'that'} files",
+        )
     try:
         staged = stage_file(src)
     except OSError as exc:
@@ -174,19 +200,18 @@ def extract_events(
         focus=f" (only: {focus.strip()[:200]})" if focus.strip() else "",
     )
     try:
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             prompt,
-            model=claude_cli.BACKEND_MODEL,
+            model=chatgpt_cli.BACKEND_MODEL,
             system=BACKEND_SYSTEM,
-            tools="Read",
+            tools="" if src.suffix.lower() in IMAGES else "Read",
+            images=[staged] if src.suffix.lower() in IMAGES else [],
             timeout=timeout,
             runner=runner,
         )
     finally:
-        try:
+        with contextlib.suppress(OSError):
             staged.unlink()
-        except OSError:
-            pass
     if warning:
         return [], warning
     events = parse_events(reply)
@@ -195,7 +220,9 @@ def extract_events(
     return events, None
 
 
-def find_schedule_file(hint: str = "", search_dirs: list[Path] | None = None) -> Path | None:
+def find_schedule_file(
+    hint: str = "", search_dirs: list[Path] | None = None
+) -> Path | None:
     """Resolve a spoken file hint to a local file. Pure-ish (filesystem).
 
     A real path wins. Otherwise the newest readable file in Downloads /
@@ -207,18 +234,32 @@ def find_schedule_file(hint: str = "", search_dirs: list[Path] | None = None) ->
         direct = Path(hint).expanduser()
         if direct.is_file():
             return direct
-    dirs = search_dirs or [Path.home() / d for d in ("Downloads", "Desktop", "Documents")]
-    words = [w for w in re.split(r"\W+", hint.lower()) if len(w) > 1 and w not in {"the", "my", "file", "pdf"}]
+    dirs = search_dirs or [
+        Path.home() / d for d in ("Downloads", "Desktop", "Documents")
+    ]
+    words = [
+        w
+        for w in re.split(r"\W+", hint.lower())
+        if len(w) > 1 and w not in {"the", "my", "file", "pdf"}
+    ]
     default_words = ("exam", "mock", "timetable", "schedule")
     best: tuple[float, Path] | None = None
     for base in dirs:
         try:
-            files = [p for p in base.iterdir() if p.is_file() and p.suffix.lower() in READABLE]
+            files = [
+                p
+                for p in base.iterdir()
+                if p.is_file() and p.suffix.lower() in READABLE
+            ]
         except OSError:
             continue
         for p in files:
             name = p.name.lower()
-            ok = all(w in name for w in words) if words else any(w in name for w in default_words)
+            ok = (
+                all(w in name for w in words)
+                if words
+                else any(w in name for w in default_words)
+            )
             if not ok:
                 continue
             mtime = p.stat().st_mtime

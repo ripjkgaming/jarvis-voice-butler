@@ -8,7 +8,7 @@ into the chat transcript as "[photo: ...]":
    public model list (free + image input), cached for a day in
    ~/.jarvis/or_vision_models.json; JARVIS_WA_VISION_MODELS pins your own
    comma-separated list instead;
-2. Claude Haiku through the claude CLI (reads the image from a temp file),
+2. ChatGPT through headless Codex (attaches the image from a temp file),
    when every free model fails or none exist.
 
 Descriptions are cached by image hash in the auto-reply state, so a photo
@@ -41,7 +41,6 @@ DISCOVERY_TTL_S = 24 * 3600
 MAX_MODELS = 4
 CACHE_KEEP = 200
 PER_MODEL_TIMEOUT_S = 25.0
-HAIKU = "claude-haiku-4-5"
 
 DESCRIBE_SYSTEM = (
     "You describe a photo someone sent in a WhatsApp chat, for a person who "
@@ -180,11 +179,11 @@ def describe_openrouter(
     return "", warning
 
 
-def describe_haiku(
+def describe_chatgpt(
     data_url: str, caption: str = "", runner=None
 ) -> tuple[str, str | None]:
-    """Claude Haiku reads the photo from a temp file. Never raises."""
-    import claude_cli
+    """ChatGPT describes an attached photo. Never raises."""
+    import chatgpt_cli
 
     parts = split_data_url(data_url)
     if parts is None:
@@ -193,18 +192,20 @@ def describe_haiku(
     ext = {"image/png": "png", "image/webp": "webp", "image/gif": "gif"}.get(
         mime, "jpg"
     )
-    path = claude_cli.claude_cwd() / f"wa-photo-{image_key(data_url)}.{ext}"
+    path = chatgpt_cli.chatgpt_cwd() / f"wa-photo-{image_key(data_url)}.{ext}"
     try:
         path.write_bytes(raw)
-        ask = f"Read the image file {path} and describe it." + (
+        ask = "Describe the attached image." + (
             f" Its caption: {caption[:200]}" if caption else ""
         )
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             ask,
-            model=os.environ.get("JARVIS_WA_VISION_CLAUDE", "").strip() or HAIKU,
+            model=os.environ.get("JARVIS_WA_VISION_MODEL", "").strip()
+            or chatgpt_cli.FAST_MODEL,
             system=DESCRIBE_SYSTEM,
-            tools="Read",
-            allowed="Read",
+            images=[path],
+            reasoning=os.environ.get("JARVIS_WA_VISION_REASONING", "low").strip()
+            or "low",
             timeout=60.0,
             runner=runner,
         )
@@ -217,7 +218,7 @@ def describe_haiku(
 
 
 def describe(
-    data_url: str, caption: str = "", cache: dict | None = None, free=None, haiku=None
+    data_url: str, caption: str = "", cache: dict | None = None, free=None, chatgpt=None
 ) -> str:
     """Photo -> one-line description ('' when nothing could see it)."""
     if not enabled() or not data_url:
@@ -227,7 +228,7 @@ def describe(
         return str(cache[key])
     text, _ = (free or describe_openrouter)(data_url, caption)
     if not text:
-        text, _ = (haiku or describe_haiku)(data_url, caption)
+        text, _ = (chatgpt or describe_chatgpt)(data_url, caption)
     if text and cache is not None:
         cache[key] = text
         for old in list(cache)[: max(0, len(cache) - CACHE_KEEP)]:

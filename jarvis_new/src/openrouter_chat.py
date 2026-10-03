@@ -1,6 +1,6 @@
 """Ling 3.0 Flash via OpenRouter: text-chat fallback when Gemini quota is spent.
 
-Stdlib only (urllib). Fail-soft like claude_cli: chat_reply returns
+Stdlib only (urllib). Fail-soft like chatgpt_cli: chat_reply returns
 (reply, warning) and never raises. The key is never logged or printed.
 """
 

@@ -3,7 +3,7 @@
 Every run: (1) make sure WhatSie runs headless, (2) look at the chat list,
 (3) for chats that have sat unread for an hour (JARVIS_WA_WAIT_MIN, decided
 from the list so the chat stays unread on Sir's phone until then), let a
-Haiku model write one short, polite, helpful note and send it, (4) tell Sir
+fast ChatGPT model write one short, polite, helpful note and send it, (4) tell Sir
 what was sent (desktop notification, plus JARVIS_WA_NOTIFY_CHAT if set).
 
 Rules: groups only when a message names Sir (incl. @-mentions), says
@@ -18,7 +18,7 @@ a dedupe; every message is untrusted data to the model; no links, phone
 numbers or promises leave in a reply.
 
 JARVIS_WA_AUTOREPLY = live (default) | dry (log only) | 0.
-JARVIS_WA_MODEL = model for the replies (default claude-haiku-4-5).
+JARVIS_WA_MODEL = model for the replies (default gpt-6-luna).
 JARVIS_WA_NOTIFY_CHAT = optional WhatsApp chat for a summary of what was sent.
 Mimic list (wa_mimic): chats in JARVIS_WA_MIMIC / ~/.jarvis/wa_mimic.txt are
 answered AS Sir in his own texting style instead of as Jarvis;
@@ -43,10 +43,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import claude_cli
+import chatgpt_cli
 
 MODE_ENV = "JARVIS_WA_AUTOREPLY"
-DEFAULT_MODEL = "claude-haiku-4-5"
 RUDE_MUTE_S = 6 * 3600
 HISTORY_MSGS = 16
 OWNER_ACTIVE_S = 120.0  # Sir wrote here this recently -> stay out of it
@@ -575,15 +574,16 @@ def reply_system() -> str:
     return base + EXAM_RULE.format(owner=owner_title()) + extra
 
 
-def ask_claude(
+def ask_chatgpt(
     prompt: str, runner=None, timeout: float = 90.0, chat=None
 ) -> tuple[dict | None, str | None]:
-    """Claude writes Jarvis's reply; the free OpenRouter chain covers for it."""
+    """ChatGPT writes Jarvis's reply; the free OpenRouter chain covers for it."""
     system = reply_system()
-    reply, warning = claude_cli.claude_reply(
+    reply, warning = chatgpt_cli.chatgpt_reply(
         prompt,
-        model=os.environ.get("JARVIS_WA_MODEL", "").strip() or DEFAULT_MODEL,
+        model=os.environ.get("JARVIS_WA_MODEL", "").strip() or chatgpt_cli.FAST_MODEL,
         system=system,
+        reasoning=os.environ.get("JARVIS_WA_REASONING", "low").strip() or "low",
         timeout=timeout,
         runner=runner,
     )
@@ -595,7 +595,7 @@ def ask_claude(
         parsed = parse_reply(alt) if alt else None
         if parsed is None:
             return None, (
-                f"{warning or 'claude reply was not valid JSON'}; "
+                f"{warning or 'ChatGPT reply was not valid JSON'}; "
                 f"{alt_warning or 'fallback reply was not valid JSON'}"
             )
         parsed["model"] = "openrouter"
@@ -683,7 +683,7 @@ async def handle_chat(
     state: dict,
     now: float,
     live: bool,
-    ask=ask_claude,
+    ask=ask_chatgpt,
     ask_mimic=None,
     analyse=None,
     describe_photo=None,
@@ -766,7 +766,7 @@ async def handle_chat(
             status=status,
         )
         parsed, warning = await asyncio.to_thread(
-            ask_mimic or wa_mimic.ask_claude, prompt
+            ask_mimic or wa_mimic.ask_chatgpt, prompt
         )
         cs["last_fp"] = fp
         if parsed is None:
@@ -947,7 +947,7 @@ async def run(
     wa=None,
     ensure=None,
     now: float | None = None,
-    ask=ask_claude,
+    ask=ask_chatgpt,
     ask_mimic=None,
     analyse=None,
     describe_photo=None,

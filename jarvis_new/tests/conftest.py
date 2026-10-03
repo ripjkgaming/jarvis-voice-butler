@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+_HOST_SUBPROCESS_RUN = subprocess.run
 
 @pytest.fixture(autouse=True)
 def _isolated_browser_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,6 +30,25 @@ def _no_real_window_minimize(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_shell_verbs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Panel tests must never summon or cold-start the user's native shell.
+
+    Permit explicit fake runners so the CLI success/failure contract remains
+    testable. Most panel tests replace shell_verb themselves after this fixture.
+    """
+    import projects
+
+    original = projects.shell_verb
+
+    def isolated(verb, run=None):
+        if run is None or run is _HOST_SUBPROCESS_RUN:
+            return False
+        return original(verb, run)
+
+    monkeypatch.setattr(projects, "shell_verb", isolated)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_actions_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep test tool calls out of Sir's real ~/.jarvis/actions.log (the
     HUD activity feed tails it)."""
@@ -39,10 +59,10 @@ def _isolated_actions_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.fixture(autouse=True)
-def _no_real_claude(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Never spend Sir's Pro usage from tests: headless Claude is off unless
+def _no_real_chatgpt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never spend Sir's ChatGPT usage from tests: headless ChatGPT is off unless
     a test opts in (and stubs the runner)."""
-    monkeypatch.setenv("JARVIS_CLAUDE", "0")
+    monkeypatch.setenv("JARVIS_CHATGPT", "0")
     # Nor the OpenRouter key: WhatsApp's analyst/fallback stay off unless a
     # test opts in with a fake chat function.
     monkeypatch.setenv("JARVIS_WA_ANALYST", "0")

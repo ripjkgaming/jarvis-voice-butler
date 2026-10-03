@@ -97,7 +97,7 @@ def fakes(monkeypatch, tmp_path):
         state["model_calls"].append(prompt)
         return (state["model_text"], None)
 
-    monkeypatch.setattr(draft_engine.claude_cli, "claude_reply", fake_reply)
+    monkeypatch.setattr(draft_engine.chatgpt_cli, "chatgpt_reply", fake_reply)
     return state
 
 
@@ -125,7 +125,9 @@ async def test_normal_human_gets_relaxed_reply_once_per_thread(fakes) -> None:
         "p2", "friend@mailbox.org", "Re: Lunch?", "Or Saturday?"
     )
     acks: dict = {}
-    assert await mail_watch_job._handle_one("p1", acks) == "normal-logged replied=passon"
+    assert (
+        await mail_watch_job._handle_one("p1", acks) == "normal-logged replied=passon"
+    )
     raw = base64.urlsafe_b64decode(fakes["sends"][0][1] + "==").decode(errors="ignore")
     assert "Will pass it on" in raw and "URGENT" not in raw
     second = await mail_watch_job._handle_one("p2", acks)
@@ -214,17 +216,18 @@ async def test_drafts_disabled_keeps_normal_outcome(fakes, monkeypatch) -> None:
     assert fakes["model_calls"] == []
 
 
-# --- _claude_urgency step ---
+# --- _chatgpt_urgency step ---
 
 
 def _fake_urgency_and_draft(
     monkeypatch, state, urgency_text=None, urgency_warning=None
 ):
-    """Claude fake that answers urgency + draft prompts separately."""
-    import claude_cli
+    """ChatGPT fake that answers urgency + draft prompts separately."""
+    import chatgpt_cli
+
     import urgency_judge
 
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_URGENCY_AI", "1")
     state.setdefault("urgency_calls", [])
     draft_text = json.dumps(
@@ -240,10 +243,10 @@ def _fake_urgency_and_draft(
         state["model_calls"].append(prompt)
         return (draft_text, None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
 
 
-async def test_claude_downgrades_keyword_high_to_normal(fakes, monkeypatch) -> None:
+async def test_chatgpt_downgrades_keyword_high_to_normal(fakes, monkeypatch) -> None:
     _fake_urgency_and_draft(
         monkeypatch,
         fakes,
@@ -283,7 +286,7 @@ async def test_scam_gets_scam_reply_and_no_draft(fakes, monkeypatch) -> None:
     assert "scam" in raw and "+65" not in raw and "Will pass it on" not in raw
 
 
-async def test_claude_upgrades_keyword_normal_to_high(fakes, monkeypatch) -> None:
+async def test_chatgpt_upgrades_keyword_normal_to_high(fakes, monkeypatch) -> None:
     _fake_urgency_and_draft(
         monkeypatch,
         fakes,
@@ -300,9 +303,9 @@ async def test_claude_upgrades_keyword_normal_to_high(fakes, monkeypatch) -> Non
     assert record is not None and record["priority"] == "high"
 
 
-async def test_claude_warning_keeps_keyword_high(fakes, monkeypatch) -> None:
+async def test_chatgpt_warning_keeps_keyword_high(fakes, monkeypatch) -> None:
     _fake_urgency_and_draft(
-        monkeypatch, fakes, urgency_warning="Claude timed out after 60s"
+        monkeypatch, fakes, urgency_warning="ChatGPT timed out after 60s"
     )
     fakes["payloads"]["u3"] = _full(
         "u3", "teacher@school.com", "URGENT: exam", "Exam moved to Friday."
@@ -314,7 +317,7 @@ async def test_claude_warning_keeps_keyword_high(fakes, monkeypatch) -> None:
     assert record is not None and record["priority"] == "high"
 
 
-async def test_bulk_never_calls_claude(fakes, monkeypatch) -> None:
+async def test_bulk_never_calls_chatgpt(fakes, monkeypatch) -> None:
     _fake_urgency_and_draft(
         monkeypatch,
         fakes,
@@ -335,7 +338,7 @@ async def test_bulk_never_calls_claude(fakes, monkeypatch) -> None:
     assert fakes["sends"] == []
 
 
-async def test_own_mail_skip_never_calls_claude(fakes, monkeypatch) -> None:
+async def test_own_mail_skip_never_calls_chatgpt(fakes, monkeypatch) -> None:
     _fake_urgency_and_draft(
         monkeypatch,
         fakes,

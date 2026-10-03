@@ -78,6 +78,42 @@ def hide(name: str) -> list[str]:
     return names
 
 
+# --- Insights drawer (AI usage / paper market), opened by voice ---
+
+INSIGHTS_TABS = ("usage", "market")
+
+
+def insights_path() -> Path:
+    return _home() / "hud_insights.json"
+
+
+def insights() -> dict:
+    """{"tab": usage|market|None, "seq": n}. seq bumps on every request so
+    the HUD reopens the drawer even when the same tab is asked twice."""
+    try:
+        data = json.loads(insights_path().read_text())
+        tab = data.get("tab")
+        return {
+            "tab": tab if tab in INSIGHTS_TABS else None,
+            "seq": int(data.get("seq") or 0),
+        }
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {"tab": None, "seq": 0}
+
+
+def set_insights(tab: str | None) -> dict:
+    """Open the drawer on a tab, or close it (tab=None). Never raises."""
+    state = {
+        "tab": tab if tab in INSIGHTS_TABS else None,
+        "seq": insights()["seq"] + 1,
+        "ts": time.time(),
+    }
+    with contextlib.suppress(OSError):
+        insights_path().parent.mkdir(parents=True, exist_ok=True)
+        insights_path().write_text(json.dumps(state))
+    return state
+
+
 # --- data per panel (each fail-soft) ---
 
 
@@ -219,4 +255,9 @@ def payload(now: float | None = None) -> dict:
             out[name] = GATHER[name](now)
         except Exception:
             out[name] = {"items": [], "error": "unavailable"}
-    return {"ok": True, "visible": visible(), "panels": out}
+    return {
+        "ok": True,
+        "visible": visible(),
+        "panels": out,
+        "insights": insights(),
+    }

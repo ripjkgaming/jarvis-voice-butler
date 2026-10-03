@@ -106,3 +106,21 @@ async def test_routing_search_uses_search_tool() -> None:
             session, assistant, "Search the web for the capital of France."
         )
         assert "search_the_web" in calls
+
+
+@pytest.mark.live_llm
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Download this YouTube video.",
+        "Download https://www.youtube.com/watch?v=aqz-KE-bpKQ to Downloads.",
+    ],
+)
+async def test_routing_youtube_download_uses_direct_tool(prompt: str) -> None:
+    async with _agent_llm() as agent_llm, AgentSession() as session:
+        assistant = _dry_assistant(agent_llm)
+        await session.start(assistant)
+        calls = await _calls(session, assistant, prompt)
+        assert "download_youtube_video" in calls
+        assert not {"open_url", "transfer_to_system_control", "play_media"} & set(calls)

@@ -419,7 +419,7 @@ class WorkspaceTools:
     ) -> dict[str, str]:
         """Read an exam/mock/school schedule file and prepare its dates for Sir's Google Calendar.
 
-        Runs in the BACKGROUND on the backend model (Sonnet 5.5): this returns
+        Runs in the BACKGROUND on the backend model (GPT-6.1 Sol at medium reasoning): this returns
         at once, so carry on the conversation normally. When the file has
         been read you'll be prompted to read the preview to Sir; nothing is
         added until Sir says yes and you call confirm_calendar_import.
@@ -727,7 +727,7 @@ class WorkspaceTools:
 
     @function_tool()
     async def ask_backend(self, context: RunContext, task: str) -> dict[str, str]:
-        """Hand a slow, careful job to the backend model (Sonnet 5.5): planning, careful reasoning, long rewrites.
+        """Hand a slow, careful job to the backend model (GPT-6.1 Sol at medium reasoning): planning, careful reasoning, long rewrites.
 
         Runs in the BACKGROUND: this returns at once, so keep talking with Sir
         normally. When the backend finishes you'll be prompted with its answer

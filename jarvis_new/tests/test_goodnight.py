@@ -190,3 +190,14 @@ def test_assistant_goodnight_says_farewell_and_arms_but_other_speech_cancels(
     assert said and "Goodnight" in said[0] and g.pending()
     assert asyncio.run(a._goodnight("what's the weather")) is False
     assert not g.pending()
+
+
+def test_busy_codex_worker_prevents_sleep(tmp_path):
+    root = tmp_path / "proc"
+    root.mkdir()
+    _fake_proc(root, 20, 1, "codex", ["codex", "exec"], cpu=100)
+
+    def grow(_):
+        _fake_proc_update(root, 20, 5000)
+
+    assert g.coding_active(root, tmp_path, sleep=grow) is True

@@ -81,8 +81,9 @@ async def check_canvas_quality(page):
     for item in result:
         assert item["visiblePixels"] > 0, f"Particles render blank: {item}"
         assert item["peakAlpha"] > 48, f"Particles are almost invisible: {item}"
-        assert abs(item["width"] - round(item["cssWidth"] * item["dpr"])) <= 1, item
-        assert abs(item["height"] - round(item["cssHeight"] * item["dpr"])) <= 1, item
+        effective_dpr = min(item["dpr"], 1.5)
+        assert abs(item["width"] - round(item["cssWidth"] * effective_dpr)) <= 1, item
+        assert abs(item["height"] - round(item["cssHeight"] * effective_dpr)) <= 1, item
         assert item["pointerEvents"] == "none", item
         assert item["ariaHidden"] == "true", item
         assert item["tabIndex"] == -1, item
@@ -114,7 +115,13 @@ async def check_suspension(page):
     await page.wait_for_timeout(80)
     reduced = await frames(page)
     await page.wait_for_timeout(200)
-    assert await frames(page) == reduced, "Reduced-motion still animates particles"
+    settled_reduced = await frames(page)
+    assert len(settled_reduced) == len(reduced)
+    assert all(b["frames"] - a["frames"] <= 1 for a, b in zip(reduced, settled_reduced)), (
+        f"Reduced-motion keeps animating particles: {reduced} -> {settled_reduced}"
+    )
+    await page.wait_for_timeout(120)
+    assert await frames(page) == settled_reduced, "Reduced-motion keeps animating after settling"
     static = await check_canvas_quality(page)
     await page.emulate_media(reduced_motion="no-preference")
     await page.wait_for_timeout(160)

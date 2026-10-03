@@ -30,7 +30,9 @@ def test_future_only_drops_past_and_malformed() -> None:
 def test_store_roundtrip_expiry_and_clear(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     assert event_suggest.load() is None
-    event_suggest.save("m1", "Riley <r@x.org>", "Yo", [{"title": "Wedding", "date": "2026-10-03"}])
+    event_suggest.save(
+        "m1", "Riley <r@x.org>", "Yo", [{"title": "Wedding", "date": "2026-10-03"}]
+    )
     got = event_suggest.load()
     assert got and got["events"][0]["title"] == "Wedding"
     assert event_suggest.load(now=time.time() + event_suggest.TTL_S + 60) is None
@@ -40,7 +42,8 @@ def test_store_roundtrip_expiry_and_clear(tmp_path, monkeypatch) -> None:
 
 def test_speak_line_asks_and_names_sender() -> None:
     line = event_suggest.speak_line(
-        '"Riley Chow" <r@x.org>', [{"title": "Wedding", "date": "2026-10-03", "start": "18:00"}]
+        '"Riley Chow" <r@x.org>',
+        [{"title": "Wedding", "date": "2026-10-03", "start": "18:00"}],
     )
     assert "Riley Chow" in line and "Wedding" in line and line.endswith("calendar?")
     assert "<" not in line
@@ -63,7 +66,7 @@ def test_extract_from_email_parses_and_fences(monkeypatch) -> None:
             None,
         )
 
-    monkeypatch.setattr(backend_model.claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(backend_model.chatgpt_cli, "chatgpt_reply", fake)
     events, warning = backend_model.extract_events_from_email(
         "Wedding Saturday 3 Oct 6pm", today=dt.date(2026, 9, 30)
     )
@@ -72,21 +75,32 @@ def test_extract_from_email_parses_and_fences(monkeypatch) -> None:
 
 
 def test_extract_from_email_none_is_not_a_warning(monkeypatch) -> None:
-    monkeypatch.setattr(backend_model.claude_cli, "claude_reply", lambda p, **k: ("[]", None))
+    monkeypatch.setattr(
+        backend_model.chatgpt_cli, "chatgpt_reply", lambda p, **k: ("[]", None)
+    )
     assert backend_model.extract_events_from_email("hello there") == ([], None)
     assert backend_model.extract_events_from_email("   ")[1] is not None
 
 
-async def test_confirm_uses_saved_suggestion_when_nothing_pending(tmp_path, monkeypatch) -> None:
+async def test_confirm_uses_saved_suggestion_when_nothing_pending(
+    tmp_path, monkeypatch
+) -> None:
     import google_api
     from system.workspace_tools import WorkspaceTools
 
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    event_suggest.save("m1", "Riley", "Yo", [{"title": "Wedding", "date": "2026-10-03", "start": "18:00"}])
+    event_suggest.save(
+        "m1",
+        "Riley",
+        "Yo",
+        [{"title": "Wedding", "date": "2026-10-03", "start": "18:00"}],
+    )
     created = []
     monkeypatch.setattr(google_api, "calendar_list", lambda *a, **k: [])
-    monkeypatch.setattr(google_api, "calendar_create", lambda e, **k: created.append(e) or {})
+    monkeypatch.setattr(
+        google_api, "calendar_create", lambda e, **k: created.append(e) or {}
+    )
     out = await WorkspaceTools().confirm_calendar_import._func(WorkspaceTools(), None)
     assert created and created[0]["title"] == "Wedding"
     assert "Added 1" in out["say"]

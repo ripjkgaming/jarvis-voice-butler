@@ -23,6 +23,31 @@ export type Metrics = {
   diskFree: number | null;
 };
 
+/** Shared amber triggers: instruments and reactor light must agree. */
+export function metricWarnings(m: Metrics) {
+  return {
+    cpu: m.has && m.cpuPct >= 90,
+    mem: m.has && m.memPct >= 92,
+    temp: m.temp !== null && m.temp >= 85,
+    power: m.batt !== null && m.batt < 20 && !m.ac,
+    phone: !!m.phone && !m.phone.charging && m.phone.battery < 20,
+    network: m.net?.kind === 'none',
+    audio: m.volume?.muted === true,
+    storage: m.diskFree !== null && m.diskFree < 10 * 1024 ** 3,
+  };
+}
+
+/** Additive amber light never replaces the voice/mute state colour. */
+export function reactorWarnings(m: Metrics, muted: boolean, phase: string) {
+  const warnings = metricWarnings(m);
+  const active = Object.entries(warnings)
+    .filter(([, on]) => on)
+    .map(([key]) => key);
+  if (muted) active.push('mic');
+  if (phase === 'failed' || phase === 'stalled') active.push('voice');
+  return { warnings, active, lit: active.length > 0 };
+}
+
 /** Core-temp gauge spans 30–100 °C. */
 const TEMP_MIN_C = 30;
 const TEMP_MAX_C = 100;

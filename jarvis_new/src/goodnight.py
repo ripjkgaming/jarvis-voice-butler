@@ -126,7 +126,7 @@ def arm(now: float | None = None, spawn=subprocess.Popen) -> str:
 
 # --- is anything coding? ---------------------------------------------------
 
-_TARGETS = {"claude", "opencode"}
+_TARGETS = {"claude", "codex", "opencode"}
 CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 CPU_BUSY = 0.03  # of one core, summed over an agent and everything it spawned
 RECENT_FILE_S = 90.0

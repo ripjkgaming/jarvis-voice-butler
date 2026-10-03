@@ -47,11 +47,40 @@ def test_choice_and_dry_gain_env(monkeypatch) -> None:
     assert mic_clean.dry_gain() == 0.0
 
 
+def test_default_uses_lighter_model_and_explicit_heavy_model_stays_available(
+    monkeypatch,
+):
+    monkeypatch.delenv("JARVIS_DENOISE", raising=False)
+    assert mic_clean.denoise_choice() == "gtcrn"
+    monkeypatch.setenv("JARVIS_DENOISE", "dpdfnet")
+    assert mic_clean.denoise_choice() == "dpdfnet"
+
+
+def test_default_falls_back_to_installed_legacy_model(monkeypatch, tmp_path):
+    monkeypatch.setattr(mic_clean, "MODEL_DIR", tmp_path)
+    monkeypatch.delenv("JARVIS_DENOISE", raising=False)
+    (tmp_path / mic_clean.MODELS["dpdfnet"][0]).write_bytes(b"fixture")
+    names = []
+
+    def build(name):
+        names.append(name)
+        if name == "gtcrn":
+            raise FileNotFoundError("lighter model not installed")
+        return _passthrough()
+
+    monkeypatch.setattr(mic_clean, "_build_denoiser", build)
+    cleaner = mic_clean.make_cleaner(1536)
+    assert names == ["gtcrn", "dpdfnet"]
+    assert cleaner is not None and cleaner.name == "dpdfnet"
+
+
 def test_blocks_are_rechunked_to_listener_size() -> None:
     cleaner = mic_clean.MicCleaner("gtcrn", block=1536, denoiser=_passthrough())
     sizes = []
     for _ in range(20):
-        sizes += [len(b) // 2 for b in cleaner.process(np.zeros(1536, np.int16).tobytes())]
+        sizes += [
+            len(b) // 2 for b in cleaner.process(np.zeros(1536, np.int16).tobytes())
+        ]
     assert sizes and set(sizes) == {1536}
 
 
@@ -60,14 +89,18 @@ def test_dry_mix_is_time_aligned_with_lagging_model() -> None:
     (no comb filter): equal wet and dry halves rebuild the input level."""
     x = _speechlike(48000 * 2)
     lag16 = mic_clean.MODELS["dpdfnet"][3] // 3
-    cleaner = mic_clean.MicCleaner("dpdfnet", block=1536, dry=1.0, denoiser=_passthrough(lag16))
+    cleaner = mic_clean.MicCleaner(
+        "dpdfnet", block=1536, dry=1.0, denoiser=_passthrough(lag16)
+    )
     y = _run(cleaner, x)[6000:-6000]
     # Coherent sum doubles amplitude (+6 dB); a misaligned sum would not.
     ratio = np.std(y) / np.std(x.astype(np.float64))
     assert 1.9 < ratio < 2.1
 
 
-def test_make_cleaner_falls_back_to_raw_when_model_missing(monkeypatch, tmp_path) -> None:
+def test_make_cleaner_falls_back_to_raw_when_model_missing(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setattr(mic_clean, "MODEL_DIR", tmp_path)
     monkeypatch.delenv("JARVIS_DENOISE", raising=False)
     assert mic_clean.make_cleaner(1536) is None

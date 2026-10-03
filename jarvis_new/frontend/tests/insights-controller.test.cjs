@@ -49,6 +49,7 @@ function fixture({ tauri = true, deferMenu = false, deferFocus = false, deferRes
   vm.runInNewContext(compile('lib/hud-overlay.ts'), overlay);
   const deps = {
     react,
+    '@/lib/shared-poll': { useSharedPoll: () => null },
     '@/hooks/hud/use-window-geometry': { useWindowGeometry: () => geometry, refreshWindowGeometry: () => { refreshes++; } },
     '@/lib/hud-overlay': overlay.exports,
     '@/lib/tauri': {

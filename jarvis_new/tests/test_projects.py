@@ -1,6 +1,7 @@
-"""Background projects (research on Claude, coding on opencode) and the
+"""Background projects (research on ChatGPT, coding on opencode) and the
 voice-only Project Archive grammar + command bus."""
 
+import json
 import time
 
 import pytest
@@ -9,10 +10,21 @@ import projects
 from projects import UiBus, parse_voice
 
 
+def codex_output(text):
+    return (
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+        )
+        + "\n"
+        + json.dumps({"type": "turn.completed", "usage": {}})
+        + "\n"
+    )
+
+
 @pytest.fixture(autouse=True)
 def _home(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jh"))
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")  # runners are always stubbed here
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")  # runners are always stubbed here
     monkeypatch.setattr(projects, "BUS", UiBus())
     monkeypatch.setattr(projects, "_announce", lambda meta: None)
     # ResearchProgress pops a persistent (-t 0) toast; a real one from a
@@ -45,17 +57,17 @@ Solid-state cells are close. Pilot lines run in 2027.
 
 
 def _research(topic="solid state batteries", out=REPORT, rc=0):
-    runner = lambda argv, **kw: _Proc(rc, out)  # noqa: E731
+    runner = lambda argv, **kw: _Proc(rc, codex_output(out))  # noqa: E731
     return projects.start_research(topic, runner=runner, background=False)
 
 
 def test_research_project_writes_documents_and_parses(monkeypatch):
-    monkeypatch.setattr("claude_cli.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr("chatgpt_cli.shutil.which", lambda n: f"/usr/bin/{n}")
     seen = {}
 
     def runner(argv, **kw):
         seen["argv"] = argv
-        return _Proc(0, REPORT)
+        return _Proc(0, codex_output(REPORT))
 
     meta = projects.start_research(
         "solid state batteries", runner=runner, background=False
@@ -64,12 +76,9 @@ def test_research_project_writes_documents_and_parses(monkeypatch):
     assert meta["summary"].startswith("Solid-state cells are close.")
     assert meta["sources"] == ["https://example.com/a", "https://example.org/b"]
     argv = seen["argv"]
-    assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
-    assert argv[argv.index("--tools") + 1] == "WebSearch,WebFetch,Bash"
-    # Headless runs can't ask: Bash is pre-approved only for the pdf reader.
-    assert argv[argv.index("--allowedTools") + 1] == (
-        f"WebSearch,WebFetch,Bash({projects.pdf_command()}:*)"
-    )
+    assert argv[argv.index("--model") + 1] == "gpt-6.1-sol"
+    assert 'web_search="live"' in argv
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
     full = projects.get_project(meta["id"])
     assert [d["name"] for d in full["documents"]] == [
         "report.md",
@@ -79,39 +88,35 @@ def test_research_project_writes_documents_and_parses(monkeypatch):
 
 
 def test_research_pdf_tooling():
-    import sys
-    from pathlib import Path
-
-    # The exact command the model is told to run is the one pre-approved.
-    cmd = projects.pdf_command()
-    assert cmd == f"{sys.executable} {Path(projects.__file__).resolve().parent / 'pdf_fetch.py'}"
-    assert cmd.endswith("src/pdf_fetch.py")
-    assert projects.pdf_command() in projects.RESEARCH_SYSTEM
-    assert "Never use Bash for anything else" in projects.RESEARCH_SYSTEM
-    assert ".pdf" in projects.RESEARCH_SYSTEM
+    assert "PDF" in projects.RESEARCH_SYSTEM
+    assert "native web" in projects.RESEARCH_SYSTEM
+    assert "Bash" not in projects.RESEARCH_SYSTEM
 
 
-def test_research_stream_path_scopes_bash(monkeypatch):
-    monkeypatch.setattr("claude_cli.shutil.which", lambda n: f"/usr/bin/{n}")
+def test_research_stream_uses_native_web_tools(monkeypatch):
+    monkeypatch.setattr("chatgpt_cli.shutil.which", lambda n: f"/usr/bin/{n}")
     seen = {}
 
     def fake_stream(prompt, **kw):
         seen.update(kw)
         return REPORT, None
 
-    monkeypatch.setattr("claude_cli.claude_stream", fake_stream)
+    monkeypatch.setattr("chatgpt_cli.chatgpt_stream", fake_stream)
     meta = projects.start_research("solid state batteries", background=False)
     assert meta["status"] == "done"
-    assert seen["tools"] == "WebSearch,WebFetch,Bash"
-    assert seen["allowed"] == f"WebSearch,WebFetch,Bash({projects.pdf_command()}:*)"
+    assert seen["tools"] == "WebSearch,WebFetch"
+    assert seen["allowed"] == "WebSearch,WebFetch"
 
 
 def test_research_pdf_progress(monkeypatch):
     from projects import research_stage
 
-    assert research_stage(
-        {"kind": "pdf", "detail": "https://www.arxiv.org/pdf/1706.03762"}
-    ) == "Reading PDF: arxiv.org"
+    assert (
+        research_stage(
+            {"kind": "pdf", "detail": "https://www.arxiv.org/pdf/1706.03762"}
+        )
+        == "Reading PDF: arxiv.org"
+    )
     monkeypatch.setattr(projects.subprocess, "run", lambda argv, **kw: None)
     meta = projects._new_meta("research", "sober", "sober", "m")
     prog = projects.ResearchProgress(meta, notify=False, min_gap_s=0.0)
@@ -122,7 +127,7 @@ def test_research_pdf_progress(monkeypatch):
 
 
 def test_research_failure_is_recorded(monkeypatch):
-    monkeypatch.setattr("claude_cli.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr("chatgpt_cli.shutil.which", lambda n: f"/usr/bin/{n}")
     meta = _research(out="", rc=1)
     assert meta["status"] == "failed" and meta["error"]
 
@@ -183,7 +188,7 @@ def test_code_project_bad_directory_fails_fast():
 
 
 def test_list_newest_first_and_ids_are_safe(monkeypatch):
-    monkeypatch.setattr("claude_cli.shutil.which", lambda n: f"/usr/bin/{n}")
+    monkeypatch.setattr("chatgpt_cli.shutil.which", lambda n: f"/usr/bin/{n}")
     a = _research("alpha topic")
     time.sleep(1.1)
     b = _research("beta topic")
@@ -221,7 +226,13 @@ def test_owners_example_chain():
         "and open the first document and start scrolling through them slowly",
         PLIST,
     )
-    assert [c["action"] for c in cmds] == ["show", "filter", "select", "open_document", "scroll"]
+    assert [c["action"] for c in cmds] == [
+        "show",
+        "filter",
+        "select",
+        "open_document",
+        "scroll",
+    ]
     assert cmds[1] == {"action": "filter", "filter": "research"}
     assert cmds[2]["project_id"] == PLIST[0]["id"]
     assert cmds[3]["index"] == 1
@@ -330,7 +341,10 @@ def test_research_progress_curve():
     assert research_progress(3, True) == 88
     assert research_progress(50, True) <= 97
     assert research_progress(2, False, done=True) == 100
-    assert research_stage({"kind": "fetch", "detail": "https://www.github.com/a"}) == "Reading: github.com"
+    assert (
+        research_stage({"kind": "fetch", "detail": "https://www.github.com/a"})
+        == "Reading: github.com"
+    )
     assert research_stage({"kind": "search", "detail": "sober"}) == "Searching: sober"
 
 
@@ -340,13 +354,17 @@ def test_research_progress_writes_meta_and_notifies(monkeypatch):
     class _Out:
         stdout = "4242\n"
 
-    monkeypatch.setattr(projects.subprocess, "run", lambda argv, **kw: calls.append(argv) or _Out())
+    monkeypatch.setattr(
+        projects.subprocess, "run", lambda argv, **kw: calls.append(argv) or _Out()
+    )
     meta = projects._new_meta("research", "sober", "sober", "m")
     prog = projects.ResearchProgress(meta, min_gap_s=0.0)
     prog.on_event({"kind": "search", "detail": "sober linux"})
     prog.on_event({"kind": "fetch", "detail": "https://sober.vinegarhq.org/x"})
     got = projects._read_meta(meta["id"])
-    assert got["steps"] == 2 and got["progress"] > 3 and got["stage"].startswith("Reading")
+    assert (
+        got["steps"] == 2 and got["progress"] > 3 and got["stage"].startswith("Reading")
+    )
     assert got["notify_id"] == "4242"
     assert "-r" in calls[-1] and any(a.startswith("int:value:") for a in calls[-1])
 
@@ -359,7 +377,9 @@ def test_voice_delete_needs_confirmation(monkeypatch):
     # "confirm" alone means nothing until a delete is waiting.
     assert parse_voice("confirm delete", plist) is None
     cmds = parse_voice("delete the roblox sober project", plist)
-    assert cmds == [{"action": "delete", "project_id": meta["id"], "title": "roblox sober"}]
+    assert cmds == [
+        {"action": "delete", "project_id": meta["id"], "title": "roblox sober"}
+    ]
     assert "confirm delete" in projects.reply_for(cmds)
     assert projects.execute_voice(cmds)["ok"]
     assert projects._read_meta(meta["id"]) is not None  # not yet
@@ -370,7 +390,9 @@ def test_voice_delete_needs_confirmation(monkeypatch):
     actions = [c["action"] for c in projects.BUS.since(0)["commands"]]
     assert "delete_pending" in actions and actions[-1] == "deleted"
     # Expired confirmation does nothing.
-    projects.execute_voice(parse_voice("delete the batteries project", projects.list_projects()))
+    projects.execute_voice(
+        parse_voice("delete the batteries project", projects.list_projects())
+    )
     projects.BUS.pending_delete["at"] -= projects.DELETE_CONFIRM_S + 1
     assert parse_voice("confirm delete", plist) is None
     assert projects._read_meta(other["id"]) is not None

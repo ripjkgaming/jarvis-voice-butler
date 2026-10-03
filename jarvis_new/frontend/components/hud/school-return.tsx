@@ -280,11 +280,14 @@ function drawBlueprint(ctx: CanvasRenderingContext2D, s: Scene, c: string) {
       ctx.stroke();
     }
   }
-  if (s.label > 0.001) {
+  if (s.label > 0.001 && s.scan === null) {
     ctx.globalAlpha = 0.85 * s.label;
     ctx.fillStyle = c;
     ctx.font = '600 10px ui-monospace, monospace';
-    ctx.fillText('J.A.R.V.I.S.   //   RESTORING', 14, 20);
+    ctx.fillText('JARVIS // RECONSTRUCT WORKSPACE', 14, 20);
+    ctx.globalAlpha = 0.5 * s.label;
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.fillText('SESSION 0x01 / RESTORE BUFFER', 14, 37);
     ctx.globalAlpha = 0.5 * s.label;
     ctx.fillText(`${Math.round(w)} × ${Math.round(h)}`, w - 90, h - 12);
   }
@@ -306,6 +309,21 @@ function drawScan(ctx: CanvasRenderingContext2D, s: Scene, c: string) {
   ctx.moveTo(0, y);
   ctx.lineTo(s.w, y);
   ctx.stroke();
+  // Discrete decoded blocks ride the scan head. Deterministic positions avoid
+  // random strobing and keep the returning interface readable underneath.
+  ctx.fillStyle = '#9cffa9';
+  ctx.font = '9px ui-monospace, monospace';
+  for (let i = 12; i < s.w - 40; i += 64) {
+    const row = Math.floor(s.scan * 32);
+    ctx.globalAlpha = 0.3 + ((i / 64 + row) % 3) * 0.16;
+    ctx.fillRect(i, y - 8, 22, 2);
+    if (y > 30 && i % 128 === 12)
+      ctx.fillText(
+        ((row * 257 + i * 13) % 65536).toString(16).padStart(4, '0').toUpperCase(),
+        i,
+        y - 17
+      );
+  }
   ctx.globalAlpha = 0.7;
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 0.8;

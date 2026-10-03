@@ -3,11 +3,10 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { VoiceLinkRail } from '@/components/hud/voice-link';
-import { InsightsLaunchers } from '@/components/insights/insights-launchers';
-import type { InsightsTab } from '@/hooks/hud/use-insights';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { type BridgeSys } from '@/lib/bridge';
 import { type VoiceLink } from '@/lib/voice-link';
+import { Desk } from './desk';
 import { Frame } from './frame';
 import { Links, Power, Trends } from './instruments';
 import { type Sample, healthLine, metricsFrom, pushSample } from './metrics';
@@ -161,8 +160,8 @@ function useDoneFlash(items: ReturnType<typeof useActivity>): boolean {
 
 /**
  * STARK OS HUD (design/STARK_OS.md). Three columns around the arc
- * reactor: vitals and links on the left, execution, voice panels and the
- * comms log on the right. Solo mode keeps only the reactor column.
+ * reactor: vitals and links on the left, execution, voice panels, the
+ * comms log and the desk (AI usage, paper market, drafts) on the right. Solo mode keeps only the reactor column.
  *
  * Keeps the `hud` class so the school-mode transition can clone it, but
  * reports its state on `data-jstate`: the legacy `.hud[data-state]` rules
@@ -175,7 +174,6 @@ export function StarkHud({
   muted,
   children,
   link,
-  onInsights,
 }: {
   sys: BridgeSys | null;
   solo: boolean;
@@ -183,7 +181,6 @@ export function StarkHud({
   muted: boolean | null;
   children?: ReactNode;
   link: VoiceLink;
-  onInsights: (tab: InsightsTab) => void;
 }) {
   const m = useMemo(() => metricsFrom(sys), [sys]);
   const history = useHistory(m, sys);
@@ -194,10 +191,9 @@ export function StarkHud({
   const center = (
     <section className={s.center} aria-label="Voice core">
       <div className={s.reactorWrap}>
-        <Reactor m={m} link={link} />
+        <Reactor m={m} link={link} color={color} jarvis={jarvis} muted={muted === true} />
       </div>
       <StateReadout jarvis={jarvis} muted={muted} link={link} />
-      <InsightsLaunchers onOpen={onInsights} />
       <VoiceLinkRail link={link} />
       <Caption />
       <Research sys={sys} />
@@ -244,7 +240,8 @@ export function StarkHud({
           <aside className={s.right} aria-label="Operations">
             <Execution items={activity} index={4} />
             <VoicePanels index={5} />
-            <CommsLog index={6} />
+            <CommsLog index={6} compact />
+            <Desk index={7} />
           </aside>
         </main>
       )}

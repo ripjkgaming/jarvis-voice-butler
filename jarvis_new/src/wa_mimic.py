@@ -536,24 +536,29 @@ def parse_reply(raw: str) -> dict | None:
     }
 
 
-def ask_claude(
+def ask_chatgpt(
     prompt: str, runner=None, timeout: float = 90.0, chat=None
 ) -> tuple[dict | None, str | None]:
-    """Claude writes the reply; the free OpenRouter chain covers for it."""
-    import claude_cli
+    """ChatGPT writes the reply; the free OpenRouter chain covers for it."""
+    import chatgpt_cli
 
     model = (
         os.environ.get("JARVIS_WA_MIMIC_MODEL", "").strip()
         or os.environ.get("JARVIS_WA_MODEL", "").strip()
-        or "claude-haiku-4-5"
+        or chatgpt_cli.FAST_MODEL
     )
     system = system_prompt()
-    reply, warning = claude_cli.claude_reply(
-        prompt, model=model, system=system, timeout=timeout, runner=runner
+    reply, warning = chatgpt_cli.chatgpt_reply(
+        prompt,
+        model=model,
+        system=system,
+        reasoning=os.environ.get("JARVIS_WA_MIMIC_REASONING", "low").strip() or "low",
+        timeout=timeout,
+        runner=runner,
     )
     parsed = None if warning else parse_reply(reply)
     if parsed is None:
-        # Claude out (limit, offline, garbage): the free OpenRouter chain.
+        # ChatGPT out (limit, offline, garbage): the free OpenRouter chain.
         import wa_analyst
 
         alt, alt_warning = wa_analyst.wa_fallback_reply(prompt, system, chat=chat)
@@ -561,7 +566,7 @@ def ask_claude(
         if parsed is None:
             return (
                 None,
-                f"{warning or 'claude reply was not valid JSON'}; {alt_warning or 'fallback reply was not valid JSON'}",
+                f"{warning or 'ChatGPT reply was not valid JSON'}; {alt_warning or 'fallback reply was not valid JSON'}",
             )
         parsed["model"] = "openrouter"
     return parsed, None

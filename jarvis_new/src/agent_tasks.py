@@ -134,13 +134,13 @@ def parse_plan(raw: str) -> dict | None:
     }
 
 
-def _claude(
+def _chatgpt(
     prompt: str, system: str, tools: str = "", runner=None
 ) -> tuple[str, str | None]:
-    import claude_cli
+    import chatgpt_cli
 
-    model = claude_cli.RESEARCH_MODEL if tools else claude_cli.BACKEND_MODEL
-    return claude_cli.claude_reply(
+    model = chatgpt_cli.RESEARCH_MODEL if tools else chatgpt_cli.BACKEND_MODEL
+    return chatgpt_cli.chatgpt_reply(
         prompt,
         model=model,
         system=system,
@@ -215,7 +215,7 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
         if task is None or task["status"] not in ("planning", "running"):
             return task
         if task["status"] == "planning":
-            raw, warning = _claude(
+            raw, warning = _chatgpt(
                 f"GOAL: {_fence(task['goal'])[:1500]}",
                 PLAN_SYSTEM.replace("{max_steps}", str(max_steps())),
                 runner=runner,
@@ -261,7 +261,7 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
             step["status"] = "running"
             save(task)
             _hud(task)
-            out, warning = _claude(
+            out, warning = _chatgpt(
                 step_prompt(task, i), STEP_SYSTEM, tools=tools, runner=runner
             )
             if warning or not out.strip():

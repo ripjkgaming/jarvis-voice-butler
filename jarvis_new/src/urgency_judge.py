@@ -1,9 +1,9 @@
-"""Claude decides whether an incoming email is urgent for Sir.
+"""ChatGPT decides whether an incoming email is urgent for Sir.
 
 The mail watcher's keyword triage (system.inbox.classify_email) is fast but
 blunt: "urgent" in a newsletter or a school domain on a routine notice both
-read as high. This asks Claude for the final call on human mail and falls
-back to the keyword verdict whenever Claude is unavailable, so a broken
+read as high. This asks ChatGPT for the final call on human mail and falls
+back to the keyword verdict whenever ChatGPT is unavailable, so a broken
 model never silences or floods the watcher.
 
 The email is untrusted data (fenced, capped) and the model may only answer
@@ -16,7 +16,8 @@ import json
 import os
 import re
 
-import claude_cli
+import chatgpt_cli
+
 from draft_engine import _END, _START, MAX_EMAIL_CHARS, _fence
 
 ENV = "JARVIS_URGENCY_AI"
@@ -79,13 +80,13 @@ def parse_verdict(reply: str) -> dict | None:
 def judge(
     parsed_msg: dict, *, timeout: float = 60.0, runner=None
 ) -> tuple[dict | None, str | None]:
-    """Ask Claude -> ({"urgent", "reason"}, None) or (None, warning). Never raises."""
+    """Ask ChatGPT -> ({"urgent", "reason"}, None) or (None, warning). Never raises."""
     if not enabled():
         return None, f"Urgency AI disabled ({ENV}=0)"
     try:
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             build_prompt(parsed_msg),
-            model=claude_cli.BACKEND_MODEL,
+            model=chatgpt_cli.BACKEND_MODEL,
             system=URGENCY_SYSTEM,
             timeout=timeout,
             runner=runner,
@@ -101,15 +102,17 @@ def judge(
 
 
 def apply(verdict: dict, ai: dict) -> dict:
-    """Keyword verdict + Claude's call -> the final verdict. Pure.
+    """Keyword verdict + ChatGPT's call -> the final verdict. Pure.
 
-    Only human mail reaches here. Claude decides high vs normal; the reasons
-    keep what the keywords saw and add Claude's own.
+    Only human mail reaches here. ChatGPT decides high vs normal; the reasons
+    keep what the keywords saw and add ChatGPT's own.
     """
     out = dict(verdict)
     out["level"] = "high" if ai["urgent"] else "normal"
     out["scam"] = bool(ai.get("scam"))
-    tag = f"claude:{'scam' if out['scam'] else 'urgent' if ai['urgent'] else 'routine'}"
+    tag = (
+        f"chatgpt:{'scam' if out['scam'] else 'urgent' if ai['urgent'] else 'routine'}"
+    )
     if ai.get("reason"):
         tag += f" ({ai['reason']})"
     out["reasons"] = [*list(verdict.get("reasons", [])), tag]

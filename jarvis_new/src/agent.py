@@ -83,6 +83,7 @@ from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
 from tools import BrowserTools
 import tool_usage
+from youtube_download import YouTubeDownloadTools
 
 # Resolve against the checkout root, not cwd: the Tauri shell spawns the
 # worker with cwd=shell/, where a relative ".env.local" never resolves and
@@ -289,27 +290,31 @@ def _voice_model(model_id: str):
         }
     elif "2.5" in model_id:
         thinking = {"thinking_config": genai_types.ThinkingConfig(thinking_budget=32)}
-    return google.realtime.RealtimeModel(
-        model=model_id,
-        voice="Enceladus",
-        # No language code: native-audio models reject explicit codes
-        # and default to English anyway.
-        **thinking,
-        # Let Gemini detect the spoken turn. Local Silero classified the
-        # live microphone background as continuous speech, withholding
-        # activity_end and all transcripts for over 40 seconds. Native
-        # detection is verified with this model and does not need that gate.
-        # End-of-speech is tuned for speed: with the server defaults a final
-        # transcript landed 4-7 s after the partial (captions.log, 2 Oct),
-        # and Jarvis only answers on the final.
-        realtime_input_config=genai_types.RealtimeInputConfig(
-            automatic_activity_detection=genai_types.AutomaticActivityDetection(
-                disabled=False,
-                end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_HIGH,
-                silence_duration_ms=_gemini_silence_ms(),
-            )
-        ),
-        tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
+    import gemini_watchdog
+
+    return gemini_watchdog.install(
+        google.realtime.RealtimeModel(
+            model=model_id,
+            voice="Enceladus",
+            # No language code: native-audio models reject explicit codes
+            # and default to English anyway.
+            **thinking,
+            # Let Gemini detect the spoken turn. Local Silero classified the
+            # live microphone background as continuous speech, withholding
+            # activity_end and all transcripts for over 40 seconds. Native
+            # detection is verified with this model and does not need that gate.
+            # End-of-speech is tuned for speed: with the server defaults a final
+            # transcript landed 4-7 s after the partial (captions.log, 2 Oct),
+            # and Jarvis only answers on the final.
+            realtime_input_config=genai_types.RealtimeInputConfig(
+                automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                    disabled=False,
+                    end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_HIGH,
+                    silence_duration_ms=_gemini_silence_ms(),
+                )
+            ),
+            tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
+        )
     )
 
 
@@ -1322,7 +1327,13 @@ def _wrap_tools_with_timing(tools: list) -> list:
             try:
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
                 if _inspect.isawaitable(res):
-                    return await res
+                    res = await res
+                from handoff_recovery import remember
+
+                context = kwargs.get("context")
+                if not isinstance(context, RunContext):
+                    context = next((a for a in args if isinstance(a, RunContext)), None)
+                remember(context, res)
                 return res
             finally:
                 if slow_task is not None:
@@ -1682,7 +1693,12 @@ def _never_demote(tool_id: str) -> bool:
     return (
         tool_id.startswith("transfer_")
         or "confirm" in tool_id
-        or tool_id in {"latency_report", "set_volume", "tell_time"}
+        or tool_id in {
+            "latency_report",
+            "set_volume",
+            "tell_time",
+            "download_youtube_video",
+        }
     )
 
 
@@ -1700,6 +1716,7 @@ class Assistant(Agent):
     ) -> None:
         self.browser = browser or BrowserManager(headless=True)
         self.browser_tools = BrowserTools(self.browser)
+        self.youtube_download_tools = YouTubeDownloadTools()
         self.system_tools = system_tools or SystemTools()
         self.device_tools = device_tools or DeviceTools()
         self.daily_tools = daily_tools or DailyTools()
@@ -1735,6 +1752,7 @@ class Assistant(Agent):
         self._end_call_tool = _end_call_tool()
         all_tools = [
             *self.browser_tools.tools,
+            *self.youtube_download_tools.tools,
             *self._end_call_tool.tools,
             # Common laptop tools live here directly: small models
             # cannot be trusted to hand off, and mail/Reddit must
@@ -1744,7 +1762,7 @@ class Assistant(Agent):
             # Passive OSINT rides directly (public data, no confirm);
             # active pentest stays behind the handoff (rare ids).
             *self.osint_tools.tools,
-            # Background research (Claude) / coding (opencode) projects
+            # Background research (ChatGPT) / coding (opencode) projects
             # + the voice-only Project Archive window.
             *self.project_tools.tools,
             # Movie / meme lines -> fixed safe actions (src/quotes.py).
@@ -1821,9 +1839,19 @@ class Assistant(Agent):
         always = {t.id for t in self.browser_tools.tools}
         always |= {t.id for t in self._end_call_tool.tools}
         always |= {t.id for t in self.notify_tools.tools}
-        cold_ids = tool_usage.plan_cold(
-            (t.id for t in router),
-            protected={*always, *(t.id for t in router if _never_demote(t.id))},
+        # Gemini Live gets its tool list once per connection, so demoting
+        # saves nothing per turn there. It costs a lot: a handoff changes the
+        # tool list, which forces a full Gemini reconnect on the way out and
+        # again on the way back (2 Oct: one of those hung for 108 s, then the
+        # replayed context re-ran draft_approve_all). Realtime keeps every
+        # tool on the router; tiering stays for the text pipelines.
+        cold_ids = (
+            set()
+            if _pipeline_name() == "realtime"
+            else tool_usage.plan_cold(
+                (t.id for t in router),
+                protected={*always, *(t.id for t in router if _never_demote(t.id))},
+            )
         )
         cold = [t for t in router if t.id in cold_ids]
         router = [t for t in router if t.id not in cold_ids]
@@ -2157,6 +2185,9 @@ async def my_agent(ctx: JobContext):
     # when startup fails or the closed session remains referenced.
     if isinstance(session.tts, PiperTTS):
         ctx.add_shutdown_callback(session.tts.aclose)
+    from handoff_recovery import install as _install_handoff_recovery
+
+    _install_handoff_recovery(session)
     # NOTE: local-pipeline expressive mode stays off (see _session_for_pipeline):
     # expressive=True needs a markup-capable TTS such as Fish Audio.
     # _session_tts() returns local Piper by default.

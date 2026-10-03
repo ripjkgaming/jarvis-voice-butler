@@ -1,6 +1,6 @@
 'use client';
 
-import { type Metrics, type Sample, fmtBytes } from './metrics';
+import { type Metrics, type Sample, fmtBytes, metricWarnings } from './metrics';
 import s from './stark.module.css';
 
 /** Polyline points for 0-100 values over a 0..100 x 0..30 box. Pure. */
@@ -65,6 +65,7 @@ function Trend({
 
 /** CPU / memory / core-temp trends over the last ~2 minutes. */
 export function Trends({ m, history }: { m: Metrics; history: Sample[] }) {
+  const warning = metricWarnings(m);
   const dash = '—';
   const temps = history.map((h) => (h.temp === null ? 0 : ((h.temp - 30) / 70) * 100));
   return (
@@ -74,21 +75,21 @@ export function Trends({ m, history }: { m: Metrics; history: Sample[] }) {
         value={m.has ? `${Math.round(m.cpuPct)}%` : dash}
         sub={m.has ? `LOAD ${m.load.toFixed(2)}` : ''}
         values={history.map((h) => h.cpu)}
-        warn={m.cpuPct >= 90}
+        warn={warning.cpu}
       />
       <Trend
         label="MEMORY"
         value={m.has ? `${Math.round(m.memPct)}%` : dash}
         sub={m.has ? `${fmtBytes(m.memUsed)} / ${fmtBytes(m.memTotal)}` : ''}
         values={history.map((h) => h.mem)}
-        warn={m.memPct >= 92}
+        warn={warning.mem}
       />
       <Trend
         label="CORE TEMP"
         value={m.temp === null ? dash : `${Math.round(m.temp)}°`}
         sub="30–100 °C"
         values={temps}
-        warn={m.temp !== null && m.temp >= 85}
+        warn={warning.temp}
       />
     </div>
   );
@@ -109,7 +110,8 @@ function Cells({ pct, warn }: { pct: number; warn?: boolean }) {
 /** ARC REACTOR (laptop battery) and SUIT POWER (phone battery). */
 export function Power({ m }: { m: Metrics }) {
   const batt = m.batt;
-  const lowBatt = batt !== null && batt < 20 && !m.ac;
+  const warning = metricWarnings(m);
+  const lowBatt = warning.power;
   const phone = m.phone;
   const suitSub = phone
     ? phone.charging
@@ -137,7 +139,7 @@ export function Power({ m }: { m: Metrics }) {
       </div>
       <div
         className={s.powerRow}
-        data-warn={phone && !phone.charging && phone.battery < 20 ? 'true' : undefined}
+        data-warn={warning.phone ? 'true' : undefined}
         data-off={phone ? undefined : 'true'}
       >
         <div className={s.powerHead}>
@@ -154,6 +156,7 @@ export function Power({ m }: { m: Metrics }) {
 type Link = { label: string; value: string; state: 'on' | 'warn' | 'off' };
 
 function links(m: Metrics): Link[] {
+  const warning = metricWarnings(m);
   const net = m.net;
   const phone = m.phone;
   const vol = m.volume;
@@ -167,7 +170,7 @@ function links(m: Metrics): Link[] {
           : `${net.kind === 'wifi' ? 'WI-FI' : 'WIRED'} ${net.name ?? ''}${
               typeof net.signal === 'number' ? ` · ${net.signal}%` : ''
             }`.trim(),
-      state: !net ? 'off' : net.kind === 'none' ? 'warn' : 'on',
+      state: !net ? 'off' : warning.network ? 'warn' : 'on',
     },
     {
       label: 'PHONE',
@@ -186,12 +189,12 @@ function links(m: Metrics): Link[] {
     {
       label: 'AUDIO',
       value: vol ? (vol.muted ? 'MUTED' : `${vol.pct}%`) : '—',
-      state: vol ? (vol.muted ? 'warn' : 'on') : 'off',
+      state: vol ? (warning.audio ? 'warn' : 'on') : 'off',
     },
     {
       label: 'STORAGE',
       value: m.diskFree === null ? '—' : `${fmtBytes(m.diskFree)} FREE`,
-      state: m.diskFree === null ? 'off' : m.diskFree < 10 * 1024 ** 3 ? 'warn' : 'on',
+      state: m.diskFree === null ? 'off' : warning.storage ? 'warn' : 'on',
     },
   ];
 }

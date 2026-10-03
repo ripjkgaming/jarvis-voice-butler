@@ -1,13 +1,13 @@
 """Draft engine: the backend model drafts replies to incoming email.
 
-Sonnet 5.5 (claude_cli.BACKEND_MODEL, headless Claude Code) reads one parsed
+ChatGPT (chatgpt_cli.BACKEND_MODEL, headless Codex) reads one parsed
 message and returns JSON only: {"needs_reply", "body", "summary"}. Drafts are
 stored locally in ~/.jarvis/drafts/<msg_id>.json because the Gmail token only
 has the readonly and send scopes (no drafts scope, and none is to be added).
 Nothing here ever sends: sending stays behind confirm_email_action.
 
-Fail-soft like claude_cli: draft_reply returns (draft | None, warning) and
-never raises. JARVIS_CLAUDE=0 or JARVIS_DRAFTS=0 disable drafting cleanly.
+Fail-soft like chatgpt_cli: draft_reply returns (draft | None, warning) and
+never raises. JARVIS_CHATGPT=0 or JARVIS_DRAFTS=0 disable drafting cleanly.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import claude_cli
+import chatgpt_cli
 
 DRAFTS_ENV = "JARVIS_DRAFTS"
 STATUSES = ("pending", "announced", "sent", "discarded")
@@ -162,9 +162,9 @@ def draft_reply(
     if not drafts_enabled():
         return None, f"Drafting disabled ({DRAFTS_ENV}=0)"
     try:
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             build_prompt(parsed_msg, context),
-            model=claude_cli.BACKEND_MODEL,
+            model=chatgpt_cli.BACKEND_MODEL,
             system=DRAFT_SYSTEM,
             timeout=timeout,
             runner=runner,
@@ -198,9 +198,9 @@ def revise_reply(
         f"summary {_fence(record.get('summary', ''))[:MAX_SUMMARY_CHARS]}"
     )
     try:
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             prompt,
-            model=claude_cli.BACKEND_MODEL,
+            model=chatgpt_cli.BACKEND_MODEL,
             system=REVISE_SYSTEM,
             timeout=timeout,
             runner=runner,

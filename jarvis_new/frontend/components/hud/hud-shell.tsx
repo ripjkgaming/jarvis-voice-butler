@@ -206,14 +206,7 @@ export function HudShell({ children }: Props) {
   const pooling = tx !== null && barH !== null;
   // STARK OS HUD (components/stark): one layout for dual and solo.
   const hudView = (
-    <StarkHud
-      sys={sys}
-      solo={isSolo}
-      jarvis={jarvis}
-      muted={muted}
-      link={link}
-      onInsights={insights.open}
-    >
+    <StarkHud sys={sys} solo={isSolo} jarvis={jarvis} muted={muted} link={link}>
       {children}
     </StarkHud>
   );

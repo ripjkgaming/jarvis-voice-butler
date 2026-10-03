@@ -341,3 +341,16 @@ def test_run_stops_and_thread_helper():
         evt.set()
         thread.join(timeout=2.0)
     assert not thread.is_alive()
+
+
+def test_research_activity_names_chatgpt_engine():
+    now = 1_700_000_000.0
+    watcher = ActivityWatcher()
+    watcher.poll_projects(
+        now=now,
+        projects=[
+            _meta("20261002-120000-chatgpt", model="gpt-6.1-sol", created_at=now)
+        ],
+    )
+    item = activity.get("project-20261002-120000-chatgpt")
+    assert item["detail"] == "chatgpt · gpt-6.1-sol"

@@ -799,6 +799,8 @@ SIDECAR_THREADS = (
     ("camera_hub", "JARVIS_CAMERA_HUB"),
     # Focus sessions survive agent restarts: the drift loop lives here.
     ("focus", "JARVIS_FOCUS"),
+    # Remember the last foreground YouTube video for "download this video".
+    ("youtube_history", "JARVIS_YOUTUBE_HISTORY"),
     # Email drafts + urgency triage every minute; WhatsApp replies every 5.
     ("mail_watch_job", "JARVIS_MAIL_WATCH"),
     ("wa_autoreply", "JARVIS_WA_WATCH"),
@@ -3028,6 +3030,31 @@ class _Handler(BaseHTTPRequestHandler):
             code, result = handle_talk(body)
             self._send(code, result)
             return
+        if route == "/youtube/download":
+            import youtube_download
+            from system import LocalSystemError
+
+            body = _read_json_body(self, 4096)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            if body.get("guest") is True:
+                self._send(403, {"ok": False, "error": "guest mode refuses YouTube downloads"})
+                return
+            url = body.get("url", "")
+            if set(body) - {"url", "guest"} or not isinstance(url, str) or len(url) > 2048:
+                self._send(400, {"ok": False, "error": "body needs an optional YouTube video URL"})
+                return
+            try:
+                job = youtube_download.start_download(url)
+            except LocalSystemError as exc:
+                self._send(403, {"ok": False, "error": str(exc)})
+                return
+            except (ValueError, youtube_download.DownloadError) as exc:
+                self._send(400, {"ok": False, "error": str(exc)})
+                return
+            self._send(200, {"ok": True, "job": job})
+            return
         if route == "/projects":
             import projects as _projects
 
@@ -3306,6 +3333,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "no frames yet"})
                 return
             self._send_bytes(200, "image/jpeg", raw)
+        elif route.startswith("/youtube/download/"):
+            import youtube_download
+
+            job = youtube_download.jobs().get(route.removeprefix("/youtube/download/"))
+            if job is None:
+                self._send(404, {"ok": False, "error": "no such YouTube download"})
+            else:
+                self._send(200, {"ok": True, "job": job})
         elif route == "/projects":
             import projects as _projects
 

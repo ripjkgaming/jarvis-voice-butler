@@ -1,9 +1,9 @@
 """Workshop mode (IRONMAN_SPEC §6): specialist sub-agents, one voice.
 
-A goal goes to up to three specialists at once, each a Claude CLI role
+A goal goes to up to three specialists at once, each a ChatGPT CLI role
 with its own scoped, read-only tool list:
     research  web search/fetch: facts, options, prices, prior art
-    code      read-only look at the Jarvis repo (Read/Grep/Glob): where and how
+    code      read-only look at the Jarvis repo (Read): where and how
     ops       no tools: plan, order of work, risks, what needs Sir's OK
 Their reports are merged by the backend model into one short spoken status
 plus a full write-up in ~/.jarvis/workshops/<id>.md. Nothing here changes
@@ -28,7 +28,7 @@ ROLES = {
         "prior art the goal needs. Cite sources briefly.",
     },
     "code": {
-        "tools": "Read,Grep,Glob",
+        "tools": "Read",
         "brief": "You are the code specialist. Look (read-only) through the "
         "Jarvis repository at {repo} and say where and how the goal would be "
         "done: files, functions, risks. Never propose running commands.",
@@ -72,11 +72,11 @@ def _fence(t) -> str:
 
 
 def run_role(role: str, goal: str, runner=None) -> tuple[str, str | None]:
-    import claude_cli
+    import chatgpt_cli
 
     spec = ROLES[role]
-    model = claude_cli.RESEARCH_MODEL if spec["tools"] else claude_cli.BACKEND_MODEL
-    return claude_cli.claude_reply(
+    model = chatgpt_cli.RESEARCH_MODEL if spec["tools"] else chatgpt_cli.BACKEND_MODEL
+    return chatgpt_cli.chatgpt_reply(
         f"GOAL: {_fence(goal)[:1500]}",
         model=model,
         system=spec["brief"].format(repo=repo_root()) + COMMON,
@@ -90,15 +90,15 @@ def run_role(role: str, goal: str, runner=None) -> tuple[str, str | None]:
 def merge(
     goal: str, reports: dict[str, str], runner=None
 ) -> tuple[dict | None, str | None]:
-    import claude_cli
+    import chatgpt_cli
 
     body = "\n\n".join(
         f"<<<{role.upper()} REPORT>>>\n{_fence(text)[:4000]}\n<<<END>>>"
         for role, text in reports.items()
     )
-    reply, warning = claude_cli.claude_reply(
+    reply, warning = chatgpt_cli.chatgpt_reply(
         f"GOAL: {_fence(goal)[:1000]}\n\n{body}",
-        model=claude_cli.BACKEND_MODEL,
+        model=chatgpt_cli.BACKEND_MODEL,
         system=MERGE_SYSTEM,
         timeout=300.0,
         runner=runner,

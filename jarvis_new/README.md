@@ -4,6 +4,35 @@
 
 # LiveKit Agents Starter - Python
 
+## Jarvis headless ChatGPT
+
+Jarvis's background research, planning, drafts, document extraction and short
+summaries use the Codex CLI signed in with ChatGPT. Install the CLI and run
+`codex login` as the same user that runs Jarvis. No OpenAI API key is needed
+for these workers. The CLI must support `exec --json --ephemeral
+--ignore-user-config --ignore-rules`.
+Jarvis also finds the desktop-bundled CLI when a background service has a
+minimal PATH. Use `JARVIS_CODEX_BIN` to select another executable.
+
+The defaults are `gpt-6.1-sol` at **medium** reasoning for backend and research
+work, and `gpt-6-luna` at **low** reasoning for summaries, memory and WhatsApp
+extraction. Override them with `JARVIS_CHATGPT_BACKEND_MODEL`,
+`JARVIS_CHATGPT_RESEARCH_MODEL`, `JARVIS_CHATGPT_FAST_MODEL`,
+`JARVIS_CHATGPT_REASONING` and `JARVIS_CHATGPT_FAST_REASONING`.
+Task-specific model overrides such as `JARVIS_NOTIFY_MODEL`, `JARVIS_MEMORY_MODEL`
+and `JARVIS_WA_MODEL` now require OpenAI model IDs; replace any saved Claude IDs.
+Set `JARVIS_CHATGPT=0` to disable all headless ChatGPT calls.
+
+Workers run in `$JARVIS_HOME/chatgpt-cwd` with personal config, hooks, plugins
+and project instructions disabled. Text-only workers have no shell or web
+tools; research uses native web search, documents use a read-only shell,
+and images attach directly. Calls time out cleanly and return warnings on
+login, quota or CLI errors. Restart Jarvis after upgrading the CLI or changing
+worker settings.
+
+See the official [non-interactive CLI documentation](https://learn.chatgpt.com/docs/non-interactive-mode)
+and [OpenAI model catalog](https://developers.openai.com/api/docs/models).
+
 ## Jarvis Mail Link
 
 Mail Link lets an allowlisted owner email commands to a dedicated Jarvis

@@ -18,7 +18,7 @@ export type EntryDirection = 'left' | 'right' | 'up' | 'down';
 const TAU = Math.PI * 2;
 const CELL = 64;
 const MAX_MOTES = 192;
-const COPPER = '#ffb17a';
+const SIGNAL = '#9cffa9';
 const WHITE = '#e6fcff';
 const clamp = (p: number) => Math.max(0, Math.min(1, p));
 const smooth = (p: number) => p * p * (3 - 2 * p);
@@ -57,7 +57,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
     ink.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (let row = 0; row < 3; row++) {
       const x = row * CELL + CELL / 2;
-      const c = row === 0 ? color : row === 1 ? COPPER : WHITE;
+      const c = row === 0 ? color : row === 1 ? SIGNAL : WHITE;
       const glow = ink.createRadialGradient(x, CELL / 2, 0, x, CELL / 2, CELL / 2);
       glow.addColorStop(0, c);
       glow.addColorStop(0.075, c);
@@ -122,7 +122,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
       ctx.lineTo(x + Math.cos(a + 0.37) * outer, y + Math.sin(a + 0.37) * outer * tilt);
     }
     ctx.stroke();
-    ctx.strokeStyle = COPPER;
+    ctx.strokeStyle = SIGNAL;
     ctx.lineWidth = 1.6;
     ctx.globalAlpha = alpha * 0.8;
     ctx.beginPath();
@@ -159,7 +159,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
       ctx.arc(x, y, r, angle, angle + (TAU / 6) * 0.7);
     }
     ctx.stroke();
-    ctx.strokeStyle = COPPER;
+    ctx.strokeStyle = SIGNAL;
     ctx.globalAlpha = alpha * 0.7;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -211,7 +211,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
       line(x + aCos * inner, y + aSin * inner, x + aCos * outer, y + aSin * outer);
     }
     ctx.stroke();
-    ctx.strokeStyle = COPPER;
+    ctx.strokeStyle = SIGNAL;
     ctx.globalAlpha = alpha * 0.82;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -327,7 +327,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
     // The receiving keel is acquired before touchdown, then vanishes into the
     // first assembly frame. It is geometry, not an independently running layer.
     const acquire = Math.sin(clamp((p - 0.38) / 0.62) * Math.PI);
-    ctx.strokeStyle = COPPER;
+    ctx.strokeStyle = SIGNAL;
     ctx.globalAlpha = acquire * 0.6;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -408,9 +408,9 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
     ctx.lineWidth = 1.1;
     ctx.stroke();
 
-    // Copper hinge pins and travelling edge light make each mechanical lock
+    // Signal-green hinge pins and travelling edge light make each mechanical lock
     // readable without a shower of weld sprites or an extra full-screen layer.
-    ctx.strokeStyle = COPPER;
+    ctx.strokeStyle = SIGNAL;
     ctx.globalAlpha = strength * 0.8;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
@@ -455,6 +455,80 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
         p * TAU,
         1 - smooth(clamp((p - 0.48) / 0.52))
       );
+  };
+
+  // Circuit acquisition stays tied to the phase clock: no decorative timers,
+  // random flicker or extra composited full-screen surfaces.
+  const protocol = (phase: EntryPhase, p: number, x: number, y: number, bar: number) => {
+    const capturing = phase === 'aperture' || phase === 'compress';
+    const assembling = phase === 'forge' || phase === 'reveal';
+    if (!capturing && !assembling) return;
+    const strength = phase === 'compress' || phase === 'reveal' ? 1 - smooth(p) : out(p);
+    const radius = aperture * (phase === 'compress' ? 1 - smooth(p) * 0.65 : 1);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = strength * 0.34;
+    ctx.beginPath();
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 5; i++) {
+        const reach = radius * (1.5 + i * 0.12);
+        const yy = y + (i - 2) * 23;
+        if (capturing) {
+          const start = x + side * reach;
+          const elbow = x + side * (radius * 1.12 + i * 5);
+          ctx.moveTo(start, yy);
+          ctx.lineTo(elbow, yy);
+          ctx.lineTo(elbow - side * 18, yy + (i - 2) * 8);
+          ctx.lineTo(x + side * radius * 0.76, yy + (i - 2) * 8);
+          const packet = (p * 2 + i * 0.19) % 1;
+          ctx.fillStyle = i % 2 ? color : SIGNAL;
+          ctx.fillRect(start + (elbow - start) * packet, yy - 1.5, 5, 3);
+        }
+      }
+    }
+    ctx.stroke();
+    // Compact terminal block stays clear of the reactor, with a responsive
+    // bottom rail on small windows. Content describes the real visual phase.
+    const tx = 24;
+    const ty = assembling
+      ? height - bar - Math.min(140, height * 0.16) - 86
+      : Math.max(40, height - 116);
+    if (ty < 24 || width < 280) return;
+    const label =
+      phase === 'aperture'
+        ? '01 / ACQUIRE INTERFACE'
+        : phase === 'compress'
+          ? '02 / ENCODE WORKSPACE'
+          : phase === 'forge'
+            ? '03 / ASSEMBLE SCHOOL DOCK'
+            : '04 / SCHOOL LINK READY';
+    ctx.globalAlpha = strength * 0.9;
+    ctx.fillStyle = SIGNAL;
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText('JARVIS // MODE HANDOFF', tx, ty);
+    ctx.fillStyle = WHITE;
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(label, tx, ty + 22);
+    ctx.fillStyle = color;
+    for (let i = 0; i < 28; i++) {
+      ctx.globalAlpha = strength * (i / 28 <= p ? 0.85 : 0.14);
+      ctx.fillRect(tx + i * 7, ty + 35, 4, 4);
+    }
+    ctx.globalAlpha = strength * 0.55;
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.fillText('SESSION PRESERVED  /  CHANNEL 0x01', tx, ty + 57);
+    // Indexed alignment ticks make the bar's centre-out construction read
+    // like a circuit board being connected to a live bus.
+    if (assembling) {
+      ctx.beginPath();
+      ctx.globalAlpha = strength * 0.5;
+      for (let i = 24; i < width - 24; i += 24) {
+        const reveal = Math.abs(i - width / 2) / (width / 2);
+        if (reveal > out(p) && phase === 'forge') continue;
+        ctx.fillRect(i, height - bar - (i % 96 === 24 ? 22 : 16), 1, i % 96 === 24 ? 10 : 4);
+      }
+      ctx.stroke();
+    }
   };
 
   return {
@@ -507,6 +581,7 @@ export function createEntryScene(canvas: HTMLCanvasElement, color: string) {
       } else {
         fabricate(p, bar, inset, phase === 'reveal');
       }
+      protocol(phase, p, coreX, coreY, bar);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     },

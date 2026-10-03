@@ -1,11 +1,12 @@
-"""Hermetic tests for src/draft_engine.py (no real Claude calls)."""
+"""Hermetic tests for src/draft_engine.py (no real ChatGPT calls)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import claude_cli
+import chatgpt_cli
+
 import draft_engine
 
 
@@ -27,8 +28,8 @@ def _good_json(body="Thanks, will do.", summary="Asks to meet.") -> str:
 
 
 def _fake_ok(monkeypatch, reply_text, seen=None):
-    """Patch claude_reply with JARVIS_CLAUDE=1; record kwargs in seen."""
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    """Patch chatgpt_reply with JARVIS_CHATGPT=1; record kwargs in seen."""
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_DRAFTS", "1")
     seen = seen if seen is not None else {}
 
@@ -37,7 +38,7 @@ def _fake_ok(monkeypatch, reply_text, seen=None):
         seen.update(kw)
         return (reply_text, None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     return seen
 
 
@@ -107,7 +108,7 @@ def test_draft_reply_good(monkeypatch) -> None:
     draft, warning = draft_engine.draft_reply(_msg())
     assert warning is None
     assert draft == {"body": "Thanks, will do.", "summary": "Asks to meet."}
-    assert seen["model"] == claude_cli.BACKEND_MODEL
+    assert seen["model"] == chatgpt_cli.BACKEND_MODEL
 
 
 def test_draft_reply_no_reply_needed(monkeypatch) -> None:
@@ -124,25 +125,25 @@ def test_draft_reply_malformed_model_output(monkeypatch) -> None:
     assert warning and "valid JSON" in warning
 
 
-def test_draft_reply_disabled_no_claude_call(monkeypatch) -> None:
+def test_draft_reply_disabled_no_chatgpt_call(monkeypatch) -> None:
     calls: list = []
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_DRAFTS", "0")
 
     def fake(prompt, **kw):
         calls.append(prompt)
-        raise AssertionError("must not call claude when disabled")
+        raise AssertionError("must not call ChatGPT when disabled")
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     draft, warning = draft_engine.draft_reply(_msg())
     assert draft is None
     assert warning and "disabled" in warning.lower()
     assert calls == []
 
 
-def test_draft_reply_real_claude_reports_disabled(monkeypatch) -> None:
-    """JARVIS_CLAUDE=0 with the REAL claude_reply: fail-soft warning."""
-    monkeypatch.setenv("JARVIS_CLAUDE", "0")
+def test_draft_reply_real_chatgpt_reports_disabled(monkeypatch) -> None:
+    """JARVIS_CHATGPT=0 with the REAL chatgpt_reply: fail-soft warning."""
+    monkeypatch.setenv("JARVIS_CHATGPT", "0")
     monkeypatch.setenv("JARVIS_DRAFTS", "1")
     draft, warning = draft_engine.draft_reply(_msg())
     assert draft is None
@@ -161,7 +162,7 @@ def test_injection_body_stays_inside_markers(monkeypatch) -> None:
     assert prompt.count("<<<EMAIL_START>>>") == 1
     assert prompt.count("<<<EMAIL_END>>>") == 1
     assert "untrusted" in str(seen["system"]).lower()
-    assert seen["model"] == claude_cli.BACKEND_MODEL
+    assert seen["model"] == chatgpt_cli.BACKEND_MODEL
 
 
 def test_long_body_is_capped() -> None:
@@ -247,14 +248,14 @@ def test_create_draft_subject_prefixed_once(tmp_path: Path, monkeypatch) -> None
 
 def test_create_draft_exists_skips_model(tmp_path: Path, monkeypatch) -> None:
     calls: list = []
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_DRAFTS", "1")
 
     def fake(prompt, **kw):
         calls.append(prompt)
         return (_good_json(), None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     parsed = _msg(id="dup")
     _, first = draft_engine.create_draft(parsed, to="a@b.c", base=tmp_path)
     _, second = draft_engine.create_draft(parsed, to="a@b.c", base=tmp_path)
@@ -275,12 +276,12 @@ def test_create_draft_no_reply_needed(tmp_path: Path, monkeypatch) -> None:
 
 def test_create_draft_disabled(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_DRAFTS", "0")
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
 
     def fake(prompt, **kw):
         raise AssertionError("must not call model when disabled")
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     record, outcome = draft_engine.create_draft(
         _msg(id="d1"), to="a@b.c", base=tmp_path
     )

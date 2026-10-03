@@ -548,7 +548,7 @@ class ActivityWatcher:
                     except (TypeError, ValueError):
                         progress = None
                     stage = str(meta.get("stage") or "").strip()
-                    engine = "opencode" if kind == "coding" else "claude"
+                    engine = "opencode" if kind == "coding" else "chatgpt"
                     detail = (
                         stage
                         or f"{engine} · {model_short(str(meta.get('model') or ''))}"

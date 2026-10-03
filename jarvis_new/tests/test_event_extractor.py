@@ -6,13 +6,25 @@ import datetime as dt
 import json
 import subprocess
 
+import chatgpt_cli
 import pytest
 from livekit.agents.llm import ToolError
 
-import claude_cli
 import event_extractor as ex
 import google_api
 from system.workspace_tools import WorkspaceTools
+
+
+def codex_output(text):
+    return (
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+        )
+        + "\n"
+        + json.dumps({"type": "turn.completed", "usage": {}})
+        + "\n"
+    )
+
 
 # Thursday 1 Oct 2026, 09:00 local.
 NOW = dt.datetime(2026, 10, 1, 9, 0).timestamp()
@@ -22,19 +34,19 @@ NOW = dt.datetime(2026, 10, 1, 9, 0).timestamp()
 def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "1")
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr(claude_cli.shutil, "which", lambda n: "/usr/bin/claude")
+    monkeypatch.setattr(chatgpt_cli.shutil, "which", lambda n: "/usr/bin/codex")
     return tmp_path
 
 
 def model(reply: dict | str):
-    """Fake claude CLI process returning `reply`; records the prompts."""
+    """Fake Codex CLI process returning `reply`; records the prompts."""
 
     def run(argv, **kw):
         run.prompts.append(kw.get("input", ""))
         text = reply if isinstance(reply, str) else json.dumps(reply)
-        return subprocess.CompletedProcess(argv, 0, text, "")
+        return subprocess.CompletedProcess(argv, 0, codex_output(text), "")
 
     run.prompts = []
     return run

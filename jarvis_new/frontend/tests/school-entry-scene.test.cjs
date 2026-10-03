@@ -21,6 +21,7 @@ function fixture() {
       'fill',
       'stroke',
       'fillRect',
+      'fillText',
       'quadraticCurveTo',
       'bezierCurveTo',
     ])

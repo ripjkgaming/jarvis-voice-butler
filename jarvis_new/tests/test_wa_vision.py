@@ -119,28 +119,28 @@ def test_describe_openrouter_sends_image_and_walks_chain(home, monkeypatch) -> N
     assert "caption: lol" in parts[0]["text"]
 
 
-def test_describe_haiku_stages_file_and_cleans_up(home, monkeypatch) -> None:
-    import claude_cli
+def test_describe_chatgpt_stages_file_and_cleans_up(home, monkeypatch) -> None:
+    import chatgpt_cli
 
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     seen = {}
 
-    def runner(argv, **kw):
-        import re
-        import subprocess
+    def fake_reply(prompt, **kw):
         from pathlib import Path
 
-        path = Path(re.search(r"file (\S+\.jpg)", kw["input"]).group(1))
+        path = Path(kw["images"][0])
         seen["bytes"] = path.read_bytes()
-        seen["argv"] = argv
-        return subprocess.CompletedProcess(argv, 0, "A meme about physics.", "")
+        seen.update(kw)
+        return "A meme about physics.", None
 
-    monkeypatch.setattr(claude_cli.shutil, "which", lambda n: "/usr/bin/claude")
-    text, warn = wa_vision.describe_haiku(JPEG, runner=runner)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake_reply)
+    text, warn = wa_vision.describe_chatgpt(JPEG)
     assert text == "A meme about physics." and warn is None
     assert seen["bytes"] == b"\xff\xd8fakejpeg"
-    assert "claude-haiku-4-5" in seen["argv"] and "Read" in seen["argv"]
-    assert not list(claude_cli.claude_cwd().glob("wa-photo-*"))
+    assert seen["model"] == chatgpt_cli.FAST_MODEL
+    assert seen["reasoning"] == "low"
+    assert not seen.get("tools")
+    assert not list(chatgpt_cli.chatgpt_cwd().glob("wa-photo-*"))
 
 
 def test_describe_falls_back_and_caches(home) -> None:
@@ -150,14 +150,14 @@ def test_describe_falls_back_and_caches(home) -> None:
         calls.append("free")
         return "", "all rate limited"
 
-    def haiku(url, cap):
-        calls.append("haiku")
+    def chatgpt(url, cap):
+        calls.append("chatgpt")
         return "A selfie.", None
 
     cache: dict = {}
-    assert wa_vision.describe(JPEG, "", cache, free, haiku) == "A selfie."
-    assert wa_vision.describe(JPEG, "", cache, free, haiku) == "A selfie."
-    assert calls == ["free", "haiku"]
+    assert wa_vision.describe(JPEG, "", cache, free, chatgpt) == "A selfie."
+    assert wa_vision.describe(JPEG, "", cache, free, chatgpt) == "A selfie."
+    assert calls == ["free", "chatgpt"]
 
 
 def test_describe_off_switch(home, monkeypatch) -> None:

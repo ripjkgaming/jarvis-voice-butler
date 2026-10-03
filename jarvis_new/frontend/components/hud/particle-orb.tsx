@@ -32,6 +32,7 @@ export function ParticleOrb() {
     fps: 12,
     paused: jarvis === 'idle',
     scale: 0.5,
+    cacheId: 'hud-particle-orb',
     seed: 1237,
     bakeKey: `${color}|${boosted ? 'b' : ''}`,
     render: (ctx, w, h, i, n) => {

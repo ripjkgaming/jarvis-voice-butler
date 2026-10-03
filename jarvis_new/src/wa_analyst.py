@@ -1,6 +1,6 @@
 """Free OpenRouter model that reads a WhatsApp chat and briefs the writer.
 
-Before Claude writes a reply on the mimic list, a free OpenRouter model
+Before ChatGPT writes a reply on the mimic list, a free OpenRouter model
 (JARVIS_WA_ANALYST_MODEL, default below, then openrouter_chat's free chain)
 reads the chat and returns a short brief: how the OTHER person texts, their
 mood, what they actually want, and how Sir should pitch the reply. It also
@@ -12,7 +12,7 @@ writer gets it fenced and labelled, and the writer's own rules still win.
 Fail-soft: any failure returns (None, warning) and the reply goes ahead
 without a brief. JARVIS_WA_ANALYST=0 switches it off.
 
-wa_fallback_reply() is the other half: when Claude is unavailable, the same
+wa_fallback_reply() is the other half: when ChatGPT is unavailable, the same
 system prompt and chat go to the free chain so replies still go out
 (JARVIS_WA_OPENROUTER=0 switches that off).
 """
@@ -142,7 +142,7 @@ def brief_block(brief: dict | None) -> str:
 def wa_fallback_reply(
     prompt: str, system: str, chat=None, timeout: float = 60.0
 ) -> tuple[str, str | None]:
-    """Write the reply on the free OpenRouter chain when Claude is out."""
+    """Write the reply on the free OpenRouter chain when ChatGPT is out."""
     if _off(FALLBACK_ENV):
         return "", "openrouter fallback disabled"
     if chat is None:

@@ -8,18 +8,18 @@ Status verified 2026-09-30. Build progress is tracked in `IRONMAN_PROGRESS.md`.
 
 | Area | Existing pieces |
 |---|---|
-| Mail | `mail_watch_job.py` (60 s poll, urgency classify, `urgency_judge.py`), `draft_engine.py` (Sonnet drafts, stored in `~/.jarvis/drafts/`), `draft_notify.py`, `system/inbox.py` (Gmail API), send only via `confirm_email_action` |
+| Mail | `mail_watch_job.py` (60 s poll, urgency classify, `urgency_judge.py`), `draft_engine.py` (ChatGPT drafts, stored in `~/.jarvis/drafts/`), `draft_notify.py`, `system/inbox.py` (Gmail API), send only via `confirm_email_action` |
 | Calendar | `google_api.calendar_list/create`, `workspace_tools.import_schedule_to_calendar` + `confirm_calendar_import` (file schedules only, confirm-gated), `calendar_upcoming` |
 | Notify | `notify.py` (route by input state: toast / speech / queue, quiet hours, dedupe, `Announcer`, 5 s drain), `dnd.py`, `input_idle.py` |
 | Proactive | `proactive/{monitors,policy,watcher}.py` (edge-triggered, cooldown, quiet hours, max/day) |
 | Memory | `second_brain.py` (file graph + search), Obsidian vault `~/.jarvis/vault` (append-only), `projects.py`, `activity*.py` |
 | Presence | `presence.py`, `camera_hub.py`, `eyes.py`, `gestures.py`, `wake_client.py`, `keyword_spot.py`, `local_stt.py` |
 | Desktop | `system/desktop.py`, `kwin_windows.py`, `launcher.py`, `active_window.py`, `taskbar.py` |
-| Agents | `claude_cli.py` (headless Claude), `system/background.py`, `backend_model.py`, `telegram_bot.py`, WhatsApp (`wa_autoreply.py`, every 5 min) |
+| Agents | `chatgpt_cli.py` (headless ChatGPT), `system/background.py`, `backend_model.py`, `telegram_bot.py`, WhatsApp (`wa_autoreply.py`, every 5 min) |
 | HUD | Next.js `frontend/`, `hud_events.py`, `drafts_ui.py`. Voice-only, no orb, cursor never used |
 
 Hard rules carried through every feature: voice-only UI, no orb, anything consequential is confirm-gated,
-Claude does UI/design, repetitive parts go to opencode (Muse Spark), Ling never writes code.
+GPT-6 Astra at medium effort handles UI/design. Headless ChatGPT workers use GPT-6.1 Sol at medium effort for backend work and GPT-6 Luna at low effort for quick tasks. Coding projects use opencode (Muse Spark); Ling handles conversation.
 
 ## 1. Priority 1: Proactive awareness (build first)
 
@@ -43,7 +43,7 @@ Each source is a pure function `poll() -> list[Signal]`; `Signal = {kind, key, t
 ### 1.3 Email → calendar suggestion (the "you've got an email, shall I put it in your calendar?" flow)
 Currently **missing** (calendar import only handles files). Spec:
 1. In `mail_watch_job._handle_one`, after classification, for human mail run `event_extractor.extract(parsed)`:
-   Sonnet via `claude_cli`, email treated as untrusted data (same marker pattern as `draft_engine`).
+   GPT-6.1 Sol via `chatgpt_cli`, email treated as untrusted data (same marker pattern as `draft_engine`).
    Returns `{has_event, title, start, end, all_day, location, confidence}`; drop if confidence < 0.7 or start is in the past.
 2. Dedupe against `calendar_list` for that day (same title+day skips, as `confirm_calendar_import` does).
 3. Store pending suggestion `~/.jarvis/event_suggestions/<msg_id>.json` (status: pending | added | dismissed).
@@ -61,7 +61,7 @@ Currently **missing** (calendar import only handles files). Spec:
 **Goal.** "Pick up where I left off" and "what was I doing yesterday" work.
 
 - **Store:** append-only Obsidian vault already exists. Add `Memory/Threads/<slug>.md` (running threads: project, status, last action, next step) and `Memory/Daily/<date>.md`.
-- **Capture:** end-of-session summariser (`claude_cli`) writes: what was asked, files/projects touched (`projects.py`, `activity.py`), open loops. Runs on session close and nightly.
+- **Capture:** end-of-session summariser (`chatgpt_cli`) writes: what was asked, files/projects touched (`projects.py`, `activity.py`), open loops. Runs on session close and nightly.
 - **Retrieval:** `recall(query)` tool: hybrid of `second_brain.search` (files) + grep/embedding-free keyword score over vault notes; returns ≤5 snippets. Session start injects a 2-line "last time" via `context/injector.py` (cost $0: local strings).
 - **Preferences:** `Memory/Preferences.md`, edited only on explicit "remember that…"; read into persona prompt (capped 500 chars).
 - **Privacy:** nothing leaves the machine except the summariser call; redact secrets/tokens with a regex pass before write; `forget X` archives (moves to `Archive/`), never deletes (matches VAULT.md policy).
@@ -87,7 +87,7 @@ Currently **missing** (calendar import only handles files). Spec:
 ## 5. Capabilities
 
 ### 5.1 Multi-step background agent tasks
-- `start_task(goal)` → `system/background.py` runs a Claude CLI plan-execute loop with a step budget (`system/budget.py`), streams progress to the HUD EXECUTION feed, and reports by voice on completion.
+- `start_task(goal)` → `system/background.py` runs a ChatGPT CLI plan-execute loop with a step budget (`system/budget.py`), streams progress to the HUD EXECUTION feed, and reports by voice on completion.
 - Consequential steps (send, spend, delete, post) pause and ask via the notify queue. State persisted so a restart resumes.
 - Example: "research X, draft the reply, book it" = research → draft (`draft_engine`) → **pause for confirm** → send.
 
@@ -95,7 +95,7 @@ Currently **missing** (calendar import only handles files). Spec:
 - Screen: capture active window on demand (`take_screenshot`-style via KWin), pass to Gemini vision; "what's wrong with this error". Camera: `camera_hub.py` frame for "what's this part". Frames are never stored unless asked.
 
 ### 5.3 Code & project assistance
-- `run_tests(project)`, `explain_failure()` (feeds last test output to Claude CLI), `open_pr()` via `gh` behind a confirm gate. Builds on `projects.py`.
+- `run_tests(project)`, `explain_failure()` (feeds last test output to ChatGPT CLI), `open_pr()` via `gh` behind a confirm gate. Builds on `projects.py`.
 
 ### 5.4 Deferred
 Home/device control (lights, music, phone over network). Only design placeholders; no build.
@@ -105,7 +105,7 @@ Home/device control (lights, music, phone over network). Only design placeholder
 - **Persona consistency:** `prompts.py` already has adaptive persona tiers. Add a habit line from Memory ("you usually break at 3") and a one-line-status rule: default answers ≤ 25 words unless asked to elaborate.
 - **HUD panels** (Claude-designed, voice-driven): system stats, tasks, calendar, mail, draft queue, suggestions. Voice commands: "show mail", "hide calendar". No cursor use, no orb.
 - **Confirmation gates:** one shared `confirm_gate(action, summary)` helper so send/spend/delete/post/calendar-write all use the same spoken "yes/no" path and log; audit test asserts every consequential tool routes through it.
-- **Workshop mode:** specialist sub-agents (research, code, ops) coordinated by Jarvis; each is a `claude_cli` role with a scoped tool list; Jarvis speaks one merged status. Build after §1–3 are stable.
+- **Workshop mode:** specialist sub-agents (research, code, ops) coordinated by Jarvis; each is a `chatgpt_cli` role with a scoped tool list; Jarvis speaks one merged status. Build after §1–3 are stable.
 
 ## 7. Build order and delegation
 

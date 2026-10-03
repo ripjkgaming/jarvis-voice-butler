@@ -1,5 +1,5 @@
-"""Voice tools for background projects: in-depth research (Claude Sonnet via
-Sir's Pro plan) and coding (headless opencode), plus the Project Archive.
+"""Voice tools for background projects: in-depth research (ChatGPT via
+Sir's subscription) and coding (headless opencode), plus the Project Archive.
 
 The jobs run in the bridge (src/projects.py), which outlives this voice
 call; these tools only start them over the bridge's HTTP API, return at

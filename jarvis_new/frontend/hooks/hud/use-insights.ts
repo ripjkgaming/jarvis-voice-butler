@@ -3,9 +3,12 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { refreshWindowGeometry, useWindowGeometry } from '@/hooks/hud/use-window-geometry';
 import { coverHud } from '@/lib/hud-overlay';
+import { useSharedPoll } from '@/lib/shared-poll';
 import { invoke, isTauri } from '@/lib/tauri';
 
 export type InsightsTab = 'usage' | 'market';
+
+type VoiceInsights = { insights?: { tab?: InsightsTab | null; seq?: number } };
 
 /** UI-only overlay. The existing suit controller owns the mount-time focus reset;
  * both dialogs wait for that same reset before acquiring a native focus lease. */
@@ -39,6 +42,19 @@ export function useInsights(
     opened.current = true;
     setTab(next);
   }, []);
+  // Voice route: "check AI usage" / "open paper trading" (open_insights tool)
+  // bump a seq in GET /panels; each new seq opens or closes the drawer.
+  const voice = useSharedPoll<VoiceInsights>('/panels', 2000)?.insights;
+  const voiceSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (!voice || typeof voice.seq !== 'number') return;
+    const first = voiceSeq.current === null;
+    if (voiceSeq.current === voice.seq) return;
+    voiceSeq.current = voice.seq;
+    if (first) return; // a stale request from before this HUD loaded
+    if (voice.tab === 'usage' || voice.tab === 'market') open(voice.tab);
+    else close();
+  }, [voice, open, close]);
   useEffect(() => {
     if (transitioning || suitOpen) setTab(null);
   }, [transitioning, suitOpen]);

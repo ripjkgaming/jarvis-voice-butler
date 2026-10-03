@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import time
 
+import chatgpt_cli
 import pytest
 
-import claude_cli
 import notify
 
 
@@ -395,18 +395,19 @@ def test_drain_empty_queue(monkeypatch) -> None:
 # --- summarise ---
 
 
-def test_summarise_uses_haiku_model(monkeypatch) -> None:
+def test_summarise_uses_fast_chatgpt_model(monkeypatch) -> None:
     calls: list = []
 
     def fake_reply(prompt, **kw):
         calls.append(kw)
         return ("Sir, you have messages.", None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake_reply)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake_reply)
     items = [{"kind": "email", "text": "hello"}]
     result = notify.summarise(items)
     assert result == "Sir, you have messages."
-    assert calls[0].get("model") == "claude-haiku-4-5"
+    assert calls[0].get("model") == "gpt-6-luna"
+    assert calls[0].get("reasoning") == "low"
 
 
 def test_summarise_env_overrides_model(monkeypatch) -> None:
@@ -416,16 +417,16 @@ def test_summarise_env_overrides_model(monkeypatch) -> None:
         calls.append(kw)
         return ("summary", None)
 
-    monkeypatch.setenv("JARVIS_NOTIFY_MODEL", "claude-opus-4-6")
-    monkeypatch.setattr(claude_cli, "claude_reply", fake_reply)
+    monkeypatch.setenv("JARVIS_NOTIFY_MODEL", "gpt-6.1-sol")
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake_reply)
     items = [{"kind": "email", "text": "hello"}]
     notify.summarise(items)
-    assert calls[0].get("model") == "claude-opus-4-6"
+    assert calls[0].get("model") == "gpt-6.1-sol"
 
 
 def test_summarise_fallback_on_warning(monkeypatch) -> None:
     monkeypatch.setattr(
-        claude_cli, "claude_reply", lambda *a, **k: ("reply", "rate limit")
+        chatgpt_cli, "chatgpt_reply", lambda *a, **k: ("reply", "rate limit")
     )
     items = [{"kind": "x", "text": "y"}]
     result = notify.summarise(items)
@@ -434,8 +435,8 @@ def test_summarise_fallback_on_warning(monkeypatch) -> None:
 
 def test_summarise_fallback_on_exception(monkeypatch) -> None:
     monkeypatch.setattr(
-        claude_cli,
-        "claude_reply",
+        chatgpt_cli,
+        "chatgpt_reply",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     items = [{"kind": "x", "text": "y"}]

@@ -1,4 +1,4 @@
-"""Hermetic tests for src/backend_model.py (no real Claude calls)."""
+"""Hermetic tests for src/backend_model.py (no real ChatGPT calls)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,13 @@ import json
 import subprocess
 from pathlib import Path
 
-import claude_cli
+import chatgpt_cli
 from backend_model import (
     backend_think,
     extract_events,
     find_schedule_file,
     parse_events,
 )
-
 
 # --- parse_events ---
 
@@ -160,17 +159,12 @@ def test_extract_events_unsupported_suffix(tmp_path: Path) -> None:
 def test_extract_events_success_stages_and_cleans_up(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import shutil as _shutil
-
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
-    # Route `claude` resolution through claude_cli's shutil reference.
-    fake_which = lambda name: "/usr/bin/claude" if name == "claude" else None  # noqa: E731
-    monkeypatch.setattr(claude_cli.shutil, "which", fake_which)
-    # claude_reply binds `which=shutil.which` as a default arg, so patch the
-    # default too; otherwise the real lookup runs and the test flakes.
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setattr(
-        claude_cli.claude_reply, "__defaults__", (60.0, None, fake_which)
+        chatgpt_cli.shutil,
+        "which",
+        lambda name: "/usr/bin/codex" if name == "codex" else None,
     )
 
     src = tmp_path / "mock timetable.pdf"
@@ -180,15 +174,27 @@ def test_extract_events_success_stages_and_cleans_up(
 
     def fake_runner(argv, **kw):
         seen["argv"] = list(argv)
-        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr="")
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": json.dumps(payload)},
+                }
+            )
+            + "\n"
+            + json.dumps({"type": "turn.completed"}),
+            stderr="",
+        )
 
     events, warning = extract_events(src, runner=fake_runner)
     assert warning is None
     assert len(events) == 1 and events[0]["title"] == "Mock: Maths"
     argv = seen["argv"]
-    assert argv[argv.index("--model") + 1] == claude_cli.BACKEND_MODEL
-    assert argv[argv.index("--tools") + 1] == "Read"
-    inbox = tmp_path / "claude-cwd" / "inbox"
+    assert argv[argv.index("--model") + 1] == chatgpt_cli.BACKEND_MODEL
+    assert "features.shell_tool=true" in argv
+    inbox = tmp_path / "chatgpt-cwd" / "inbox"
     leftovers = list(inbox.glob("*")) if inbox.is_dir() else []
     assert leftovers == []
     # Original file untouched.
@@ -205,15 +211,51 @@ def test_backend_think_empty_task_warning() -> None:
 
 def test_backend_think_passes_model(monkeypatch) -> None:
     seen: dict = {}
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
 
     def fake_reply(prompt, **kw):
         seen["prompt"] = prompt
         seen.update(kw)
         return ("careful answer", None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake_reply)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake_reply)
     reply, warning = backend_think("plan my revision")
     assert (reply, warning) == ("careful answer", None)
-    assert seen["model"] == claude_cli.BACKEND_MODEL
+    assert seen["model"] == chatgpt_cli.BACKEND_MODEL
     assert "plan my revision" in seen["prompt"]
+
+
+def test_image_schedule_is_attached_without_shell(tmp_path, monkeypatch):
+    import backend_model
+
+    source = tmp_path / "schedule.png"
+    source.write_bytes(b"image")
+    seen = {}
+
+    def reply(prompt, **kw):
+        seen.update(kw)
+        assert Path(kw["images"][0]).is_file()
+        return ('[{"title":"Exam","date":"2026-10-03"}]', None)
+
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", reply)
+    events, warning = backend_model.extract_events(source)
+    assert warning is None and len(events) == 1
+    assert seen["tools"] == "" and len(seen["images"]) == 1
+    assert not Path(seen["images"][0]).exists()
+    assert source.read_bytes() == b"image"
+
+
+def test_staged_files_with_same_name_do_not_collide(tmp_path):
+    from backend_model import stage_file
+
+    source = tmp_path / "exam.txt"
+    source.write_text("one")
+    first = stage_file(source)
+    source.write_text("two")
+    second = stage_file(source)
+    try:
+        assert first != second
+        assert first.read_text() == "one" and second.read_text() == "two"
+    finally:
+        first.unlink(missing_ok=True)
+        second.unlink(missing_ok=True)

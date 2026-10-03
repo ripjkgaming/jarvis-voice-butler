@@ -61,8 +61,11 @@ def test_assistant_router_shrinks_and_handoff_reaches_cold_tools(monkeypatch):
     for k in ("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
         monkeypatch.setenv(k, "x" * 32)
     monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
-    from agent import Assistant
+    # Tiering only applies to the text pipelines (see the realtime test).
+    monkeypatch.setenv("JARVIS_PIPELINE", "local")
     from livekit.agents import inference
+
+    from agent import Assistant, _never_demote
 
     def mk():
         return Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
@@ -75,10 +78,7 @@ def test_assistant_router_shrinks_and_handoff_reaches_cold_tools(monkeypatch):
     cands = [
         i
         for i in sorted(base_ids)
-        if i not in hot
-        and i not in always
-        and "confirm" not in i
-        and not i.startswith("transfer_")
+        if i not in hot and i not in always and not _never_demote(i)
     ]
     drop = cands[0]
     dropped = set(cands[:10])
@@ -98,3 +98,45 @@ def test_assistant_router_shrinks_and_handoff_reaches_cold_tools(monkeypatch):
     agent, _msg = asyncio.run(tool._func(None, task="do the thing"))
     assert drop in {t.id for t in agent.tools}
     assert agent.task == "do the thing"
+
+
+def test_realtime_router_keeps_every_tool(monkeypatch):
+    """Gemini Live: a handoff swaps tools and forces a reconnect, so no
+    tool is demoted even with history that would demote it elsewhere."""
+    for k in ("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+        monkeypatch.setenv(k, "x" * 32)
+    monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
+    monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
+    from livekit.agents import inference
+
+    from agent import Assistant
+
+    def mk():
+        return Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
+
+    base_ids = {t.id for t in mk().tools}
+    tool_usage.reset()
+    now = time.time()
+    for _ in range(80):
+        tool_usage.record("end_call", now)
+    a = mk()
+    ids = {t.id for t in a.tools}
+    assert "transfer_to_more_tools" not in ids
+    assert ids == base_ids
+    assert a._cold_tools == []
+
+
+def test_youtube_download_is_high_priority_and_never_handed_off(monkeypatch):
+    for k in ("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+        monkeypatch.setenv(k, "x" * 32)
+    monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
+    monkeypatch.setenv("JARVIS_PIPELINE", "local")
+    from livekit.agents import inference
+
+    from agent import Assistant, _never_demote
+
+    _seed(end_call=80)  # Enough history to demote every unused ordinary tool.
+    assistant = Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
+    assert "download_youtube_video" in {tool.id for tool in assistant.tools}
+    assert "download_youtube_video" not in {tool.id for tool in assistant._cold_tools}
+    assert _never_demote("download_youtube_video")

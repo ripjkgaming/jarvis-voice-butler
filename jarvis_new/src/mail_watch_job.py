@@ -256,6 +256,9 @@ async def _maybe_draft(parsed: dict, full: dict, verdict: dict) -> None:
                         title="Jarvis - reply draft ready",
                         text=f"Reply draft for {parsed['sender']}: {parsed['subject']}",
                         speak_text=announce_line(record),
+                        # Sir wants every new draft spoken, even when he is
+                        # away from the keyboard (quiet hours still hold).
+                        always_announce=True,
                         fingerprint=f"draft:{parsed['id']}",
                     )
             except Exception:
@@ -332,8 +335,8 @@ async def _maybe_suggest_event(parsed: dict) -> None:
             log_action("mailwatch", f"event error: {exc}")
 
 
-async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
-    """Let Claude make the urgent call on human mail; keywords are the fallback.
+async def _chatgpt_urgency(parsed: dict, verdict: dict) -> dict:
+    """Let ChatGPT judge urgency on human mail; keywords are the fallback.
 
     Never raises: any failure returns the keyword verdict unchanged.
     """
@@ -351,7 +354,7 @@ async def _claude_urgency(parsed: dict, verdict: dict) -> dict:
         if final["level"] != verdict["level"]:
             log_action(
                 "mailwatch",
-                f"urgency claude changed {verdict['level']}->{final['level']} id={parsed['id'][:16]}",
+                f"urgency chatgpt changed {verdict['level']}->{final['level']} id={parsed['id'][:16]}",
             )
         return final
     except Exception:
@@ -387,7 +390,7 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
     sender, subject = parsed["sender"], parsed["subject"]
     verdict = classify_email(sender, subject, parsed.get("snippet", ""), full)
     if verdict["level"] != "skip" and verdict["human"]:
-        verdict = await _claude_urgency(parsed, verdict)
+        verdict = await _chatgpt_urgency(parsed, verdict)
     level = str(verdict["level"])
     tag = f"{level} [{'|'.join(str(r) for r in verdict['reasons'])}]"
     log_action("mailwatch", f"{tag} from={sender[:60]} subj={subject[:80]}")

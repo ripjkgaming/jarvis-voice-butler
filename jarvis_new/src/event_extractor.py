@@ -123,13 +123,13 @@ def extract(
     parsed: dict, now: float | None = None, runner=None
 ) -> tuple[dict | None, str | None]:
     """Email -> (event | None, warning). Never raises."""
-    import claude_cli
+    import chatgpt_cli
 
     now = time.time() if now is None else now
     try:
-        reply, warning = claude_cli.claude_reply(
+        reply, warning = chatgpt_cli.chatgpt_reply(
             build_prompt(parsed, dt.date.fromtimestamp(now)),
-            model=claude_cli.BACKEND_MODEL,
+            model=chatgpt_cli.BACKEND_MODEL,
             system=EXTRACT_SYSTEM,
             timeout=120.0,
             runner=runner,

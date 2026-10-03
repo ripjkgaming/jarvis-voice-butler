@@ -26,6 +26,7 @@ dependencies = [
     "mediapipe>=1.0.1",
     # Focus mode: KWin active-window over D-Bus (pure Python).
     "jeepney>=0.9.0",
+    "yt-dlp[default]>=2026.8.19",
 ]
 
 [dependency-groups]

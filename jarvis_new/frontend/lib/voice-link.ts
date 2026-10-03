@@ -75,6 +75,8 @@ export function voiceLinkFrom(
       );
     return make('request', 'ACQUIRING', 'VOICE REQUEST SENT', 0, request.at + ACK_MS);
   }
+  // Wakeword detection can publish waking one poll before its first boot step.
+  if (!last && raw?.waking) return make('request', 'ACQUIRING', 'VOICE REQUEST RECEIVED', 0);
   if (!last || !Number.isFinite(last[1])) return IDLE;
   const [stage, stamp] = last;
   if (stage === 'online') {

@@ -8,8 +8,20 @@ import subprocess
 import pytest
 
 import agent_tasks as at
-import claude_cli
+import chatgpt_cli
 from system.task_tools import TaskTools
+
+
+def codex_output(text):
+    return (
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+        )
+        + "\n"
+        + json.dumps({"type": "turn.completed", "usage": {}})
+        + "\n"
+    )
+
 
 PLAN = {
     "title": "Laptop email",
@@ -28,22 +40,47 @@ PLAN = {
 @pytest.fixture
 def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr(claude_cli.shutil, "which", lambda n: "/usr/bin/claude")
+    monkeypatch.setattr(chatgpt_cli.shutil, "which", lambda n: "/usr/bin/codex")
     return tmp_path
 
 
-def fake_claude(plan=PLAN, fail_on=None):
+def fake_chatgpt(plan=PLAN, fail_on=None):
     def run(argv, **kw):
-        prompt, system = kw["input"], argv[argv.index("--system-prompt") + 1]
-        run.calls.append((system[:20], argv[argv.index("--tools") + 1], prompt))
+        prompt, system = (
+            kw["input"],
+            json.loads(
+                next(
+                    value.split("=", 1)[1]
+                    for value in argv
+                    if value.startswith("developer_instructions=")
+                )
+            ),
+        )
+        run.calls.append(
+            (
+                system[:20],
+                (
+                    "WebSearch,WebFetch"
+                    if 'web_search="live"' in argv
+                    else "Read"
+                    if "features.shell_tool=true" in argv
+                    else ""
+                ),
+                prompt,
+            )
+        )
         if system.startswith("You plan"):
-            return subprocess.CompletedProcess(argv, 0, json.dumps(plan), "")
+            return subprocess.CompletedProcess(
+                argv, 0, codex_output(json.dumps(plan)), ""
+            )
         if fail_on and fail_on in prompt:
             return subprocess.CompletedProcess(argv, 1, "", "rate limited")
         step = prompt.rsplit("THIS STEP", 1)[1]
-        return subprocess.CompletedProcess(argv, 0, f"result for{step[:40]}", "")
+        return subprocess.CompletedProcess(
+            argv, 0, codex_output(f"result for{step[:40]}"), ""
+        )
 
     run.calls = []
     return run
@@ -61,7 +98,7 @@ def test_parse_plan_puts_acts_last_and_caps(monkeypatch) -> None:
 
 def test_runs_pauses_before_acting_then_finishes(home) -> None:
     told = []
-    run = fake_claude()
+    run = fake_chatgpt()
     task = at.start(
         "research laptops under 1000 and email dad", runner=run, background=False
     )
@@ -84,10 +121,10 @@ def test_runs_pauses_before_acting_then_finishes(home) -> None:
 
 
 def test_failure_and_cancel(home) -> None:
-    run = fake_claude(fail_on="Find laptops")
+    run = fake_chatgpt(fail_on="Find laptops")
     task = at.start("research laptops and email dad", runner=run, background=False)
     assert at.get(task["id"])["status"] == "failed"
-    t2 = at.start("another job to do today", runner=fake_claude(), background=False)
+    t2 = at.start("another job to do today", runner=fake_chatgpt(), background=False)
     assert at.get(t2["id"])["status"] == "waiting"
     assert at.cancel()["id"] == t2["id"]
     assert at.cancel() is None
@@ -120,7 +157,7 @@ def test_resume_after_restart(home) -> None:
             "created": 1.0,
         }
     )
-    at.advance("task-1", fake_claude(), tell=lambda *a, **k: None)
+    at.advance("task-1", fake_chatgpt(), tell=lambda *a, **k: None)
     assert at.get("task-1")["status"] == "done"
 
 

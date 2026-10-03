@@ -1,4 +1,4 @@
-"""Hermetic tests for src/wa_autoreply.py (no WhatsApp, no Claude, no notify)."""
+"""Hermetic tests for src/wa_autoreply.py (no WhatsApp, no ChatGPT, no notify)."""
 
 from __future__ import annotations
 
@@ -272,11 +272,11 @@ def test_mode_junk_is_off(monkeypatch) -> None:
     assert wa_autoreply.mode() == "off"
 
 
-# --- ask_claude model selection ---
+# --- ask_chatgpt model selection ---
 
 
-def _stub_claude(monkeypatch, seen: dict):
-    import claude_cli
+def _stub_chatgpt(monkeypatch, seen: dict):
+    import chatgpt_cli
 
     def fake(prompt, **kw):
         seen.update(kw)
@@ -285,26 +285,27 @@ def _stub_claude(monkeypatch, seen: dict):
             None,
         )
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
 
 
-def test_ask_claude_defaults_to_haiku(monkeypatch) -> None:
+def test_ask_chatgpt_defaults_to_fast_model(monkeypatch) -> None:
     monkeypatch.delenv("JARVIS_WA_MODEL", raising=False)
     seen: dict = {}
-    _stub_claude(monkeypatch, seen)
-    parsed, warning = wa_autoreply.ask_claude("hello")
+    _stub_chatgpt(monkeypatch, seen)
+    parsed, warning = wa_autoreply.ask_chatgpt("hello")
     assert warning is None
     assert parsed is not None and parsed["reply"] == "Noted."
-    assert seen.get("model") == "claude-haiku-4-5"
+    assert seen.get("model") == "gpt-6-luna"
+    assert seen.get("reasoning") == "low"
 
 
-def test_ask_claude_env_override(monkeypatch) -> None:
-    monkeypatch.setenv("JARVIS_WA_MODEL", "claude-opus-4-6")
+def test_ask_chatgpt_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_WA_MODEL", "gpt-6.1-sol")
     seen: dict = {}
-    _stub_claude(monkeypatch, seen)
-    parsed, warning = wa_autoreply.ask_claude("hello")
+    _stub_chatgpt(monkeypatch, seen)
+    parsed, warning = wa_autoreply.ask_chatgpt("hello")
     assert warning is None and parsed is not None
-    assert seen.get("model") == "claude-opus-4-6"
+    assert seen.get("model") == "gpt-6.1-sol"
 
 
 # --- handle_chat ---
@@ -371,12 +372,17 @@ async def test_no_mute_until_exempts_chat_from_rude_mute(home, monkeypatch) -> N
     state = {"chats": {"Rude": {"no_mute_until": NOW + 3600}}}
     chat = {"name": "Rude", "unread": 1}
     ask = _ask("Enough.", rude=True, disengage=True)
-    assert await wa_autoreply.handle_chat(chat, wa, state, NOW, True, ask) == "sent-rude"
+    assert (
+        await wa_autoreply.handle_chat(chat, wa, state, NOW, True, ask) == "sent-rude"
+    )
     assert not state["chats"]["Rude"].get("muted_until")  # exempt: not muted
     # After the exemption lapses the normal 6 h mute applies again.
     wa2 = FakeWA(reads={"Rude": _dm([_m("swearing again")])})
     later = NOW + 3601
-    assert await wa_autoreply.handle_chat(chat, wa2, state, later, True, ask) == "sent-rude"
+    assert (
+        await wa_autoreply.handle_chat(chat, wa2, state, later, True, ask)
+        == "sent-rude"
+    )
     assert state["chats"]["Rude"]["muted_until"] == later + wa_autoreply.RUDE_MUTE_S
 
 
@@ -629,7 +635,9 @@ async def test_run_off(home, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_handles_every_unread_chat_and_ignores_read_chats(home, monkeypatch) -> None:
+async def test_run_handles_every_unread_chat_and_ignores_read_chats(
+    home, monkeypatch
+) -> None:
     monkeypatch.setenv("JARVIS_WA_AUTOREPLY", "dry")
     chats = [{"name": f"F{i}", "unread": 1} for i in range(7)]
     chats.append({"name": "Zero", "unread": 0})
@@ -960,7 +968,6 @@ def test_model_written_phone_numbers_are_still_stripped() -> None:
     assert "999" not in wa_autoreply.clean_reply("call me on +65 9999 9999 now")
 
 
-
 def test_message_time_parses_dates_and_clock_only() -> None:
     now = datetime(2026, 9, 30, 7, 20).timestamp()
     full = wa_autoreply.message_time({"when": "7:19 am, 30/09/2026"}, now)
@@ -1001,7 +1008,8 @@ async def test_handle_skips_when_owner_just_wrote(home) -> None:
 
 
 def test_trusted_chats_and_location(home, monkeypatch) -> None:
-    (home / "wa_trusted.txt").parent.mkdir(exist_ok=True); (home / "wa_trusted.txt").write_text("# c\nBest Friend\n")
+    (home / "wa_trusted.txt").parent.mkdir(exist_ok=True)
+    (home / "wa_trusted.txt").write_text("# c\nBest Friend\n")
     monkeypatch.setenv("JARVIS_WA_TRUSTED", "Mum, Dad")
     assert wa_autoreply.trusted_chats() == {"best friend", "mum", "dad"}
     (home / "wa_where.txt").write_text("# c\nat the library\n")
@@ -1036,7 +1044,11 @@ async def test_trusted_chat_never_gets_rude_reply(home) -> None:
     wa = FakeWA(reads={"Friend": _dm([_m("ugh whatever")])})
     state = {"chats": {}}
     out = await wa_autoreply.handle_chat(
-        {"name": "Friend", "unread": 1}, wa, state, NOW, True,
+        {"name": "Friend", "unread": 1},
+        wa,
+        state,
+        NOW,
+        True,
         _ask("Pathetic.", rude=True, disengage=True),
     )
     assert out == "no-reply-needed"

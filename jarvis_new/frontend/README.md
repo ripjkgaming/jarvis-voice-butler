@@ -221,6 +221,13 @@ pnpm build
 node --test tests/*.test.cjs
 ```
 
+The native shell's default `custom-protocol` build embeds these assets.
+After `pnpm build`, run `cargo build` from `shell/src-tauri/` and restart
+the rebuilt executable to update the desktop animation. Restarting the old
+binary only reloads its previously embedded UI. The `domstate` CLI diagnostic
+reports script filenames from the native window so its page chunk can be
+compared with `shell/ui/index.html`.
+
 From `jarvis_new/`, run the browser regression suite:
 
 ```bash

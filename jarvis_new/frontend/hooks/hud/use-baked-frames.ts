@@ -101,8 +101,8 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
       }
       return;
     }
-    let raf = 0;
-    let visible = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let inView = true;
     const t0 = performance.now();
     const paint = (frameIdx: number) => {
       const f = film.frames[frameIdx % film.frames.length];
@@ -111,23 +111,31 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
         ctx.drawImage(f, 0, 0);
       }
     };
-    // rAF ticks at display rate (60-144Hz) but the film only advances at
-    // `fps`: paint only when the frame index changes (was a redundant
-    // full-canvas clear+draw every display frame).
+    // Timer cadence matches the film's 12–24 FPS instead of waking this
+    // callback on every 60–144 Hz display refresh.
     let last = -1;
-    const loop = (now: number) => {
-      if (!visible || document.hidden) return;
+    const loop = () => {
+      if (!inView || document.hidden) {
+        timer = null;
+        return;
+      }
+      const now = performance.now();
       const idx = Math.floor(((now - t0) / 1000) * fps) % film.frames.length;
       if (idx !== last) {
         paint(idx);
         last = idx;
       }
-      raf = requestAnimationFrame(loop);
+      // These films advance at 12–24 FPS. A permanent rAF loop woke 60–144
+      // times per second just to rediscover that the frame had not changed.
+      timer = setTimeout(loop, Math.max(8, 1000 / Math.max(1, fps)));
     };
     const kick = () => {
-      if (visible && !document.hidden) {
-        cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(loop);
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (inView && !document.hidden) {
+        timer = setTimeout(loop, 0);
       }
     };
     const onVisibility = () => kick();
@@ -135,14 +143,14 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
     const observer =
       typeof IntersectionObserver !== 'undefined'
         ? new IntersectionObserver((entries) => {
-            visible = entries[0]?.isIntersecting !== false && !document.hidden;
+            inView = entries[0]?.isIntersecting !== false;
             kick();
           })
         : null;
     observer?.observe(canvas);
-    raf = requestAnimationFrame(loop);
+    loop();
     return () => {
-      cancelAnimationFrame(raf);
+      if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
     };
@@ -175,7 +183,40 @@ export type UseBakedCanvasOpts = {
   seed?: number;
   /** Draws frame `i` of `n` (must be pure for a given rng stream). */
   render: BakeRender;
+  /** Size from the layout box (clientWidth/Height), ignoring CSS transforms.
+   *  Needed for canvases that spin or scale via CSS animations. */
+  layoutBox?: boolean;
+  /** Keep finished bakes in a shared LRU under this id, so flipping back
+   *  to a seen state/size blits instantly instead of re-baking. */
+  cacheId?: string;
 };
+
+/** Shared bake cache, evicted oldest-first past a byte budget. */
+const FILM_CACHE = new Map<string, BakedFilm>();
+const FILM_CACHE_BUDGET = 64 * 1024 * 1024;
+
+function filmBytes(f: BakedFilm): number {
+  return f.width * f.height * 4 * f.frames.length;
+}
+
+function cachedFilm(key: string, make: () => BakedFilm): BakedFilm {
+  const hit = FILM_CACHE.get(key);
+  if (hit) {
+    FILM_CACHE.delete(key);
+    FILM_CACHE.set(key, hit);
+    return hit;
+  }
+  const film = make();
+  FILM_CACHE.set(key, film);
+  let total = 0;
+  for (const f of FILM_CACHE.values()) total += filmBytes(f);
+  for (const [k, f] of FILM_CACHE) {
+    if (total <= FILM_CACHE_BUDGET || k === key) break;
+    FILM_CACHE.delete(k);
+    total -= filmBytes(f);
+  }
+  return film;
+}
 
 /**
  * All-in-one baked canvas: measures its box (re-measuring when the
@@ -190,6 +231,8 @@ export function useBakedCanvas({
   seed = 1,
   render,
   paused = false,
+  layoutBox = false,
+  cacheId,
 }: UseBakedCanvasOpts): RefObject<HTMLCanvasElement | null> {
   const renderRef = useRef(render);
   renderRef.current = render;
@@ -203,8 +246,8 @@ export function useBakedCanvas({
     const measure = () => {
       // Measure the canvas CSS box itself (parents may be taller).
       const r = el.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(r.width));
-      const h = Math.max(1, Math.floor(r.height));
+      const w = Math.max(1, Math.floor(layoutBox ? el.clientWidth : r.width));
+      const h = Math.max(1, Math.floor(layoutBox ? el.clientHeight : r.height));
       setBox((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
     };
     measure();
@@ -235,11 +278,16 @@ export function useBakedCanvas({
     if (!box) return;
     const W = Math.max(1, Math.floor(box.w * scale));
     const H = Math.max(1, Math.floor(box.h * scale));
-    const rng = mulberry32(seed);
-    setFilm(bakeFilm(frames, W, H, (ctx, w, h, i, n) => renderRef.current(ctx, w, h, i, n, rng)));
+    const bake = () => {
+      const rng = mulberry32(seed);
+      return bakeFilm(frames, W, H, (ctx, w, h, i, n) => renderRef.current(ctx, w, h, i, n, rng));
+    };
+    setFilm(
+      cacheId ? cachedFilm(`${cacheId}|${W}x${H}|${frames}|${seed}|${bakeKey}`, bake) : bake()
+    );
     // Re-bake on size / bakeKey / seed / frame-count changes only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box, bakeKey, seed, frames, scale]);
+  }, [box, bakeKey, seed, frames, scale, cacheId]);
 
   return canvasRef;
 }

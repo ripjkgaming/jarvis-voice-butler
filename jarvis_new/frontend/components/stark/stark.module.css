@@ -783,6 +783,165 @@
   filter: drop-shadow(0 0 14px var(--state));
 }
 
+.rxCoreFine {
+  fill: none;
+  stroke: var(--state);
+  stroke-width: 0.8;
+  opacity: 0.45;
+}
+
+.rxCoreDash {
+  fill: none;
+  stroke: var(--cyan-hot);
+  stroke-width: 0.9;
+  stroke-dasharray: 1.5 4;
+  opacity: 0.45;
+}
+
+.rxCoilWinding {
+  fill: none;
+  stroke: color-mix(in srgb, var(--state) 55%, #ffffff);
+  stroke-width: 0.7;
+  opacity: 0.42;
+}
+
+.rxBolt {
+  fill: rgba(3, 16, 26, 0.6);
+  stroke: var(--state);
+  stroke-width: 0.9;
+}
+
+.rxBoltHot {
+  fill: var(--cyan-hot);
+  opacity: 0.7;
+}
+
+.rxHeartArc {
+  fill: none;
+  stroke: var(--state);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+/* ---- particle layers (reactor-plasma.tsx): baked once, moved by CSS */
+
+.pxDust {
+  animation: spin 160s linear infinite;
+}
+
+.pxOrbits {
+  animation: spin-rev 70s linear infinite;
+}
+
+.pxSpiral {
+  animation: spin 26s linear infinite;
+}
+
+.pxFlow {
+  opacity: 0.3;
+  animation: px-breathe 6s ease-in-out infinite alternate;
+}
+
+.pxFlowB {
+  animation-delay: -3s;
+}
+
+.pxPlasma {
+  position: absolute;
+  top: 33.3333%;
+  left: 38.6364%;
+  width: 22.7273%;
+  height: 33.3333%;
+}
+
+.root[data-jstate='listening'] .pxSpiral {
+  animation-duration: 14s;
+}
+
+.root[data-jstate='listening'] .pxFlow {
+  animation: px-inflow 2.4s linear infinite;
+}
+
+.root[data-jstate='listening'] .pxFlowB {
+  animation-delay: -1.2s;
+}
+
+.root[data-jstate='thinking'] .pxSpiral {
+  animation-duration: 7s;
+}
+
+.root[data-jstate='thinking'] .pxOrbits {
+  animation-duration: 22s;
+}
+
+.root[data-jstate='thinking'] .pxDust {
+  animation-duration: 60s;
+}
+
+.root[data-jstate='thinking'] .pxFlow {
+  opacity: 0.5;
+  animation: spin 9s linear infinite;
+}
+
+.root[data-jstate='thinking'] .pxFlowB {
+  animation: spin-rev 13s linear infinite;
+}
+
+.root[data-jstate='speaking'] .pxSpiral {
+  animation-duration: 11s;
+}
+
+.root[data-jstate='speaking'] .pxOrbits {
+  animation-duration: 36s;
+}
+
+.root[data-jstate='speaking'] .pxFlow {
+  animation: px-outflow 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+.root[data-jstate='speaking'] .pxFlowB {
+  animation-delay: -0.8s;
+}
+
+@keyframes px-breathe {
+  from {
+    opacity: 0.16;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 0.4;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes px-inflow {
+  from {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+  35% {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+
+@keyframes px-outflow {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  30% {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
 /* Independent transform layers remain smooth at the display refresh rate. */
 .rxSpinSlow {
   animation: spin 90s linear infinite;
@@ -1250,24 +1409,6 @@
   font-weight: 400;
 }
 
-.panelHint {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 4px;
-  overflow: hidden;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  flex-wrap: wrap;
-  color: var(--text-dim);
-}
-
-.panelHintLabel {
-  color: var(--cyan-dim);
-  letter-spacing: 0.26em;
-}
-
 /* ------------------------------------------------------------- comms log */
 
 .execFrame {
@@ -1502,3 +1643,252 @@
   font-size: 11px;
   letter-spacing: 0.12em;
 }
+
+/* ------------------------------------------------------------------ desk */
+
+.logCompact {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 104px;
+}
+
+.desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  flex: none;
+}
+
+.desk > :last-child {
+  grid-column: 1 / -1;
+}
+
+.deskFrame {
+  animation-delay: 0.18s;
+}
+
+.deskStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.deskStat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.deskStat small {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--text-faint);
+}
+
+.deskStat b {
+  overflow: hidden;
+  font-family: var(--f-mono);
+  font-size: 17px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cyan-hot);
+}
+
+.deskStat[data-tone='up'] b {
+  color: var(--green);
+}
+
+.deskStat[data-tone='down'] b {
+  color: var(--red);
+}
+
+.deskSub {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.deskSpark {
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin-top: 5px;
+}
+
+.deskSpark polyline {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.deskSpark[data-tone='up'] polyline {
+  stroke: var(--green);
+}
+
+.deskSpark[data-tone='down'] polyline {
+  stroke: var(--red);
+}
+
+.deskDrafts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deskDrafts > li {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--cyan-dim);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.deskDrafts > li[data-urgent] {
+  border-left-color: var(--amber);
+}
+
+.deskDrafts b {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.deskDrafts span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+
+.deskSub[data-tone='warn'] {
+  color: var(--amber);
+}
+
+/* Narrow cards: the aside carries the state, the index would clip. */
+.deskFrame .frameIndex {
+  display: none;
+}
+
+/* Wake acquisition spans backend stages without restarting at each poll.
+ * This is an indeterminate energy envelope, never time-based readiness.
+ * Only the visual core is tinted; telemetry and status remain legible. */
+.rxEnergy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  filter: hue-rotate(0deg) brightness(1);
+  transform: scale(1);
+  transition:
+    filter 280ms ease-out,
+    transform 280ms ease-out;
+}
+
+.reactor[data-energizing] .rxEnergy {
+  filter: hue-rotate(66deg) brightness(1.24);
+  transform: scale(1.035);
+  transition-duration: 3.2s;
+  transition-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+}
+
+.rxEnergy::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  left: 32.955%;
+  width: 34.09%;
+  height: 50%;
+  border: 1px solid rgba(153, 209, 255, 0.6);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 28px rgba(74, 188, 255, 0.16),
+    0 0 20px rgba(74, 188, 255, 0.12);
+  opacity: 0;
+}
+
+.reactor[data-energizing] .rxEnergy::after {
+  animation: rx-acquire 2.8s ease-in-out infinite;
+}
+
+@keyframes rx-acquire {
+  0% {
+    opacity: 0;
+    transform: scale(1.48);
+  }
+  24% {
+    opacity: 0.65;
+  }
+  82% {
+    opacity: 0.16;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.62);
+  }
+}
+
+:global(.hud-hidden) .rxEnergy::after {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rxEnergy {
+    transition: none !important;
+    transform: none !important;
+  }
+  .reactor[data-energizing] .rxEnergy::after {
+    animation: none;
+    opacity: 0.35;
+  }
+}
+
+
+/* Amber instruments feed a single cached particle field plus small, static
+   light textures. Only opacity is transitioned; voice/acquisition colours
+   stay intact underneath, and warning light stays amber during a join. */
+.rxWarning {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 850ms ease-out;
+}
+.rxWarning[data-reactor-warning='true'] { opacity: 1; }
+.rxWarningParticles { opacity: 0.88; }
+.rxWarningGlow {
+  position: absolute;
+  inset: 7% 20.682%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255, 198, 112, 0.12) 0%, transparent 22%,
+    rgba(255, 164, 61, 0.10) 40%, transparent 51%,
+    rgba(255, 179, 71, 0.12) 67%, transparent 73%);
+}
+.rxWarningSource {
+  position: absolute;
+  width: 24%;
+  height: 35.2%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(255, 211, 145, 0.30),
+    rgba(255, 157, 48, 0.14) 30%, transparent 70%);
+  opacity: 0;
+  transition: opacity 650ms ease-out;
+}
+.rxWarningSource[data-on] { opacity: 1; }
+.rxWarningSource[data-source='cpu'] { left: 18.4%; top: 3.6%; }
+.rxWarningSource[data-source='mem'] { right: 18.4%; top: 3.6%; }
+.rxWarningSource[data-source='temp'] { right: 18.4%; bottom: 3.6%; }
+.rxWarningSource[data-source='power'] { left: 18.4%; bottom: 3.6%; }

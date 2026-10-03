@@ -264,3 +264,25 @@ def test_default_sources_registered() -> None:
 def test_state_file_roundtrip(home) -> None:
     engine.save_state({"x": 1})
     assert json.loads(engine.state_path().read_text()) == {"x": 1}
+
+
+def test_hud_note_finishes_even_with_colon_keys(home):
+    # Mail keys ("mail:18f3A...") used to fail the feed's id check, so the
+    # note was minted under a random id and stayed "running" in EXECUTION.
+    import activity
+
+    assert engine._hud(sig(kind="mail", key="mail:18f3AbC_9"))
+    items = activity.list_items()
+    assert [i["status"] for i in items] == ["done"]
+    assert items[0]["id"] == "proactive-mail-18f3abc-9"
+
+
+def test_insights_voice_state_bumps_seq(home):
+    import hud_panels
+
+    assert hud_panels.insights() == {"tab": None, "seq": 0}
+    hud_panels.set_insights("market")
+    hud_panels.set_insights("market")
+    assert hud_panels.insights() == {"tab": "market", "seq": 2}
+    hud_panels.set_insights(None)
+    assert hud_panels.payload()["insights"] == {"tab": None, "seq": 3}

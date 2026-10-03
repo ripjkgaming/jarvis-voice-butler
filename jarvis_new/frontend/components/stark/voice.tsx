@@ -17,7 +17,8 @@ const STATE_WORD: Record<JarvisState, string> = {
   speaking: 'RESPONDING',
 };
 
-/** The big state word under the reactor plus the spoken-command hint. */
+/** The big state word under the reactor, plus the voice-link status line
+ *  while a call is being set up. No spoken-command guidance. */
 export function StateReadout({
   jarvis,
   muted,
@@ -28,22 +29,11 @@ export function StateReadout({
   link: VoiceLink;
 }) {
   const word = muted === true ? 'MUTED' : link.phase !== 'idle' ? link.word : STATE_WORD[jarvis];
-  let hint: ReactNode;
-  if (muted === true) hint = <>MICROPHONE OFF · PRESS M OR USE THE TRAY TO RESTORE</>;
-  else if (link.phase !== 'idle') hint = <>{link.detail}</>;
-  else if (jarvis === 'idle')
-    hint = (
-      <>
-        SAY <b>“JARVIS”</b> · OR PRESS NUMPAD ENTER
-      </>
-    );
-  else if (jarvis === 'listening') hint = <>GO AHEAD, SIR</>;
-  else if (jarvis === 'thinking') hint = <>WORKING ON IT</>;
-  else hint = <>SAY “STOP” TO INTERRUPT</>;
+  const detail = muted !== true && link.phase !== 'idle' ? link.detail : '';
   return (
     <div className={s.readout} role="status" aria-live="polite">
       <span className={s.readoutWord}>{word}</span>
-      <span className={s.readoutHint}>{hint}</span>
+      {detail ? <span className={s.readoutHint}>{detail}</span> : null}
     </div>
   );
 }

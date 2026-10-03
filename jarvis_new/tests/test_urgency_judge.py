@@ -1,10 +1,11 @@
-"""Hermetic tests for src/urgency_judge.py (no real Claude calls)."""
+"""Hermetic tests for src/urgency_judge.py (no real ChatGPT calls)."""
 
 from __future__ import annotations
 
 import json
 
-import claude_cli
+import chatgpt_cli
+
 import urgency_judge
 
 
@@ -26,8 +27,8 @@ def _good_json(urgent=True, reason="Exam moved to Friday.") -> str:
 
 
 def _fake_ok(monkeypatch, reply_text, seen=None):
-    """Patch claude_reply with JARVIS_CLAUDE=1; record kwargs in seen."""
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    """Patch chatgpt_reply with JARVIS_CHATGPT=1; record kwargs in seen."""
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_URGENCY_AI", "1")
     seen = seen if seen is not None else {}
 
@@ -36,7 +37,7 @@ def _fake_ok(monkeypatch, reply_text, seen=None):
         seen.update(kw)
         return (reply_text, None)
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     return seen
 
 
@@ -131,14 +132,14 @@ def test_judge_good(monkeypatch) -> None:
     verdict, warning = urgency_judge.judge(_msg())
     assert warning is None
     assert verdict == {"urgent": True, "scam": False, "reason": "Exam today."}
-    assert seen["model"] == claude_cli.BACKEND_MODEL
+    assert seen["model"] == chatgpt_cli.BACKEND_MODEL
 
 
 def test_judge_system_says_untrusted_and_model(monkeypatch) -> None:
     seen = _fake_ok(monkeypatch, _good_json())
     urgency_judge.judge(_msg())
     assert "untrusted" in str(seen["system"]).lower()
-    assert seen["model"] == claude_cli.BACKEND_MODEL
+    assert seen["model"] == chatgpt_cli.BACKEND_MODEL
 
 
 def test_judge_malformed_model_output(monkeypatch) -> None:
@@ -148,42 +149,42 @@ def test_judge_malformed_model_output(monkeypatch) -> None:
     assert warning and "valid JSON" in warning
 
 
-def test_judge_claude_warning_passthrough(monkeypatch) -> None:
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+def test_judge_chatgpt_warning_passthrough(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_URGENCY_AI", "1")
 
     def fake(prompt, **kw):
-        return ("", "Claude timed out after 60s")
+        return ("", "ChatGPT timed out after 60s")
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     verdict, warning = urgency_judge.judge(_msg())
     assert verdict is None
-    assert warning == "Claude timed out after 60s"
+    assert warning == "ChatGPT timed out after 60s"
 
 
 def test_judge_runner_raises_gives_warning(monkeypatch) -> None:
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_URGENCY_AI", "1")
 
     def fake(prompt, **kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     verdict, warning = urgency_judge.judge(_msg())
     assert verdict is None
     assert warning and "boom" in warning
 
 
-def test_judge_disabled_no_claude_call(monkeypatch) -> None:
+def test_judge_disabled_no_chatgpt_call(monkeypatch) -> None:
     calls: list = []
-    monkeypatch.setenv("JARVIS_CLAUDE", "1")
+    monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_URGENCY_AI", "0")
 
     def fake(prompt, **kw):
         calls.append(prompt)
-        raise AssertionError("must not call claude when disabled")
+        raise AssertionError("must not call ChatGPT when disabled")
 
-    monkeypatch.setattr(claude_cli, "claude_reply", fake)
+    monkeypatch.setattr(chatgpt_cli, "chatgpt_reply", fake)
     verdict, warning = urgency_judge.judge(_msg())
     assert verdict is None
     assert warning and "disabled" in warning.lower()
@@ -196,10 +197,12 @@ def test_judge_disabled_no_claude_call(monkeypatch) -> None:
 def test_apply_urgent_true_gives_high() -> None:
     verdict = {"level": "normal", "reasons": ["keyword:urgent"], "human": True}
     before = {"level": "normal", "reasons": ["keyword:urgent"], "human": True}
-    out = urgency_judge.apply(verdict, {"urgent": True, "scam": False, "reason": "Exam today."})
+    out = urgency_judge.apply(
+        verdict, {"urgent": True, "scam": False, "reason": "Exam today."}
+    )
     assert out["level"] == "high"
     assert out["reasons"][0] == "keyword:urgent"
-    assert any(r.startswith("claude:urgent") for r in out["reasons"])
+    assert any(r.startswith("chatgpt:urgent") for r in out["reasons"])
     assert "Exam today." in " ".join(out["reasons"])
     # Input not mutated.
     assert verdict == before
@@ -212,7 +215,7 @@ def test_apply_urgent_false_gives_normal() -> None:
     out = urgency_judge.apply(verdict, {"urgent": False, "reason": "Newsletter."})
     assert out["level"] == "normal"
     assert out["reasons"][0] == "keyword:urgent"
-    assert any(r.startswith("claude:routine") for r in out["reasons"])
+    assert any(r.startswith("chatgpt:routine") for r in out["reasons"])
     assert "Newsletter." in " ".join(out["reasons"])
     assert verdict == snapshot
 
@@ -233,4 +236,4 @@ def test_apply_carries_scam_into_verdict() -> None:
         {"urgent": False, "scam": True, "reason": "phishing"},
     )
     assert out["level"] == "normal" and out["scam"] is True
-    assert out["reasons"][-1].startswith("claude:scam")
+    assert out["reasons"][-1].startswith("chatgpt:scam")
