@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Jarvis Chess launcher. Symlinked to ~/.local/bin/chess by install-chess-command.sh.
+# Runs the repo's venv directly (no uv sync, no network) so it starts fast.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+py="$here/.venv/bin/python"
+if [ ! -x "$py" ]; then
+  echo "chess: no virtualenv at $here/.venv — run: cd $here && uv sync --extra chess" >&2
+  exit 3
+fi
+export PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$py" -m games.cli "$@"
