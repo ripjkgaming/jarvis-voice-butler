@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -13,12 +15,17 @@ class ChatMsg {
 }
 
 typedef ChatSender = Future<Map<String, dynamic>> Function(
-    String text, List<List<String>> history);
+  String text,
+  List<List<String>> history,
+);
 
 class ChatCtrl extends ChangeNotifier {
   final List<ChatMsg> messages = [];
   bool typing = false;
   bool _disposed = false;
+  int _turnId = 0;
+  String _pending = "";
+  final Set<int> _reportedActions = {};
 
   final ChatSender _send;
 
@@ -31,17 +38,24 @@ class ChatCtrl extends ChangeNotifier {
   bool _live = false;
 
   static Future<Map<String, dynamic>> _noSender(
-          String text, List<List<String>> history) async =>
-      {'ok': false, 'error': 'not linked'};
+    String text,
+    List<List<String>> history,
+  ) async => {'ok': false, 'error': 'not linked'};
 
   Future<Map<String, dynamic>> _liveSend(
-      String text, List<List<String>> history) async {
+    String text,
+    List<List<String>> history,
+    int turnId,
+  ) async {
+    final client = _shared;
     final api = LinkApi(
-        base: await Prefs.host(),
-        token: await Prefs.token(),
-        httpClient: _shared);
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: client,
+    );
+    if (_disposed) return {"ok": true, "cancelled": true};
     if (api.base.isEmpty) return {'ok': false, 'error': 'not linked'};
-    return api.chat(text, history);
+    return api.chatTurn(text, history, turnId);
   }
 
   /// Human-readable failure line; distinguishes timeout from unreachable.
@@ -57,32 +71,87 @@ class ChatCtrl extends ChangeNotifier {
   }
 
   /// Last 10 exchanges as [role, text] pairs the bridge expects. Pure.
-  static List<List<String>> historyOf(List<ChatMsg> log) =>
-      log.sublist(log.length > 20 ? log.length - 20 : 0).map((m) =>
-          [m.role == 'jarvis' ? 'jarvis' : 'user', m.text]).toList();
+  static List<List<String>> historyOf(List<ChatMsg> log) => log
+      .sublist(log.length > 20 ? log.length - 20 : 0)
+      .map((m) => [m.role == 'jarvis' ? 'jarvis' : 'user', m.text])
+      .toList();
 
   Future<void> send(String text) async {
     text = text.trim();
-    if (_disposed || text.isEmpty || typing) return;
+    if (_disposed || text.isEmpty) return;
+    final previous = _turnId;
+    final wasTyping = typing;
+    final id = ++_turnId;
+    if (wasTyping && _live) unawaited(_cancel(previous));
+    final stop = RegExp(
+      r'^(stop|cancel|never mind|nevermind)[.!?]*$',
+      caseSensitive: false,
+    ).hasMatch(text);
+    final continuation =
+        wasTyping &&
+        RegExp(
+          r'^(no\b|also\b|wait\b|i meant\b|actually\b)',
+          caseSensitive: false,
+        ).hasMatch(text);
+    if (continuation) text = '$_pending\n$text';
+    _pending = text;
+    if (stop) {
+      messages.add(ChatMsg('user', text));
+      typing = false;
+      notifyListeners();
+      return;
+    }
     messages.add(ChatMsg('user', text));
     typing = true;
     notifyListeners();
     try {
       final res = _live
-          ? await _liveSend(text, historyOf(messages))
+          ? await _liveSend(text, historyOf(messages), id)
           : await _send(text, historyOf(messages));
       if (_disposed) return;
+      if (id != _turnId) {
+        final action = res['action'];
+        if (action is Map && action['ok'] == true && _reportedActions.add(id)) {
+          messages.add(
+            ChatMsg(
+              'jarvis',
+              'Earlier action completed: ${action['tool'] ?? 'request'}.',
+            ),
+          );
+          notifyListeners();
+        }
+        return;
+      }
+      if (res['cancelled'] == true ||
+          res['stale'] == true ||
+          (res['turn_id'] != null && res['turn_id'] != id)) {
+        typing = false;
+        notifyListeners();
+        return;
+      }
       final reply = res['reply'];
-      messages.add(ChatMsg('jarvis',
-          reply is String && reply.isNotEmpty
-              ? reply
-              : errorText(res)));
+      messages.add(
+        ChatMsg(
+          'jarvis',
+          reply is String && reply.isNotEmpty ? reply : errorText(res),
+        ),
+      );
     } catch (_) {
-      if (_disposed) return;
+      if (_disposed || id != _turnId) return;
       messages.add(const ChatMsg('jarvis', 'Link failed, Sir. Try again.'));
     }
     typing = false;
     notifyListeners();
+  }
+
+  Future<void> _cancel(int turnId) async {
+    final client = _shared;
+    final api = LinkApi(
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: client,
+    );
+    if (!_disposed && api.base.isNotEmpty) await api.cancelTurn(turnId);
   }
 
   @override
@@ -95,9 +164,10 @@ class ChatCtrl extends ChangeNotifier {
 
   Future<Map<String, dynamic>> summonSpoken(String text) async {
     final api = LinkApi(
-        base: await Prefs.host(),
-        token: await Prefs.token(),
-        httpClient: _shared);
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: _shared,
+    );
     if (api.base.isEmpty) return {'ok': false};
     return api.summon(text);
   }

@@ -1,8 +1,8 @@
 """Turn a spoken YouTube download request into a concrete video choice.
 
-Pure parsing, ranking and error mapping, plus one flat yt-dlp search. Flat
-search needs no per-video fetch, so it never trips YouTube's bot check the way
-the metadata-matching play path does.
+Pure parsing, ranking and error mapping, plus flat yt-dlp search. Flat search
+avoids per-candidate metadata fetches; authentication failures still surface
+as plain messages.
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ def parse_request(text: str, *, kind: str | None = None) -> Request:
             quality = 2160
         else:
             quality = 0
-    playlist = bool(re.search(r"\bplaylist\b", lower))
+    playlist = bool(re.search(r"\bplaylist\b", stripped, re.I))
     return Request(
         query=clean_query(stripped) if url is None else "",
         raw_query=raw,

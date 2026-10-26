@@ -102,22 +102,16 @@ def classify_site_error(text: str, statuses: set[int]) -> str | None:
     return None
 
 
-def downloads_directory() -> Path:
-    override = os.environ.get("JARVIS_DOWNLOADS_DIR", "").strip()
-    if override:
-        return Path(override).expanduser()
-    # Honor the desktop's relocated XDG Downloads folder without executing it.
-    config = (
-        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-        / "user-dirs.dirs"
+def downloads_directory(kind="video") -> Path:
+    key = "JARVIS_YOUTUBE_AUDIO_DIR" if kind == "audio" else "JARVIS_YOUTUBE_VIDEO_DIR"
+    override = os.environ.get(key, "").strip()
+    if kind == "video":
+        override = override or os.environ.get("JARVIS_DOWNLOADS_DIR", "").strip()
+    return (
+        Path(override).expanduser()
+        if override
+        else Path.home() / ("Music" if kind == "audio" else "Videos") / "Jarvis"
     )
-    with contextlib.suppress(OSError):
-        match = re.search(r'^XDG_DOWNLOAD_DIR="([^"\n]+)"$', config.read_text(), re.M)
-        if match:
-            value = match[1].replace("$HOME", str(Path.home()))
-            if "$" not in value and Path(value).is_absolute():
-                return Path(value)
-    return Path.home() / "Downloads"
 
 
 def _reservation(target: Path) -> Path:
@@ -142,14 +136,17 @@ def reserve_target(directory: Path, suggested: str, fallback: str) -> Path:
     name = re.sub(r'[\x00-\x1f\x7f<>:"|?*]', "_", name).strip(" .")
     if not name:
         name = re.sub(r"[^\w .-]", "_", fallback).strip(" .")[:150] + ".mp4"
-    if Path(name).suffix.lower() != ".mp4":
-        raise DownloadError("YT1s returned something other than an MP4 video, Sir.")
+    if Path(name).suffix.lower() not in {".mp4", ".mp3", ".m4a"}:
+        raise DownloadError(
+            "The downloader returned something other than MP4, MP3 or M4A, Sir."
+        )
+    suffix = Path(name).suffix.lower()
     stem = (
         Path(name).stem.encode("utf8")[:180].decode("utf8", "ignore").strip(" .")
         or "YouTube video"
     )
     for number in range(10_000):
-        candidate = directory / f"{stem}{f' ({number})' if number else ''}.mp4"
+        candidate = directory / f"{stem}{f' ({number})' if number else ''}{suffix}"
         if candidate.exists() or candidate.with_suffix(".mov").exists():
             continue
         try:
@@ -315,12 +312,58 @@ async def run_site_flow(page, url: str):
             received.cancel()
 
 
-async def download_video(url: str, directory: Path, title: str, on_started) -> Path:
-    if os.environ.get("JARVIS_YOUTUBE_BACKEND", "direct").strip().lower() == "yt1s":
+async def download_video(
+    url: str, directory: Path, title: str, on_started, **options
+) -> Path:
+    if (
+        not options
+        and os.environ.get("JARVIS_YOUTUBE_BACKEND", "direct").strip().lower() == "yt1s"
+    ):
         return await download_video_site(url, directory, title, on_started)
     from youtube_direct import download_video_direct
 
-    return await download_video_direct(url, directory, title, on_started)
+    try:
+        return await download_video_direct(url, directory, title, on_started, **options)
+    except DownloadError as exc:
+        if getattr(exc, "code", "") not in {"failed", "network"}:
+            raise
+        await check_downloader_update()
+        return await download_video_direct(url, directory, title, on_started, **options)
+
+
+_update_checked = False
+_update_lock = threading.Lock()
+
+
+async def check_downloader_update():
+    """Only standalone installs support self-update; never mutate pip packages."""
+    global _update_checked
+    with _update_lock:
+        if _update_checked:
+            return
+        _update_checked = True
+    binary = shutil.which("yt-dlp")
+    if not binary:
+        return
+    try:
+        import zipfile
+
+        if not zipfile.is_zipfile(binary) and Path(binary).read_bytes()[:2] == b"#!":
+            return
+        process = await asyncio.create_subprocess_exec(
+            binary,
+            "-U",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            await asyncio.wait_for(process.wait(), 60)
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+    except (OSError, TimeoutError):
+        pass
 
 
 async def download_video_site(
@@ -379,6 +422,8 @@ class DownloadJobs:
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
         self._launched: set[str] = set()
+        self._runners = {}
+        self._cancelled = set()
 
     def get(self, job_id: str) -> dict | None:
         if not JOB_ID.fullmatch(job_id):
@@ -431,7 +476,12 @@ class DownloadJobs:
                         error="Jarvis restarted before this download finished.",
                     )
                     continue
-                if job.get("url") == resolved["url"]:
+                if (
+                    job.get("url") == resolved["url"]
+                    and job.get("kind", "video") == resolved.get("kind", "video")
+                    and job.get("audio_format", "mp3")
+                    == resolved.get("audio_format", "mp3")
+                ):
                     return job
                 running += 1
             if running >= 2:
@@ -446,10 +496,18 @@ class DownloadJobs:
                 "url": resolved["url"],
                 "title": title,
                 "source": resolved.get("source", "explicit"),
+                "kind": resolved.get("kind", "video"),
+                "quiet": bool(resolved.get("quiet", False)),
+                "entries": resolved.get("entries", []),
+                "audio_format": resolved.get("audio_format", "mp3"),
+                "quality": resolved.get("quality", 1080),
+                "playlist": resolved.get("playlist", False),
+                "channel": str(resolved.get("channel") or "")[:240],
                 "created_at": time.time(),
                 "updated_at": time.time(),
                 "say": f"I'm preparing {title.removesuffix(' - YouTube')}, Sir. I'll tell you when the file starts downloading.",
             }
+            job["say"] = job_say(job)
             _atomic_json(self.directory / f"{job_id}.json", json.dumps(job))
             self._launched.add(job_id)
             try:
@@ -478,10 +536,16 @@ class DownloadJobs:
         from system import log_action
 
         job_id = job["id"]
-        activity.start(
+
+        def output(function, *args, **kwargs):
+            if not job.get("quiet"):
+                return function(*args, **kwargs)
+
+        output(
+            activity.start,
             "download",
             job["title"],
-            detail="Preparing YouTube MP4",
+            detail=f"Preparing YouTube {job.get('audio_format', 'mp3').upper() if job.get('kind') == 'audio' else 'MP4'}",
             source="youtube",
             item_id=job_id,
         )
@@ -494,14 +558,16 @@ class DownloadJobs:
                 path=str(target),
                 started_at=time.time(),
             )
-            activity.update(
+            output(
+                activity.update,
                 job_id,
                 detail=f"Downloading {target.name}",
                 meta={"filename": target.name, "path": str(target)},
             )
-            log_action("youtube-download", f"started {job_id} {target.name}")
-            notify.send(
-                f"Your YouTube video is downloading, Sir: {target.name}. It will be saved in Downloads.",
+            output(log_action, "youtube-download", f"started {job_id} {target.name}")
+            output(
+                notify.send,
+                f"Your YouTube {job.get('kind', 'video')} is downloading, Sir: {target.name}. It will be saved in {downloads_directory(job.get('kind', 'video'))}.",
                 title="YouTube download started",
                 source="youtube",
                 kind="download-started",
@@ -511,26 +577,74 @@ class DownloadJobs:
             )
 
         try:
-            target = asyncio.run(
-                download_video(job["url"], downloads_directory(), job["title"], started)
-            )
+
+            async def transfer():
+                loop = asyncio.get_running_loop()
+                task = asyncio.current_task()
+                with self._lock:
+                    self._runners[job_id] = (loop, task)
+                    if job_id in self._cancelled:
+                        raise asyncio.CancelledError
+                options = {
+                    k: job[k]
+                    for k in ("kind", "audio_format", "quality", "playlist")
+                    if k in job
+                }
+
+                def progress(percent):
+                    self._change(job_id, progress=percent)
+                    output(activity.update, job_id, progress=percent)
+
+                entries = job.get("entries") or [
+                    {"url": job["url"], "title": job["title"]}
+                ]
+                files = []
+                for entry in entries:
+                    entry_url = (
+                        f"https://www.youtube.com/watch?v={entry['id']}"
+                        if entry.get("id")
+                        else entry["url"]
+                    )
+                    item_options = dict(options, playlist=False, on_progress=progress)
+                    target = await download_video(
+                        entry_url,
+                        downloads_directory(job.get("kind", "video")),
+                        entry.get("title") or job["title"],
+                        started,
+                        **item_options,
+                    )
+                    files.append(str(target))
+                    self._change(job_id, files=files)
+                return target
+
+            target = asyncio.run(transfer())
             self._change(
                 job_id,
                 status="done",
                 filename=target.name,
                 path=str(target),
                 completed_at=time.time(),
+                progress=100.0,
             )
-            activity.finish(job_id, detail=f"Saved to {target}")
-            log_action("youtube-download", f"saved {job_id} {target.name}")
-            notify.send(
-                f"Your YouTube video is saved in Downloads, Sir: {target.name}.",
-                title="YouTube video saved",
+            output(activity.finish, job_id, detail=f"Saved to {target}")
+            output(log_action, "youtube-download", f"saved {job_id} {target.name}")
+            output(
+                notify.send,
+                f"Saved {target.name}, Sir, in {target.parent}.",
+                title="YouTube file saved",
                 source="youtube",
                 kind="download-complete",
                 fingerprint=f"{job_id}:complete",
                 allow_speech=False,
                 queue=False,
+            )
+        except asyncio.CancelledError:
+            self._change(job_id, status="cancelled")
+            output(
+                activity.finish,
+                job_id,
+                ok=False,
+                detail="Download cancelled; partial files removed.",
             )
         except Exception as exc:
             error = (
@@ -539,9 +653,10 @@ class DownloadJobs:
                 else "The YouTube download failed, Sir."
             )
             self._change(job_id, status="failed", error=error, failed_at=time.time())
-            activity.finish(job_id, ok=False, detail=error)
-            log_action("youtube-download", f"failed {job_id} {error}")
-            notify.send(
+            output(activity.finish, job_id, ok=False, detail=error)
+            output(log_action, "youtube-download", f"failed {job_id} {error}")
+            output(
+                notify.send,
                 error,
                 title="YouTube download failed",
                 source="youtube",
@@ -551,7 +666,46 @@ class DownloadJobs:
                 queue=False,
             )
         finally:
-            self._threads.pop(job_id, None)
+            with self._lock:
+                self._runners.pop(job_id, None)
+                self._threads.pop(job_id, None)
+                self._cancelled.discard(job_id)
+                self._launched.discard(job_id)
+
+    def cancel(self, job_id=None):
+        from system import require_local
+
+        require_local()
+        with self._lock:
+            active = [self.get(p.stem) for p in self.directory.glob("youtube-*.json")]
+            active = [
+                j
+                for j in active
+                if j
+                and j.get("status") in ACTIVE_STATUSES
+                and (not job_id or j["id"] == job_id)
+            ]
+            if not active:
+                raise DownloadError(
+                    "There is no active YouTube download to cancel, Sir."
+                )
+            job = max(active, key=lambda j: j.get("created_at", 0))
+            self._cancelled.add(job["id"])
+            runner = self._runners.get(job["id"])
+            if runner:
+                runner[0].call_soon_threadsafe(runner[1].cancel)
+            thread = self._threads.get(job["id"])
+        if thread:
+            thread.join(timeout=20)
+            if thread.is_alive():
+                raise DownloadError(
+                    "The download is still stopping, Sir. Check its status in a moment."
+                )
+        current = self.get(job["id"])
+        if current and current.get("status") == "done":
+            return current
+        self._change(job["id"], status="cancelled")
+        return self.get(job["id"])
 
 
 _jobs: DownloadJobs | None = None
@@ -559,16 +713,25 @@ _jobs_lock = threading.Lock()
 
 
 def job_say(job: dict) -> str:
-    if job.get("status") == "downloading":
-        return f"Your YouTube video is downloading to Downloads, Sir: {job.get('filename', 'the MP4 video')}."
-    if job.get("status") == "done":
-        return f"Your YouTube video has been saved in Downloads, Sir: {job.get('filename', 'the MP4 video')}."
-    if job.get("status") == "failed":
+    status = job.get("status")
+    if status == "confirm":
+        return job["say"]
+    if status == "cancelled":
+        return "YouTube download cancelled, Sir. Partial files have been removed."
+    if status == "failed":
         return job.get("error") or "The YouTube download failed, Sir."
+    folder = str(downloads_directory(job.get("kind", "video")))
+    if status == "downloading":
+        return f"Your YouTube file is downloading to {folder}, Sir: {job.get('filename', 'the file')}."
+    if status == "done":
+        return f"Saved {job.get('filename', 'the file')} in {folder}, Sir." + (
+            f" {len(job['files'])} playlist files saved."
+            if len(job.get("files", [])) > 1
+            else ""
+        )
     title = str(job.get("title") or "this YouTube video").removesuffix(" - YouTube")
-    return (
-        f"I'm preparing {title}, Sir. I'll tell you when the file starts downloading."
-    )
+    channel = f" by {job['channel']}" if job.get("channel") else ""
+    return f"I'm preparing {title}{channel}, Sir. I'll tell you when it is saved."
 
 
 def jobs() -> DownloadJobs:
@@ -584,9 +747,126 @@ def jobs() -> DownloadJobs:
         return _jobs
 
 
-def start_download(url: str = "") -> dict:
-    resolved = YouTubeHistory().resolve(foreground_video(), url)
-    return jobs().start(resolved)
+_choices = {}
+_choices_lock = threading.Lock()
+
+
+def start_download(
+    url: str = "", *, confirmation_id="", confirm=None, quiet=False
+) -> dict:
+    from system import require_local
+    from youtube_resolve import (
+        YouTubeSearchError,
+        parse_request,
+        playlist_entries,
+        playlist_url,
+        resolve_query,
+        video_details,
+    )
+
+    require_local()
+    if confirmation_id:
+        with _choices_lock:
+            choice = _choices.pop(confirmation_id, None)
+        if not choice or choice[0] < time.monotonic():
+            raise DownloadError(
+                "That choice expired, Sir. Please ask for the download again."
+            )
+        if confirm is not True:
+            return {
+                "status": "cancelled",
+                "say": "I won't download that one, Sir. Try different words.",
+            }
+        return jobs().start(choice[1])
+    request = parse_request(url)
+    options = {
+        k: getattr(request, k) for k in ("kind", "audio_format", "quality", "playlist")
+    }
+    options["quiet"] = quiet
+    collection = playlist_url(url) if request.playlist else None
+    if re.search(r"https?://", url, re.I) and not request.url and not collection:
+        raise DownloadError(
+            "Please give me a YouTube video link, Sir, or explicitly ask to download a playlist."
+        )
+    if collection:
+        try:
+            entries = playlist_entries(collection)
+        except YouTubeSearchError as exc:
+            raise DownloadError(str(exc)) from exc
+        from youtube_history import VIDEO_ID
+
+        entries = [e for e in entries if VIDEO_ID.fullmatch(str(e.get("id") or ""))]
+        if not entries:
+            raise DownloadError(
+                "That playlist has no available videos, Sir. Try a public playlist."
+            )
+        resolved = {
+            "url": collection,
+            "title": f"Playlist ({len(entries)} videos)",
+            "entries": entries,
+        }
+    elif (
+        request.url
+        or not url.strip()
+        or request.query.casefold()
+        in {
+            "this video",
+            "that video",
+            "this",
+            "that",
+            "current video",
+            "recent video",
+            "last video",
+            "this song",
+            "this audio",
+            "download",
+            "save",
+        }
+    ):
+        resolved = YouTubeHistory().resolve(foreground_video(), request.url or "")
+        try:
+            details = video_details(resolved["url"])
+        except YouTubeSearchError as exc:
+            raise DownloadError(str(exc)) from exc
+        resolved.update(
+            title=details.get("title") or resolved.get("title"),
+            channel=details.get("channel") or details.get("uploader") or "",
+        )
+    else:
+        try:
+            decision = resolve_query(request)
+        except YouTubeSearchError as exc:
+            raise DownloadError(str(exc)) from exc
+        if decision.action == "none":
+            raise DownloadError(
+                f'Nothing found for "{request.query}", Sir. Shall we try different words?'
+            )
+        top = decision.candidates[0].result
+        resolved = {
+            "url": f"https://www.youtube.com/watch?v={top['id']}",
+            "title": top.get("title"),
+            "channel": top.get("channel") or top.get("uploader"),
+            "source": "search",
+        }
+        if decision.action == "confirm":
+            token = uuid.uuid4().hex
+            with _choices_lock:
+                for key, value in list(_choices.items()):
+                    if value[0] < time.monotonic():
+                        _choices.pop(key, None)
+                _choices[token] = (time.monotonic() + 120, dict(resolved, **options))
+            return {
+                "status": "confirm",
+                "confirmation_id": token,
+                "title": resolved["title"],
+                "channel": resolved["channel"],
+                "candidates": [
+                    {"title": c.result.get("title"), "channel": c.result.get("channel")}
+                    for c in decision.candidates
+                ],
+                "say": f"{resolved['title']} by {resolved['channel'] or 'YouTube'}, Sir — this one?",
+            }
+    return jobs().start(dict(resolved, **options))
 
 
 def _bridge_call(method: str, path: str, body: dict | None = None) -> dict | None:
@@ -603,7 +883,7 @@ def _bridge_call(method: str, path: str, body: dict | None = None) -> dict | Non
         if token := bridge_token():
             request.add_header("Authorization", f"Bearer {token}")
         try:
-            response = urllib.request.urlopen(request, timeout=10)
+            response = urllib.request.urlopen(request, timeout=110)
         except urllib.error.HTTPError as exc:
             response = exc
         with response:
@@ -621,7 +901,11 @@ class YouTubeDownloadTools:
 
     @property
     def tools(self) -> list:
-        return [self.download_youtube_video]
+        return [
+            self.download_youtube_video,
+            self.confirm_youtube_download,
+            self.cancel_youtube_download,
+        ]
 
     def _report_start(self, context: RunContext, job_id: str) -> None:
         session = getattr(context, "session", None)
@@ -630,15 +914,17 @@ class YouTubeDownloadTools:
         self._watched.add(job_id)
 
         async def watch() -> None:
-            deadline = time.monotonic() + VOICE_WAIT_S
+            deadline = time.monotonic() + PREPARE_TIMEOUT_S + TRANSFER_TIMEOUT_S + 60
             while time.monotonic() < deadline:
                 await asyncio.sleep(VOICE_POLL_S)
                 result = await asyncio.to_thread(
                     _bridge_call, "GET", f"/youtube/download/{job_id}"
                 )
                 job = (result or {}).get("job")
-                if not isinstance(job, dict) or job.get("status") == "preparing":
+                if not isinstance(job, dict) or job.get("status") in ACTIVE_STATUSES:
                     continue
+                if job_id not in self._watched:
+                    return
                 with contextlib.suppress(Exception):
                     await session.say(job_say(job))
                 return
@@ -649,16 +935,15 @@ class YouTubeDownloadTools:
 
     @function_tool()
     async def download_youtube_video(self, context: RunContext, url: str = "") -> dict:
-        """Download this YouTube video as MP4 with audio, headlessly, to Downloads.
+        """Download YouTube from a URL, video ID or complete spoken search request.
 
-        Use immediately for 'download this YouTube video' or 'save this video'.
-        With no URL, use the user's currently viewed YouTube video, otherwise
-        the most recent foreground YouTube video (including a closed tab).
-        The tool tracks conversion separately from downloading and announces
-        when the actual file transfer starts. Never use open_url for this task.
-
-        Args:
-            url: Optional explicit YouTube video URL; empty means this/recent video.
+        Pass the full request, including audio/MP3/M4A and quality words, in url.
+        Empty url selects the current/recent video. Default MP4 up to 1080p;
+        audio defaults to MP3 192 kbps. Files stay on the desktop.
+        Speak the returned say. On confirm ask exactly that short question,
+        then call confirm_youtube_download with the token and the user's yes/no.
+        Use cancel_youtube_download when asked to cancel a download.
+        Personal use only; private/paywalled content is not bypassed.
         """
         from system import LocalSystemError, require_local
 
@@ -668,8 +953,13 @@ class YouTubeDownloadTools:
             raise ToolError(str(exc)) from exc
         if not isinstance(url, str) or len(url) > 2048:
             raise ToolError("Please give me a valid YouTube video link, Sir.")
+        import phone_session
+
+        body = {"url": url}
+        if phone_session.private():
+            body["quiet"] = True
         result = await asyncio.to_thread(
-            _bridge_call, "POST", "/youtube/download", {"url": url}
+            _bridge_call, "POST", "/youtube/download", body
         )
         if (
             not result
@@ -680,12 +970,48 @@ class YouTubeDownloadTools:
                 (result or {}).get("error")
                 or "The download service isn't available, Sir."
             )
-        job = result["job"]
-        if job.get("status") == "preparing":
+        return self._watch_result(context, result["job"])
+
+    def _watch_result(self, context, job):
+        if job.get("status") in ACTIVE_STATUSES:
+            self._latest = job["id"]
             self._report_start(context, job["id"])
-        return {
-            "job_id": job["id"],
-            "status": job["status"],
-            "url": job["url"],
-            "say": job_say(job),
-        }
+        return dict(job, say=job_say(job))
+
+    @function_tool()
+    async def confirm_youtube_download(
+        self, context: RunContext, confirmation_id: str, confirmed: bool
+    ) -> dict:
+        """Accept or reject the last YouTube title, using its confirmation_id and Sir's yes/no."""
+        result = await asyncio.to_thread(
+            _bridge_call,
+            "POST",
+            "/youtube/download",
+            {"confirmation_id": confirmation_id, "confirm": confirmed},
+        )
+        if not result or not result.get("ok"):
+            raise ToolError(
+                (result or {}).get("error")
+                or "The download service isn't available, Sir."
+            )
+        return self._watch_result(context, result["job"])
+
+    @function_tool()
+    async def cancel_youtube_download(
+        self, context: RunContext, job_id: str = ""
+    ) -> dict:
+        """Cancel the given YouTube download, or the most recent active download."""
+        watched = self._watched.copy()
+        self._watched.discard(job_id or getattr(self, "_latest", ""))
+        result = await asyncio.to_thread(
+            _bridge_call, "POST", "/youtube/download/cancel", {"job_id": job_id or None}
+        )
+        if not result or not result.get("ok"):
+            self._watched.update(watched)
+            raise ToolError(
+                (result or {}).get("error") or "I couldn't cancel that download, Sir."
+            )
+        job = result["job"]
+        # The tool response speaks cancellation; suppress the completion watcher.
+        self._watched.discard(job.get("id"))
+        return dict(job, say=job_say(job))

@@ -83,7 +83,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
   Future<void> _pullCaptionsOnce() async {
     final api = LinkApi(
-        base: await Prefs.host(), token: await Prefs.token(), httpClient: _http);
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: _http,
+    );
     if (api.base.isEmpty) return;
     final caps = await api.captions(limit: 8);
     if (!mounted) return;
@@ -117,7 +120,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
       case CallState.ending:
         return _call.detail;
       case CallState.live:
-        return _muted ? 'Muted — tap mic to speak' : 'Listening…';
+        return _muted ? 'Muted — tap mic to speak' : '${_call.phase.name}…';
       case CallState.error:
         return 'Error: ${_call.detail}';
     }

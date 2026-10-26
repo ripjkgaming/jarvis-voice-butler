@@ -140,3 +140,4 @@ def test_youtube_download_is_high_priority_and_never_handed_off(monkeypatch):
     assert "download_youtube_video" in {tool.id for tool in assistant.tools}
     assert "download_youtube_video" not in {tool.id for tool in assistant._cold_tools}
     assert _never_demote("download_youtube_video")
+    assert _never_demote("cancel_youtube_download")

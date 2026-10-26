@@ -669,7 +669,6 @@ async def test_private_notify_speak_queue_fail_before_context_losing_threads(
         "find_cheaper_alternative",
         "code_project",
         "run_tests",
-        "download_youtube_video",
         "notify",
         "show_panel",
         "open_projects",

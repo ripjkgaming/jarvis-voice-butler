@@ -139,7 +139,6 @@ PRIVATE_UNSAFE_TOOLS = frozenset(
         "find_cheaper_alternative",
         "code_project",
         "run_tests",
-        "download_youtube_video",
         "show_panel",
         "hide_panel",
         "open_insights",

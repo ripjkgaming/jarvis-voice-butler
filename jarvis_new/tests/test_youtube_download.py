@@ -142,13 +142,17 @@ def test_job_starts_as_preparing_dedupes_and_failure_does_not_emit_start(
 
 
 @pytest.mark.asyncio
-async def test_live_voice_watcher_only_announces_actual_start(monkeypatch):
+async def test_live_voice_watcher_announces_completion_only(monkeypatch):
     from types import SimpleNamespace
 
     tools = yt.YouTubeDownloadTools()
     monkeypatch.setattr(yt, "VOICE_POLL_S", 0)
     states = iter(
-        [{"status": "preparing"}, {"status": "downloading", "filename": "Film.mp4"}]
+        [
+            {"status": "preparing"},
+            {"status": "downloading", "filename": "Film.mp4"},
+            {"status": "done", "filename": "Film.mp4"},
+        ]
     )
     monkeypatch.setattr(
         yt, "_bridge_call", lambda *a: {"ok": True, "job": next(states)}
@@ -162,7 +166,7 @@ async def test_live_voice_watcher_only_announces_actual_start(monkeypatch):
     tools._report_start(SimpleNamespace(session=Session()), "youtube-test")
     await asyncio.gather(*tools._tasks)
     assert len(lines) == 1
-    assert "downloading" in lines[0].lower()
+    assert "saved" in lines[0].lower()
 
 
 @pytest.mark.asyncio
@@ -177,7 +181,7 @@ async def test_repeated_tool_requests_watch_same_job_once(monkeypatch):
         "_bridge_call",
         lambda *a: (
             calls.append(a)
-            or {"ok": True, "job": {"status": "downloading", "filename": "Film.mp4"}}
+            or {"ok": True, "job": {"status": "done", "filename": "Film.mp4"}}
         ),
     )
     lines = []
@@ -229,7 +233,7 @@ def test_bridge_notifications_are_desktop_only_and_phases_follow_real_transfer(
     monkeypatch.setattr(activity, "update", lambda *a, **k: None)
     monkeypatch.setattr(activity, "finish", lambda *a, **k: None)
 
-    async def download(url, directory, title, started):
+    async def download(url, directory, title, started, **options):
         assert jobs.get(job["id"])["status"] == "preparing"
         assert not notifications
         target = tmp_path / "Film.mp4"
@@ -261,7 +265,7 @@ def test_converter_failure_has_no_download_start_notification(monkeypatch, tmp_p
     monkeypatch.setattr(activity, "start", lambda *a, **k: job["id"])
     monkeypatch.setattr(activity, "finish", lambda *a, **k: None)
 
-    async def blocked(*args):
+    async def blocked(*args, **options):
         raise yt.DownloadError("YT1s verification failed; download hasn't started")
 
     monkeypatch.setattr(yt, "download_video", blocked)

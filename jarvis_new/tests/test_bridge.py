@@ -289,7 +289,7 @@ def test_summon_post_proxies_talk_to_wake_socket(monkeypatch, tmp_path):
     try:
         code, body = _post(server, "/summon", {})
         assert code == 200
-        assert body == {"ok": True, "talk": "requested", "muted": False}
+        assert body == {"ok": True, "talk": "requested", "muted": False, "spoke_on": "desktop"}
         assert stub.requests == [{"talk": True}]
     finally:
         server.shutdown()
@@ -534,7 +534,7 @@ def test_chat_voice_true_summons_without_text_llm(monkeypatch, tmp_path):
         monkeypatch.setattr(bridge, "_gemini_reply", _boom)
         code, body = _post(server, "/chat", {"text": "hello", "voice": True})
         assert code == 200
-        assert body == {"ok": True, "voice": "summoned"}
+        assert body == {"ok": True, "voice": "summoned", "spoke_on": "desktop"}
         assert stub.requests == [{"talk": True, "text": "hello"}]
     finally:
         server.shutdown()

@@ -2583,6 +2583,8 @@ async def my_agent(ctx: JobContext):
 
     _voice_turns = VoiceTurnBinding(session, _echo, _publish_voice_turn)
     ctx.add_shutdown_callback(_voice_turns.close)
+    from linked_turn import ExternalSeedRouter
+    _external_seeds = ExternalSeedRouter(_voice_turns)
 
     @ctx.room.on("data_received")
     def _turn_control(packet):
@@ -2595,6 +2597,8 @@ async def my_agent(ctx: JobContext):
                 return
             data = json.loads(bytes(packet.data))
             if data.get("type") != "jarvis_turn":
+                return
+            if _external_seeds.handle(data):
                 return
             event = data.get("event")
             if event == "startup_audio":

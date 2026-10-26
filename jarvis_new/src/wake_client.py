@@ -660,6 +660,9 @@ class WakeClient:
                             self._talk_event.set()
                             reply = {"ok": True, "announce": "queued"}
                         new_muted = None
+                    elif isinstance(msg, dict) and msg.get("cancel_external") is True:
+                        reply = {"ok": True, "cancelled": self._cancel_linked_turn(msg)}
+                        new_muted = None
                     elif isinstance(msg, dict) and msg.get("talk") is True:
                         reply, wants_talk, unmute = handle_talk_request(
                             msg, muted=muted
@@ -672,6 +675,14 @@ class WakeClient:
                             # call; mid-call it has nowhere to go (the room
                             # handle lives in _summon_session), so it is
                             # dropped and reported rather than kept stale.
+                            from linked_turn import LinkedTurn, external_key
+
+                            key = external_key(msg)
+                            if not in_call:
+                                with self._mic_lock:
+                                    self._pending_linked_turn = (
+                                        LinkedTurn(key) if key else None
+                                    )
                             seed = extract_talk_text(msg)
                             if seed and not in_call:
                                 with self._mic_lock:
@@ -739,18 +750,13 @@ class WakeClient:
         logger.warning("aec: %s", await asyncio.to_thread(audio_aec.engage))
         self.start_mic_control()
         self._events.start()
-        self._render_ack()
+        await self._listen_loop(None)
+
+    def _load_wake_model(self):
         from openwakeword.model import Model
 
-        # ONNX backend: tflite-runtime wheels don't cover this system's
-        # Python, and ONNX scores identically. Models download once on
-        # first run (cached under site-packages/openwakeword/resources).
         model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
-        self._model = model
-        logger.warning(
-            "listening for 'hey Jarvis' (offline, nothing leaves the laptop)"
-        )
-        await self._listen_loop(model)
+        return model
 
     async def _listen_loop(self, model) -> None:
         import numpy as np
@@ -771,7 +777,7 @@ class WakeClient:
         # queue: the wake word, join buffer and live call all hear it.
         from mic_clean import make_cleaner
 
-        cleaner = make_cleaner(BLOCKSIZE)
+        cleaner = None
 
         def _audio_callback(indata, frames, time_info, status) -> None:
             nonlocal cleaner
@@ -801,6 +807,15 @@ class WakeClient:
             blocksize=BLOCKSIZE,
             callback=_audio_callback,
         ):
+            # Capture starts before ONNX/Piper/noise-model initialization.
+            # The same bounded queue is consumed once loading completes.
+            if model is None:
+                model = await asyncio.to_thread(self._load_wake_model)
+                self._model = model
+            cleaner = await asyncio.to_thread(make_cleaner, BLOCKSIZE)
+            logger.warning(
+                "listening for 'hey Jarvis' (offline, nothing leaves the laptop)"
+            )
             pending16 = np.zeros(0, dtype=np.int16)
             down16 = Downsampler48to16()
             import school as _school
@@ -877,6 +892,8 @@ class WakeClient:
                     hot["run"] = hot["run"] + 1 if score >= need else 0
                     if hot["run"] >= (_school.WAKE_FRAMES if strict else 1):
                         hot["run"] = 0
+                        with self._mic_lock:
+                            self._pending_linked_turn = None
                         logger.warning(
                             "wake word detected (%.2f)%s",
                             score,
@@ -960,19 +977,28 @@ class WakeClient:
     def _play_ack(self) -> None:
         if not self._ack_pcm:
             return
-        try:
-            import sounddevice as sd
+        from playback_gate import get_playback_gate
 
-            with contextlib.suppress(Exception):
-                sd.stop()
-                sd.wait()
-            sd.play(
-                self._bytes_to_int16(self._ack_pcm),
-                samplerate=self._ack_rate,
-                blocking=False,
-            )
-        except Exception as exc:
-            logger.warning("ack playback failed: %s", exc)
+        session = get_playback_gate().session()
+        self._ack_session = session
+
+        def play():
+            from games.voice.tts import SoundDeviceSink
+
+            sink = None
+            try:
+                if not session.acquire():
+                    return
+                sink = SoundDeviceSink(self._ack_rate)
+                session.write(self._ack_pcm, self._ack_rate, sink.write)
+            except Exception as exc:
+                logger.warning("ack playback failed: %s", exc)
+            finally:
+                if sink is not None:
+                    sink.close()
+                session.close()
+
+        threading.Thread(target=play, name="wake-ack", daemon=True).start()
 
     def _gate_mic(self, raw: bytes, now: float) -> bytes:
         """Talk-over gate on one outgoing call block; raw on any failure."""
@@ -1018,7 +1044,6 @@ class WakeClient:
                 }
             else:
                 kwargs = {}
-                self._play_ack()
             summon_overlay()
 
     @staticmethod
@@ -1039,6 +1064,12 @@ class WakeClient:
         """Run one call. True when it ended by an in-call rewake."""
         from livekit import rtc
 
+        with self._mic_lock:
+            linked = getattr(self, "_pending_linked_turn", None)
+            self._pending_linked_turn = None
+            self._active_linked_turn = linked
+        if linked is not None and linked.cancelled.is_set():
+            return False
         capture_epoch = getattr(self, "_mute_epoch", 0)
         # Never layer a second Jarvis over an ongoing call (an earlier
         # summon that hasn't hung up yet). The HUD stays visible either
@@ -1087,6 +1118,39 @@ class WakeClient:
         disconnected = asyncio.Event()
         agent_audio: asyncio.Queue = asyncio.Queue()
         agent_ready = asyncio.Event()
+        self._agent_turn_id = None
+        self._playback_scope = room_name
+        self._agent_output = None
+
+        loop = asyncio.get_running_loop()
+
+        async def cancel_linked(payload):
+            target = payload.get("turn_id")
+            if target is None or target == getattr(self, "_agent_turn_id", None):
+                output = getattr(self, "_agent_output", None)
+                if output is not None:
+                    output.cancel()
+            with contextlib.suppress(Exception):
+                await room.local_participant.publish_data(
+                    json.dumps(payload).encode(), reliable=True, topic="jarvis.turn"
+                )
+
+        @room.on("data_received")
+        def _on_turn_data(packet) -> None:
+            self._handle_turn_data(packet.data)
+
+        async def startup_audio(pending):
+            await room.local_participant.publish_data(
+                json.dumps(
+                    {
+                        "type": "jarvis_turn",
+                        "event": "startup_audio",
+                        "pending": pending,
+                    }
+                ).encode(),
+                reliable=True,
+                topic="jarvis.turn",
+            )
 
         @room.on("disconnected")
         def _on_disconnected(_reason=None) -> None:
@@ -1126,6 +1190,25 @@ class WakeClient:
                 logger.warning("already in a call; staying out")
                 summon_overlay()
                 return False
+            if linked is not None and linked.cancelled.is_set():
+                return False
+            if linked is not None:
+
+                def dispatch_cancel(payload):
+                    def schedule():
+                        task = asyncio.create_task(cancel_linked(payload))
+                        call_tasks.add(task)
+                        task.add_done_callback(call_tasks.discard)
+
+                    with contextlib.suppress(RuntimeError):
+                        loop.call_soon_threadsafe(schedule)
+
+                linked.bind(dispatch_cancel)
+            if linked is not None and not seed_text:
+                linked.seed()
+            if mic_queue is not None and preserve_join_audio:
+                with contextlib.suppress(Exception):
+                    await startup_audio(True)
             logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
             publish_hud_room(room_name)
             self._set_in_call(True)
@@ -1148,6 +1231,7 @@ class WakeClient:
                     preroll or [],
                     preserve_join_audio,
                     capture_epoch,
+                    startup_audio,
                 )
                 if mic_queue is not None
                 else self._pump_mic(source)
@@ -1177,18 +1261,37 @@ class WakeClient:
                     and not mic_task.cancelled()
                     and mic_task.exception() is None
                 )
+            if linked is not None and linked.cancelled.is_set():
+                return False
             track = track_ready.result()
             # "online" means the subscribed voice track exists, not that
             # the remote model has started responding or audio is audible.
             hud_stage("online")
             play_task = asyncio.create_task(self._play_agent(track))
             call_tasks.add(play_task)
-            if seed_text:
+            if seed_text and (linked is None or linked.seed()):
                 # Text→voice: the typed opener becomes the first user
                 # turn over the standard chat topic, so the agent answers
                 # with voice. Fail-soft: a dropped seed never kills audio.
                 try:
-                    await room.local_participant.send_text(seed_text, topic="lk.chat")
+                    if linked is None:
+                        await room.local_participant.send_text(
+                            seed_text, topic="lk.chat"
+                        )
+                    else:
+                        await room.local_participant.publish_data(
+                            json.dumps(
+                                {
+                                    "type": "jarvis_turn",
+                                    "event": "external_seed",
+                                    "client_id": linked.key[0],
+                                    "external_turn_id": linked.key[1],
+                                    "text": seed_text,
+                                }
+                            ).encode(),
+                            reliable=True,
+                            topic="jarvis.turn",
+                        )
                     logger.warning("seeded call with typed text")
                 except Exception as exc:
                     logger.warning("seed text send failed: %s", exc)
@@ -1222,6 +1325,11 @@ class WakeClient:
                         with contextlib.suppress(Exception):
                             await source.aclose()
                 finally:
+                    if linked is not None:
+                        linked.close()
+                    with self._mic_lock:
+                        if getattr(self, "_active_linked_turn", None) is linked:
+                            self._active_linked_turn = None
                     clear_hud_room()
                     clear_hud_waking()
                     self._set_in_call(False)
@@ -1339,6 +1447,7 @@ class WakeClient:
         preroll: list,
         preserve_join_audio: bool = False,
         capture_epoch: int | None = None,
+        startup_audio=None,
     ) -> None:
         """Forward the existing capture stream once the agent can hear it.
 
@@ -1357,6 +1466,9 @@ class WakeClient:
             await asyncio.wait_for(agent_ready.wait(), AGENT_JOIN_TIMEOUT)
         except TimeoutError:
             return
+        if preserve_join_audio and startup_audio is not None:
+            with contextlib.suppress(Exception):
+                await startup_audio(True)
         await asyncio.sleep(MIC_READY_SETTLE_S)  # agent input stream attachment
         if preserve_join_audio and mic_buffer_failed(queue):
             return
@@ -1416,6 +1528,9 @@ class WakeClient:
                 return
             await forward(raw, backlog=index + 1 < len(initial) or not queue.empty())
         initial.clear()
+        if preserve_join_audio and startup_audio is not None:
+            with contextlib.suppress(Exception):
+                await startup_audio(False)
         # Buffered keyword audio is never scored again. Only new audio can
         # request a stale-call restart, just like the former second stream.
         model = self._model if preserve_join_audio else None
@@ -1454,6 +1569,78 @@ class WakeClient:
                     self._rewake.set()
                     return
 
+    @staticmethod
+    def _speaker_lease(action: str) -> bool:
+        """Bridge arbitrates the desktop and phone speaker across processes."""
+        import urllib.error
+        import urllib.request
+
+        home = Path(os.environ.get("JARVIS_HOME", "") or Path.home() / ".jarvis")
+        token = os.environ.get("JARVIS_BRIDGE_TOKEN", "").strip()
+        if not token:
+            with contextlib.suppress(OSError):
+                token = (home / "bridge_token").read_text().strip()
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        port = os.environ.get("JARVIS_BRIDGE_PORT", "4317")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/speaker",
+            data=json.dumps({"surface": "desktop", "action": action}).encode(),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=1) as response:
+                return bool(json.load(response).get("ok"))
+        except (OSError, ValueError) as exc:
+            logger.warning("desktop speaker lease %s failed: %s", action, exc)
+            return False
+
+    def _cancel_linked_turn(self, message: dict) -> bool:
+        from linked_turn import external_key
+
+        key = external_key(message)
+        if key is None:
+            return False
+        with self._mic_lock:
+            pending = getattr(self, "_pending_linked_turn", None)
+            active = getattr(self, "_active_linked_turn", None)
+            if pending is not None and pending.key == key:
+                self._pending_text = ""
+                self._talk_event.clear()
+        return bool(
+            (pending is not None and pending.cancel(key))
+            or (active is not None and active.cancel(key))
+        )
+
+    def _handle_turn_data(self, raw: bytes) -> None:
+        """Cancel at the device gate, even when an old frame is already queued."""
+        from playback_gate import get_playback_gate
+
+        try:
+            message = json.loads(raw)
+        except (TypeError, ValueError, UnicodeDecodeError):
+            return
+        if not isinstance(message, dict) or message.get("type") != "jarvis_turn":
+            return
+        linked = getattr(self, "_active_linked_turn", None)
+        if linked is not None:
+            linked.observe(message)
+        tid = message.get("turn_id")
+        if not isinstance(tid, int):
+            return
+        scoped_id = (getattr(self, "_playback_scope", "call"), tid)
+        output = getattr(self, "_agent_output", None)
+        if message.get("event") == "cancel":
+            get_playback_gate().cancel(scoped_id)
+            if tid == getattr(self, "_agent_turn_id", None) and output is not None:
+                output.cancel()
+        elif message.get("event") == "state" and message.get("state") == "speaking":
+            current = getattr(self, "_agent_turn_id", None)
+            if current is None or tid >= current:
+                self._agent_turn_id = tid
+
     async def _play_agent(self, track) -> None:
         """Play frames in order while mic/call callbacks remain responsive."""
         from livekit.rtc import AudioStream
@@ -1462,8 +1649,24 @@ class WakeClient:
 
         stream = AudioStream(track)
         output = AudioPlayback()
+        # Tests and direct stream consumers can omit a bridge session. Normal
+        # room calls always carry the scope and require explicit ownership.
+        scoped_call = getattr(self, "_playback_scope", None) is not None
+        lease = not scoped_call or await asyncio.to_thread(self._speaker_lease, "claim")
+        refresh_at = time.monotonic() + 30.0
+        self._agent_output = output
+        ack = getattr(self, "_ack_session", None)
+        if ack is not None:
+            ack.cancelled.set()
         try:
             async for event in stream:
+                if scoped_call and time.monotonic() >= refresh_at:
+                    lease = await asyncio.to_thread(self._speaker_lease, "claim")
+                    refresh_at = time.monotonic() + 30.0
+                    if not lease:
+                        output.cancel()
+                if not lease:
+                    continue
                 frame = event.frame
                 pcm = (
                     frame.data.tobytes()
@@ -1481,7 +1684,13 @@ class WakeClient:
                     samples = (samples.astype("float32") * _school_gain()).astype(
                         "int16"
                     )
-                await output.write(samples, frame.sample_rate)
+                turn_id = getattr(self, "_agent_turn_id", None)
+                scoped_id = (
+                    (getattr(self, "_playback_scope", "call"), turn_id)
+                    if turn_id is not None
+                    else None
+                )
+                await output.write(samples, frame.sample_rate, turn_id=scoped_id)
         finally:
             try:
                 with contextlib.suppress(Exception):
@@ -1489,6 +1698,9 @@ class WakeClient:
             finally:
                 with contextlib.suppress(Exception):
                     await stream.aclose()
+                if scoped_call and lease:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(self._speaker_lease, "release")
 
 
 def _school_quiet() -> bool:

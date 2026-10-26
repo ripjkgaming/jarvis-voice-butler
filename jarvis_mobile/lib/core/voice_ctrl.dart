@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -10,7 +11,18 @@ import 'prefs.dart';
 
 enum CallState { idle, joining, live, reconnecting, ending, error }
 
-enum VoiceEvent { speaking, quiet, reconnecting, reconnected, disconnected }
+enum VoiceEvent {
+  loading,
+  listening,
+  thinking,
+  speaking,
+  quiet,
+  reconnecting,
+  reconnected,
+  disconnected,
+}
+
+enum VoicePhase { loading, listening, thinking, speaking }
 
 /// Injectable transport: tests never request a token or publish real audio.
 abstract class VoiceTransport {
@@ -23,9 +35,104 @@ abstract class VoiceTransport {
   Future<void> close();
 }
 
+/// Ordered control envelopes also gate the physical remote audio sink.
+class VoiceTurnFilter {
+  int current = -1;
+  final Set<int> _cancelled = {};
+  bool accept(Map data) {
+    if (data['type'] != 'jarvis_turn' ||
+        !{'state', 'cancel'}.contains(data['event']))
+      return false;
+    if (data['event'] == 'state' &&
+        !{
+          'loading',
+          'listening',
+          'thinking',
+          'speaking',
+        }.contains(data['state']))
+      return false;
+    final id = int.tryParse('${data['turn_id']}');
+    if (id == null || id < current) return false;
+    current = id;
+    if (data['event'] == 'cancel') {
+      cancel();
+      return true;
+    }
+    return !_cancelled.contains(id);
+  }
+
+  void cancel() {
+    _cancelled.add(current);
+    _cancelled.removeWhere((id) => id < current);
+  }
+}
+
 class LiveKitVoiceTransport implements VoiceTransport {
   final Room _room = Room();
   CancelListenFunc? _events;
+  final VoiceTurnFilter _turnFilter = VoiceTurnFilter();
+  int get _turnId => _turnFilter.current;
+  bool _audioAllowed = false;
+  int _audioEpoch = 0;
+
+  void _gate(bool allow) {
+    _audioAllowed = allow;
+    final epoch = ++_audioEpoch;
+    for (final participant in _room.remoteParticipants.values) {
+      if (participant.kind != ParticipantKind.AGENT) continue;
+      for (final publication in participant.audioTrackPublications) {
+        final track = publication.track;
+        if (track is RemoteAudioTrack) unawaited(_output(track, allow, epoch));
+      }
+    }
+  }
+
+  Future<void> _output(RemoteAudioTrack track, bool allow, int epoch) async {
+    try {
+      if (allow) {
+        await track.mediaStreamTrack.applyConstraints({'volume': 1.0});
+        if (epoch == _audioEpoch) await track.start();
+      } else {
+        // Six small volume ramps preserve the 150 ms interruption budget.
+        for (var step = 5; step >= 0; step--) {
+          if (epoch != _audioEpoch) return;
+          await track.mediaStreamTrack.applyConstraints({'volume': step / 6});
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        if (epoch == _audioEpoch) await track.stop();
+      }
+    } catch (_) {
+      if (!allow && epoch == _audioEpoch) await track.stop();
+    }
+  }
+
+  void _data(DataReceivedEvent event, void Function(VoiceEvent) onEvent) {
+    if (event.participant?.kind != ParticipantKind.AGENT) return;
+    try {
+      final data = jsonDecode(utf8.decode(event.data));
+      if (data is! Map || !_turnFilter.accept(data)) return;
+      if (data['event'] == 'cancel') {
+        _gate(false);
+        onEvent(VoiceEvent.listening);
+        return;
+      }
+      final state = data['state'];
+      _gate(state == 'speaking');
+      switch (state) {
+        case 'loading':
+          onEvent(VoiceEvent.loading);
+        case 'listening':
+          onEvent(VoiceEvent.listening);
+        case 'thinking':
+          onEvent(VoiceEvent.thinking);
+        case 'speaking':
+          onEvent(VoiceEvent.speaking);
+      }
+    } catch (_) {
+      /* Ignore unrelated room data. */
+    }
+  }
+
   @override
   Future<void> connect(
     String url,
@@ -33,10 +140,34 @@ class LiveKitVoiceTransport implements VoiceTransport {
     void Function(VoiceEvent) onEvent,
   ) async {
     _events = _room.events.listen((event) {
-      if (event is ActiveSpeakersChangedEvent) {
-        onEvent(
-          event.speakers.isEmpty ? VoiceEvent.quiet : VoiceEvent.speaking,
-        );
+      if (event is DataReceivedEvent) {
+        _data(event, onEvent);
+      } else if (event is TrackSubscribedEvent) {
+        final track = event.track;
+        if (track is RemoteAudioTrack && !_audioAllowed)
+          unawaited(track.stop());
+      } else if (event is ActiveSpeakersChangedEvent) {
+        final localSpeaking = event.speakers.any((p) => p is LocalParticipant);
+        if (localSpeaking && _audioAllowed && _turnId >= 0) {
+          _turnFilter.cancel();
+          _gate(false);
+          onEvent(VoiceEvent.listening);
+          final local = _room.localParticipant;
+          if (local != null)
+            unawaited(
+              local.publishData(
+                utf8.encode(
+                  jsonEncode({
+                    'type': 'jarvis_turn',
+                    'event': 'cancel',
+                    'turn_id': _turnId,
+                  }),
+                ),
+                reliable: true,
+                topic: 'jarvis_turn',
+              ),
+            );
+        }
       } else if (event is RoomReconnectingEvent || event is RoomResumingEvent) {
         onEvent(VoiceEvent.reconnecting);
       } else if (event is RoomReconnectedEvent) {
@@ -57,6 +188,7 @@ class LiveKitVoiceTransport implements VoiceTransport {
 
   @override
   Future<void> close() async {
+    _gate(false);
     final cancel = _events;
     _events = null;
     if (cancel != null) await cancel();
@@ -90,9 +222,10 @@ class VoiceCtrl extends ChangeNotifier {
 
   Future<Map<String, dynamic>> _mint() async {
     final api = LinkApi(
-        base: await Prefs.host(),
-        token: await Prefs.token(),
-        httpClient: _client ??= http.Client());
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: _client ??= http.Client(),
+    );
     if (api.base.isEmpty || api.token.isEmpty) {
       throw StateError('Link the home bridge and bearer token first.');
     }
@@ -104,10 +237,12 @@ class VoiceCtrl extends ChangeNotifier {
   CallState state = CallState.idle;
   String detail = '';
   double energy = .35;
+  VoicePhase phase = VoicePhase.loading;
   bool muted = false;
   VoiceTransport? _transport;
   int _generation = 0;
   bool _disposed = false;
+  Timer? _speakerHeartbeat;
   bool get live => state == CallState.live || state == CallState.reconnecting;
   bool get active => live || state == CallState.joining;
   void _notify() {
@@ -158,6 +293,8 @@ class VoiceCtrl extends ChangeNotifier {
     if (_disposed || active || state == CallState.ending) return;
     final id = ++_generation;
     state = CallState.joining;
+    phase = VoicePhase.loading;
+    energy = .2;
     detail = 'Checking microphone permission…';
     muted = false;
     _notify();
@@ -199,8 +336,20 @@ class VoiceCtrl extends ChangeNotifier {
         return;
       }
       state = CallState.live;
+      _speakerHeartbeat?.cancel();
+      if (_tokenProvider == null) {
+        _speakerHeartbeat = Timer.periodic(
+          const Duration(seconds: 30),
+          (_) => unawaited(_refreshSpeaker()),
+        );
+      }
       detail = '';
-      energy = .45;
+      energy = switch (phase) {
+        VoicePhase.loading => .2,
+        VoicePhase.thinking => .65,
+        VoicePhase.speaking => 1,
+        VoicePhase.listening => .45,
+      };
       _notify();
     } catch (e) {
       if (!_current(id)) return;
@@ -236,10 +385,19 @@ class VoiceCtrl extends ChangeNotifier {
   void handleEvent(VoiceEvent event) {
     if (_disposed || !active) return;
     switch (event) {
-      case VoiceEvent.speaking:
-        energy = 1;
+      case VoiceEvent.loading:
+        phase = VoicePhase.loading;
+        energy = .2;
+      case VoiceEvent.listening:
       case VoiceEvent.quiet:
+        phase = VoicePhase.listening;
         energy = .45;
+      case VoiceEvent.thinking:
+        phase = VoicePhase.thinking;
+        energy = .65;
+      case VoiceEvent.speaking:
+        phase = VoicePhase.speaking;
+        energy = 1;
       case VoiceEvent.reconnecting:
         state = CallState.reconnecting;
         detail = 'Connection interrupted — reconnecting…';
@@ -258,9 +416,37 @@ class VoiceCtrl extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> _refreshSpeaker() async {
+    if (_disposed || !live) return;
+    final api = LinkApi(
+      base: await Prefs.host(),
+      token: await Prefs.token(),
+      httpClient: _client ??= http.Client(),
+    );
+    final result = await api.claimSpeaker();
+    if (result['ok'] != true &&
+        result['error'] != 'unreachable' &&
+        result['error'] != 'timeout') {
+      await hangup();
+    }
+  }
+
+  Future<void> _releaseSpeaker() async {
+    if (_tokenProvider != null) return;
+    final api = LinkApi(base: await Prefs.host(), token: await Prefs.token());
+    try {
+      if (api.base.isNotEmpty) await api.releaseSpeaker();
+    } finally {
+      api.close();
+    }
+  }
+
   Future<void> _close(VoiceTransport? transport) async {
+    _speakerHeartbeat?.cancel();
+    _speakerHeartbeat = null;
     try {
       await transport?.close();
+      if (transport != null) await _releaseSpeaker();
     } catch (_) {
       /* Best-effort local cleanup. */
     }

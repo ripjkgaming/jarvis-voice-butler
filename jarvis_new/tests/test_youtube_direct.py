@@ -17,8 +17,8 @@ def test_direct_options_are_bounded_headless_and_use_local_browser_session(tmp_p
     assert opts["noplaylist"] is True
     assert opts["cookiesfrombrowser"] == ("brave",)
     assert opts["merge_output_format"] == "mp4"
-    assert "height>=1080" in opts["format"]
-    assert "ba[ext=m4a]" in opts["format"]
+    assert "height<=1080" in opts["format"]
+    assert "bestaudio[ext=m4a]" in opts["format"]
     assert opts["concurrent_fragment_downloads"] == 1
     assert not opts.get("remote_components")
     assert opts["js_runtimes"]["node"]["path"]

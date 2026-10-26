@@ -67,6 +67,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import copy
 import hmac
 import json
 import os
@@ -74,6 +75,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -122,6 +124,7 @@ _GUEST_VOICE_TOOLS = frozenset(
     }
 )
 _GUEST_REFUSAL = "No. Guests don't get that."
+
 
 def _effective_guest(body: dict) -> bool:
     import phone_session
@@ -359,13 +362,16 @@ def _spoken_math(text: str) -> str | None:
     return t
 
 
-def _match_voice_tool(text: str, client_id: str = "default") -> tuple[str, dict, str | None] | None:
+def _match_voice_tool(
+    text: str, client_id: str = "default"
+) -> tuple[str, dict, str | None] | None:
     """Map spoken/chatted text to (tool, args, reply). None = pure chat.
 
     Pure: regexes over the cleaned text (lowercased, leading wakeword and
     filler stripped), first match wins.
     """
     import youtube_phone
+
     download_command = youtube_phone.command(text, client_id)
     if download_command is not None:
         return download_command
@@ -462,6 +468,8 @@ _PLAY_FILLER = re.compile(
     r"\s+(?:by|from|of|about)\s+",
 )
 _YT_PLAYLIST = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+
+
 def _clean_play_query(text: str) -> str:
     """Strip filler: a video by grant wisler -> grant wisler. Pure."""
     q = (text or "").strip().rstrip(".!?")
@@ -471,6 +479,7 @@ def _clean_play_query(text: str) -> str:
 def _youtube_url(query: str, runner=None) -> str | None:
     """Only a supported metadata match returns a watch URL; never first HTML ID."""
     from media_selection import resolve
+
     return resolve(query, runner=runner).url
 
 
@@ -507,6 +516,7 @@ def _play_media(query: str) -> dict:
 
     query = (query or "").strip()
     ticket = phone_session.approval_ticket()
+
     def authorize():
         phone_session.check_approval_effect(ticket, current=True)
         error = phone_session.private_tool_error("play_media")
@@ -534,7 +544,11 @@ def _play_media(query: str) -> dict:
     if before is not None:
         # Window bookkeeping cannot turn a dispatched launch into a safe retry.
         with contextlib.suppress(Exception):
-            Thread(target=window_ctl.background_new_brave, args=(before, previous), daemon=True).start()
+            Thread(
+                target=window_ctl.background_new_brave,
+                args=(before, previous),
+                daemon=True,
+            ).start()
     return result
 
 
@@ -1416,7 +1430,11 @@ def _current_icon_theme(kdeglobals=None) -> str:
     `kdeglobals` injects a fake file (tests). Never raises.
     """
     try:
-        path = Path(kdeglobals) if kdeglobals is not None else Path.home() / ".config/kdeglobals"
+        path = (
+            Path(kdeglobals)
+            if kdeglobals is not None
+            else Path.home() / ".config/kdeglobals"
+        )
         text = path.read_text()
     except (OSError, ValueError):
         return "breeze-dark"
@@ -1482,7 +1500,9 @@ def find_desktop_file(app: str, app_dirs=None) -> Path | None:
         base = want[:-8] if want.lower().endswith(".desktop") else want
         for directory in dirs:
             try:
-                candidate = directory / (want if want.lower().endswith(".desktop") else f"{want}.desktop")
+                candidate = directory / (
+                    want if want.lower().endswith(".desktop") else f"{want}.desktop"
+                )
                 if candidate.is_file():
                     return candidate
             except (OSError, ValueError):
@@ -1490,7 +1510,9 @@ def find_desktop_file(app: str, app_dirs=None) -> Path | None:
         lowered = f"{base}.desktop".lower()
         for directory in dirs:
             try:
-                names = sorted(p.name for p in directory.glob("*.desktop") if p.is_file())
+                names = sorted(
+                    p.name for p in directory.glob("*.desktop") if p.is_file()
+                )
             except (OSError, ValueError):
                 continue
             for name in names:
@@ -1499,7 +1521,9 @@ def find_desktop_file(app: str, app_dirs=None) -> Path | None:
         match = base.lower()
         for directory in dirs:
             try:
-                names = sorted(p.name for p in directory.glob("*.desktop") if p.is_file())
+                names = sorted(
+                    p.name for p in directory.glob("*.desktop") if p.is_file()
+                )
             except (OSError, ValueError):
                 continue
             for name in names:
@@ -1546,7 +1570,9 @@ def _icon_candidate_ok(path: Path) -> bool:
         return False
 
 
-def find_icon_path(icon: str, theme=None, icon_dirs=None, pixmap_dirs=None, kdeglobals=None) -> Path | None:
+def find_icon_path(
+    icon: str, theme=None, icon_dirs=None, pixmap_dirs=None, kdeglobals=None
+) -> Path | None:
     """Resolve an Icon= value to a file: absolute path, theme, pixmaps.
 
     Theme order per dir: scalable/apps/*.svg, then 48/64/32 layouts in
@@ -1589,7 +1615,13 @@ def find_icon_path(icon: str, theme=None, icon_dirs=None, pixmap_dirs=None, kdeg
                         preferred = sorted(
                             loose,
                             key=lambda p: (
-                                0 if "48" in p.parts else 1 if "64" in p.parts else 2 if "32" in p.parts else 3
+                                0
+                                if "48" in p.parts
+                                else 1
+                                if "64" in p.parts
+                                else 2
+                                if "32" in p.parts
+                                else 3
                             ),
                         )
                         for hit in preferred:
@@ -1627,7 +1659,14 @@ def _shrink_raster_icon(raw: bytes) -> bytes:
         return b""
 
 
-def app_icon_data_url(app: str, app_dirs=None, icon_dirs=None, pixmap_dirs=None, kdeglobals=None, theme=None) -> str | None:
+def app_icon_data_url(
+    app: str,
+    app_dirs=None,
+    icon_dirs=None,
+    pixmap_dirs=None,
+    kdeglobals=None,
+    theme=None,
+) -> str | None:
     """<app> -> base64 data URL for its icon, or None on any miss.
 
     Results (including misses) are cached per app for the default roots;
@@ -1652,13 +1691,20 @@ def app_icon_data_url(app: str, app_dirs=None, icon_dirs=None, pixmap_dirs=None,
         if not icon:
             icon = key
         path = find_icon_path(
-            icon, theme=theme, icon_dirs=icon_dirs, pixmap_dirs=pixmap_dirs, kdeglobals=kdeglobals
+            icon,
+            theme=theme,
+            icon_dirs=icon_dirs,
+            pixmap_dirs=pixmap_dirs,
+            kdeglobals=kdeglobals,
         )
         if path is not None:
             try:
                 raw = path.read_bytes()
                 mime = _mime_for_icon(path)
-                if len(raw) > _APPICON_MAX_BYTES and path.suffix.lower() in _APPICON_RASTER_EXTS:
+                if (
+                    len(raw) > _APPICON_MAX_BYTES
+                    and path.suffix.lower() in _APPICON_RASTER_EXTS
+                ):
                     raw, mime = _shrink_raster_icon(raw), "image/png"
                 if raw and len(raw) <= _APPICON_MAX_BYTES:
                     result = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
@@ -2010,13 +2056,13 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
     models = live or models[-1:]
     last_err: Exception | None = None
     for idx, model_id in enumerate(models):
+        if _turn_cancelled():
+            return "", "cancelled"
         # Per-attempt deadline (ms). Gemini rejects deadlines under 10s
         # (400), so 10s is the floor; the final attempt gets longer.
         timeout_ms = GEMINI_ATTEMPT_TIMEOUT_MS * (2 if idx == len(models) - 1 else 1)
         try:
-            client = genai.Client(
-                api_key=api_key, http_options={"timeout": timeout_ms}
-            )
+            client = genai.Client(api_key=api_key, http_options={"timeout": timeout_ms})
             return (
                 client.models.generate_content(
                     model=model_id,
@@ -2067,9 +2113,15 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return _tool_result(False, error=private_error)
     if not isinstance(args, dict):
         args = {}
-    if tool in {"download_youtube_video", "confirm_youtube_download", "cancel_youtube_download", "youtube_download_status"}:
+    if tool in {
+        "download_youtube_video",
+        "confirm_youtube_download",
+        "cancel_youtube_download",
+        "youtube_download_status",
+    }:
         import youtube_download
         from system import LocalSystemError
+
         if phone_session.guest_required():
             return _tool_result(False, error="Guest mode refuses YouTube downloads")
         try:
@@ -2084,12 +2136,22 @@ def run_phone_tool(tool: str, args: dict) -> dict:
                 if not isinstance(url, str) or len(url) > 2048:
                     return _tool_result(False, error="Invalid YouTube request")
                 if tool == "confirm_youtube_download":
-                    if not isinstance(args.get("confirmation_id"), str) or type(args.get("confirmed")) is not bool:
-                        return _tool_result(False, error="A download choice needs a token and yes/no")
-                    job = youtube_download.start_download(confirmation_id=args["confirmation_id"], confirm=args["confirmed"], quiet=True)
+                    if (
+                        not isinstance(args.get("confirmation_id"), str)
+                        or type(args.get("confirmed")) is not bool
+                    ):
+                        return _tool_result(
+                            False, error="A download choice needs a token and yes/no"
+                        )
+                    job = youtube_download.start_download(
+                        confirmation_id=args["confirmation_id"],
+                        confirm=args["confirmed"],
+                        quiet=True,
+                    )
                 else:
                     job = youtube_download.start_download(url, quiet=True)
             import youtube_phone
+
             youtube_phone.remember(str(args.get("_client_id") or "default"), job)
             return _tool_result(True, job=job, reply=youtube_download.job_say(job))
         except (LocalSystemError, ValueError, youtube_download.DownloadError) as exc:
@@ -2105,24 +2167,44 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return result or _tool_result(
             False, error="The suit diagnostics panel didn't respond"
         )
-    if tool in {"volume_get", "volume_up", "volume_down", "volume_set", "volume_mute", "volume_unmute"}:
+    if tool in {
+        "volume_get",
+        "volume_up",
+        "volume_down",
+        "volume_set",
+        "volume_mute",
+        "volume_unmute",
+    }:
         from action_outcome import parse_outcome
         from system import audio_ctl
         from system.school_tools import loud_guard
-        action = {"volume_get": "status", "volume_up": "up", "volume_down": "down", "volume_set": "set", "volume_mute": "mute", "volume_unmute": "unmute"}[tool]
+
+        action = {
+            "volume_get": "status",
+            "volume_up": "up",
+            "volume_down": "down",
+            "volume_set": "set",
+            "volume_mute": "mute",
+            "volume_unmute": "unmute",
+        }[tool]
         level = args.get("level")
         if action == "set" and (type(level) is not int or not 0 <= level <= 150):
             return _tool_result(False, error="level must be 0..150")
         ticket = phone_session.approval_ticket()
+
         def authorize():
             phone_session.check_approval_effect(ticket, current=True)
             if phone_session.private() and phone_session.guest_required():
                 raise PermissionError("Private owner session ended")
             loud_guard("set_volume", {"action": action, "level": level})
+
         def runner(argv, **kwargs):
             rc, out, err = _run(argv, kwargs.get("timeout", 5.0))
             return subprocess.CompletedProcess(argv, rc, out, err)
-        result = audio_ctl.volume_result(action, level, run=runner, which=_which, step=5, authorize=authorize)
+
+        result = audio_ctl.volume_result(
+            action, level, run=runner, which=_which, step=5, authorize=authorize
+        )
         outcome = parse_outcome(result)
         if "actual_pct" in outcome.evidence:
             result["volume"] = outcome.evidence["actual_pct"]
@@ -2293,15 +2375,22 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         action = str(args.get("action", ""))
         if action == "stop":
             stopped = computer_watch.stop()
-            return _tool_result(True, active=False, say="Stopped watching the computer, Sir.")
+            return _tool_result(
+                True, active=False, say="Stopped watching the computer, Sir."
+            )
         if not computer_watch.allowed():
-            return _tool_result(False, error="Computer watch requires the local owner session.")
+            return _tool_result(
+                False, error="Computer watch requires the local owner session."
+            )
         if action == "context":
             computer_watch.note_context(str(args.get("context", ""))[-1000:])
             return _tool_result(True)
         if action == "briefing":
             if computer_watch.status().get("screen_observation"):
-                return _tool_result(True, say="Open Watch Mode briefing in the native tray to read the private visual summary.")
+                return _tool_result(
+                    True,
+                    say="Open Watch Mode briefing in the native tray to read the private visual summary.",
+                )
             return _tool_result(True, say=computer_watch.briefing())
         if action not in {"start", "stop", "status"}:
             return _tool_result(False, error="Unknown watch action.")
@@ -2314,9 +2403,12 @@ def run_phone_tool(tool: str, args: dict) -> dict:
             return _tool_result(False, **got)
         say = (
             "Watching the computer, Sir: the configured Gemini text model analyzes active-window metadata, tracked activity and recent conversation."
-            if action == "start" else
-            "Stopped watching the computer, Sir."
-            if action == "stop" else "Visual Watch Mode is active; use the native tray briefing for private details." if got.get("screen_observation") else computer_watch.briefing()
+            if action == "start"
+            else "Stopped watching the computer, Sir."
+            if action == "stop"
+            else "Visual Watch Mode is active; use the native tray briefing for private details."
+            if got.get("screen_observation")
+            else computer_watch.briefing()
         )
         return _tool_result(ok, **got, say=say)
     if tool == "watch_mode":
@@ -2326,9 +2418,13 @@ def run_phone_tool(tool: str, args: dict) -> dict:
 
         got = watch_mode.launch()
         if not got.get("ok"):
-            return _tool_result(False, error=str(got.get("error") or "Watch mode did not start."))
+            return _tool_result(
+                False, error=str(got.get("error") or "Watch mode did not start.")
+            )
         log_action("watch_mode", "launched")
-        return _tool_result(True, state=got.get("state", "watching"), say="Watching the laptop, Sir.")
+        return _tool_result(
+            True, state=got.get("state", "watching"), say="Watching the laptop, Sir."
+        )
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
@@ -2468,6 +2564,8 @@ def _speak_quietly(reply: str) -> tuple[str, int]:
     The phone falls back to on-device TTS for empty audio, so a dead
     voice stack degrades the reply instead of failing the action.
     """
+    if _turn_cancelled():
+        return "", 22050
     try:
         try:
             from src.local_voice import PiperTTS
@@ -2482,6 +2580,10 @@ def _speak_quietly(reply: str) -> tuple[str, int]:
 
 def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
     """Execute one routed voice command. "type" goes via wtype."""
+    if _turn_cancelled():
+        return 200, {"ok": False, "cancelled": True}
+    # Once entered, synchronous actions run to completion; cancellation only
+    # suppresses their reply, never interrupts or retries an action.
     if tool == "type":
         return handle_type(args)
     if tool == "protocol":
@@ -2498,7 +2600,12 @@ def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
 
 def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
     """Success replies that need the tool result. Pure."""
-    if tool in {"download_youtube_video", "confirm_youtube_download", "cancel_youtube_download", "youtube_download_status"}:
+    if tool in {
+        "download_youtube_video",
+        "confirm_youtube_download",
+        "cancel_youtube_download",
+        "youtube_download_status",
+    }:
         return str(result.get("reply") or "YouTube status unavailable, Sir.")
     if tool == "protocol":
         return str(result.get("say") or "")
@@ -2546,9 +2653,12 @@ def _voice_tool_reply(
             "action": {"tool": tool, "ok": False, "denied": "guest mode"},
         }
     import action_guard
+
     duplicate = action_guard.claim(tool, args, "talk") if tool == "play_media" else None
     if duplicate is not None:
-        result = action_guard.duplicate_reply(duplicate, "The video request is already in progress.")
+        result = action_guard.duplicate_reply(
+            duplicate, "The video request is already in progress."
+        )
         code = 200
     else:
         try:
@@ -2558,6 +2668,7 @@ def _voice_tool_reply(
                 action_guard.settle(tool, args, "talk", False)
             raise
     from action_outcome import parse_outcome
+
     receipt = parse_outcome(result)
     if receipt is not None:
         reply = result.get("say", receipt.say) if tool == "play_media" else receipt.say
@@ -2570,7 +2681,9 @@ def _voice_tool_reply(
     else:
         reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
     if tool == "play_media" and duplicate is None:
-        action_guard.settle(tool, args, "talk", bool(result.get("ok")), reply, outcome=receipt)
+        action_guard.settle(
+            tool, args, "talk", bool(result.get("ok")), reply, outcome=receipt
+        )
     audio_b64, rate = _speak_quietly(reply)
     action = {"tool": tool, "ok": bool(result.get("ok"))}
     if isinstance(result.get("job"), dict):
@@ -2752,7 +2865,12 @@ def handle_route(body: dict) -> tuple[int, dict]:
 
         watched = controls.handle(clean, "bridge-owner")
         if watched is not None:
-            return 200, {**watched, "reply": watched.get("say") or watched.get("error", "Watch Mode unavailable."), "action": {"tool": "computer_watch", "ok": watched.get("ok", False)}}
+            return 200, {
+                **watched,
+                "reply": watched.get("say")
+                or watched.get("error", "Watch Mode unavailable."),
+                "action": {"tool": "computer_watch", "ok": watched.get("ok", False)},
+            }
     if not guest:
         with contextlib.suppress(Exception):
             import computer_watch
@@ -2796,16 +2914,30 @@ def handle_route(body: dict) -> tuple[int, dict]:
                 "ok": True,
                 "reply": duplicate["say"],
                 "duplicate": True,
-                "action": {"tool": tool, "ok": dup.get("ok"), **({"outcome": duplicate["outcome"]} if "outcome" in duplicate else {})},
+                "action": {
+                    "tool": tool,
+                    "ok": dup.get("ok"),
+                    **(
+                        {"outcome": duplicate["outcome"]}
+                        if "outcome" in duplicate
+                        else {}
+                    ),
+                },
             }
         try:
             code, result = _run_voice_action(tool, args)
         except Exception as exc:
-            code, result = 500, {"ok": False, "error": str(exc)[:150] or "action failed"}
+            code, result = (
+                500,
+                {"ok": False, "error": str(exc)[:150] or "action failed"},
+            )
         from action_outcome import parse_outcome
+
         receipt = parse_outcome(result)
         if receipt is not None:
-            reply = result.get("say", receipt.say) if tool == "play_media" else receipt.say
+            reply = (
+                result.get("say", receipt.say) if tool == "play_media" else receipt.say
+            )
         elif code == 200 and result.get("ok"):
             reply = (
                 ok_reply
@@ -2817,7 +2949,12 @@ def handle_route(body: dict) -> tuple[int, dict]:
         else:
             reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
         action_guard.settle(
-            tool, args, "route", code == 200 and bool(result.get("ok")), reply, outcome=receipt
+            tool,
+            args,
+            "route",
+            code == 200 and bool(result.get("ok")),
+            reply,
+            outcome=receipt,
         )
         action: dict = {"tool": tool, "ok": bool(result.get("ok"))}
         if isinstance(result.get("job"), dict):
@@ -2855,7 +2992,228 @@ def handle_route(body: dict) -> tuple[int, dict]:
     return 404, {"ok": False, "error": "no-route"}
 
 
+# --- Turn ids, idempotency, cancellation, ordering, speaker owner ---------
+# Optional request fields (turn_id, idem_key, client_id) let a flaky mobile
+# link retry or cancel without double-running side effects. Requests that
+# carry neither turn_id nor idem_key take the untouched legacy path.
+IDEM_TTL_S = 120.0
+CANCEL_TTL_S = 600.0
+SPEAKER_DESKTOP_TTL_S = 60.0
+SPEAKER_PHONE_TTL_S = 900.0
+
+_TURN_LOCK = threading.RLock()
+_IDEM: dict[tuple[str, str], dict] = {}
+_CANCELLED: dict[str, float] = {}
+_LAUNCHED: dict[str, float] = {}
+_CLIENT_HIGH: dict[str, int] = {}
+_SPEAKER: dict[str, float] = {}
+_TURN_CTX = threading.local()
+
+
+def _valid_turn_id(value: object) -> int | str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and 0 < len(value) <= 128:
+        return value
+    return None
+
+
+def _turn_cancelled() -> bool:
+    """True when the in-flight turn on this thread was cancelled via /cancel."""
+    key = getattr(_TURN_CTX, "turn_key", None)
+    if key is None:
+        return False
+    with _TURN_LOCK:
+        tid = getattr(_TURN_CTX, "turn_id", None)
+        client = getattr(_TURN_CTX, "client_id", "default")
+        return key in _CANCELLED or (
+            isinstance(tid, int) and _CLIENT_HIGH.get(client, tid) > tid
+        )
+
+
+def cancel_turn(turn_id: object, client_id: str = "default") -> bool:
+    tid = _valid_turn_id(turn_id)
+    if tid is None:
+        return False
+    now = time.monotonic()
+    with _TURN_LOCK:
+        for k in [k for k, t in _CANCELLED.items() if t < now]:
+            del _CANCELLED[k]
+        key = f"{client_id}:{tid}"
+        _CANCELLED[key] = now + CANCEL_TTL_S
+        launched = _LAUNCHED.get(key, 0.0) > now
+    if launched:
+        _wake_rpc({"cancel_external": True, "turn_id": tid, "client_id": client_id})
+    return True
+
+
+def _launch_voice(talk: dict, body: dict) -> dict | None:
+    tid = _valid_turn_id(body.get("turn_id"))
+    client = str(body.get("client_id") or "default")[:128]
+    key = f"{client}:{tid}" if tid is not None else None
+    if key is not None:
+        talk = {**talk, "turn_id": tid, "client_id": client}
+        with _TURN_LOCK:
+            now = time.monotonic()
+            for stale in [k for k, expiry in _LAUNCHED.items() if expiry < now]:
+                del _LAUNCHED[stale]
+            _LAUNCHED[key] = now + CANCEL_TTL_S
+    reply = _wake_rpc(talk)
+    if reply is None or reply.get("ok") is False:
+        if key is not None:
+            with _TURN_LOCK:
+                _LAUNCHED.pop(key, None)
+    elif key is not None and _turn_cancelled():
+        # Cancellation may have reached wake.sock before the launch did.
+        _wake_rpc({"cancel_external": True, "turn_id": tid, "client_id": client})
+    return reply
+
+
+def speaker_claim(surface: str) -> bool:
+    """Atomically reserve the output surface before starting a session."""
+    other = "desktop" if surface == "phone" else "phone"
+    with _TURN_LOCK:
+        now = time.monotonic()
+        if _SPEAKER.get(other, 0.0) > now:
+            return False
+        ttl = SPEAKER_PHONE_TTL_S if surface == "phone" else SPEAKER_DESKTOP_TTL_S
+        _SPEAKER[surface] = now + ttl
+        return True
+
+
+def speaker_mark(surface: str) -> None:
+    ttl = SPEAKER_PHONE_TTL_S if surface == "phone" else SPEAKER_DESKTOP_TTL_S
+    with _TURN_LOCK:
+        _SPEAKER[surface] = time.monotonic() + ttl
+
+
+def speaker_release(surface: str) -> None:
+    with _TURN_LOCK:
+        _SPEAKER.pop(surface, None)
+
+
+def speaker_active(surface: str) -> bool:
+    with _TURN_LOCK:
+        return _SPEAKER.get(surface, 0.0) > time.monotonic()
+
+
+def _with_turn(body: dict, kind: str, fn) -> tuple[int, dict]:
+    tid = _valid_turn_id(body.get("turn_id")) if isinstance(body, dict) else None
+    idem = body.get("idem_key") if isinstance(body, dict) else None
+    if not isinstance(idem, str) or not idem or len(idem) > 256:
+        idem = None
+    if tid is None and idem is None:
+        return fn(body)
+
+    def stamp(code: int, result: dict) -> tuple[int, dict]:
+        out = dict(result)
+        # Retries of a completed response must respect later cancellation too.
+        if tid is not None:
+            with _TURN_LOCK:
+                cancelled = f"{client}:{tid}" in _CANCELLED
+                newer = (
+                    isinstance(tid, int)
+                    and _CLIENT_HIGH.get(ordering_client, tid) > tid
+                )
+            if cancelled or newer:
+                out.pop("reply", None)
+                out.pop("audio_b64", None)
+                out.update(cancelled=True, reply="", audio_b64="")
+        if tid is not None:
+            out["turn_id"] = tid
+        return code, out
+
+    entry = None
+    client = str(body.get("client_id") or "default")[:128]
+    ordering_client = kind + ":" + client
+    key = (ordering_client, f"turn:{tid}" if tid is not None else f"idem:{idem}")
+    idem_alias = (ordering_client, f"idem:{idem}") if idem is not None else key
+    fingerprint = json.dumps(
+        {k: v for k, v in body.items() if k != "idem_key"}, sort_keys=True
+    )
+    now = time.monotonic()
+    with _TURN_LOCK:
+        for k in [
+            k for k, e in _IDEM.items() if e["exp"] < now and e["event"].is_set()
+        ]:
+            del _IDEM[k]
+        if key is not None:
+            found = _IDEM.get(key) or _IDEM.get(idem_alias)
+            if found is not None:
+                if found.get("fingerprint") != fingerprint:
+                    return stamp(
+                        409,
+                        {
+                            "ok": False,
+                            "error": "idempotency key reused with different request",
+                        },
+                    )
+                waiting = found
+            else:
+                waiting = None
+                entry = {
+                    "event": threading.Event(),
+                    "res": None,
+                    "exp": now + CANCEL_TTL_S,
+                    "fingerprint": fingerprint,
+                }
+                _IDEM[key] = entry
+                _IDEM[idem_alias] = entry
+    if key is not None and entry is None:
+        waiting["event"].wait(IDEM_TTL_S)
+        if waiting["res"] is None:
+            return stamp(503, {"ok": False, "error": "request still in flight"})
+        code, res = waiting["res"]
+        return stamp(code, {**copy.deepcopy(res), "idempotent": True})
+    try:
+        if tid is not None and isinstance(tid, int):
+            with _TURN_LOCK:
+                high = _CLIENT_HIGH.get(ordering_client)
+                stale = high is not None and tid < high
+                if not stale:
+                    _CLIENT_HIGH[ordering_client] = tid
+            if stale:
+                res = stamp(200, {"ok": True, "stale": True})
+                return res
+        _TURN_CTX.turn_key = f"{client}:{tid}" if tid is not None else None
+        _TURN_CTX.turn_id = tid
+        _TURN_CTX.client_id = ordering_client
+        try:
+            if _turn_cancelled():
+                code, result = 200, {"ok": True, "cancelled": True}
+            else:
+                code, result = fn(body)
+        finally:
+            _TURN_CTX.turn_key = None
+        if tid is not None:
+            with _TURN_LOCK:
+                if f"{client}:{tid}" in _CANCELLED:
+                    # Keep action receipts, but never return stale text/audio.
+                    result = {
+                        k: v
+                        for k, v in result.items()
+                        if k not in {"reply", "audio_b64"}
+                    }
+                    result.update(cancelled=True, reply="", audio_b64="")
+        res = stamp(code, result)
+        return res
+    finally:
+        if entry is not None:
+            try:
+                entry["res"] = res
+                entry["exp"] = time.monotonic() + CANCEL_TTL_S
+            except NameError:
+                entry["res"] = (500, {"ok": False, "error": "turn failed"})
+            entry["event"].set()
+
+
 def handle_talk(body: dict) -> tuple[int, dict]:
+    return _with_turn(body, "talk", _handle_talk)
+
+
+def _handle_talk(body: dict) -> tuple[int, dict]:
     """16k PCM -> transcript + Gemini reply + Piper audio. Lazy heavy deps.
 
     Returns (http_code, payload). 501 when the venv lacks a stage
@@ -2898,6 +3256,8 @@ def handle_talk(body: dict) -> tuple[int, dict]:
         return 500, {"ok": False, "error": f"transcribe failed: {exc}"[:200]}
     if not transcript:
         return 200, {"ok": True, "transcript": "", "reply": "", "audio_b64": ""}
+    if _turn_cancelled():
+        return 200, {"ok": True, "cancelled": True}
     guest = _effective_guest(body)
     cmd = _match_voice_tool(transcript, str(body.get("client_id") or "default")[:128])
     if cmd is not None:
@@ -2913,6 +3273,8 @@ def handle_talk(body: dict) -> tuple[int, dict]:
             "audio_b64": "",
             "warning": warning,
         }
+    if _turn_cancelled():
+        return 200, {"ok": True, "cancelled": True}
     try:
         try:
             from src.local_voice import PiperTTS
@@ -2938,6 +3300,10 @@ async def _render_tts(tts, text: str) -> tuple[bytes, int]:
 
 
 def handle_chat(body: dict) -> tuple[int, dict]:
+    return _with_turn(body, "chat", _handle_chat)
+
+
+def _handle_chat(body: dict) -> tuple[int, dict]:
     """Text chat for the phone Chat tab. Gemini-direct, no audio.
 
     Body: {"text": str (1..2000), "history": [[role, text]...] (max 20,
@@ -2959,9 +3325,15 @@ def handle_chat(body: dict) -> tuple[int, dict]:
                 400,
                 {"ok": False, "error": "voice seed max 500 chars"},
             )
-        reply = _wake_rpc({"talk": True, "text": seed})
+        if not speaker_claim("desktop"):
+            body = {**body, "voice": False}
+            code, result = _handle_chat(body)
+            return code, {**result, "spoke_on": "none", "reason": "phone_call_active"}
+        reply = _launch_voice({"talk": True, "text": seed}, body)
         if reply is not None:
-            return 200, {"ok": True, "voice": "summoned"}
+            speaker_mark("desktop")
+            return 200, {"ok": True, "voice": "summoned", "spoke_on": "desktop"}
+        speaker_release("desktop")
         # Listener absent: fall through to the text answer below.
     guest = _effective_guest(body)
     if not guest:
@@ -2969,7 +3341,11 @@ def handle_chat(body: dict) -> tuple[int, dict]:
 
         watched = controls.handle(text.strip(), "bridge-owner")
         if watched is not None:
-            return 200, {**watched, "reply": watched.get("say") or watched.get("error", "Watch Mode unavailable.")}
+            return 200, {
+                **watched,
+                "reply": watched.get("say")
+                or watched.get("error", "Watch Mode unavailable."),
+            }
     if not guest:
         with contextlib.suppress(Exception):
             import computer_watch
@@ -2984,6 +3360,8 @@ def handle_chat(body: dict) -> tuple[int, dict]:
                 "reply": _GUEST_REFUSAL,
                 "action": {"tool": tool, "ok": False, "denied": "guest mode"},
             }
+        if _turn_cancelled():
+            return 200, {"ok": True, "reply": "", "cancelled": True}
         code, result = _run_voice_action(tool, args)
         if code == 200 and result.get("ok"):
             reply = (
@@ -3030,10 +3408,35 @@ def handle_chat(body: dict) -> tuple[int, dict]:
     if turns and not guest:
         prompt += "Conversation so far:\n" + "\n".join(turns) + "\n"
     prompt += f"Sir: {text.strip()}"
-    reply, warning = _gemini_reply(prompt, guest=True) if guest else _gemini_reply(prompt)
+    reply, warning = (
+        _gemini_reply(prompt, guest=True) if guest else _gemini_reply(prompt)
+    )
     if warning and not reply:
         return 200, {"ok": True, "reply": "", "warning": warning}
     return 200, {"ok": True, "reply": reply}
+
+
+def handle_summon(body: dict) -> tuple[int, dict]:
+    return _with_turn(body, "summon", _handle_summon)
+
+
+def _handle_summon(body: dict) -> tuple[int, dict]:
+    talk = {"talk": True}
+    seed = body.get("text")
+    if seed is not None:
+        if not isinstance(seed, str):
+            return 400, {"ok": False, "error": "text must be a string"}
+        if len(seed.strip()) > 500:
+            return 400, {"ok": False, "error": "seed text max 500 chars"}
+        if seed.strip():
+            talk["text"] = seed.strip()
+    if not speaker_claim("desktop"):
+        return 200, {"ok": False, "spoke_on": "none", "reason": "phone_call_active"}
+    reply = _launch_voice(talk, body)
+    if reply is None:
+        speaker_release("desktop")
+        return 503, {"ok": False, "error": "wake listener unavailable"}
+    return 200, {**reply, "spoke_on": "desktop"}
 
 
 class _CountingReader:
@@ -3177,26 +3580,45 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if route == "/phone/v1/calls":
             if not self.token:
-                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "phone API requires the configured bearer token",
+                    },
+                )
                 return
             import watch_mode
+
             if watch_mode.guest_required():
-                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                self._send(
+                    403, {"ok": False, "error": "guest mode refuses owner actions"}
+                )
                 return
             import phone_calls
             from mint_token import mint_token_payload
+
             body = _read_json_body(self, 4096)
             if isinstance(body, dict) and body.get("guest") is True:
-                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                self._send(
+                    403, {"ok": False, "error": "guest mode refuses owner actions"}
+                )
                 return
             self._send(*phone_calls.endpoint(body, phone_calls.mint_phone_token))
             return
         if route in {"/phone/v1/command", "/phone/v1/session"}:
             # Explicitly require the existing token, even for loopback configurations.
             if not self.token:
-                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "phone API requires the configured bearer token",
+                    },
+                )
                 return
             import phone_api
+
             body = _read_json_body(self, 65536)
             if route.endswith("/command"):
                 self._send(*phone_api.command(body, handle_route, handle_chat))
@@ -3204,19 +3626,34 @@ class _Handler(BaseHTTPRequestHandler):
                 # Every new authenticated owner phone call gets a private room;
                 # laptop joins stay restricted while its local audience is guest.
                 import watch_mode
+
                 watching = watch_mode.guest_required()
                 if watching and isinstance(body, dict) and body.get("mode") == "laptop":
-                    self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                    self._send(
+                        403, {"ok": False, "error": "guest mode refuses owner actions"}
+                    )
                     return
                 from mint_token import mint_token_payload
 
                 def mint_phone(room, dispatch):
-                    return mint_token_payload(room, dispatch, private_phone=dispatch)
+                    if dispatch and not speaker_claim("phone"):
+                        raise RuntimeError("desktop session is speaking")
+                    try:
+                        return mint_token_payload(
+                            room, dispatch, private_phone=dispatch
+                        )
+                    except Exception:
+                        if dispatch:
+                            speaker_release("phone")
+                        raise
 
-                self._send(*phone_api.session(body, read_hud_room, read_hud_waking, mint_phone))
+                self._send(
+                    *phone_api.session(body, read_hud_room, read_hud_waking, mint_phone)
+                )
             return
         if route == "/shopping/open":
             from shopping import open_product_source
+
             body = _read_json_body(self, 4096)
             if not isinstance(body, dict) or not isinstance(body.get("url"), str):
                 self._send(400, {"ok": False, "error": "invalid source"})
@@ -3226,8 +3663,18 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if route == "/watch/owner":
             body = _read_json_body(self, 256)
-            if not self.token or not isinstance(body, dict) or body != {"mode": "owner"}:
-                self._send(403, {"ok": False, "error": "explicit owner control requires the configured bearer token and mode owner"})
+            if (
+                not self.token
+                or not isinstance(body, dict)
+                or body != {"mode": "owner"}
+            ):
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "explicit owner control requires the configured bearer token and mode owner",
+                    },
+                )
                 return
             import watch_mode
 
@@ -3238,10 +3685,18 @@ class _Handler(BaseHTTPRequestHandler):
         import watch_mode
 
         if watch_mode.guest_required() and route not in {
-            "/talk", "/route", "/chat", "/tool", "/phone/telemetry", "/mic", "/summon", "/watch-control"
+            "/talk",
+            "/route",
+            "/chat",
+            "/tool",
+            "/phone/telemetry",
+            "/mic",
+            "/summon",
+            "/watch-control",
         }:
             if route == "/power":
                 import taskbar
+
                 taskbar._power_confirmations.revoke(self.token)
             self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
             return
@@ -3292,31 +3747,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, reply)
             return
         if route == "/summon":
-            # PTT: HUD NumpadEnter / shell talk. Optional {"text": "..."}
-            # seeds the call: the wake listener delivers it as the opening
-            # user turn once the agent joins (text→voice). Blank/missing
-            # text is plain talk; wrong types or >500 chars are 400.
-            # (Cap mirrors wake_client.TALK_TEXT_MAX; kept local so the
-            # bridge never imports the wake venv's modules.)
-            body = _read_json_body(self, 1024)
-            talk: dict = {"talk": True}
-            if isinstance(body, dict) and body.get("text") is not None:
-                seed = body.get("text")
-                if isinstance(seed, str) and not seed.strip():
-                    pass  # blank reads as plain talk
-                elif not isinstance(seed, str):
-                    self._send(400, {"ok": False, "error": "text must be a string"})
-                    return
-                elif len(seed.strip()) > 500:
-                    self._send(400, {"ok": False, "error": "seed text max 500 chars"})
-                    return
-                else:
-                    talk["text"] = seed.strip()
-            reply = _wake_rpc(talk)
-            if reply is None:
-                self._send(503, {"ok": False, "error": "wake listener unavailable"})
-                return
-            self._send(200, reply)
+            body = _read_json_body(self, 2048)
+            self._send(*handle_summon(body if isinstance(body, dict) else {}))
             return
         if route == "/type":
             body = _read_json_body(self, 4096)
@@ -3363,23 +3795,39 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
             if _effective_guest(body):
-                self._send(403, {"ok": False, "error": "guest mode refuses YouTube downloads"})
+                self._send(
+                    403, {"ok": False, "error": "guest mode refuses YouTube downloads"}
+                )
                 return
             url = body.get("url", "")
-            if (set(body) - {"url", "guest", "confirmation_id", "confirm", "job_id", "quiet"}
-                or not isinstance(url, str) or len(url) > 2048
+            if (
+                set(body)
+                - {"url", "guest", "confirmation_id", "confirm", "job_id", "quiet"}
+                or not isinstance(url, str)
+                or len(url) > 2048
                 or not isinstance(body.get("confirmation_id", ""), str)
                 or len(body.get("confirmation_id", "")) > 64
                 or ("confirm" in body and type(body["confirm"]) is not bool)
                 or ("quiet" in body and type(body["quiet"]) is not bool)
-                or (body.get("job_id") is not None and not isinstance(body["job_id"], str))):
-                self._send(400, {"ok": False, "error": "invalid YouTube download request"})
+                or (
+                    body.get("job_id") is not None
+                    and not isinstance(body["job_id"], str)
+                )
+            ):
+                self._send(
+                    400, {"ok": False, "error": "invalid YouTube download request"}
+                )
                 return
             try:
                 if route.endswith("/cancel"):
                     job = youtube_download.jobs().cancel(body.get("job_id"))
                 else:
-                    job = youtube_download.start_download(url, confirmation_id=body.get("confirmation_id", ""), confirm=body.get("confirm"), quiet=body.get("quiet", False))
+                    job = youtube_download.start_download(
+                        url,
+                        confirmation_id=body.get("confirmation_id", ""),
+                        confirm=body.get("confirm"),
+                        quiet=body.get("quiet", False),
+                    )
             except LocalSystemError as exc:
                 self._send(403, {"ok": False, "error": str(exc)})
                 return
@@ -3432,6 +3880,39 @@ class _Handler(BaseHTTPRequestHandler):
 
             self._send(200, {"ok": True, "closed": bool(_drafts.sync_close())})
             return
+        if route == "/speaker":
+            body = _read_json_body(self, 1024)
+            if (
+                not isinstance(body, dict)
+                or body.get("surface") not in {"desktop", "phone"}
+                or body.get("action") not in {"claim", "release"}
+            ):
+                self._send(400, {"ok": False, "error": "surface and action required"})
+                return
+            if body["action"] == "release":
+                speaker_release(body["surface"])
+                self._send(200, {"ok": True})
+            else:
+                claimed = speaker_claim(body["surface"])
+                self._send(200 if claimed else 409, {"ok": claimed})
+            return
+        if route == "/speaker/release":
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict) or body.get("surface") != "phone":
+                self._send(400, {"ok": False, "error": "phone surface required"})
+                return
+            speaker_release("phone")
+            self._send(200, {"ok": True})
+            return
+        if route == "/cancel":
+            body = _read_json_body(self, 1024)
+            if not isinstance(body, dict) or not cancel_turn(
+                body.get("turn_id"), str(body.get("client_id") or "default")[:128]
+            ):
+                self._send(400, {"ok": False, "error": "body needs turn_id"})
+                return
+            self._send(200, {"ok": True, "turn_id": _valid_turn_id(body["turn_id"])})
+            return
         if route == "/chat":
             body = _read_json_body(self, 65536)
             if body is None:
@@ -3443,13 +3924,29 @@ class _Handler(BaseHTTPRequestHandler):
         if route == "/watch-control":
             # Dedicated trusted SDK/native user ingress, never a model tool.
             body = _read_json_body(self, 4096)
-            if not isinstance(body, dict) or not {"text", "session_id"} <= set(body) or set(body) - {"text", "session_id", "transport_id", "transport_epoch"} or not all(isinstance(body[key], str) and 0 < len(body[key]) <= 500 for key in ("text", "session_id")):
-                self._send(400, {"ok": False, "error": "Expected fresh user text and session identity."})
+            if (
+                not isinstance(body, dict)
+                or not {"text", "session_id"} <= set(body)
+                or set(body) - {"text", "session_id", "transport_id", "transport_epoch"}
+                or not all(
+                    isinstance(body[key], str) and 0 < len(body[key]) <= 500
+                    for key in ("text", "session_id")
+                )
+            ):
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "Expected fresh user text and session identity.",
+                    },
+                )
                 return
             from watch_control import controls, accept_transport
 
             if not accept_transport(body):
-                self._send(200, {"ok": False, "error": "Watch request was cancelled by Stop."})
+                self._send(
+                    200, {"ok": False, "error": "Watch request was cancelled by Stop."}
+                )
                 return
 
             result = controls.handle(body["text"], body["session_id"])
@@ -3489,7 +3986,13 @@ class _Handler(BaseHTTPRequestHandler):
             import phone_session
 
             if phone_session.private_room(room):
-                self._send(403, {"ok": False, "error": "private phone rooms cannot be joined or dispatched again"})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "private phone rooms cannot be joined or dispatched again",
+                    },
+                )
                 return
             if room and not valid_room_name(room):
                 self._send(400, {"ok": False, "error": "bad room name"})
@@ -3497,17 +4000,36 @@ class _Handler(BaseHTTPRequestHandler):
             dispatch = body.get("dispatch", True)
             if not isinstance(dispatch, bool):
                 dispatch = True
+            if dispatch and not speaker_claim("phone"):
+                self._send(
+                    409,
+                    {
+                        "ok": False,
+                        "spoke_on": "none",
+                        "reason": "desktop_session_active",
+                        "error": "desktop session is speaking",
+                    },
+                )
+                return
             try:
                 payload = mint_token_payload(room, dispatch)
             except RuntimeError as exc:
+                if dispatch:
+                    speaker_release("phone")
                 self._send(503, {"ok": False, "error": str(exc)[:200]})
                 return
             except ImportError:
+                if dispatch:
+                    speaker_release("phone")
                 self._send(501, {"ok": False, "error": "livekit sdk not installed"})
                 return
             except Exception as exc:
+                if dispatch:
+                    speaker_release("phone")
                 self._send(500, {"ok": False, "error": str(exc)[:200]})
                 return
+            if dispatch:
+                speaker_mark("phone")
             self._send(200, {"ok": True, **payload})
             return
         if route == "/camera/frame":
@@ -3588,7 +4110,9 @@ class _Handler(BaseHTTPRequestHandler):
                 else insights_proxy.paper_market
             )
             code, raw = reader(parsed.query)
-            self._send_bytes(code, "application/json; charset=utf-8", raw, no_store=True)
+            self._send_bytes(
+                code, "application/json; charset=utf-8", raw, no_store=True
+            )
             return
         route, qs = parsed.path, parse_qs(parsed.query)
         if route.startswith("/goodnight/"):
@@ -3613,24 +4137,42 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if route == "/phone/v1/calls":
             if not self.token:
-                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "phone API requires the configured bearer token",
+                    },
+                )
                 return
             import watch_mode
+
             if watch_mode.guest_required():
-                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                self._send(
+                    403, {"ok": False, "error": "guest mode refuses owner actions"}
+                )
                 return
             import phone_calls
+
             self._send(*phone_calls.endpoint(None))
             return
         if route == "/phone/v1/capabilities":
             if not self.token:
-                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "phone API requires the configured bearer token",
+                    },
+                )
                 return
             import phone_api
+
             self._send(200, phone_api.capabilities())
             return
         if route == "/shopping":
             from shopping import search_products
+
             self._send(200, search_products(qs.get("q", [""])[0]))
             return
         if route == "/health":
@@ -3665,7 +4207,11 @@ class _Handler(BaseHTTPRequestHandler):
 
             self._send(
                 200,
-                {"ok": True, **_sys_stats(), "suit_diagnostics": suit_diagnostics.snapshot()},
+                {
+                    "ok": True,
+                    **_sys_stats(),
+                    "suit_diagnostics": suit_diagnostics.snapshot(),
+                },
             )
         elif route == "/appicon":
             app = (qs.get("app") or [""])[0]
@@ -3749,12 +4295,16 @@ class _Handler(BaseHTTPRequestHandler):
             import phone_session
 
             hidden = phone_session.hide_shared_captions(self.client_address[0])
-            self._send(200, {"ok": True, "captions": [] if hidden else read_captions(limit)})
+            self._send(
+                200, {"ok": True, "captions": [] if hidden else read_captions(limit)}
+            )
         elif route == "/caption/live":
             import phone_session
 
             hidden = phone_session.hide_shared_captions(self.client_address[0])
-            self._send(200, {"ok": True, "live": None if hidden else read_live_caption()})
+            self._send(
+                200, {"ok": True, "live": None if hidden else read_live_caption()}
+            )
         elif route == "/activity":
             self._send(200, {"ok": True, "items": read_activity()})
         elif route == "/panels":
@@ -3883,6 +4433,7 @@ def serve_forever(
     event_monitor_bridge.start_service()
     import goodnight_supervisor
     import goodnight_bridge
+
     goodnight_bridge.HOST = goodnight_supervisor.start_service()
     try:
         server.serve_forever()
@@ -3908,7 +4459,10 @@ def resolve_token() -> str:
         except (OSError, UnicodeError):
             token = ""
     if not token or any(char.isspace() for char in token):
-        print("REFUSING to start bridge without a valid existing bearer token.", flush=True)
+        print(
+            "REFUSING to start bridge without a valid existing bearer token.",
+            flush=True,
+        )
         raise SystemExit(2)
     return token
 

@@ -16,22 +16,26 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   final http.Client _http;
 
   LinkApi({required this.base, required this.token, http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? http.Client();
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+  };
 
   Uri _u(String path, [Map<String, String>? query]) => Uri.parse(
-      '${base.endsWith('/') ? base.substring(0, base.length - 1) : base}$path'
-      '${query == null ? '' : '?${Uri(queryParameters: query).query}'}');
+    '${base.endsWith('/') ? base.substring(0, base.length - 1) : base}$path'
+    '${query == null ? '' : '?${Uri(queryParameters: query).query}'}',
+  );
 
-  Future<Map<String, dynamic>> _get(String path,
-      [Map<String, String>? query]) async {
+  Future<Map<String, dynamic>> _get(
+    String path, [
+    Map<String, String>? query,
+  ]) async {
     try {
-      final r = await _http.get(_u(path, query), headers: _headers).timeout(
-          const Duration(seconds: 8));
+      final r = await _http
+          .get(_u(path, query), headers: _headers)
+          .timeout(const Duration(seconds: 8));
       return jsonDecode(r.body) as Map<String, dynamic>;
     } on TimeoutException {
       return {'ok': false, 'error': 'timeout'};
@@ -41,11 +45,12 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   }
 
   Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     try {
       final r = await _http
-          .post(_u(path),
-              headers: _headers, body: jsonEncode(body))
+          .post(_u(path), headers: _headers, body: jsonEncode(body))
           .timeout(const Duration(seconds: 30));
       return jsonDecode(r.body) as Map<String, dynamic>;
     } on TimeoutException {
@@ -69,11 +74,18 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
 
   Future<Map<String, dynamic>> setMuted(bool muted) =>
       _post('/mic', {'muted': muted});
+  int _summonId = DateTime.now().microsecondsSinceEpoch;
   Future<Map<String, dynamic>> summon([String? text]) {
-    final body = <String, dynamic>{};
+    final id = ++_summonId;
+    final body = <String, dynamic>{
+      'turn_id': id,
+      'client_id': clientId,
+      'idem_key': '$clientId:summon:$id',
+    };
     if (text != null && text.isNotEmpty) body['text'] = text;
     return _post('/summon', body);
   }
+
   Future<Map<String, dynamic>> typeText(String text) =>
       _post('/type', {'text': text});
   Future<Map<String, dynamic>> pressKey(String key) =>
@@ -83,17 +95,42 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   /// Built by [buildPhoneTelemetryPayload] (core/phone_telemetry.dart);
   /// never throws — unreachable bridges come back as {ok:false}.
   @override
-  Future<Map<String, dynamic>> phoneTelemetry(
-          {required int battery, required bool charging}) =>
-      _post('/phone/telemetry',
-          buildPhoneTelemetryPayload(battery: battery, charging: charging));
-  Future<Map<String, dynamic>> tool(String tool,
-          [Map<String, dynamic>? args]) =>
-      _post('/tool', {'tool': tool, 'args': args ?? {}});
+  Future<Map<String, dynamic>> phoneTelemetry({
+    required int battery,
+    required bool charging,
+  }) => _post(
+    '/phone/telemetry',
+    buildPhoneTelemetryPayload(battery: battery, charging: charging),
+  );
+  Future<Map<String, dynamic>> tool(
+    String tool, [
+    Map<String, dynamic>? args,
+  ]) => _post('/tool', {'tool': tool, 'args': args ?? {}});
+  static final String clientId =
+      'mobile-${DateTime.now().microsecondsSinceEpoch}';
+  Future<Map<String, dynamic>> cancelTurn(int turnId) =>
+      _post('/cancel', {'turn_id': turnId, 'client_id': clientId});
+  Future<Map<String, dynamic>> claimSpeaker() =>
+      _post('/speaker', {'surface': 'phone', 'action': 'claim'});
+  Future<Map<String, dynamic>> releaseSpeaker() =>
+      _post('/speaker/release', {'surface': 'phone'});
+
+  Future<Map<String, dynamic>> chatTurn(
+    String text,
+    List<List<String>> history,
+    int turnId,
+  ) => _post('/chat', {
+    'text': text,
+    'history': history,
+    'turn_id': turnId,
+    'client_id': clientId,
+    'idem_key': '$clientId:$turnId',
+  });
+
   Future<Map<String, dynamic>> chat(
-      String text, [
-      List<List<String>>? history,
-    ]) {
+    String text, [
+    List<List<String>>? history,
+  ]) {
     final body = <String, dynamic>{'text': text};
     final h = history;
     if (h != null) body['history'] = h;
@@ -101,7 +138,8 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   }
 
   /// Mint a 15-minute LiveKit join token (remote voice phase).
-  Future<Map<String, dynamic>> livekitToken(
-          {String room = '', bool dispatch = true}) =>
-      _post('/token', {'room': room, 'dispatch': dispatch});
+  Future<Map<String, dynamic>> livekitToken({
+    String room = '',
+    bool dispatch = true,
+  }) => _post('/token', {'room': room, 'dispatch': dispatch});
 }

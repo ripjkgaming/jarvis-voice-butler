@@ -257,3 +257,38 @@ You can also self-host LiveKit instead of using LiveKit Cloud. See the [self-hos
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### YouTube downloads
+
+Say “download Tesla Roadster kickflip”, paste a video URL/ID, or ask to
+save the current/recent YouTube video. Jarvis searches five results for spoken
+text, ranks titles, and asks “this one?” when the choice is close. Say yes/no
+before it starts that choice. Requests run in the background; “cancel the
+YouTube download” stops the latest active job and removes partial files.
+
+Video defaults to MP4 with H.264/AAC, capped at 1080p; “720p”, “4k”, and
+“best” select another cap. “As mp3”, “audio”, “song”, “music only”, or
+“just the sound” requests MP3 at 192 kbps; “as m4a” requests M4A instead.
+Audio includes title/artist tags and optional cover art. ffmpeg and ffprobe
+are required. Existing filenames are preserved with numbered suffixes.
+
+Video goes to `~/Videos/Jarvis`, audio to `~/Music/Jarvis`. Configure
+`JARVIS_YOUTUBE_VIDEO_DIR` / `JARVIS_YOUTUBE_AUDIO_DIR` to override them;
+`JARVIS_DOWNLOADS_DIR` remains a legacy video override. Local Brave cookies
+are used by default; set `JARVIS_YOUTUBE_COOKIES_BROWSER=off` to disable
+cookies or select another yt-dlp-supported browser. No cookie export files
+are created. Generic extraction/network failures get one retry and a
+one-time standalone yt-dlp update check; package-managed installations
+must be updated through their package manager.
+
+A video URL's playlist context is ignored unless “playlist” is explicit.
+For a complete playlist, say “download playlist” followed by its YouTube
+playlist URL. Completed playlist entries are retained if a later entry is
+cancelled or fails. At most two jobs run concurrently.
+
+Mobile voice requests use the same desktop downloader. Files stay on the
+desktop; the call receives the title, confirmation, status and completion.
+Private phone jobs suppress shared desktop activity and notifications.
+The authenticated phone tool API also supports `youtube_download_status`
+with a `job_id`, plus download, confirm and cancel tools. Downloads are for
+personal use; private, restricted and paywalled content is not bypassed.
