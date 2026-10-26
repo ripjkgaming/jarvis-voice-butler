@@ -1,8 +1,8 @@
-# STARK OS desktop
+# LOCKE OS desktop
 
 The KDE Plasma 6 theme shares the HUD's cyan blueprint palette, reactor
 rings, typography and fine borders. The visual specification is
-[`../design/STARK_OS.md`](../design/STARK_OS.md). Fonts and their SIL Open Font
+[`../design/LOCKE_OS.md`](../design/LOCKE_OS.md). Fonts and their SIL Open Font
 License notices are in `../design/fonts/`.
 
 Run these commands from `jarvis_new/`.
@@ -62,7 +62,7 @@ desktop/revert.sh ~/.jarvis/desktop-backup/<snapshot-directory>
 ```
 
 Run restoration from the logged-in Plasma session too. The newest snapshot
-may already contain STARK OS if the installer has been run more than once;
+may already contain LOCKE OS if the installer has been run more than once;
 choose the first pre-install snapshot to return to the original appearance.
 Restoration supports the original tab-separated wallpaper backups as well as
 the newer JSON format. For an expanded snapshot, restoration also puts back
@@ -108,7 +108,7 @@ described in [FRONTEND_COVERAGE.md](FRONTEND_COVERAGE.md).
 See [PLASMA_COVERAGE.md](PLASMA_COVERAGE.md),
 [APPLICATION_COVERAGE.md](APPLICATION_COVERAGE.md), and
 [FRONTEND_COVERAGE.md](FRONTEND_COVERAGE.md) for the complete surface inventory.
-The visual source of truth remains `design/STARK_OS.md`.
+The visual source of truth remains `design/LOCKE_OS.md`.
 
 The finished icon set contains **64 original designs, 161 icon names, and
 483 SVGs** with separate 16px/22px versions and detailed scalable masters.

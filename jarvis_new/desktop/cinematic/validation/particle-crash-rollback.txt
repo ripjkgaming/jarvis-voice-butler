@@ -1,0 +1,2 @@
+/home/ripjk/.local/share/jarvis-desktop-backups/particle-crash-disabled-20261014-212009
+Restored pre-screen-particle JS and shader in source and installation. Effect unloaded and Plugins/jarvis-energyEnabled=false. No compositor restart or live retest.

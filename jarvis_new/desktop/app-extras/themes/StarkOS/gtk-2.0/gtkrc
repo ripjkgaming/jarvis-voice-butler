@@ -1,4 +1,4 @@
-# STARK OS GTK2: native engine, canonical palette.
+# LOCKE OS GTK2: native engine, canonical palette.
 gtk-font-name = "Rajdhani Medium 11"
 style "stark-default" {
   bg[NORMAL] = "#061826"

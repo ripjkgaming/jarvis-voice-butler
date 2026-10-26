@@ -1,0 +1,1 @@
+Native compact switcher rendered over an owned white window. QML loaded without reported component errors. Close buttons are present and use the native model close slot. Physical pointer activation was not verified by the virtual input probe.

@@ -1,4 +1,4 @@
-/* STARK OS; canonical tokens, native GTK widget semantics. */
+/* LOCKE OS; canonical tokens, native GTK widget semantics. */
 @import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained-dark.css");
 @define-color stark_ink #03101a;
 @define-color stark_deep #061826;

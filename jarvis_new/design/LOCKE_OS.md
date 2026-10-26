@@ -1,4 +1,4 @@
-# STARK OS — one look for the HUD and the desktop
+# LOCKE OS — one look for the HUD and the desktop
 
 Jarvis's HUD (`frontend/`, built into `shell/ui/`) and the KDE Plasma
 desktop around it (`desktop/`) share this one visual language, so the whole

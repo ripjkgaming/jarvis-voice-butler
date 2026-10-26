@@ -1,7 +1,7 @@
-# Applied STARK OS integration
+# Applied LOCKE OS integration
 
 Completed 1 October 2026, Singapore time. Canonical appearance remains
-`design/STARK_OS.md`; the reactor HUD visual design is preserved.
+`design/LOCKE_OS.md`; the reactor HUD visual design is preserved.
 
 ## Applied on this machine
 

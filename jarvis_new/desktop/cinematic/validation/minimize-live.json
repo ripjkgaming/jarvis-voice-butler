@@ -1,0 +1,18 @@
+[
+  {
+    "phase": "manual minimize +140",
+    "debug": "Animating window: Jarvis minimize owned probe\nAnimation: Scale\n     From: 1,1.65289\n       To: 1,1.65289\n  Started: 146ms ago\n Duration: 480ms\n   Passed: 129ms\nAnimation: Translation\n     From: 0,158\n       To: 0,158\n  Started: 146ms ago\n Duration: 480ms\n   Passed: 129ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 146ms ago\n Duration: 480ms\n   Passed: 129ms\n\n"
+  },
+  {
+    "phase": "manual restore +140",
+    "debug": "Animating window: Jarvis minimize owned probe\nAnimation: Scale\n     From: 1,1.65289\n       To: 1,1.65289\n  Started: 151ms ago\n Duration: 480ms\n   Passed: 133ms\nAnimation: Translation\n     From: 0,158\n       To: 0,158\n  Started: 151ms ago\n Duration: 480ms\n   Passed: 133ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 151ms ago\n Duration: 480ms\n   Passed: 133ms\n\n"
+  },
+  {
+    "phase": "Jarvis minimize +550",
+    "debug": "Animating window: Jarvis minimize owned probe\nAnimation: Scale\n     From: 1,1.65289\n       To: 1,1.65289\n  Started: 531ms ago\n Duration: 1200ms\n   Passed: 461ms\nAnimation: Translation\n     From: 0,158\n       To: 0,158\n  Started: 531ms ago\n Duration: 1200ms\n   Passed: 461ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 531ms ago\n Duration: 1200ms\n   Passed: 461ms\n\n"
+  },
+  {
+    "phase": "Jarvis restore +550",
+    "debug": "Animating window: Jarvis minimize owned probe\nAnimation: Scale\n     From: 1,1.65289\n       To: 1,1.65289\n  Started: 525ms ago\n Duration: 1200ms\n   Passed: 459ms\nAnimation: Translation\n     From: 0,158\n       To: 0,158\n  Started: 525ms ago\n Duration: 1200ms\n   Passed: 459ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 525ms ago\n Duration: 1200ms\n   Passed: 459ms\n\n"
+  }
+]

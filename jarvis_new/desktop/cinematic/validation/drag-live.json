@@ -1,0 +1,38 @@
+[
+  {
+    "phase": "drag-held",
+    "debug": "Animating window: Jarvis owned drag check\nAnimation: Scale\n     From: 2.7907,2.54717\n       To: 2.7907,2.54717\n  Started: 189ms ago\n Duration: 2924ms\n   Passed: 157ms\nAnimation: Translation\n     From: -32,20\n       To: -32,20\n  Started: 189ms ago\n Duration: 2924ms\n   Passed: 157ms\nAnimation:  \n     From: 0.129762,0.129762\n       To: 1,1\n  Started: 189ms ago\n Duration: 2924ms\n   Passed: 157ms\n\n"
+  },
+  {
+    "phase": "drag-loop",
+    "debug": "Animating window: Jarvis owned drag check\nAnimation: Scale\n     From: 2.7907,2.54717\n       To: 2.7907,2.54717\n  Started: 124ms ago\n Duration: 1807ms\n   Passed: 106ms\nAnimation: Translation\n     From: -41,7\n       To: -41,7\n  Started: 124ms ago\n Duration: 1807ms\n   Passed: 106ms\nAnimation:  \n     From: 0.462202,0.462202\n       To: 1,1\n  Started: 124ms ago\n Duration: 1807ms\n   Passed: 106ms\n\n"
+  },
+  {
+    "phase": "drag-settle",
+    "debug": "Animating window: Jarvis owned drag check\nAnimation: Scale\n     From: 2.7907,2.54717\n       To: 2.7907,2.54717\n  Started: 118ms ago\n Duration: 720ms\n   Passed: 96ms\nAnimation: Translation\n     From: -42,6\n       To: -42,6\n  Started: 119ms ago\n Duration: 720ms\n   Passed: 96ms\nAnimation:  \n     From: 0.568452,0.568452\n       To: 0.782738,0.782738\n  Started: 119ms ago\n Duration: 720ms\n   Passed: 96ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 119ms ago\n Duration: 720ms\n   Passed: 96ms\n\n"
+  },
+  {
+    "phase": "manual-maximize",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "Jarvis-arrange-early",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "Jarvis-arrange-late",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "resize-held",
+    "debug": "Animating window: Watch Lucifer - Season 3 Online Free on TinyZone - Brave\nAnimation: Scale\n     From: 0.983607,0.983607\n       To: 0.983607,0.983607\n  Started: 67ms ago\n Duration: 2885ms\n   Passed: 49ms\nAnimation: Translation\n     From: -1.77636e-14,1.18033\n       To: -1.77636e-14,1.18033\n  Started: 67ms ago\n Duration: 2885ms\n   Passed: 49ms\nAnimation:  \n     From: 0.141369,0.141369\n       To: 1,1\n  Started: 67ms ago\n Duration: 2885ms\n   Passed: 49ms\n\n"
+  },
+  {
+    "phase": "resize-settle",
+    "debug": "Animating window: Watch Lucifer - Season 3 Online Free on TinyZone - Brave\nAnimation: Scale\n     From: 0.967742,0.998152\n       To: 0.967742,0.998152\n  Started: 65ms ago\n Duration: 671ms\n   Passed: 55ms\nAnimation: Translation\n     From: -16,9.02033\n       To: -16,9.02033\n  Started: 65ms ago\n Duration: 671ms\n   Passed: 55ms\nAnimation:  \n     From: 0.247917,0.247917\n       To: 0.447619,0.447619\n  Started: 65ms ago\n Duration: 671ms\n   Passed: 55ms\nAnimation:  \n     From: 0.931944,0.931944\n       To: 0,0\n  Started: 64ms ago\n Duration: 671ms\n   Passed: 55ms\n\n"
+  },
+  {
+    "phase": "idle",
+    "debug": "No window is animated\n"
+  }
+]

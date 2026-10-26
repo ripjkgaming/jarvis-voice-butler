@@ -1,0 +1,58 @@
+[
+  {
+    "phase": "open-220",
+    "debug": "Animating window: Jarvis Energy \u2014 owned temporary test\nAnimation: Scale\n     From: 0.975,0.94\n       To: 1,1\n  Started: 100ms ago\n Duration: 208ms\n   Passed: 91ms\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 100ms ago\n Duration: 208ms\n   Passed: 91ms\n\n"
+  },
+  {
+    "phase": "open-360",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "open-800",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "minimize-1180",
+    "debug": "Animating window: Jarvis Energy \u2014 owned temporary test\nAnimation: Scale\n     From: 1.48592,2.19461\n       To: 1.48592,2.19461\n  Started: 93ms ago\n Duration: 368ms\n   Passed: 84ms\nAnimation: Translation\n     From: -138,199.5\n       To: -138,199.5\n  Started: 93ms ago\n Duration: 368ms\n   Passed: 84ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 93ms ago\n Duration: 368ms\n   Passed: 84ms\n\n"
+  },
+  {
+    "phase": "minimize-1360",
+    "debug": "Animating window: Jarvis Energy \u2014 owned temporary test\nAnimation: Scale\n     From: 1.48592,2.19461\n       To: 1.48592,2.19461\n  Started: 267ms ago\n Duration: 368ms\n   Passed: 232ms\nAnimation: Translation\n     From: -138,199.5\n       To: -138,199.5\n  Started: 267ms ago\n Duration: 368ms\n   Passed: 232ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 267ms ago\n Duration: 368ms\n   Passed: 232ms\n\n"
+  },
+  {
+    "phase": "minimize-1820",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "restore-2180",
+    "debug": "Animating window: Jarvis Energy \u2014 owned temporary test\nAnimation: Scale\n     From: 1.48592,2.19461\n       To: 1.48592,2.19461\n  Started: 108ms ago\n Duration: 368ms\n   Passed: 92ms\nAnimation: Translation\n     From: -138,199.5\n       To: -138,199.5\n  Started: 108ms ago\n Duration: 368ms\n   Passed: 92ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 108ms ago\n Duration: 368ms\n   Passed: 92ms\n\n"
+  },
+  {
+    "phase": "restore-2360",
+    "debug": "Animating window: Jarvis Energy \u2014 owned temporary test\nAnimation: Scale\n     From: 1.48592,2.19461\n       To: 1.48592,2.19461\n  Started: 283ms ago\n Duration: 368ms\n   Passed: 245ms\nAnimation: Translation\n     From: -138,199.5\n       To: -138,199.5\n  Started: 283ms ago\n Duration: 368ms\n   Passed: 245ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 283ms ago\n Duration: 368ms\n   Passed: 245ms\n\n"
+  },
+  {
+    "phase": "restore-2820",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "rapid-reverse",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "reverse-settled",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "close-4180",
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1.99701\n       To: 1,1.99701\n  Started: 104ms ago\n Duration: 544ms\n   Passed: 91ms\nAnimation: Translation\n     From: 0,166.5\n       To: 0,166.5\n  Started: 104ms ago\n Duration: 544ms\n   Passed: 91ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 104ms ago\n Duration: 544ms\n   Passed: 91ms\n\n"
+  },
+  {
+    "phase": "close-4400",
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1.99701\n       To: 1,1.99701\n  Started: 407ms ago\n Duration: 544ms\n   Passed: 357ms\nAnimation: Translation\n     From: 0,166.5\n       To: 0,166.5\n  Started: 407ms ago\n Duration: 544ms\n   Passed: 357ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 407ms ago\n Duration: 544ms\n   Passed: 357ms\n\n"
+  },
+  {
+    "phase": "close-4920",
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1.99701\n       To: 1,1.99701\n  Started: 605ms ago\n Duration: 544ms\n   Passed: 525ms\nAnimation: Translation\n     From: 0,166.5\n       To: 0,166.5\n  Started: 605ms ago\n Duration: 544ms\n   Passed: 525ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 605ms ago\n Duration: 544ms\n   Passed: 525ms\n\n"
+  }
+]

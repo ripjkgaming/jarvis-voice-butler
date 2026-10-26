@@ -96,11 +96,11 @@ link, button.link, label link { color: @stark_cyan; }
 .success { color: @stark_green; }
 """
     for version, base in (("3.0", "Adwaita/gtk-contained-dark.css"), ("4.0", "Default/gtk-dark.css")):
-        content = f'/* STARK OS; canonical tokens, native GTK widget semantics. */\n@import url("resource:///org/gtk/libgtk/theme/{base}");\n' + defines + css
+        content = f'/* LOCKE OS; canonical tokens, native GTK widget semantics. */\n@import url("resource:///org/gtk/libgtk/theme/{base}");\n' + defines + css
         write(root, f"themes/StarkOS/gtk-{version}/gtk.css", content)
         write(root, f"themes/StarkOS/gtk-{version}/gtk-dark.css", '@import url("gtk.css");\n')
     # Engine-free GTK2 fallback: no dependency on abandoned third-party engines.
-    gtk2 = ['# STARK OS GTK2: native engine, canonical palette.', 'gtk-font-name = "Rajdhani Medium 11"', 'style "stark-default" {']
+    gtk2 = ['# LOCKE OS GTK2: native engine, canonical palette.', 'gtk-font-name = "Rajdhani Medium 11"', 'style "stark-default" {']
     for state in ("NORMAL", "ACTIVE", "PRELIGHT", "SELECTED", "INSENSITIVE"):
         bg = "select" if state == "SELECTED" else "raise" if state == "PRELIGHT" else "deep"
         fg = "text_dim" if state == "INSENSITIVE" else "cyan_hot" if state == "SELECTED" else "text"
@@ -108,7 +108,7 @@ link, button.link, label link { color: @stark_cyan; }
             gtk2.append(f'  {key}[{state}] = "{colors[value]}"')
     gtk2 += ['  xthickness = 1', '  ythickness = 1', '}', 'class "*" style "stark-default"']
     write(root, "themes/StarkOS/gtk-2.0/gtkrc", "\n".join(gtk2) + "\n")
-    write(root, "themes/StarkOS/index.theme", "[Desktop Entry]\nType=X-GNOME-Metatheme\nName=STARK OS\nComment=Jarvis cyan instrument glass\n\n[X-GNOME-Metatheme]\nGtkTheme=StarkOS\nIconTheme=stark-os\nCursorTheme=stark-os-cursors\n")
+    write(root, "themes/StarkOS/index.theme", "[Desktop Entry]\nType=X-GNOME-Metatheme\nName=LOCKE OS\nComment=Jarvis cyan instrument glass\n\n[X-GNOME-Metatheme]\nGtkTheme=StarkOS\nIconTheme=stark-os\nCursorTheme=stark-os-cursors\n")
 
 
 def icons(root: Path) -> None:
@@ -186,7 +186,7 @@ def xcursor(kind: str) -> bytes:
 
 def cursors(root: Path) -> None:
     base = root / "icons/stark-os-cursors"
-    write(base, "index.theme", "[Icon Theme]\nName=STARK OS Cursors\nComment=High contrast static instrument pointers\nInherits=breeze_cursors\n")
+    write(base, "index.theme", "[Icon Theme]\nName=LOCKE OS Cursors\nComment=High contrast static instrument pointers\nInherits=breeze_cursors\n")
     (base / "cursors").mkdir(parents=True, exist_ok=True)
     names = {"left_ptr": ["default", "arrow", "top_left_arrow"], "text": ["xterm", "ibeam"], "crosshair": ["cross"], "wait": ["watch"], "progress": ["left_ptr_watch", "00000000000000020006000e7e9ffc3f"]}
     for kind, aliases in names.items():
@@ -201,7 +201,7 @@ def terminal(root: Path) -> None:
                (180, 140, 255), tokens.CYAN, tokens.TEXT,
                (16, 48, 68), (255, 122, 134), (160, 255, 205), (255, 205, 130),
                (90, 180, 220), (205, 180, 255), tokens.CYAN_HOT, (255, 255, 255)]
-    content = "# Optional Kitty include; STARK OS color profile\nfont_family Share Tech Mono\nfont_size 10.0\n"
+    content = "# Optional Kitty include; LOCKE OS color profile\nfont_family Share Tech Mono\nfont_size 10.0\n"
     for name, color in (("background", tokens.INK), ("foreground", tokens.TEXT), ("cursor", tokens.CYAN), ("selection_background", tokens.SELECT), ("selection_foreground", tokens.CYAN_HOT)):
         content += f"{name} {tokens.hexc(color)}\n"
     content += "\n".join(f"color{i} {tokens.hexc(color)}" for i, color in enumerate(palette)) + "\n"
@@ -216,7 +216,7 @@ def main(output: Path | None = None) -> None:
     icons(output)
     cursors(output)
     terminal(output)
-    print(f"STARK OS application assets generated in {output}")
+    print(f"LOCKE OS application assets generated in {output}")
 
 
 if __name__ == "__main__":

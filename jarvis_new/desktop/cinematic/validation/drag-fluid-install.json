@@ -1,0 +1,13 @@
+{
+  "backup": "/home/ripjk/.local/share/jarvis-desktop-backups/cursor-gravity-20261014-215452",
+  "compositor_pid": "3062",
+  "pid_unchanged": true,
+  "effect_loaded": true,
+  "particle_drag_enabled": true,
+  "cursor_gravity": true,
+  "fixed_screen_return": true,
+  "hashes": {
+    "contents/code/main.js": "f5fb6dc4a8e1cf6996359821934f2556a9a3569a8d57d162fa6e72a21dfab919",
+    "contents/shaders/energy.frag": "35da234e3a3843dca09997a7d96f5e11084d50af2acdbda126f59c75ea38c722"
+  }
+}

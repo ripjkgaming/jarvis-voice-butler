@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"><kcfgfile name=""/><group name=""><entry name="WindowMotionOnly" type="Bool"><default>true</default></entry><entry name="ParticleDragEnabled" type="Bool"><default>false</default></entry><entry name="ReducedMotion" type="Bool"><default>false</default></entry><entry name="CloseEnabled" type="Bool"><default>true</default></entry><entry name="DragOnly" type="Bool"><default>false</default></entry><entry name="ActionRequest" type="String"><default>{}</default></entry></group></kcfg>

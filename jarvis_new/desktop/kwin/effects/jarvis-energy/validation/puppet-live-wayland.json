@@ -1,0 +1,122 @@
+[
+  {
+    "phase": "300",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {}
+    }
+  },
+  {
+    "phase": "600",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {}
+    }
+  },
+  {
+    "phase": "900",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-puppet-owned",
+        "x": 340,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "1700",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-puppet-owned",
+        "x": 340,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "second-window-no-repeat",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-puppet-owned",
+        "x": 340,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "settled",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-puppet-owned",
+        "x": 340,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  }
+]

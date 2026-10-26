@@ -1,0 +1,53 @@
+{
+  "revision": "1.5",
+  "date": "2026-10-04",
+  "sourceRuntimeMatchingSha256": {
+    "contents/code/main.js": "6a7d34eecd6daa152961ef6251797797ceb552653e8fc239a8660540117ee868",
+    "contents/shaders/energy.frag": "9f96713c8f018b6cd124755d4e1266d833170d14c4d4b8345de7be44b6f8a8d0",
+    "metadata.json": "616f583f3c4ab408b7919221ec20b2afa601a0e23ce85e26967da773f6bb49ca"
+  },
+  "idle": "No window is animated",
+  "loadedEffects": [
+    "touchpoints",
+    "shakecursor",
+    "outputlocator",
+    "colorpicker",
+    "jarvis-energy",
+    "screenedge",
+    "blur",
+    "sessionquit",
+    "logout",
+    "login",
+    "slidingpopups",
+    "slidingnotifications",
+    "windowaperture",
+    "slide",
+    "maximize",
+    "fullscreen",
+    "frozenapp",
+    "fadingpopups",
+    "dimscreen",
+    "dialogparent",
+    "wobblywindows",
+    "windowview",
+    "tileseditor",
+    "overview",
+    "highlightwindow",
+    "blendchanges",
+    "startupfeedback",
+    "systembell",
+    "screentransform",
+    "kscreen"
+  ],
+  "taskbarBusPresent": true,
+  "switcher": "jarvis-compact-v3",
+  "locked": "false",
+  "rollback": "/home/ripjk/.local/share/jarvis-desktop-backups/window-orbit-20261004-151005-556875",
+  "limits": [
+    "Frozen visual captures, not motion recording",
+    "Opening content depends on first client buffer",
+    "Temporary KWin stall warnings; no sustained Resolve/GPU stress test",
+    "4K close uses native fallback",
+    "Visual evidence on one 1920x1080 output; other geometry tested in harness"
+  ]
+}

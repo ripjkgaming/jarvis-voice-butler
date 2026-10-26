@@ -1,0 +1,13 @@
+[
+  {
+    "case": "held-loops",
+    "debug": "Animating window: Jarvis isolated probe 0\nAnimation: Scale\n     From: 1.66234,1.34328\n       To: 1.66234,1.34328\n  Started: 85ms ago\n Duration: 3360ms\n   Passed: 96ms\nAnimation: Translation\n     From: 2.84217e-14,-16.1194\n       To: 2.84217e-14,-16.1194\n  Started: 85ms ago\n Duration: 3360ms\n   Passed: 96ms\nAnimation:  \n     From: 2,2\n       To: 3,3\n  Started: 85ms ago\n Duration: 3360ms\n   Passed: 96ms"
+  },
+  {
+    "case": "final",
+    "debug": "No window is animated",
+    "cycles": 36,
+    "output_crossings": 8,
+    "commands": 232
+  }
+]

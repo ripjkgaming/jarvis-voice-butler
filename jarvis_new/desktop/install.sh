@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# STARK OS: give the whole KDE Plasma 6 desktop the Jarvis HUD look.
+# LOCKE OS: give the whole KDE Plasma 6 desktop the Jarvis HUD look.
 #
 # User-level only (no sudo). Backs up every config it touches to
 # ~/.jarvis/desktop-backup/<timestamp>/ first; desktop/revert.sh restores the
@@ -39,7 +39,7 @@ plasma_script() {
 for cmd in kwriteconfig6 kreadconfig6 plasma-apply-colorscheme plasma-apply-desktoptheme fc-cache python3; do
     command -v "$cmd" >/dev/null || { echo "Required command missing: $cmd" >&2; exit 1; }
 done
-plasma_script 'print("STARK OS ready");' >/dev/null || {
+plasma_script 'print("LOCKE OS ready");' >/dev/null || {
     echo "Run this installer from your logged-in KDE Plasma session." >&2
     exit 1
 }
@@ -103,7 +103,7 @@ kw --file kdeglobals --group General --key smallestReadableFont "Rajdhani,9,-1,5
 kw --file kdeglobals --group General --key fixed "Share Tech Mono,10,-1,5,50,0,0,0,0,0"
 kw --file kdeglobals --group WM --key activeFont "Rajdhani,11,-1,5,63,0,0,0,0,0"
 
-say "Colour scheme: Stark OS"
+say "Colour scheme: Locke OS"
 if [ "$(kreadconfig6 --file kdeglobals --group General --key ColorScheme)" = "StarkOS" ]; then
     plasma-apply-colorscheme BreezeDark >/dev/null 2>&1 || true
 fi
@@ -116,7 +116,7 @@ if [ "$(kreadconfig6 --file plasmarc --group Theme --key name)" = "stark-os" ]; 
 fi
 plasma-apply-desktoptheme stark-os
 
-say "Window decoration: Stark OS (Aurorae)"
+say "Window decoration: Locke OS (Aurorae)"
 kw --file kwinrc --group org.kde.kdecoration2 --key library org.kde.kwin.aurorae
 kw --file kwinrc --group org.kde.kdecoration2 --key theme __aurorae__svg__stark-os
 kw --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnLeft ""
@@ -127,7 +127,7 @@ kw --file ksplashrc --group KSplash --key Engine KSplashQML
 kw --file ksplashrc --group KSplash --key Theme org.jarvis.starkos
 kw --file kdeglobals --group KDE --key LookAndFeelPackage org.jarvis.starkos
 
-say "Konsole: Stark OS profile"
+say "Konsole: Locke OS profile"
 kw --file konsolerc --group "Desktop Entry" --key DefaultProfile StarkOS.profile
 
 say "Application controls, GTK, icons, cursors, native task switcher and lock wallpaper"
@@ -153,4 +153,4 @@ say "Reloading KWin settings (no restart)"
 if [ -n "$QDBUS" ]; then "$QDBUS" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true; fi
 python3 "$HERE/integration.py" verify
 
-say "STARK OS online. Backup: $BACKUP  ·  Revert: desktop/revert.sh"
+say "LOCKE OS online. Backup: $BACKUP  ·  Revert: desktop/revert.sh"

@@ -1,0 +1,47 @@
+{
+  "extension": "hbjnbpieebphmfifkeaaeflkhhcekpei",
+  "version": "1.2.0",
+  "checks": [
+    "pin",
+    "mute",
+    "reload",
+    "390px layout",
+    "600ms close retains target until animation ends",
+    "only requested tab closes",
+    "switch edge cue",
+    "input transparent",
+    "finite cleanup",
+    "global motion off",
+    "OS reduced motion",
+    "immediate reduced-motion close"
+  ],
+  "runtimeErrors": [],
+  "nativeBar": {
+    "ready": true,
+    "version": "1.2.0",
+    "visible": true,
+    "kind": "pin",
+    "geometry": [
+      503,
+      11,
+      913,
+      42
+    ],
+    "durationMs": 608,
+    "inputTransparent": true
+  },
+  "nativeClose": {
+    "ready": true,
+    "version": "1.2.0",
+    "visible": true,
+    "kind": "close",
+    "geometry": [
+      503,
+      11,
+      913,
+      42
+    ],
+    "durationMs": 920,
+    "inputTransparent": true
+  }
+}

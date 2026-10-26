@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Jarvis \u2014 Electric Glass",
+  "version": "1.2.0",
+  "description": "Blue-glass tab opening, closing, switching and browser action cues. Local controls with a shared motion preference.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "transition.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

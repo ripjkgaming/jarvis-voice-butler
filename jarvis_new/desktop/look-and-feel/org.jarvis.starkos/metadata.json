@@ -1,7 +1,7 @@
 {
   "KPlugin": {
     "Id": "org.jarvis.starkos",
-    "Name": "Stark OS",
+    "Name": "Locke OS",
     "Description": "The Jarvis HUD look for the whole desktop: deep ink, cyan hairlines, chamfers and corner brackets",
     "Version": "1.0",
     "License": "MIT",

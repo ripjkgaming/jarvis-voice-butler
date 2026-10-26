@@ -281,7 +281,7 @@
    }
  }
 +
-+/* STARK OS extension: numeric readouts stay mono; labels share the HUD face. */
++/* LOCKE OS extension: numeric readouts stay mono; labels share the HUD face. */
 +.stats b,
 +.clock,
 +.rowNum {
@@ -478,7 +478,7 @@
    border: 1px solid var(--dw-line);
  }
 +
-+/* STARK OS extension: numeric readouts stay mono; labels share the HUD face. */
++/* LOCKE OS extension: numeric readouts stay mono; labels share the HUD face. */
 +.stats b,
 +.clock,
 +.rowNum {
@@ -537,7 +537,7 @@
    }
  }
 +
-+/* STARK OS companion surfaces. The scoped components/stark design is untouched. */
++/* LOCKE OS companion surfaces. The scoped components/stark design is untouched. */
 +.sbar,
 +.smenu {
 +  --line: rgba(95, 227, 255, 0.18);

@@ -31,7 +31,7 @@ ASSETS = [
     "icons/stark-os",
     "icons/stark-os-cursors",
 ]
-GTK2_BLOCK = re.compile(r"\n?# BEGIN STARK OS\n.*?# END STARK OS\n?", re.S)
+GTK2_BLOCK = re.compile(r"\n?# BEGIN (?:STARK|LOCKE) OS\n.*?# END (?:STARK|LOCKE) OS\n?", re.S)
 
 
 def update_gtk2(block):
@@ -254,10 +254,10 @@ def apply():
     if gtk_integration.gtk2_path() is None:
         gtkrc = json.dumps(str(DATA / "themes/StarkOS/gtk-2.0/gtkrc"))
         update_gtk2(
-            f"\n# BEGIN STARK OS\ninclude {gtkrc}\n"
+            f"\n# BEGIN LOCKE OS\ninclude {gtkrc}\n"
             'gtk-theme-name="StarkOS"\ngtk-icon-theme-name="stark-os"\n'
             'gtk-cursor-theme-name="stark-os-cursors"\ngtk-font-name="Rajdhani Medium 11"\n'
-            "# END STARK OS\n"
+            "# END LOCKE OS\n"
         )
     refresh_icons()
 
@@ -312,7 +312,7 @@ def verify():
 
     gtk_integration.configure_paths(HOME, CFG, DATA)
     gtk_integration.verify()
-    print("Expanded desktop settings and application assets match STARK OS.")
+    print("Expanded desktop settings and application assets match LOCKE OS.")
 
 
 if __name__ == "__main__":

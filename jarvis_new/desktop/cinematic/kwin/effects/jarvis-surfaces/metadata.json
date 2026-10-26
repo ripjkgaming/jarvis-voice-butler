@@ -1,0 +1,1 @@
+{"KPackageStructure":"KWin/Effect","KPlugin":{"Id":"jarvis-surfaces","Name":"Jarvis — Interface Motion","Description":"Short, coordinated menu unfolds and notification arrivals.","Version":"2.0","License":"MIT","Category":"Appearance","EnabledByDefault":false},"X-KDE-Ordering":5,"X-Plasma-API":"javascript","X-Plasma-MainScript":"code/main.js"}

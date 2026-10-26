@@ -1,0 +1,15 @@
+{
+  "KPackageStructure": "KWin/Effect",
+  "KPlugin": {
+    "Id": "jarvis-energy",
+    "Name": "Jarvis \u2014 Energy Retrieval",
+    "Description": "Window becomes energy filaments, one monitor-edge lap, one panel lap, below-screen exit; smooth energy-gradient opening scan.",
+    "Version": "1.6",
+    "License": "MIT",
+    "Category": "Window Open/Close Animation",
+    "EnabledByDefault": false
+  },
+  "X-KDE-Ordering": 1,
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}

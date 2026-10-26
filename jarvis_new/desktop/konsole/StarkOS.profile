@@ -10,7 +10,7 @@ CustomCursorColor=95,227,255
 CustomCursorTextColor=3,16,26
 
 [General]
-Name=Stark OS
+Name=Locke OS
 Parent=FALLBACK/
 TerminalMargin=10
 TerminalCenter=false

@@ -1,0 +1,15 @@
+{
+  "KPackageStructure": "KWin/Effect",
+  "KPlugin": {
+    "Id": "locke-tech-fade",
+    "Name": "Locke \u2014 Signal Aperture",
+    "Description": "Cyan aperture assembly on opening and a precise signal collapse on closing.",
+    "Version": "2.0",
+    "License": "MIT",
+    "Category": "Window Open/Close Animation",
+    "EnabledByDefault": false
+  },
+  "X-KDE-Ordering": 1,
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}

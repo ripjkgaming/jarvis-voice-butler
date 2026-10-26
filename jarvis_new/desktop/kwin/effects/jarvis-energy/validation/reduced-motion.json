@@ -1,0 +1,42 @@
+[
+  {
+    "phase": "opening-180",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-240",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-300",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-360",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-420",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-480",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-540",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-600",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "closing",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "settled",
+    "debug": "No window is animated\n"
+  }
+]

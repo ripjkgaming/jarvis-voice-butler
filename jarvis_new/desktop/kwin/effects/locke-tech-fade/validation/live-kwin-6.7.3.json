@@ -1,0 +1,42 @@
+[
+  {
+    "phase": "opening-180",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-240",
+    "debug": "Animating window: Signal Aperture \u2014 temporary animation test\nAnimation: Scale\n     From: 0.975,0.96\n       To: 1,1\n  Started: 11ms ago\n Duration: 240ms\n   Passed: 0ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 11ms ago\n Duration: 240ms\n   Passed: 0ms\n\n"
+  },
+  {
+    "phase": "opening-300",
+    "debug": "Animating window: Signal Aperture \u2014 temporary animation test\nAnimation: Scale\n     From: 0.975,0.96\n       To: 1,1\n  Started: 59ms ago\n Duration: 240ms\n   Passed: 50ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 59ms ago\n Duration: 240ms\n   Passed: 50ms\n\n"
+  },
+  {
+    "phase": "opening-360",
+    "debug": "Animating window: Signal Aperture \u2014 temporary animation test\nAnimation: Scale\n     From: 0.975,0.96\n       To: 1,1\n  Started: 114ms ago\n Duration: 240ms\n   Passed: 99ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 114ms ago\n Duration: 240ms\n   Passed: 99ms\n\n"
+  },
+  {
+    "phase": "opening-420",
+    "debug": "Animating window: Signal Aperture \u2014 temporary animation test\nAnimation: Scale\n     From: 0.975,0.96\n       To: 1,1\n  Started: 179ms ago\n Duration: 240ms\n   Passed: 154ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 179ms ago\n Duration: 240ms\n   Passed: 154ms\n\n"
+  },
+  {
+    "phase": "opening-480",
+    "debug": "Animating window: Signal Aperture \u2014 temporary animation test\nAnimation: Scale\n     From: 0.975,0.96\n       To: 1,1\n  Started: 236ms ago\n Duration: 240ms\n   Passed: 202ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 236ms ago\n Duration: 240ms\n   Passed: 202ms\n\n"
+  },
+  {
+    "phase": "opening-540",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "opening-600",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "closing",
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 0.975,0.96\n  Started: 68ms ago\n Duration: 176ms\n   Passed: 60ms\nAnimation:  \n     From: 1,1\n       To: 0,0\n  Started: 68ms ago\n Duration: 176ms\n   Passed: 60ms\n\n"
+  },
+  {
+    "phase": "settled",
+    "debug": "No window is animated\n"
+  }
+]

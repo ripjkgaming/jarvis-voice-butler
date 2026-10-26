@@ -1,9 +1,9 @@
-# STARK OS instrument icons
+# LOCKE OS instrument icons
 
 64 original vector designs; 161 named icons in each of three optical sizes
 (16px, 22px, and a detailed scalable master designed on a 128px grid).
 
-The artwork keeps STARK OS geometry and uses an icon-specific light-blue
+The artwork keeps LOCKE OS geometry and uses an icon-specific light-blue
 hologram palette: translucent ice-blue glass, luminous bevel edges, concentric
 reactor rings, fine etched details, and distinct silhouettes for folders,
 documents, hardware, and applications. Thin dark keylines separate the bright

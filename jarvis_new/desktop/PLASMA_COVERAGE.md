@@ -1,7 +1,7 @@
 # Plasma surface coverage
 
 Audited against this machine's Plasma **6.7.3**, 1 October 2026. Visual tokens
-remain those in `design/STARK_OS.md`; the established HUD and existing desktop
+remain those in `design/LOCKE_OS.md`; the established HUD and existing desktop
 frames are unchanged. `build_plasma_extras.py` only adds missing SVG assets.
 
 ## Applied through the normal theme installation

@@ -1,0 +1,370 @@
+[
+  {
+    "ms": 8,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 49,
+    "trace": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 11ms ago\n Duration: 152ms\n   Passed: 6ms\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 11ms ago\n Duration: 368ms\n   Passed: 6ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 11ms ago\n Duration: 368ms\n   Passed: 6ms\n\n"
+  },
+  {
+    "ms": 91,
+    "trace": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 53ms ago\n Duration: 152ms\n   Passed: 42ms\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 53ms ago\n Duration: 368ms\n   Passed: 42ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 53ms ago\n Duration: 368ms\n   Passed: 42ms\n\n"
+  },
+  {
+    "ms": 132,
+    "trace": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 95ms ago\n Duration: 152ms\n   Passed: 78ms\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 95ms ago\n Duration: 368ms\n   Passed: 78ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 95ms ago\n Duration: 368ms\n   Passed: 78ms\n\n"
+  },
+  {
+    "ms": 174,
+    "trace": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 137ms ago\n Duration: 152ms\n   Passed: 114ms\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 137ms ago\n Duration: 368ms\n   Passed: 114ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 137ms ago\n Duration: 368ms\n   Passed: 114ms\n\n"
+  },
+  {
+    "ms": 218,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 180ms ago\n Duration: 368ms\n   Passed: 156ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 180ms ago\n Duration: 368ms\n   Passed: 156ms\n\n"
+  },
+  {
+    "ms": 260,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 222ms ago\n Duration: 368ms\n   Passed: 192ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 222ms ago\n Duration: 368ms\n   Passed: 192ms\n\n"
+  },
+  {
+    "ms": 303,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 266ms ago\n Duration: 368ms\n   Passed: 228ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 266ms ago\n Duration: 368ms\n   Passed: 228ms\n\n"
+  },
+  {
+    "ms": 345,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 307ms ago\n Duration: 368ms\n   Passed: 264ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 307ms ago\n Duration: 368ms\n   Passed: 264ms\n\n"
+  },
+  {
+    "ms": 387,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 349ms ago\n Duration: 368ms\n   Passed: 300ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 349ms ago\n Duration: 368ms\n   Passed: 300ms\n\n"
+  },
+  {
+    "ms": 429,
+    "trace": "Animating window: plasmashell\nAnimation: Scale\n     From: 0.94,0.98\n       To: 1,1\n  Started: 392ms ago\n Duration: 368ms\n   Passed: 336ms\nAnimation: Translation\n     From: 60.48,0\n       To: 0,0\n  Started: 392ms ago\n Duration: 368ms\n   Passed: 336ms\n\n"
+  },
+  {
+    "ms": 471,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 513,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 554,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 596,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 638,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 679,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 722,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 763,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 804,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 847,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 888,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 931,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 972,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1014,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1055,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1101,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1143,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1185,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1228,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1268,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1311,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1352,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1395,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1437,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1478,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1520,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1563,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1605,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1647,
+    "trace": "Animating window: [Deleted]\nAnimation: Opacity\n     From: 1,1\n       To: 0,0\n  Started: 41ms ago\n Duration: 144ms\n   Passed: 24ms\nAnimation: Scale\n     From: 1,1\n       To: 0.97,0.99\n  Started: 40ms ago\n Duration: 192ms\n   Passed: 24ms\nAnimation: Translation\n     From: 0,0\n       To: 39.312,0\n  Started: 40ms ago\n Duration: 192ms\n   Passed: 24ms\n\n"
+  },
+  {
+    "ms": 1688,
+    "trace": "Animating window: [Deleted]\nAnimation: Opacity\n     From: 1,1\n       To: 0,0\n  Started: 81ms ago\n Duration: 144ms\n   Passed: 60ms\nAnimation: Scale\n     From: 1,1\n       To: 0.97,0.99\n  Started: 80ms ago\n Duration: 192ms\n   Passed: 60ms\nAnimation: Translation\n     From: 0,0\n       To: 39.312,0\n  Started: 80ms ago\n Duration: 192ms\n   Passed: 60ms\n\n"
+  },
+  {
+    "ms": 1730,
+    "trace": "Animating window: [Deleted]\nAnimation: Opacity\n     From: 1,1\n       To: 0,0\n  Started: 123ms ago\n Duration: 144ms\n   Passed: 96ms\nAnimation: Scale\n     From: 1,1\n       To: 0.97,0.99\n  Started: 122ms ago\n Duration: 192ms\n   Passed: 96ms\nAnimation: Translation\n     From: 0,0\n       To: 39.312,0\n  Started: 122ms ago\n Duration: 192ms\n   Passed: 96ms\n\n"
+  },
+  {
+    "ms": 1770,
+    "trace": "Animating window: [Deleted]\nAnimation: Opacity\n     From: 1,1\n       To: 0,0\n  Started: 164ms ago\n Duration: 144ms\n   Passed: 132ms\nAnimation: Scale\n     From: 1,1\n       To: 0.97,0.99\n  Started: 163ms ago\n Duration: 192ms\n   Passed: 132ms\nAnimation: Translation\n     From: 0,0\n       To: 39.312,0\n  Started: 163ms ago\n Duration: 192ms\n   Passed: 132ms\n\n"
+  },
+  {
+    "ms": 1813,
+    "trace": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 0.97,0.99\n  Started: 205ms ago\n Duration: 192ms\n   Passed: 169ms\nAnimation: Translation\n     From: 0,0\n       To: 39.312,0\n  Started: 205ms ago\n Duration: 192ms\n   Passed: 169ms\n\n"
+  },
+  {
+    "ms": 1854,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1895,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1937,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 1980,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2021,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2062,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2104,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2146,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2188,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2232,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2276,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2318,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2361,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2402,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2446,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2487,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2530,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2571,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2615,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2656,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2697,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2737,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2779,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2821,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2862,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2903,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2943,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 2984,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3025,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3065,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3106,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3147,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3187,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3228,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3269,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3310,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3351,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3392,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3433,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3474,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3514,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3555,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3597,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3637,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3678,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3720,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3762,
+    "trace": "No window is animated\n"
+  },
+  {
+    "ms": 3804,
+    "trace": "No window is animated\n"
+  }
+]

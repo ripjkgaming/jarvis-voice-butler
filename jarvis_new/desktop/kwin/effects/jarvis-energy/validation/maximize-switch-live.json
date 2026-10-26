@@ -1,0 +1,15 @@
+
+[
+  {
+    "stage": "maximize",
+    "effects": "Animating window: Owned Jarvis switch test 1\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 100ms ago\n Duration: 160ms\n   Passed: 89ms\n\n"
+  },
+  {
+    "stage": "unmaximize",
+    "effects": "Animating window: Owned Jarvis switch test 1\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 79ms ago\n Duration: 160ms\n   Passed: 92ms\n\n"
+  },
+  {
+    "stage": "settled",
+    "effects": "No window is animated\n"
+  }
+]

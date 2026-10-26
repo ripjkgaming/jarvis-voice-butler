@@ -1,0 +1,27 @@
+[
+  {
+    "kind": "open",
+    "phase": 0.48,
+    "image": "orbit-live-open-0.48.png"
+  },
+  {
+    "kind": "close",
+    "phase": 0.1,
+    "image": "orbit-live-close-0.1.png"
+  },
+  {
+    "kind": "close",
+    "phase": 0.35,
+    "image": "orbit-live-close-0.35.png"
+  },
+  {
+    "kind": "close",
+    "phase": 0.68,
+    "image": "orbit-live-close-0.68.png"
+  },
+  {
+    "kind": "close",
+    "phase": 0.87,
+    "image": "orbit-live-close-0.87.png"
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "roles": 22,
+  "sizes": [
+    24,
+    32,
+    40,
+    48,
+    64,
+    96
+  ],
+  "decoded_images": 1062,
+  "aliases": 68,
+  "decoder": "system libXcursor",
+  "fixed_hotspots": true,
+  "stable_targeting_pixels": true,
+  "static_precision_tools": true,
+  "premultiplied_alpha": true
+}

@@ -1,0 +1,11 @@
+{
+  "KPackageStructure": "KWin/WindowSwitcher",
+  "KPlugin": {
+    "Id": "jarvis-ascii",
+    "Name": "Jarvis — ASCII Switch",
+    "Description": "Terminal-style window switcher: the selected window resolves out of a cyan glyph mosaic and its caption decodes in.",
+    "Icon": "preferences-system-windows-switcher-compact",
+    "License": "GPL",
+    "Version": "1.0"
+  }
+}

@@ -1,0 +1,9 @@
+[
+  "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 24ms ago\n Duration: 192ms\n   Passed: 18ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 24ms ago\n Duration: 192ms\n   Passed: 18ms\nAnimation: Translation\n     From: 18,0\n       To: 0,0\n  Started: 24ms ago\n Duration: 192ms\n   Passed: 18ms\n\n",
+  "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 74ms ago\n Duration: 192ms\n   Passed: 60ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 74ms ago\n Duration: 192ms\n   Passed: 60ms\nAnimation: Translation\n     From: 18,0\n       To: 0,0\n  Started: 74ms ago\n Duration: 192ms\n   Passed: 60ms\n\n",
+  "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 126ms ago\n Duration: 192ms\n   Passed: 108ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 126ms ago\n Duration: 192ms\n   Passed: 108ms\nAnimation: Translation\n     From: 18,0\n       To: 0,0\n  Started: 126ms ago\n Duration: 192ms\n   Passed: 108ms\n\n",
+  "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 176ms ago\n Duration: 192ms\n   Passed: 150ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 176ms ago\n Duration: 192ms\n   Passed: 150ms\nAnimation: Translation\n     From: 18,0\n       To: 0,0\n  Started: 176ms ago\n Duration: 192ms\n   Passed: 150ms\n\n",
+  "No window is animated\n",
+  "No window is animated\n",
+  "No window is animated\n"
+]

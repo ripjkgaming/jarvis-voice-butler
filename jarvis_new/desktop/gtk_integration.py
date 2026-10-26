@@ -393,5 +393,5 @@ def verify() -> None:
     if errors:
         raise RuntimeError("\n".join(errors))
     print(
-        "GTK transport audit: effective GTK2 RC, XSettings, GSettings and legacy CSS match STARK OS"
+        "GTK transport audit: effective GTK2 RC, XSettings, GSettings and legacy CSS match LOCKE OS"
     )

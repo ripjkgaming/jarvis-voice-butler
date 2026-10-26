@@ -1,0 +1,682 @@
+[
+  {
+    "phase": "2200",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "2450",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "2700",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "2950",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "3200",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "3450",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "3700",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "3950",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "4200",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "4450",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "4700",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "4950",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "5200",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "5450",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "5700",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "5950",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "phase": "settled",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  }
+]

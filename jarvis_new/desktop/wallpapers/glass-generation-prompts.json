@@ -1,0 +1,13 @@
+{
+  "mode": "built-in image_gen",
+  "wallpapers": [
+    {
+      "file": "jarvis-glass-signal-core.png",
+      "prompt": "Use case: style-transfer. Asset type: 16:9 cinematic laptop desktop wallpaper. Edit this wallpaper: preserve the asymmetric right-side composition, dark navy negative space across the left, fine electric-blue circuit lines, horizontal glitch slices, and clear lower taskbar area. Replace the rigid solid-looking central slabs with optically translucent LIQUID GLASS: clear flowing folded glass membranes, delicate refractions, fluid beveled edges, highly transparent interiors through which the background drafting lines remain visible, luminous electric cobalt-blue edge tint with tiny icy-cyan highlights. The sculptural form should feel weightless and fluid, an abstract intelligence hologram made of transparent ribbons, not solid blocks, not metal, not opaque frosted slabs. Keep the composition tasteful and restrained, around 65-75% dark quiet background. Fine brief-looking digital horizontal offsets interrupt a few glass edges. No opaque panel fill, no solid blocks, no circles, no rings, no ripples, no text, no logos, no fake UI controls, no people, no excessive bloom. Output a single landscape wallpaper, ideally 3840x2160."
+    },
+    {
+      "file": "jarvis-glass-signal-drift.png",
+      "prompt": "Use case: stylized-concept. Asset type: premium laptop desktop wallpaper, one full-bleed 16:9 landscape image, ideally 3840x2160. Create a companion wallpaper named Signal Drift for an electric-blue liquid-glass JARVIS-style desktop. Nearly black navy background with subtle optical depth. Across the middle-right, a narrow asymmetric current of exceptionally clear translucent liquid glass flows horizontally and folds into angular fluid fins, like a refractive intelligence signal frozen in motion. See the faint drafting lines THROUGH the clear glass; mostly transparent interiors, electric cobalt blue edge tint, icy cyan pinpoint glints, several precisely displaced horizontal digital glitch fragments. Very refined cinematic science-fiction interface mood. Airy sculpture, no solid opaque material, no heavy slabs or metal. Subject occupies only a third of the frame, keep the left 35 percent and top-left quiet for desktop icons, leave bottom 7 percent dark for a taskbar. Subtle faint linear circuit traces, no distracting microtext. No circles, no rings, no ripples, no spheres, no text, no numbers, no logos, no watermark, no visible computer display, no fake UI widgets, no characters, no excessive glow, no red, no purple. This should complement a vertical glass-signal wallpaper while offering a distinct wider horizontal composition. Single finished wallpaper, not a collage."
+    }
+  ]
+}

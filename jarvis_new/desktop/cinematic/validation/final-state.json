@@ -1,0 +1,82 @@
+{
+  "status": "installed",
+  "style": "electric blue glass; distinct Jarvis split-glass close; calm focus/maximize; amplified taskbar collapse",
+  "windowDurationsMsAtCurrentFactor": {
+    "open": 496,
+    "close": 384,
+    "minimizeRestore": 480,
+    "maximize": 240,
+    "focus": 192,
+    "dragEntry": 112,
+    "dragRelease": 240
+  },
+  "taskbarDurationsMsAtCurrentFactor": {
+    "open": 464,
+    "close": 352
+  },
+  "sourceRuntimeHashesMatch": true,
+  "rollbackVerified": "Original desktop animation rollback exercised; cursor and Brave rollback scripts saved but not exercised",
+  "originalBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-144210-792480",
+  "cursor": "jarvis-electric-cursors",
+  "switcher": "jarvis-glass-compact-v2",
+  "desktopTheme": "jarvis-blue-glass",
+  "jarvisDurationsMs": {
+    "open": 1350,
+    "close": 1450,
+    "interact": 1200,
+    "minimizeRestore": 1200,
+    "geometry": 1250
+  },
+  "brave": {
+    "extension": "hbjnbpieebphmfifkeaaeflkhhcekpei",
+    "theme": "ifclfjcgnlnhemkiocnddmaaibgpfcgh",
+    "nativeTabStripAnimationReplaced": false,
+    "newTabCloseDelayMs": 600,
+    "version": "1.2.0",
+    "sharedMotionPreference": true,
+    "actionCues": [
+      "open",
+      "close",
+      "switch",
+      "loading",
+      "ready",
+      "pin",
+      "mute",
+      "move",
+      "zoom"
+    ],
+    "nativeTabBarAccents": true,
+    "installation": "persistent unpacked profile installation",
+    "requiresLaunchFlags": false,
+    "profileInstallVerified": true
+  },
+  "latestBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-193712-696861",
+  "browserOverlayVerified": {
+    "observed": true,
+    "pointerEvents": "none",
+    "removedAfter900ms": true
+  },
+  "recovery": {
+    "missingEffectsReloadTested": true,
+    "fullCompositorRestartTested": false
+  },
+  "validation": {
+    "pythonTestsPassed": 35,
+    "gpuModesVerified": 6,
+    "nativeMinimizeRestore": "all four durations verified",
+    "nativeDrag": "held shader and release verified",
+    "nativeArrange": "1250ms geometry tracks verified",
+    "closeAccents": "blue only, alpha <=28% manual and <=46% commanded",
+    "focus": "pixel-identical interior at all sampled phases in both timing sets",
+    "maximize": "pixel-identical interior; thin blue edge",
+    "minimizeStyle": "four fading blue contours, three light streaks, slice glitches, task-icon convergence",
+    "jarvisClose": "distinct split-beam and staggered dissolve, native window + taskbar both 1450ms"
+  },
+  "closeFocusBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-203254-690462",
+  "minimizeDestination": "actual taskbar icon; nearest same-output panel fallback",
+  "centerMinimizeBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-203847-213478",
+  "taskbarJarvisCloseMs": 1450,
+  "taskbarCollapseBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-205108-903429",
+  "braveMotionBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/brave-motion-20261013-205159",
+  "braveNativeBackup": "/home/ripjk/.local/share/jarvis-desktop-backups/brave-native-20261013-211008"
+}

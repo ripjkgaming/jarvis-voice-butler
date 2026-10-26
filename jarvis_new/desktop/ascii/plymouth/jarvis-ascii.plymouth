@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Jarvis ASCII
+Description=J.A.R.V.I.S boot drawn in ASCII glyphs: reactor assembles, helmet scans in, glyph progress bar
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/jarvis-ascii
+ScriptFile=/usr/share/plymouth/themes/jarvis-ascii/jarvis-ascii.script

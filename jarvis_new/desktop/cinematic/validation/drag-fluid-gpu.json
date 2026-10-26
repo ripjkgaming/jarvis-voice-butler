@@ -1,0 +1,11 @@
+{
+  "renderer": "NVIDIA GeForce RTX 2050/PCIe/SSE2",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "samples": 60,
+  "gpu_ms_mean": 2.6741930666666667,
+  "gpu_ms_max": 3.45088,
+  "cursor_gravity": true
+}

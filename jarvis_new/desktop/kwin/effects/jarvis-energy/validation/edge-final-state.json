@@ -1,0 +1,90 @@
+{
+  "revision": "1.6",
+  "date": "2026-10-04",
+  "sourceRuntimeMatchingWindowSha256AndTaskbarSourceSha256": {
+    "contents/code/main.js": "c249bee84560e9d36daa61d119fd58b15b2607206f23a4aa6a462766c641e754",
+    "contents/shaders/energy.frag": "7ae17369504e9578b78c4d9f9e7ce388fba1c3494f54372ab71da5a14d81a4ca",
+    "metadata.json": "7cf4abf10de6232c0c903c6e3b07cfbb066aacf20d4190bceafca3a95b3d630b",
+    "taskbar-slice.py": "e184fc5c8b2a854363b085d26718f7b6bae3deeccb53aee6dfa37412aa97cfe5",
+    "taskbar-slice.js": "da4d55e65acaa7ea58c47689ebc5a25c1179eaf6b93384270533a6d6043f1a8e",
+    "taskbar-puppet.py": "770971b7e8c75956fe20c1be5cf2081c277242e153cec6d21f66d33486d98b5e",
+    "taskbar-puppet.js": "bf70b7cfdfc15427f12797c464a2e72a6f929055d287e7df55d510d23b9bb069"
+  },
+  "windowIdle": "No window is animated",
+  "windowLoaded": "true",
+  "taskbar": {
+    "TaskbarSlice": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 364,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    },
+    "TaskbarPuppet": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "jarvis-shot-owned",
+        "x": 388,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  "switcher": "jarvis-compact-v3",
+  "locked": "false",
+  "rollbackExercisedByteComparedAndReapplied": true,
+  "rollbackPreset": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-before-20261004",
+  "activePreset": "/home/ripjk/.local/share/jarvis-desktop-backups/cinematic-edge-20261004",
+  "limits": [
+    "Frozen still captures, not a motion-quality recording",
+    "Opening pixels depend on client first buffer",
+    "KWin temporary-stall warnings observed; no sustained Resolve/GPU stress test",
+    "4K close uses bounded native fallback",
+    "Only current monitor/panel visually verified; other orientations checked geometrically",
+    "Taskbar triggers require published real slot geometry; missing geometry skips"
+  ]
+}

@@ -1,8 +1,8 @@
-# STARK OS frontend coverage audit
+# LOCKE OS frontend coverage audit
 
 Audited 1 October 2026 (Asia/Singapore). This report concerns the three active
 Next routes and their shared/school surfaces, not external websites displayed
-inside a browser. The source of truth is `design/STARK_OS.md` and the current
+inside a browser. The source of truth is `design/LOCKE_OS.md` and the current
 `frontend/components/stark/`. This companion styling worker did not modify
 files in that directory; concurrent HUD optimization belongs to its own chat.
 
@@ -28,7 +28,7 @@ the original runtime chat.
 | `/projects`: `components/projects/project-archive.tsx` | Voice-only index/document viewer, voice scroll commands, named sections and progress semantics already present. Companion route does not mount `HudShell`, so lacks its visibility class. Auto-scroll can consume a long resumed frame. | Mount companion visibility hook; discard hidden/long frame deltas so resume does not jump through a document. |
 | `/drafts`: `components/drafts/drafts-window.module.css` | Old palette and font pair; clipped reply/index/paper when content exceeds viewport. | Canonical palette/fonts, 40px blueprint grid, 2px selection, narrow-window layout; overflow becomes scrollable rather than permanently clipped; word wrapping for long addresses/content; tighter metadata and paper padding at ≤480px to leave more reply text visible. |
 | `/drafts`: `components/drafts/drafts-window.tsx` | Voice-only approval text and read/send/discard phrases; phrase footer hidden from assistive technology despite being instructions. | Expose spoken phrases and name reply text region; mount companion visibility hook. Stabilize the initial clock to prevent static-export hydration mismatch (found by headless QA). No mail/action behavior change. |
-| School taskbar: `components/hud/school-strip.tsx`, `.sbar*` in `styles/globals.css` | Already state-aware holographic taskbar with launcher, app indicators, tray and clock. Uses CommitMono/Inter in several places. Voice-state colors intentionally differ from general cyan and are specified in STARK_OS.md. | Scope new Rajdhani labels/Share Tech Mono readouts to `.sbar` selectors; canonical text/line tokens. Preserve state colors and component behavior. |
+| School taskbar: `components/hud/school-strip.tsx`, `.sbar*` in `styles/globals.css` | Already state-aware holographic taskbar with launcher, app indicators, tray and clock. Uses CommitMono/Inter in several places. Voice-state colors intentionally differ from general cyan and are specified in LOCKE_OS.md. | Scope new Rajdhani labels/Share Tech Mono readouts to `.sbar` selectors; canonical text/line tokens. Preserve state colors and component behavior. |
 | School launcher / quick settings / calendar: `components/hud/school-menus.tsx`, `.smenu*` in `styles/globals.css` | Existing custom menus and native bridge actions; font mismatch and no explicit school keyboard focus outline. | Scope canonical type/palette and opaque deep panel background to `.smenu`; cyan focus outline; comprehensive reduced-motion override for menu descendants/pseudo-elements. |
 | School entry/exit: `components/hud/school-transition.tsx`, `school-return.tsx` | Custom canvas/native-window choreography. Entry checks reduced-motion and school trace skips hidden frames. | Preserve existing transition implementation and native geometry. |
 | Companion hidden/motion contract: new `hooks/hud/use-surface-visibility.ts` | The global `html.hud-hidden` CSS pause already exists but companions never set it. Some project pulse/pseudo-element animations escape narrower reduced-motion rules. | Small route-local visibility hook and full module reduced-motion selectors; no listeners added to canonical `components/stark/`. |

@@ -1,0 +1,98 @@
+[
+  {
+    "stage": "first-of-two-closed",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {}
+    }
+  },
+  {
+    "stage": "last-closed",
+    "status": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "org.jarvis.SlicePreview",
+        "x": 484,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 316,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          },
+          {
+            "x": 508,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  {
+    "stage": "settled",
+    "status": {
+      "visible": false,
+      "timerActive": false,
+      "last": {
+        "app": "org.jarvis.SlicePreview",
+        "x": 484,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 268,
+            "y": 1060
+          },
+          {
+            "x": 316,
+            "y": 1060
+          },
+          {
+            "x": 412,
+            "y": 1060
+          },
+          {
+            "x": 508,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  }
+]

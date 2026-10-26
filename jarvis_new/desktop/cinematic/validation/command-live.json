@@ -1,0 +1,118 @@
+[
+  {
+    "phase": "open-900ms",
+    "taskbar": {
+      "visible": false,
+      "timerActive": false,
+      "last": {}
+    },
+    "debug": "Animating window: DaVinci Resolve - We on go <@b63c97fd6a59>\u200e\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 192ms ago\n Duration: 192ms\n   Passed: 163ms\nAnimating window: Jarvis command owned check\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 873ms ago\n Duration: 1350ms\n   Passed: 772ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 873ms ago\n Duration: 1350ms\n   Passed: 772ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 873ms ago\n Duration: 1350ms\n   Passed: 772ms\n\n"
+  },
+  {
+    "action": "focus",
+    "found": true
+  },
+  {
+    "phase": "focus-900ms",
+    "taskbar": {
+      "visible": false,
+      "timerActive": false,
+      "last": {}
+    },
+    "debug": "Animating window: Jarvis command owned check\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 972ms ago\n Duration: 1200ms\n   Passed: 844ms\n\n"
+  },
+  {
+    "action": "close",
+    "found": true
+  },
+  {
+    "phase": "close-1100ms",
+    "taskbar": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-command-check",
+        "pid": 190003,
+        "caption": "Jarvis command owned check",
+        "x": 436,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 364,
+            "y": 1052
+          },
+          {
+            "x": 412,
+            "y": 1060
+          },
+          {
+            "x": 460,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "commanded": true,
+        "durationMs": 1450
+      }
+    },
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 982ms ago\n Duration: 1450ms\n   Passed: 856ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 982ms ago\n Duration: 1450ms\n   Passed: 856ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 982ms ago\n Duration: 1450ms\n   Passed: 856ms\n\n"
+  },
+  {
+    "phase": "idle",
+    "taskbar": {
+      "visible": true,
+      "timerActive": true,
+      "last": {
+        "app": "jarvis-command-check",
+        "pid": 190003,
+        "caption": "Jarvis command owned check",
+        "x": 436,
+        "y": 1040,
+        "width": 48,
+        "height": 40,
+        "panel": {
+          "x": 0,
+          "y": 1024,
+          "width": 1920,
+          "height": 56
+        },
+        "scan": [
+          {
+            "x": 364,
+            "y": 1052
+          },
+          {
+            "x": 412,
+            "y": 1060
+          },
+          {
+            "x": 460,
+            "y": 1060
+          }
+        ],
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "commanded": true,
+        "durationMs": 1450
+      }
+    },
+    "debug": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 1447ms ago\n Duration: 1450ms\n   Passed: 1259ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 1447ms ago\n Duration: 1450ms\n   Passed: 1259ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 1447ms ago\n Duration: 1450ms\n   Passed: 1259ms\n\n"
+  }
+]

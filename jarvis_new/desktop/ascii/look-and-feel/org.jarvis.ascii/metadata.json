@@ -1,0 +1,12 @@
+{
+  "KPlugin": {
+    "Id": "org.jarvis.ascii",
+    "Name": "Jarvis ASCII",
+    "Description": "ASCII arc reactor that assembles with Plasma's real startup stages, a decoding J.A.R.V.I.S. title and a live boot log.",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [{ "Name": "Ripjk" }]
+  },
+  "KPackageStructure": "Plasma/LookAndFeel",
+  "X-Plasma-APIVersion": "2"
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LOCKE</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div id="app">
+  <section class="box" id="tabsBox">
+    <h2 class="hd"><span class="dec" data-t="LOCKE//TABS">LOCKE//TABS</span><i class="rule"></i><span id="count" class="amber"></span></h2>
+    <label class="cmd"><span class="prompt">locke&gt;</span><input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="filter title / url" autofocus></label>
+    <div id="list" role="listbox"></div>
+    <div class="bar">
+      <button id="discard" class="btn" type="button">[ DISCARD BACKGROUND ]</button>
+      <span id="discardMsg" class="dim"></span>
+    </div>
+  </section>
+  <section class="box" id="fxBox">
+    <h2 class="hd"><span class="dec" data-t="LOCKE//FX">LOCKE//FX</span><i class="rule"></i><span id="fxState" class="amber"></span></h2>
+    <div class="row"><button id="fxOn" class="tog" type="button"></button><span>page wipe</span></div>
+    <div class="row"><span class="dim lbl">duration</span><input id="dur" type="range" min="200" max="900" step="10"><span id="durV" class="cyan val"></span></div>
+    <div class="row"><button id="hostOff" class="tog" type="button"></button><span id="hostLbl">host</span></div>
+  </section>
+  <div class="foot dim">&uarr;&darr; select &middot; enter jump &middot; mid-click close</div>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+PASS: restored exact prior package bytes, autostart entries, scoped settings and affected loaded effects.
+Snapshot: /home/ripjk/.local/share/jarvis-desktop-backups/cinematic-v2-20261013-144210-792480

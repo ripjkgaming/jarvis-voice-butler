@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the STARK OS desktop theme from design/STARK_OS.md.
+"""Generate the LOCKE OS desktop theme from design/LOCKE_OS.md.
 
 One script renders every themed piece of the KDE Plasma desktop so the
 whole machine matches the Jarvis HUD: the colour scheme, the Plasma
@@ -779,7 +779,7 @@ def plasma_theme(root: Path) -> None:
     meta = {
         "KPlugin": {
             "Id": "stark-os",
-            "Name": "Stark OS",
+            "Name": "Locke OS",
             "Description": "Jarvis HUD glass: cyan hairlines, chamfers and corner brackets on deep ink",
             "Authors": [{"Name": "Jarvis"}],
             "License": "MIT",
@@ -862,7 +862,7 @@ def color_scheme() -> str:
     out += [
         "[General]",
         "ColorScheme=StarkOS",
-        "Name=Stark OS",
+        "Name=Locke OS",
         "accentActiveTitlebar=false",
         "shadeSortColumn=true",
         "",
@@ -1047,7 +1047,7 @@ PaddingRight=0
 """
     (root / "stark-osrc").write_text(rc)
     (root / "metadata.desktop").write_text(
-        "[Desktop Entry]\nName=Stark OS\nComment=Jarvis HUD window frame\n"
+        "[Desktop Entry]\nName=Locke OS\nComment=Jarvis HUD window frame\n"
         "X-KDE-PluginInfo-Author=Jarvis\nX-KDE-PluginInfo-Name=stark-os\n"
         "X-KDE-PluginInfo-Version=1.0\nX-KDE-PluginInfo-License=MIT\n"
         "X-KDE-PluginInfo-EnabledByDefault=true\n"
@@ -1082,7 +1082,7 @@ def konsole(root: Path) -> None:
         out.append(f"[Color{i}Faint]\nColor={csv(lo)}\n")
     out.append(
         "[General]\nAnchor=0.5,0.5\nBlur=true\nColorRandomization=false\n"
-        "Description=Stark OS\nFillStyle=Tile\nOpacity=0.94\nWallpaper=\n"
+        "Description=Locke OS\nFillStyle=Tile\nOpacity=0.94\nWallpaper=\n"
         "WallpaperFlipType=NoFlip\nWallpaperOpacity=1\n"
     )
     (root / "StarkOS.colorscheme").write_text("\n".join(out))
@@ -1090,7 +1090,7 @@ def konsole(root: Path) -> None:
         "[Appearance]\nColorScheme=StarkOS\nFont=Share Tech Mono,10,-1,5,50,0,0,0,0,0\n"
         "LineSpacing=1\n\n[Cursor Options]\nCursorShape=1\nUseCustomCursorColor=true\n"
         f"CustomCursorColor={csv(CYAN)}\nCustomCursorTextColor={csv(INK)}\n\n"
-        "[General]\nName=Stark OS\nParent=FALLBACK/\nTerminalMargin=10\nTerminalCenter=false\n\n"
+        "[General]\nName=Locke OS\nParent=FALLBACK/\nTerminalMargin=10\nTerminalCenter=false\n\n"
         "[Interaction Options]\nTextEditorCmd=6\n\n[Scrolling]\nScrollBarPosition=1\n\n"
         "[Terminal Features]\nBlinkingCursorEnabled=true\n"
     )
@@ -1252,7 +1252,7 @@ def wallpaper_svg(screen: int, width: int = 1920, height: int = 1080) -> str:
     labels.append(
         f'<text x="{cx + 392}" y="{cy - 12}" {font}>REACTOR OUTPUT // NOMINAL</text>'
         f'<text x="{cx + 392}" y="{cy + 8}" {font}>CORE FLUX 3.0 GJ/s</text>'
-        f'<text x="40" y="56" font-family="Rajdhani" font-weight="600" font-size="13" letter-spacing="4">STARK OS // SECTOR {sector}</text>'
+        f'<text x="40" y="56" font-family="Rajdhani" font-weight="600" font-size="13" letter-spacing="4">LOCKE OS // SECTOR {sector}</text>'
         f'<text x="40" y="74" {font}>J.A.R.V.I.S. DESKTOP GRID</text>'
     )
     parts.append(f'<g fill="{C(CYAN)}" fill-opacity="0.32">{"".join(labels)}</g>')
@@ -1328,7 +1328,7 @@ def main() -> None:
     build_app_extras.main()
     if args.wallpaper:
         wallpapers(HERE / "wallpapers")
-    print("STARK OS theme generated in", HERE)
+    print("LOCKE OS theme generated in", HERE)
 
 
 if __name__ == "__main__":

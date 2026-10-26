@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add STARK OS Plasma controls using the installed Plasma SVG contracts.
+"""Add LOCKE OS Plasma controls using the installed Plasma SVG contracts.
 
 Run after build.py (which recreates the desktop theme). Never writes settings,
 launches applications, or changes authentication. All geometry uses build.py's

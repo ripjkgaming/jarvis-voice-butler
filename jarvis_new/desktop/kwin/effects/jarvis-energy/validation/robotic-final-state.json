@@ -1,0 +1,28 @@
+{
+  "version": "1.4",
+  "sourceMatchesRuntime": {
+    "kwin/effects/jarvis-energy/contents/code/main.js": "2dff92c49e87b84109ef19d6b2344d1bc60c61b93256a360944485890445ac59",
+    "kwin/effects/jarvis-energy/contents/shaders/energy.frag": "ec037a1496c1397170639fecea74c718b58b183644b71af67cd9bac756810e2b",
+    "kwin/tabbox/jarvis-compact-v3/contents/ui/main.qml": "b5ff5fced8bc832ef41ab9f29441b5f62ec29844479a65cb4122f7d16262bc8e"
+  },
+  "rollbackTested": true,
+  "rollback": "/home/ripjk/.local/share/jarvis-desktop-backups/energy-20261004-132544-569723",
+  "taskbarStatus": "{'overlay': True, 'bridge': True, 'autostart': True}\n",
+  "notes": "Owned live X11 window transitions, taskbar grouping/direct close, idle cleanup; live opening/bin and taskbar reticle screenshots. Wayland taskbar trigger remains inconsistent; missing icon geometry skips safely. No sustained stress test. Atomic commit busy warnings occurred during screenshot test.",
+  "loaded": true,
+  "switcher": {
+    "configured": "jarvis-compact-v3",
+    "pulseMs": 180,
+    "delayMs": 0,
+    "runtimeEvidence": "Jarvis AltTab runtime pulse 180 ms, row 39",
+    "visualEvidence": "alt-tab-native-proof.png: actual native Alt+Tab with pulse slowed diagnostically to 1800 ms, then replaced by fresh final 180 ms component",
+    "latestCorrection": "QML component cache bypass via new package ID; top-layer row overlay; initial visibility and selection triggers"
+  },
+  "minimizeTarget": {
+    "sourceCenterX": 780,
+    "targetX": 780,
+    "targetY": 1052,
+    "verifiedInsidePanel": true
+  },
+  "sessionLocked": false
+}

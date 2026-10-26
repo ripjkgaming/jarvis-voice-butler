@@ -1,5 +1,5 @@
 /*
-    STARK OS boot splash: the HUD reactor spins up while Plasma loads.
+    LOCKE OS boot splash: the HUD reactor spins up while Plasma loads.
     Rings are pre-drawn SVG layers (desktop/build.py); each one rotates at
     its own speed, the progress hairline fills with the KSplash stage.
 */
@@ -125,7 +125,7 @@ Rectangle {
 
         Text {
             anchors { left: parent.left; bottom: parent.bottom; margins: 28 }
-            text: "STARK OS // PERSONAL INTELLIGENCE"
+            text: "LOCKE OS // PERSONAL INTELLIGENCE"
             color: "#46677a"
             font.family: "Rajdhani"
             font.weight: Font.DemiBold

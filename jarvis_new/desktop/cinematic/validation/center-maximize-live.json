@@ -1,0 +1,22 @@
+[
+  {
+    "phase": "open-no-animation",
+    "debug": "No window is animated\n"
+  },
+  {
+    "phase": "maximize",
+    "debug": "Animating window: Jarvis centre maximize owned check\nAnimation: Scale\n     From: 0.4,0.475\n       To: 1,1\n  Started: 142ms ago\n Duration: 336ms\n   Passed: 94ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 142ms ago\n Duration: 336ms\n   Passed: 94ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 142ms ago\n Duration: 336ms\n   Passed: 94ms\n\n"
+  },
+  {
+    "phase": "unmaximize",
+    "debug": "Animating window: Jarvis centre maximize owned check\nAnimation: Scale\n     From: 2.5,2.10526\n       To: 1,1\n  Started: 105ms ago\n Duration: 336ms\n   Passed: 95ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 105ms ago\n Duration: 336ms\n   Passed: 95ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 105ms ago\n Duration: 336ms\n   Passed: 95ms\n\n"
+  },
+  {
+    "phase": "rapid-reversal",
+    "debug": "Animating window: Jarvis centre maximize owned check\nAnimation: Scale\n     From: 1.61211,1.45103\n       To: 1,1\n  Started: 54ms ago\n Duration: 336ms\n   Passed: 64ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 54ms ago\n Duration: 336ms\n   Passed: 64ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 54ms ago\n Duration: 336ms\n   Passed: 64ms\n\n"
+  },
+  {
+    "phase": "settled",
+    "debug": "No window is animated\n"
+  }
+]

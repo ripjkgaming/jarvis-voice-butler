@@ -1,0 +1,557 @@
+{
+  "app": "jarvis-cinematic-check-760618",
+  "records": [
+    {
+      "phase": "first-open-180",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 68ms ago\n Duration: 496ms\n   Passed: 67ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 68ms ago\n Duration: 496ms\n   Passed: 67ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 68ms ago\n Duration: 496ms\n   Passed: 67ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "first-open-280",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 171ms ago\n Duration: 496ms\n   Passed: 157ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 171ms ago\n Duration: 496ms\n   Passed: 157ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 171ms ago\n Duration: 496ms\n   Passed: 157ms\n\n",
+      "jarvis-surfaces": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 11ms ago\n Duration: 144ms\n   Passed: 6ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 11ms ago\n Duration: 144ms\n   Passed: 6ms\nAnimation: Translation\n     From: 0,6\n       To: 0,0\n  Started: 11ms ago\n Duration: 144ms\n   Passed: 6ms\n\n"
+    },
+    {
+      "phase": "first-open-400",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 292ms ago\n Duration: 496ms\n   Passed: 265ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 292ms ago\n Duration: 496ms\n   Passed: 265ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 292ms ago\n Duration: 496ms\n   Passed: 265ms\n\n",
+      "jarvis-surfaces": "Animating window: plasmashell\nAnimation: Opacity\n     From: 0,0\n       To: 1,1\n  Started: 131ms ago\n Duration: 144ms\n   Passed: 108ms\nAnimation: Scale\n     From: 0.97,0.97\n       To: 1,1\n  Started: 131ms ago\n Duration: 144ms\n   Passed: 108ms\nAnimation: Translation\n     From: 0,6\n       To: 0,0\n  Started: 131ms ago\n Duration: 144ms\n   Passed: 108ms\n\n"
+    },
+    {
+      "phase": "first-open-600",
+      "TaskbarPuppet": {
+        "visible": true,
+        "timerActive": true,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 488ms ago\n Duration: 496ms\n   Passed: 434ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 488ms ago\n Duration: 496ms\n   Passed: 434ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 488ms ago\n Duration: 496ms\n   Passed: 434ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "first-open-900",
+      "TaskbarPuppet": {
+        "visible": true,
+        "timerActive": true,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "No window is animated\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "second-open",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 1\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 94ms ago\n Duration: 496ms\n   Passed: 91ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 94ms ago\n Duration: 496ms\n   Passed: 91ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 94ms ago\n Duration: 496ms\n   Passed: 91ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "first-close-group-remains",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 136ms ago\n Duration: 384ms\n   Passed: 102ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 136ms ago\n Duration: 384ms\n   Passed: 102ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 136ms ago\n Duration: 384ms\n   Passed: 102ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "menu-open",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "No window is animated\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "maximize",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 71ms ago\n Duration: 192ms\n   Passed: 54ms\n\n",
+      "jarvis-surfaces": "Animating window: [Deleted]\nAnimation: Opacity\n     From: 1,1\n       To: 0,0\n  Started: 74ms ago\n Duration: 112ms\n   Passed: 60ms\nAnimation: Scale\n     From: 1,1\n       To: 0.98,0.98\n  Started: 74ms ago\n Duration: 112ms\n   Passed: 60ms\nAnimation: Translation\n     From: 0,0\n       To: 0,6\n  Started: 74ms ago\n Duration: 112ms\n   Passed: 60ms\n\n"
+    },
+    {
+      "phase": "unmaximize",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {}
+      },
+      "jarvis-energy": "Animating window: Jarvis cinematic \u2014 owned check 0\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 41ms ago\n Duration: 192ms\n   Passed: 36ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "last-close-3740",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": true,
+        "timerActive": true,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "scan": [
+            {
+              "x": 316,
+              "y": 1060
+            },
+            {
+              "x": 364,
+              "y": 1060
+            },
+            {
+              "x": 412,
+              "y": 1060
+            },
+            {
+              "x": 460,
+              "y": 1060
+            }
+          ],
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "jarvis-energy": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 55ms ago\n Duration: 384ms\n   Passed: 43ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 55ms ago\n Duration: 384ms\n   Passed: 43ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 55ms ago\n Duration: 384ms\n   Passed: 43ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "last-close-3800",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": true,
+        "timerActive": true,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "scan": [
+            {
+              "x": 316,
+              "y": 1060
+            },
+            {
+              "x": 364,
+              "y": 1060
+            },
+            {
+              "x": 412,
+              "y": 1060
+            },
+            {
+              "x": 460,
+              "y": 1060
+            }
+          ],
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "jarvis-energy": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 116ms ago\n Duration: 384ms\n   Passed: 97ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 116ms ago\n Duration: 384ms\n   Passed: 97ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 116ms ago\n Duration: 384ms\n   Passed: 97ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "last-close-3900",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": true,
+        "timerActive": true,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "scan": [
+            {
+              "x": 316,
+              "y": 1060
+            },
+            {
+              "x": 364,
+              "y": 1060
+            },
+            {
+              "x": 412,
+              "y": 1060
+            },
+            {
+              "x": 460,
+              "y": 1060
+            }
+          ],
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "jarvis-energy": "Animating window: [Deleted]\nAnimation: Scale\n     From: 1,1\n       To: 1,1\n  Started: 217ms ago\n Duration: 384ms\n   Passed: 187ms\nAnimation: Translation\n     From: 0,0\n       To: 0,0\n  Started: 217ms ago\n Duration: 384ms\n   Passed: 187ms\nAnimation:  \n     From: 0,0\n       To: 1,1\n  Started: 217ms ago\n Duration: 384ms\n   Passed: 187ms\n\n",
+      "jarvis-surfaces": "No window is animated\n"
+    },
+    {
+      "phase": "last-close-4400",
+      "TaskbarPuppet": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "TaskbarSlice": {
+        "visible": false,
+        "timerActive": false,
+        "last": {
+          "app": "jarvis-cinematic-check-760618",
+          "x": 436,
+          "y": 1040,
+          "width": 48,
+          "height": 40,
+          "panel": {
+            "x": 0,
+            "y": 1024,
+            "width": 1920,
+            "height": 56
+          },
+          "scan": [
+            {
+              "x": 316,
+              "y": 1060
+            },
+            {
+              "x": 364,
+              "y": 1060
+            },
+            {
+              "x": 412,
+              "y": 1060
+            },
+            {
+              "x": 460,
+              "y": 1060
+            }
+          ],
+          "screen": {
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "jarvis-energy": "No window is animated\n",
+      "jarvis-surfaces": "No window is animated\n"
+    }
+  ]
+}

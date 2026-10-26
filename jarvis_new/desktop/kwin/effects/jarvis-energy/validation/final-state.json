@@ -1,0 +1,62 @@
+{
+  "live": true,
+  "sourceRuntimeSHA256": {
+    "contents/config/main.xml": "105588eadfd960e35c428e99054ace572d3490262fb084e45c99d15c316a28d0",
+    "contents/code/main.js": "bfa1eca65f5bbba0b39bd761144fb292860126ec8209cae399bee3805579e305",
+    "contents/shaders/energy.frag": "65f3f513f4489f00d3a185bb36bd11475ff4d9a659b79aefa4aa824e0e46d2ce"
+  },
+  "loadedEffects": [
+    "touchpoints",
+    "shakecursor",
+    "outputlocator",
+    "colorpicker",
+    "jarvis-energy",
+    "screenedge",
+    "blur",
+    "sessionquit",
+    "logout",
+    "login",
+    "slidingpopups",
+    "slidingnotifications",
+    "windowaperture",
+    "slide",
+    "maximize",
+    "fullscreen",
+    "frozenapp",
+    "fadingpopups",
+    "dimscreen",
+    "dialogparent",
+    "wobblywindows",
+    "windowview",
+    "tileseditor",
+    "overview",
+    "highlightwindow",
+    "blendchanges",
+    "startupfeedback",
+    "systembell",
+    "screentransform",
+    "kscreen"
+  ],
+  "originalPackagePreserved": true,
+  "rollbackTested": true,
+  "rollbackSnapshot": "/home/ripjk/.local/share/jarvis-desktop-backups/energy-20261004-123208-658576/locke-tech-fade",
+  "globalFactor": 0.8,
+  "observedDurationsMs": {
+    "open": 208,
+    "minimize": 368,
+    "restore": 368,
+    "close": 544
+  },
+  "taskIconObserved": {
+    "x": 436,
+    "y": 1040,
+    "width": 48,
+    "height": 40,
+    "targetCenter": [
+      460,
+      1060
+    ]
+  },
+  "limits": "Single live output; other monitor/panel geometries checked in harness. Captures are frozen owned-window compositor frames, not recordings. Intermittent KWin main-thread stall warnings were observed during screenshot/reload testing; no sustained GPU/Resolve stress test was performed.",
+  "reducedMotionLiveTestPassed": true
+}

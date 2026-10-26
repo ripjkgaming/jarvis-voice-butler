@@ -1,0 +1,15 @@
+{
+  "KPackageStructure": "KWin/Effect",
+  "KPlugin": {
+    "Id": "jarvis-ascii",
+    "Name": "Jarvis — ASCII Transitions",
+    "Description": "Windows, notifications, popups, focus changes, minimize, maximize and desktop switches resolve through a cyan ASCII glyph mosaic. Dragging stays with Jarvis Energy.",
+    "Version": "1.0",
+    "License": "MIT",
+    "Category": "Window Open/Close Animation",
+    "EnabledByDefault": false
+  },
+  "X-KDE-Ordering": 2,
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}

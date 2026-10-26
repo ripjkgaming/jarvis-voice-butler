@@ -1,0 +1,16 @@
+{
+  "KPlugin": {
+    "Id": "org.jarvis.cinematic",
+    "Name": "Jarvis Cinematic",
+    "Description": "Restrained navy and cyan startup splash with real Plasma loading stages",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [
+      {
+        "Name": "Ripjk"
+      }
+    ]
+  },
+  "KPackageStructure": "Plasma/LookAndFeel",
+  "X-Plasma-APIVersion": "2"
+}

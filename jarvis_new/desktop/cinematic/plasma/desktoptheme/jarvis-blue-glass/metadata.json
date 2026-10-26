@@ -1,0 +1,16 @@
+{
+  "KPlugin": {
+    "Id": "jarvis-blue-glass",
+    "Name": "Jarvis Electric Glass",
+    "Description": "Translucent blue glass surfaces, refractive edge highlights and native backdrop blur.",
+    "Authors": [
+      {
+        "Name": "Jarvis"
+      }
+    ],
+    "License": "MIT",
+    "Version": "3.0",
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "5.0"
+}

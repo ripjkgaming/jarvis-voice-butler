@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original STARK OS instrument icons, with optical sizes and Breeze fallback.
+"""Original LOCKE OS instrument icons, with optical sizes and Breeze fallback.
 
 Pure standard-library SVG generation; optional --preview uses CairoSVG/Pillow.
 Only writes assets to OUTPUT/icons/stark-os. Never changes live settings.
@@ -1303,7 +1303,7 @@ DEFS = """<defs>
 def svg(kind, size=128):
     view = 128 if size >= 32 else 32
     body = ART[kind]() if size >= 32 else small(kind)
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 {view} {view}"><title>STARK OS {escape(kind)}</title>{DEFS if view == 128 else ""}<g stroke-linejoin="round" stroke-linecap="round">{body}</g></svg>\n'
+    return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 {view} {view}"><title>LOCKE OS {escape(kind)}</title>{DEFS if view == 128 else ""}<g stroke-linejoin="round" stroke-linecap="round">{body}</g></svg>\n'
 
 
 def icons(root: Path) -> None:
@@ -1323,7 +1323,7 @@ def icons(root: Path) -> None:
         for context in contexts
     ]
     index = (
-        "[Icon Theme]\nName=STARK OS\nComment=Detailed holographic instruments with optical sizes\nInherits=breeze-dark,breeze,hicolor\nDirectories="
+        "[Icon Theme]\nName=LOCKE OS\nComment=Detailed holographic instruments with optical sizes\nInherits=breeze-dark,breeze,hicolor\nDirectories="
         + ",".join(directories)
         + "\n"
     )
@@ -1342,12 +1342,12 @@ def icons(root: Path) -> None:
             target.write_text(cache[kind], encoding="utf-8")
     (base / "index.theme").write_text(index, encoding="utf-8")
     (base / "README.md").write_text(
-        f"""# STARK OS instrument icons
+        f"""# LOCKE OS instrument icons
 
 {len(ART)} original vector designs; {len(ENTRIES)} named icons in each of three optical sizes
 (16px, 22px, and a detailed scalable master designed on a 128px grid).
 
-The artwork keeps STARK OS geometry and uses an icon-specific light-blue
+The artwork keeps LOCKE OS geometry and uses an icon-specific light-blue
 hologram palette: translucent ice-blue glass, luminous bevel edges, concentric
 reactor rings, fine etched details, and distinct silhouettes for folders,
 documents, hardware, and applications. Thin dark keylines separate the bright
@@ -1412,7 +1412,7 @@ def preview(target: Path):
     except OSError:
         font = ImageFont.load_default()
         title = font
-    draw.text((22, 17), "STARK OS / LIGHT-BLUE HOLOGRAM ICONS", fill=HOT, font=title)
+    draw.text((22, 17), "LOCKE OS / LIGHT-BLUE HOLOGRAM ICONS", fill=HOT, font=title)
     draw.text(
         (22, 54),
         f"{len(ART)} designs  •  {len(ENTRIES)} names  •  128 + 64 px masters  •  22 + 16 px optical variants",
@@ -1471,7 +1471,7 @@ def preview(target: Path):
     for y in range(0, 640, 40):
         painter.line((0, y, 1200, y), fill="#092330", width=1)
     painter.text(
-        (28, 18), "STARK OS / LIGHT-BLUE HOLOGRAM ICONS", fill=HOT, font=title
+        (28, 18), "LOCKE OS / LIGHT-BLUE HOLOGRAM ICONS", fill=HOT, font=title
     )
     painter.text(
         (28, 51),

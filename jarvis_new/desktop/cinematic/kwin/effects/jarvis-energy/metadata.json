@@ -1,0 +1,15 @@
+{
+  "KPackageStructure": "KWin/Effect",
+  "KPlugin": {
+    "Id": "jarvis-energy",
+    "Name": "Jarvis \u2014 Cinematic Desktop",
+    "Description": "Fluid cursor gravity while dragging, particle materialisation, shatter-to-taskbar, derez close, phase-shift focus, energy-surge maximize, a resize edge trace and a fullscreen deploy.",
+    "Version": "2.3",
+    "License": "MIT",
+    "Category": "Window Open/Close Animation",
+    "EnabledByDefault": false
+  },
+  "X-KDE-Ordering": 1,
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js"
+}
