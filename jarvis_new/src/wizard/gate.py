@@ -32,6 +32,12 @@ def bridge_host() -> str:
 # from under the direct pipeline (src/local_stt.py). Unselected sizes stay
 # prunable: faster-whisper re-downloads on demand if later selected.
 WHISPER_HF_REPOS = {
+    **{
+        name + ".en": "models--Systran--faster-whisper-" + name + ".en"
+        for name in ("tiny", "base", "small", "medium")
+    },
+    "distil-small.en": "models--Systran--faster-distil-whisper-small.en",
+    "distil-medium.en": "models--Systran--faster-distil-whisper-medium.en",
     "tiny": "models--Systran--faster-whisper-tiny",
     "base": "models--Systran--faster-whisper-base",
     "small": "models--Systran--faster-whisper-small",
@@ -44,8 +50,13 @@ USED_HF_REPOS = {"models--Cactus-Compute--needle2"}
 
 def used_hf_repos() -> set[str]:
     """Repos prune-hf must keep: needle2 + configured whisper size."""
-    size = os.environ.get("JARVIS_WHISPER_MODEL", "base").strip() or "base"
-    return USED_HF_REPOS | {WHISPER_HF_REPOS.get(size, WHISPER_HF_REPOS["base"])}
+    from whisper_config import configured_model
+
+    sizes = {
+        configured_model(key)
+        for key in ("JARVIS_WHISPER_MODEL", "JARVIS_SPOT_MODEL", "JARVIS_PHONE_WHISPER")
+    }
+    return USED_HF_REPOS | {WHISPER_HF_REPOS[size] for size in sizes}
 
 
 def bridge_url(port: int = BRIDGE_DEFAULT_PORT, host: str | None = None) -> str:

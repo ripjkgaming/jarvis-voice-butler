@@ -41,6 +41,60 @@ GMAIL_RECONNECT_HINT = (
 NEWS_CACHE_TTL = 15 * 60
 WEATHER_CACHE_TTL = 30 * 60
 
+async def _gmail_metadata_batch(token: str, messages: list[dict]) -> list[object]:
+    """At most three independent GETs active, ten rows, stable source order.
+
+    Cancellation stops queued reads. A running urllib read owns its slot until
+    its thread actually finishes (its existing HTTP timeout still applies).
+    This pool never executes sends, contact resolution, or shared UI actions.
+    """
+    loop = asyncio.get_running_loop()
+    # The loop owns its limiter: no global history retaining closed sessions.
+    gate = getattr(loop, "_jarvis_gmail_metadata_slots", None)
+    if gate is None:
+        gate = asyncio.Semaphore(3)
+        loop._jarvis_gmail_metadata_slots = gate
+    messages = messages[:10]
+    results: list[object] = [None] * len(messages)
+    cursor = iter(enumerate(messages))
+
+    async def worker() -> None:
+        for index, message in cursor:
+            try:
+                await gate.acquire()
+                try:
+                    task = asyncio.create_task(
+                        asyncio.to_thread(
+                            _gmail_api,
+                            f"/messages/{message['id']}",
+                            token,
+                            _METADATA_PARAMS,
+                        )
+                    )
+                except BaseException:
+                    gate.release()
+                    raise
+
+                def release(completed) -> None:
+                    gate.release()
+                    if not completed.cancelled():
+                        completed.exception()  # drain failures after caller cancellation
+
+                task.add_done_callback(release)
+                results[index] = await asyncio.shield(task)
+            except Exception as exc:
+                results[index] = exc
+
+    workers = [asyncio.create_task(worker()) for _ in range(min(3, len(messages)))]
+    try:
+        await asyncio.gather(*workers)
+        return results
+    finally:
+        for worker_task in workers:
+            if not worker_task.done():
+                worker_task.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+
 
 def _read_json(path: Path, default):
     try:
@@ -277,6 +331,19 @@ def _gmail_api(path: str, token: str, params: dict | None = None) -> dict:
 
 def _gmail_send_api(token: str, raw_b64: str, thread_id: str | None = None) -> dict:
     """POST a base64url MIME message. Returns the sent message resource."""
+    from email import policy
+    from email.parser import BytesParser
+
+    mime = BytesParser(policy=policy.default).parsebytes(
+        base64.urlsafe_b64decode(raw_b64)
+    )
+    if mime.get("Auto-Submitted", "").casefold() not in ("", "no"):
+        outgoing = {"payload": {"headers": []}}
+        recipients = ",".join(str(mime[k]) for k in ("To", "Cc", "Bcc") if mime.get(k))
+        if not str(mime.get("To", "")).strip() or automatic_reply_block(
+            outgoing, recipients
+        ):
+            raise ToolError("Automatic reply blocked: unsafe recipient.")
     payload: dict = {"raw": raw_b64}
     if thread_id:
         payload["threadId"] = thread_id
@@ -334,7 +401,9 @@ def _mail_log(kind: str, **fields) -> None:
         pass
 
 
-def thread_text(token: str, query: str = "", max_chars: int = 6000) -> tuple[str, str, str]:
+def thread_text(
+    token: str, query: str = "", max_chars: int = 6000
+) -> tuple[str, str, str]:
     """Newest thread matching a Gmail query (empty = latest mail) as plain text.
 
     Returns (subject, text, message_id_of_newest). Raises ToolError when nothing
@@ -425,10 +494,90 @@ AUTO_SUBJECT = re.compile(
 )
 
 
+def automatic_reply_block(full: dict, recipient: str = "") -> bool:
+    """Fail closed on automated sources, bounce reports and final recipients."""
+    from email.utils import getaddresses
+
+    headers = full.get("payload", {}).get("headers", [])
+
+    def values(name):
+        return [
+            str(h.get("value", "")).strip().casefold()
+            for h in headers
+            if str(h.get("name", "")).casefold() == name.casefold()
+        ]
+
+    addresses = getaddresses(
+        [recipient, *values("From"), *values("Reply-To")], strict=False
+    )
+    for _, addr in addresses:
+        local = re.sub(r"[._-]", "", addr.partition("@")[0].casefold())
+        if local.startswith(
+            ("noreply", "donotreply", "mailerdaemon", "postmaster", "bounce")
+        ):
+            return True
+    if any(v.split(";", 1)[0].strip() != "no" for v in values("Auto-Submitted")):
+        return True
+    if any(
+        values(n)
+        for n in (
+            "List-Id",
+            "List-Unsubscribe",
+            "X-Autoreply",
+            "X-Autorespond",
+            "X-Auto-Response-Suppress",
+        )
+    ):
+        return True
+    if any(v in ("bulk", "list", "junk", "auto_reply") for v in values("Precedence")):
+        return True
+    if any(v == "<>" for v in values("Return-Path")):
+        return True
+    if any(
+        "multipart/report" in v or "message/delivery-status" in v
+        for v in values("Content-Type")
+    ):
+        return True
+
+    def report_part(part):
+        return part.get("mimeType", "").casefold() in (
+            "multipart/report",
+            "message/delivery-status",
+            "message/disposition-notification",
+        ) or any(report_part(child) for child in part.get("parts", []))
+
+    if report_part(full.get("payload", {})):
+        return True
+    return any(AUTO_SUBJECT.search(v) for v in values("Subject"))
+
+
+def automatic_reply_recipient(full: dict) -> str:
+    from email.utils import getaddresses
+
+    headers = full.get("payload", {}).get("headers", [])
+    if any(
+        sum(str(h.get("name", "")).casefold() == name for h in headers) > 1
+        for name in ("from", "reply-to")
+    ):
+        return ""
+    raw = _header(full, "Reply-To") or _header(full, "From")
+    addrs = getaddresses([raw])
+    if len(addrs) != 1 or not re.fullmatch(
+        r"[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+", addrs[0][1]
+    ):
+        return ""
+    addr = addrs[0][1].casefold()
+    return "" if automatic_reply_block(full, addr) else addr
+
+
 def _is_bulk(full: dict, sender: str) -> bool:
     """Newsletters/bulk/automated: never auto-replied to. Pure."""
-    lowered = sender.casefold()
+    lowered = " ".join(
+        (sender, _header(full, "From"), _header(full, "Reply-To"))
+    ).casefold()
     if any(h in lowered for h in NOREPLY_HINTS):
+        return True
+    if automatic_reply_block(full, sender):
         return True
     if _header(full, "List-Unsubscribe") or _header(full, "List-Id"):
         return True
@@ -476,11 +625,9 @@ def classify_email(
         reasons.append("school domain")
     hits = [w for w in URGENT_WORDS if w in text or w in sender.casefold()]
     reasons.extend(f"keyword:{h}" for h in hits)
-    human = True
-    if full is not None:
-        human = not _is_bulk(full, sender)
-        if not human:
-            reasons.append("bulk/noreply")
+    human = not _is_bulk(full or {}, sender)
+    if not human:
+        reasons.append("bulk/noreply")
     level = (
         "high"
         if (classroom or any(d in addr for d in SCHOOL_DOMAINS) or hits)
@@ -949,6 +1096,9 @@ class InboxTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        from latency import workflow_start, workflow_verified
+
+        timing_token = workflow_start(context)
         n = max(1, min(10, int(n or 5)))
         token = await asyncio.to_thread(_gmail_access_token)
         params: dict = {"maxResults": n}
@@ -964,18 +1114,15 @@ class InboxTools:
         listed = await asyncio.to_thread(_gmail_api, "/messages", token, params)
         msgs = listed.get("messages", []) or []
         if not msgs:
+            if isinstance(listed, dict) and isinstance(
+                listed.get("messages", []), list
+            ):
+                workflow_verified(context, timing_token)
             return {
                 "say": "No unread mail." if unread_only else "Inbox is clear for that."
             }
-        fulls = await asyncio.gather(
-            *(
-                asyncio.to_thread(
-                    _gmail_api, f"/messages/{m['id']}", token, _METADATA_PARAMS
-                )
-                for m in msgs
-            ),
-            return_exceptions=True,
-        )
+        msgs = msgs[:n]
+        fulls = await _gmail_metadata_batch(token, msgs)
         rows = []
         for i, full in enumerate(fulls, 1):
             if isinstance(full, BaseException) or not isinstance(full, dict):
@@ -984,6 +1131,13 @@ class InboxTools:
         log_action("gmail", f"inbox q={q[:40]} n={len(rows)}")
         if not rows:
             raise ToolError("Gmail listed mail but would not show it. Try again.")
+        if all(
+            isinstance(full, dict)
+            and full.get("id") == message.get("id")
+            and isinstance((full.get("payload") or {}).get("headers"), list)
+            for message, full in zip(msgs, fulls, strict=True)
+        ):
+            workflow_verified(context, timing_token)
         return {"say": ("Latest mail: " + "; ".join(rows))[:900]}
 
     @function_tool()

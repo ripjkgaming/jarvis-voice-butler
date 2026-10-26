@@ -60,7 +60,50 @@ _ID_OK = re.compile(r"^[A-Za-z0-9_-]{10,}$")
 
 
 class GoogleError(Exception):
-    """User-facing Google failure (speakable message)."""
+    """User-facing failure with optional sanitized OAuth diagnostic metadata."""
+
+    def __init__(self, message, *, http_status=None, oauth_error=None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.oauth_error = oauth_error
+
+
+_OAUTH_ERRORS = frozenset(
+    {
+        "invalid_grant",
+        "invalid_client",
+        "unauthorized_client",
+        "invalid_request",
+        "unsupported_grant_type",
+        "invalid_scope",
+        "access_denied",
+        "server_error",
+        "temporarily_unavailable",
+    }
+)
+
+
+def _refresh_http_error(exc):
+    """Discard error descriptions/bodies; retain only known protocol codes."""
+    code = None
+    try:
+        candidate = json.loads(exc.read(8192).decode()).get("error")
+        if isinstance(candidate, str) and candidate in _OAUTH_ERRORS:
+            code = candidate
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    diagnostic = f"http={exc.code}" + (f" oauth={code}" if code else "")
+    if code == "invalid_grant":
+        message = (
+            "Google sign-in expired or was revoked; reconnect the existing account."
+        )
+    elif code in {"invalid_client", "unauthorized_client", "invalid_scope"}:
+        message = "Google authorization configuration was rejected."
+    else:
+        message = "Google token refresh failed."
+    return GoogleError(
+        f"{diagnostic}: {message}", http_status=exc.code, oauth_error=code
+    )
 
 
 def jarvis_home() -> Path:
@@ -276,11 +319,9 @@ def access_token(opener=None, account: str = "personal") -> str:
         with call(req, timeout=15) as resp:
             fresh = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
-        raise GoogleError(
-            "Google sign-in expired, Sir — please re-run scripts/google_auth.py."
-        ) from exc
+        raise _refresh_http_error(exc) from exc
     except Exception as exc:
-        raise GoogleError(f"Google did not respond ({exc}).") from exc
+        raise GoogleError("Google token refresh did not respond.") from exc
     token = fresh.get("access_token", "")
     if not token:
         raise GoogleError("Google sign-in expired, Sir — please reconnect it.")
@@ -588,7 +629,7 @@ def ensure_folder(name: str, opener=None) -> str:
     return str(folder_id)
 
 
-def _has_calendar_scope(account: str = "personal") -> bool:
+def _has_calendar_scope(account: str = "personal", *, write: bool = False) -> bool:
     """Was the saved token granted calendar access? Unknown counts as yes."""
     saved = _load_token(account) or {}
     scopes = saved.get("scopes") or saved.get("scope")
@@ -596,11 +637,21 @@ def _has_calendar_scope(account: str = "personal") -> bool:
         return True
     if isinstance(scopes, str):
         scopes = scopes.split()
+    if write:
+        allowed = {
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/calendar.events",
+            "https://www.googleapis.com/auth/calendar.events.owned",
+            "https://www.googleapis.com/auth/calendar.app.created",
+        }
+        return any(s in allowed for s in scopes if isinstance(s, str))
     return any("auth/calendar" in str(s) for s in scopes)
 
 
-def _calendar_token(opener=None, account: str = "personal") -> str:
-    if not _has_calendar_scope(account):
+def _calendar_token(
+    opener=None, account: str = "personal", *, write: bool = False
+) -> str:
+    if not _has_calendar_scope(account, write=write):
         raise GoogleError(CALENDAR_SCOPE_HINT)
     return access_token(opener=opener, account=account)
 
@@ -626,40 +677,53 @@ def event_body(event: dict, timezone: str = "") -> dict:
     end_date (YYYY-MM-DD, all-day ranges), location, notes. No start ->
     all-day event; start without end -> 1 hour.
     """
+    import datetime as dt
+
     title = str(event.get("title") or "").strip()[:200]
     date = str(event.get("date") or "").strip()
     if not title or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise GoogleError("That event needs a title and a YYYY-MM-DD date, Sir.")
+    try:
+        day = dt.date.fromisoformat(date)
+        end_date = str(event.get("end_date") or "").strip()
+        last_day = dt.date.fromisoformat(end_date) if end_date else day
+        if last_day < day:
+            raise ValueError("End precedes start")
+    except ValueError as exc:
+        raise GoogleError("That event needs valid start and end dates, Sir.") from exc
     start = str(event.get("start") or "").strip()
     end = str(event.get("end") or "").strip()
+    hhmm = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
+    if (
+        (start and not hhmm.fullmatch(start))
+        or (end and not hhmm.fullmatch(end))
+        or (end and not start)
+    ):
+        raise GoogleError("Event times need HH:MM in 24-hour time, Sir.")
     body: dict = {"summary": title}
     for key, field in (("location", "location"), ("notes", "description")):
         if str(event.get(key) or "").strip():
             body[field] = str(event[key]).strip()[:1000]
-    hhmm = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
-    if not hhmm.match(start):
-        import datetime as _dt
-
-        last = date
-        end_date = str(event.get("end_date") or "").strip()
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_date) and end_date > date:
-            last = end_date  # multi-day all-day event (end is exclusive)
-        nxt = (_dt.date.fromisoformat(last) + _dt.timedelta(days=1)).isoformat()
-        body["start"] = {"date": date}
-        body["end"] = {"date": nxt}
-        return body
-    if not hhmm.match(end):
-        h, m = (int(x) for x in start.split(":"))
-        end = f"{min(h + 1, 23):02d}:{m:02d}" if h < 23 else "23:59"
+    try:
+        if not start:
+            # Extracted end_date is the final included day; Google's end is exclusive.
+            body["start"] = {"date": date}
+            body["end"] = {"date": (last_day + dt.timedelta(days=1)).isoformat()}
+            return body
+        start_at = dt.datetime.combine(day, dt.time(*map(int, start.split(":"))))
+        if end:
+            end_at = dt.datetime.combine(last_day, dt.time(*map(int, end.split(":"))))
+            if end_at < start_at and not end_date:
+                end_at += dt.timedelta(days=1)
+            if end_at <= start_at:
+                raise ValueError("End must follow start")
+        else:
+            end_at = start_at + dt.timedelta(hours=1)
+    except (ValueError, OverflowError) as exc:
+        raise GoogleError("That event needs an end after its start, Sir.") from exc
     tz = timezone or local_timezone()
-    body["start"] = {
-        "dateTime": f"{date}T{int(start.split(':')[0]):02d}:{start.split(':')[1]}:00",
-        "timeZone": tz,
-    }
-    body["end"] = {
-        "dateTime": f"{date}T{int(end.split(':')[0]):02d}:{end.split(':')[1]}:00",
-        "timeZone": tz,
-    }
+    body["start"] = {"dateTime": start_at.isoformat(), "timeZone": tz}
+    body["end"] = {"dateTime": end_at.isoformat(), "timeZone": tz}
     return body
 
 
@@ -710,9 +774,11 @@ def calendar_create(
 ) -> dict:
     """Create one event from a normalized dict (see event_body)."""
     body = event_body(event)
-    token = _calendar_token(opener=opener, account=account)
+    token = _calendar_token(opener=opener, account=account, write=True)
     cal = urllib.parse.quote(calendar_id, safe="")
     data = _request_json(
         "POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener
     )
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict) or not data.get("id"):
+        raise GoogleError("Google Calendar did not confirm the new event, Sir.")
+    return data

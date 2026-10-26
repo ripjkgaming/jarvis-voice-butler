@@ -1,6 +1,6 @@
 # Jarvis paper-market experiment
 
-This is a local paper exchange using timestamped Yahoo Finance quotes. It does
+This is a local intraday paper exchange using timestamped Yahoo Finance quotes and minute bars. It does
 not open a brokerage account, accept broker keys, or send brokerage orders. The
 experiment begins with exactly USD 1,000 in simulated cash and zero holdings.
 Its persisted expiry is exactly 168 hours after initialization; restarting the
@@ -19,38 +19,55 @@ From the repository root:
 ```
 
 The wrapper runs the project through `uv`. `init` is idempotent. `preflight`
-performs one bounded, no-trade live inference and records the result; repeating
-it returns `duplicate`. This is the only inference permitted outside regular
-market hours. `run-once` is the explicit trading entrypoint; it exits without
-inference during closed sessions, after expiry, or when that 30-minute decision
-slot already exists. A file lock covers quote acquisition, inference, refetch,
-validation and commit. An interrupted decision is not retried in its original
-slot. A busy lock means another decision or quote refresh is already running;
-the scheduler may retry the same command after the current operation completes.
+performs one bounded, no-trade live inference per model/effort configuration and
+records the result; repeating it returns `duplicate`. This is the only inference
+permitted outside regular market hours. `run-once` is the explicit manual trading
+entrypoint, with the same lock, freshness, expiry and five-minute deduplication as
+the automatic service. Interrupted decisions are not retried in their slot.
 
-The coordinator configures **one Codex heartbeat every 30 minutes** to invoke:
+The existing `jarvis-paper-market.service` now owns automatic trading. Enable it
+explicitly with `./jarvis_new/scripts/paper-market enable-auto`; suspend all
+automatic decisions **and risk exits** with `pause-auto`. This switch persists in
+the existing ledger and defaults to paused for new installations. Manual
+`run-once` remains explicit even while the automatic service is paused.
 
-```text
-/mnt/data/jarvis-voice-butler/jarvis_new/scripts/paper-market run-once
-```
+While enabled, the service checks for a decision every five minutes during the
+regular session and checks protective exits each minute. All paths share one
+process lock and atomic ledger; inference can briefly defer a risk check. The
+separate Codex heartbeat only monitors the service and reports completion. It
+must respect the persisted pause switch and must not run a second decision
+scheduler. Laptop sleep prevents local work; missed decisions are not backfilled.
 
-No decision timer, cron job, or independent automation is installed by this
-package. The scheduler should stop invoking the command at the persisted
-`experiment.expires_at` value and report completion. It should stay quiet when
-the market is closed or nothing actionable changes. Laptop sleep prevents local
-work; missed decisions are not backfilled. Neither the dashboard nor service
-status implies that the heartbeat itself is installed.
+The dashboard refreshes marks every minute while open and every 15 minutes while
+closed. At expiry it stops fetching, inference and fills, retaining the frozen
+ledger. Inspect with `systemctl --user status jarvis-paper-market.service`.
 
-`install-service` enables only `jarvis-paper-market.service` in the user's
-systemd instance. It serves dashboard data and refreshes quote marks every
-minute while the regular market is open, or every 15 minutes while closed. It
-does not invoke a model. At expiry it stops fetching prices and keeps serving the
-frozen ledger. To inspect or stop this service:
+## Intraday evidence and cost controls
 
-```bash
-systemctl --user status jarvis-paper-market.service
-systemctl --user stop jarvis-paper-market.service
-```
+The feed scrapes Yahoo Finance's public JSON chart data: timestamped last-trade
+prices and actual one-minute OHLCV bars. It excludes incomplete, invalid and
+out-of-session bars, never fills gaps, and requires 16 consecutive recent bars
+before an entry. Code computes 5-/15-minute momentum, session VWAP and range.
+Raw observed bars stay in the local decision audit; the model receives compact
+computed features, current holdings/cash and two short recent rationales.
+
+Scraping, signal calculation, risk checks and accounting use **no model tokens**.
+No supporting model is needed. **GPT-6 Astra at medium effort** only chooses the
+final buy/sell/hold proposal and sizing. With no holdings, it is invoked only
+when at least one symbol has positive 5-/15-minute momentum above VWAP. These
+are candidate technical setups, not predicted profits or mandatory trades. It
+can still choose to hold. No calls occur for closed/expired sessions, paused
+automation, stale/missing quotes, insufficient bars or unchanged bar/account
+inputs. Failed model attempts are not repeated in the same slot; new evidence
+in later slots can retry. The proposal timeout is 45 seconds.
+
+Code attempts paper-only protective sales at a 1% loss or 2% gain relative to
+average cost, and attempts to flatten in the last ten minutes of the session.
+New buys are blocked in the final thirty minutes. These exits are explicitly
+logged as `risk_exit` from `deterministic-risk-policy`, with no model inference.
+Fresh quote and atomic fill requirements still apply: a feed outage, process
+pause or laptop sleep can prevent an exit, and the service never fabricates a
+close or backdates a fill. All trade outcomes remain simulated and uncertain.
 
 The private state directory defaults to `~/.jarvis/paper-market` and contains a
 SQLite WAL ledger and a process lock. Pass `--state-dir /absolute/private/path`
@@ -64,7 +81,7 @@ facility, rather than copying only the main file while WAL is active.
 ## Model and local fill rules
 
 The proposal worker uses the installed authenticated Codex app-server. The
-runtime model is fixed to **`gpt-6-astra` with `high` effort**; there is no fallback.
+runtime model is fixed to **`gpt-6-astra` with `medium` effort**; there is no fallback.
 It accepts a bounded JSON context and returns structured proposals. Executable
 tools, environments, MCP servers, app connections, plugins and web search are
 disabled. It verifies the effective configuration and thread response and
@@ -98,7 +115,7 @@ The ledger independently enforces:
 Cash, shares, fills, model/result metadata and the resulting equity point commit
 in one SQLite transaction. Rejected proposals cannot partially fill. Later
 status or process-cleanup failures cannot relabel a committed fill. Decision
-identifiers are unique per experiment and 30-minute slot; fill identifiers are
+identifiers are unique per experiment and five-minute slot; fill identifiers are
 derived from the decision and action index.
 
 Quotes are unofficial best-effort data, and may be delayed, throttled or absent.
@@ -138,7 +155,7 @@ ISO-8601 UTC timestamps, and null for unavailable amounts/timestamps:
 | `equity_history[]` | `at`, `cash_usd`, nullable `equity_usd`, `total_pnl_usd`, `valuation_complete`. |
 | `decisions[]` | Latest 30: `id`, `at`, `completed_at`, `kind`, `status`, nullable `rationale`, `error`; `model`, `effort`, `actions`, nullable `usage`, `verification`. Full inputs remain in SQLite. |
 | `fills[]` | Latest 100: `id`, `decision_id`, `at`, `symbol`, `side`, `quantity`, `price_usd`, `notional_usd`, `realized_pnl_usd`, original `quote` provenance. |
-| `runtime` | `last_cycle_at`, `last_cycle_status`, `last_error`, `last_refresh_at`, `feed`, `fill_policy`, `decision_interval_seconds`, optional preflight/maintenance status. |
+| `runtime` | `last_cycle_at`, `last_cycle_status`, `last_error`, `last_refresh_at`, `feed`, `fill_policy`, `decision_interval_seconds`, `autotrading_enabled`, `scheduler`, `risk_interval_seconds`, optional preflight/maintenance status. |
 
 Every action has exactly `symbol`, `side: "buy" | "sell"`, `notional_usd`, and
 `quantity`, with the unused sizing field null. An empty action list means hold.
@@ -158,13 +175,13 @@ pnpm exec tsc --noEmit
 Tests use private temporary ledgers, fake quotes/clocks and fake app-server
 messages. They do not use live model inference or real trading. The separately
 invoked preflight is auditable and intentionally limited to one live proposal.
-Do not run `pnpm build` for QA: the existing build script exports into the live
-desktop shell.
+Use `pnpm exec next build` for build-only QA. The `pnpm build` script also deploys
+the export into the live desktop shell; use it when applying an authorized UI update.
 
 - [OpenAI app-server protocol](https://learn.chatgpt.com/docs/app-server)
 - [GPT-6 Astra model](https://developers.openai.com/api/docs/models/gpt-6-astra)
 - [NYSE holidays and trading hours](https://www.nyse.com/trade/hours-calendars)
-- [Yahoo Finance exchanges and data delays](https://help.yahoo.com/kb/finance/article-exchanges-data-delays-sln2310.html)
+- [Yahoo Finance exchanges and data delays](https://ca.help.yahoo.com/kb/finance-for-web/exchanges-data-providers-yahoo-finance-sln2310.html)
 - [Alpaca paper-trading documentation](https://docs.alpaca.markets/us/docs/paper-trading)
 
 A future supported brokerage-paper adapter would require a separate explicit

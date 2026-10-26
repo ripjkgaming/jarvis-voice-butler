@@ -1,0 +1,142 @@
+[
+  {
+    "beam": 1,
+    "fixture": 0,
+    "wer": 0.0,
+    "seconds": 1.6612348109993036,
+    "text": "Mute it."
+  },
+  {
+    "beam": 1,
+    "fixture": 1,
+    "wer": 0.0,
+    "seconds": 1.3271717709976656,
+    "text": "What time is it?"
+  },
+  {
+    "beam": 1,
+    "fixture": 2,
+    "wer": 0.0,
+    "seconds": 1.194773052000528,
+    "text": "turn it up."
+  },
+  {
+    "beam": 1,
+    "fixture": 3,
+    "wer": 0.0,
+    "seconds": 1.218836685999122,
+    "text": "Set a timer for 5 minutes."
+  },
+  {
+    "beam": 1,
+    "fixture": 4,
+    "wer": 0.7142857142857143,
+    "seconds": 1.2772922290023416,
+    "text": "What is 12% of 85% of the total population?"
+  },
+  {
+    "beam": 1,
+    "fixture": 5,
+    "wer": 0.0,
+    "seconds": 1.1441393960012647,
+    "text": "Open YouTube."
+  },
+  {
+    "beam": 1,
+    "fixture": 6,
+    "wer": 0.0,
+    "seconds": 1.1868182949983748,
+    "text": "Search for Ada Lovelace."
+  },
+  {
+    "beam": 1,
+    "fixture": 7,
+    "wer": 0.0,
+    "seconds": 1.095615849000751,
+    "text": "What is the weather in London?"
+  },
+  {
+    "beam": 1,
+    "fixture": 8,
+    "wer": 0.0,
+    "seconds": 1.5571337809997203,
+    "text": "Read my latest email from the teacher."
+  },
+  {
+    "beam": 1,
+    "fixture": 10,
+    "wer": 0.0,
+    "seconds": 1.0915297329993336,
+    "text": "What time is it?"
+  },
+  {
+    "beam": 5,
+    "fixture": 0,
+    "wer": 0.0,
+    "seconds": 1.220280918001663,
+    "text": "Mute it."
+  },
+  {
+    "beam": 5,
+    "fixture": 1,
+    "wer": 0.0,
+    "seconds": 1.3213679889995547,
+    "text": "What time is it?"
+  },
+  {
+    "beam": 5,
+    "fixture": 2,
+    "wer": 0.0,
+    "seconds": 1.1812000749996514,
+    "text": "Turn it up."
+  },
+  {
+    "beam": 5,
+    "fixture": 3,
+    "wer": 0.0,
+    "seconds": 1.3273078849997546,
+    "text": "Set a timer for 5 minutes."
+  },
+  {
+    "beam": 5,
+    "fixture": 4,
+    "wer": 0.0,
+    "seconds": 1.3962117070004751,
+    "text": "What is 12% of 85?"
+  },
+  {
+    "beam": 5,
+    "fixture": 5,
+    "wer": 0.0,
+    "seconds": 1.1764341109992529,
+    "text": "Open YouTube."
+  },
+  {
+    "beam": 5,
+    "fixture": 6,
+    "wer": 0.0,
+    "seconds": 1.2729111699991336,
+    "text": "Search for Ada Lovelace."
+  },
+  {
+    "beam": 5,
+    "fixture": 7,
+    "wer": 0.0,
+    "seconds": 1.2682654540003568,
+    "text": "What is the weather in London?"
+  },
+  {
+    "beam": 5,
+    "fixture": 8,
+    "wer": 0.0,
+    "seconds": 1.4420219250023365,
+    "text": "Read my latest email from the teacher."
+  },
+  {
+    "beam": 5,
+    "fixture": 10,
+    "wer": 0.0,
+    "seconds": 1.2775511789986922,
+    "text": "What time is it?"
+  }
+]

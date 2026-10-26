@@ -18,7 +18,18 @@ def ledger(tmp_path):
 
 
 def quotes(now=NOW):
-    return {"SPY": Quote("SPY", Decimal("100"), now, fetched_at=now)}
+    bars = tuple(
+        {
+            "at": (now - timedelta(minutes=20 - i)).isoformat(),
+            "open": "100",
+            "high": "101",
+            "low": "99",
+            "close": str(Decimal("100") + Decimal(i) / 100),
+            "volume": 1000,
+        }
+        for i in range(20)
+    )
+    return {"SPY": Quote("SPY", Decimal("100"), now, fetched_at=now, bars=bars)}
 
 
 def proposal(side="buy", amount="100", symbol="SPY"):
@@ -143,7 +154,7 @@ class FakeWorker:
         return {
             "proposal": proposal(),
             "model": "gpt-6-astra",
-            "effort": "high",
+            "effort": "medium",
             "usage": {"total_tokens": 2},
             "verification": {
                 "model_verified": True,

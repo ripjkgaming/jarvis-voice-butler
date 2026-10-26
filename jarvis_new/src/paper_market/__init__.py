@@ -1,9 +1,11 @@
 """Local paper exchange. No brokerage credentials or real order endpoints."""
 
-MODEL = "gpt-6-astra"
-EFFORT = "high"
+import os
+
+MODEL = os.environ.get("PAPER_MARKET_MODEL", "gpt-6-astra")
+EFFORT = os.environ.get("PAPER_MARKET_EFFORT", "medium")
 SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
-DECISION_INTERVAL_SECONDS = 1800
+DECISION_INTERVAL_SECONDS = 300
 MAX_QUOTE_AGE_SECONDS = 120
 FILL_POLICY = (
     "Local simulated fractional fills at freshly fetched last-trade prices, "

@@ -15,8 +15,9 @@ private permissions. Set `JARVIS_YOUTUBE_HISTORY=0` to disable passive history;
 explicit YouTube links still work.
 
 Downloads now run headlessly through local yt-dlp with its bundled JavaScript
-challenge scripts, Node.js and ffmpeg. Jarvis selects MP4 video with audio up
-to 1080p, prefers compatible H.264/AAC, and merges streams without re-encoding.
+challenge scripts, Node.js and ffmpeg. Jarvis requires at least 1080p, picks the
+closest to 1080p, prefers H.264/AAC, and merges streams into MP4. Videos with
+no 1080p+ stream fail instead of downloading lower quality.
 There is no converter website or advertisement in the default flow.
 
 YouTube rejected anonymous requests on this machine. The working flow uses

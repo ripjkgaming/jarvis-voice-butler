@@ -33,6 +33,7 @@ from test_voice_fixtures import FIXTURES, fixture_slug, wer
 from test_voice_regressions import EARS_IDX, cached_fixture_wav, expand_numbers
 
 from local_stt import FasterWhisperSTT
+from whisper_config import english_model_name
 
 FIRST_TRANSCRIPT_BUDGET_S = 120.0
 P50_BUDGET_S = 6.0
@@ -40,6 +41,7 @@ SMALL_SUBSET = [1, 4, 6]  # time / twelve-percent / ada: names + numbers
 
 
 def _needs_size(size: str) -> str | None:
+    size = english_model_name(size)
     hub = (
         Path.home()
         / ".cache"

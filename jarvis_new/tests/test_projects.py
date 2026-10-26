@@ -1,4 +1,4 @@
-"""Background projects (research on ChatGPT, coding on opencode) and the
+"""Background projects (research on ChatGPT, coding through the dedicated Assigner) and the
 voice-only Project Archive grammar + command bus."""
 
 import json
@@ -138,18 +138,8 @@ def test_choose_variant():
     assert projects.choose_variant("x" * 300) == "max"
 
 
-def test_code_argv_and_directory_rules(tmp_path, monkeypatch):
+def test_coding_directory_rules(tmp_path, monkeypatch):
     monkeypatch.setattr(projects.Path, "home", classmethod(lambda cls: tmp_path))
-    argv = projects.code_argv("do it", tmp_path / "p", "high")
-    assert argv[:6] == [
-        "opencode",
-        "run",
-        "--auto",
-        "-m",
-        projects.OPENCODE_MODEL,
-        "--variant",
-    ]
-    assert argv[-1] == "do it"
     path, err = projects.resolve_directory("", "My Tool")
     assert err is None and path.parent == tmp_path / "jarvis-projects"
     assert projects.resolve_directory(str(tmp_path), "x")[1]  # $HOME itself refused
@@ -159,32 +149,17 @@ def test_code_argv_and_directory_rules(tmp_path, monkeypatch):
     assert projects.resolve_directory(str(ok_dir), "x") == (ok_dir.resolve(), None)
 
 
-def test_code_project_runs_and_summarizes(tmp_path, monkeypatch):
-    monkeypatch.setattr(projects.Path, "home", classmethod(lambda cls: tmp_path))
-    launched = {}
-
-    class FakePopen:
-        pid = 4242
-
-        def __init__(self, argv, stdout=None, **kw):
-            launched["argv"] = argv
-            stdout.write(b"\x1b[32mwrote hello.py\x1b[0m\nall done\n")
-            stdout.flush()
-
-        def wait(self, timeout=None):
-            return 0
-
-    meta = projects.start_code("make hello world", popen=FakePopen, background=False)
-    assert meta["status"] == "done" and meta["variant"] == "high"
-    assert "all done" in meta["summary"] and "\x1b" not in meta["summary"]
-    assert launched["argv"][launched["argv"].index("--dir") + 1] == meta["directory"]
+def test_code_project_requires_activation_and_has_no_fallback(tmp_path, monkeypatch):
+    monkeypatch.delenv("JARVIS_ASSIGNER_ROUTING", raising=False)
+    meta = projects.start_code("make hello world", request_id="test-id", directory=str(tmp_path))
+    assert meta["status"] == "blocked"
+    assert "not activated" in meta["error"]
 
 
-def test_code_project_bad_directory_fails_fast():
-    meta = projects.start_code(
-        "x task", directory="/definitely/not/here", background=False
-    )
-    assert meta["status"] == "failed" and "directory" in meta["error"]
+def test_code_project_bad_directory_fails_fast(monkeypatch):
+    monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "1")
+    meta = projects.start_code("x task", directory="/definitely/not/here", request_id="test-id")
+    assert meta["status"] == "blocked" and "directory" in meta["error"]
 
 
 def test_list_newest_first_and_ids_are_safe(monkeypatch):

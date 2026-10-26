@@ -1,5 +1,5 @@
 """Background projects: research (ChatGPT via headless Codex) and
-coding (headless opencode, free Muse Spark), plus the voice-only Project
+coding (a dedicated headless Assigner), plus the voice-only Project
 Archive window's command bus.
 
 Lives in the bridge process: agent sessions are short-lived subprocesses,
@@ -16,26 +16,22 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import fcntl
 import json
 import os
 import re
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
 
+import assigner_headless
 import chatgpt_cli
 
-OPENCODE_MODEL = os.environ.get(
-    "JARVIS_OPENCODE_MODEL", "opencode/muse-spark-1.3-contributor-free"
-)
 RESEARCH_TIMEOUT_S = 900.0
-CODE_TIMEOUT_S = 45 * 60.0
-# The free model answers a rate limit by hanging, not failing: no output
-# for this long means the engine is stuck, so the job fails honestly.
-CODE_STALL_S = 8 * 60.0
 
 RESEARCH_SYSTEM = (
     "You are Jarvis's research analyst. Research the topic thoroughly with "
@@ -97,12 +93,51 @@ def _dir(pid: str) -> Path:
     return projects_root() / pid
 
 
+def _atomic_text(path: Path, text: str) -> None:
+    """Unique, same-directory temporary file; never share a writer's temp name."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary:
+            temporary.unlink(missing_ok=True)
+
+
 def _write_meta(meta: dict) -> None:
     meta["updated_at"] = time.time()
-    path = _dir(meta["id"]) / "meta.json"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(meta, indent=2))
-    tmp.replace(path)
+    _atomic_text(_dir(meta["id"]) / "meta.json", json.dumps(meta, indent=2))
+
+
+@contextlib.contextmanager
+def _archive_lock(pid):
+    """Serialize coding archive read/modify/write across independent processes."""
+    with open(_dir(pid) / "archive.lock", "a") as lock:
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise assigner_headless.RoutingError(
+                        "Coding archive is busy."
+                    ) from None
+                time.sleep(0.01)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def _read_meta(pid: str) -> dict | None:
@@ -152,7 +187,7 @@ def list_projects() -> list[dict]:
             if child.is_dir() and valid_id(child.name):
                 meta = _read_meta(child.name)
                 if meta:
-                    out.append(meta)
+                    out.append(_refresh_code_meta(meta))
     except OSError:
         return []
     out.sort(key=lambda m: m.get("created_at", 0), reverse=True)
@@ -161,6 +196,7 @@ def list_projects() -> list[dict]:
 
 _DOC_ORDER = ("report.md", "output.log", "sources.md", "brief.md")
 _DOC_TITLES = {
+    "proposal.patch": "Patch proposal",
     "report.md": "Report",
     "output.log": "Engine output",
     "sources.md": "Sources",
@@ -176,7 +212,7 @@ def documents(pid: str) -> list[dict]:
         extra = sorted(
             p.name
             for p in folder.iterdir()
-            if p.suffix in (".md", ".txt") and p.name not in _DOC_ORDER
+            if p.suffix in (".md", ".txt", ".patch") and p.name not in _DOC_ORDER
         )
     except OSError:
         extra = []
@@ -198,6 +234,7 @@ def get_project(pid: str) -> dict | None:
     meta = _read_meta(pid)
     if meta is None:
         return None
+    meta = _refresh_code_meta(meta)
     docs = documents(pid)
     main = next((d for d in docs if d["name"] in ("report.md", "output.log")), None)
     return {**meta, "documents": docs, "report": main["text"] if main else ""}
@@ -207,6 +244,11 @@ def cancel_project(pid: str) -> bool:
     if not valid_id(pid):
         return False
     meta = _read_meta(pid)
+    if meta and meta.get("engine") == "assigner":
+        service = _assigner_service()
+        cancelled = service.jobs.cancel(meta["request_id"])
+        _refresh_code_meta(meta)
+        return cancelled
     if not meta or meta.get("status") != "running":
         return False
     with _LOCK:
@@ -234,8 +276,17 @@ def _announce(meta: dict) -> None:
         body = f"{text_bar(100) if done else ''}\n{body}".strip()
     with contextlib.suppress(Exception):
         subprocess.run(
-            ["notify-send", "-a", "Jarvis", "-t", "8000", *replace, *hint,
-             f"Jarvis: {kind} {verb}", body],
+            [
+                "notify-send",
+                "-a",
+                "Jarvis",
+                "-t",
+                "8000",
+                *replace,
+                *hint,
+                f"Jarvis: {kind} {verb}",
+                body,
+            ],
             timeout=5,
             capture_output=True,
         )
@@ -251,6 +302,14 @@ def delete_project(pid: str) -> bool:
         return False
     with contextlib.suppress(Exception):
         cancel_project(pid)
+    current = _read_meta(pid)
+    if current and current.get("engine") == "assigner":
+        current = _refresh_code_meta(current)
+        job = _assigner_service().jobs.get(current["request_id"])
+        if current["status"] not in assigner_headless.TERMINAL or (
+            job and job.get("remote_uncertain")
+        ):
+            return False
     try:
         shutil.rmtree(_dir(pid))
     except OSError:
@@ -363,8 +422,16 @@ class ResearchProgress:
         # -t 0 keeps the toast up so it fills live (an expired toast only
         # updates silently in history). Plasma ignores the value hint on
         # plain toasts, so the bar is drawn in text too.
-        argv = ["notify-send", "-a", "Jarvis", "-p", "-t", "0",
-                "-h", f"int:value:{self.percent}"]
+        argv = [
+            "notify-send",
+            "-a",
+            "Jarvis",
+            "-p",
+            "-t",
+            "0",
+            "-h",
+            f"int:value:{self.percent}",
+        ]
         if self.notify_id:
             argv += ["-r", self.notify_id]
         argv += [
@@ -384,11 +451,19 @@ class ResearchProgress:
 def parse_report(text: str) -> tuple[str, list[str]]:
     """(summary, source URLs) from the report markdown. Pure."""
     summary = ""
-    m = re.search(r"^##\s*Summary\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S | re.I)
+    m = re.search(
+        r"^##\s*Summary\s*$(.*?)(?=^##\s|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
     if m:
         summary = " ".join(m.group(1).split())
     sources: list[str] = []
-    s = re.search(r"^##\s*Sources\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S | re.I)
+    s = re.search(
+        r"^##\s*Sources\s*$(.*?)(?=^##\s|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
     for url in _URL.findall(s.group(1) if s else ""):
         url = url.rstrip(".,;")
         if url not in sources:
@@ -435,7 +510,10 @@ def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
                     "## Sources\n\n" + "\n".join(f"- {u}" for u in sources) + "\n"
                 )
             current.update(
-                status="done", summary=summary, sources=sources, progress=100,
+                status="done",
+                summary=summary,
+                sources=sources,
+                progress=100,
                 stage="Report ready",
             )
         else:
@@ -458,7 +536,7 @@ _HARD = re.compile(
     r"\b(refactor|rewrite|migrat\w*|architect\w*|redesign|debug\w*|race condition|"
     r"performance|optimi[sz]\w*|entire|whole (?:codebase|project|repo)|"
     r"multiple files|from scratch|full[- ]stack|end[- ]to[- ]end)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -493,131 +571,170 @@ def resolve_directory(directory: str, title: str) -> tuple[Path | None, str | No
     return path, None
 
 
-def code_argv(task: str, directory: Path, variant: str) -> list[str]:
-    """Headless opencode run. Pure."""
-    return [
-        "opencode",
-        "run",
-        "--auto",
-        "-m",
-        OPENCODE_MODEL,
-        "--variant",
-        variant,
-        "--dir",
-        str(directory),
-        task,
-    ]
+_ASSIGNER_SERVICES = {}
+_CODE_LOCK = threading.RLock()
 
 
-def tail_summary(text: str, limit: int = 600) -> str:
-    """Last ~limit chars of output, ANSI stripped. Pure."""
-    clean = _ANSI.sub("", text or "").strip()
-    return clean[-limit:].strip()
+def _assigner_service():
+    root = jarvis_home() / "assigner"
+    key = str(root.resolve())
+    with _CODE_LOCK:
+        if key not in _ASSIGNER_SERVICES:
+            _ASSIGNER_SERVICES[key] = assigner_headless.Service(
+                root, on_update=_sync_code_job
+            )
+        return _ASSIGNER_SERVICES[key]
+
+
+def _sync_code_job(job):
+    pid = job.get("project_id")
+    if not pid or not valid_id(pid):
+        return None
+    if not _dir(pid).is_dir():
+        return None
+    with _CODE_LOCK, _archive_lock(pid):
+        # Refresh under the archive lock so an earlier reader cannot downgrade state.
+        current = _assigner_service().jobs.get(job["request_id"])
+        if current:
+            job = current
+        meta = _read_meta(pid)
+        if not meta:
+            return None
+        previous = meta.get("status")
+        status = job["status"]
+        meta.update(
+            status=status,
+            request_id=job["request_id"],
+            error=job.get("error"),
+            model=job.get("model", "gpt-6.1-sol"),
+            workers=job.get("workers", []),
+            coordinator_id=job.get("coordinator_id"),
+            phase=status,
+            context_manifest=job.get("context_manifest"),
+            patch_validation=job.get("patch_validation"),
+        )
+        result = job.get("result")
+        if result:
+            meta["summary"] = result["summary"]
+            _atomic_text(_dir(pid) / "report.md", result["details"])
+        for index, worker in enumerate(job.get("worker_results", []), 1):
+            _atomic_text(_dir(pid) / f"worker-{index}.md", worker["raw"])
+        if job.get("context_manifest"):
+            _atomic_text(
+                _dir(pid) / "context-manifest.md",
+                "## Selected source context\n\n```json\n"
+                + json.dumps(job["context_manifest"], indent=2)
+                + "\n```\n",
+            )
+        if job.get("proposal_patch"):
+            _atomic_text(_dir(pid) / "proposal.patch", job["proposal_patch"])
+        _write_meta(meta)
+    if (
+        previous != status
+        and status in assigner_headless.TERMINAL
+        and _assigner_service().jobs.claim_notification(job["request_id"])
+    ):
+        _announce(meta)
+    return meta
+
+
+def _refresh_code_meta(meta):
+    if meta.get("engine") == "assigner":
+        service = _assigner_service()
+        job = service.jobs.get(meta["request_id"])
+        if job:
+            meta = _sync_code_job(job) or meta
+        if os.environ.get("JARVIS_ASSIGNER_ROUTING") == "1":
+            service.kick()
+    return meta
+
+
+def claim_completion(pid):
+    meta = _read_meta(pid) if valid_id(pid) else None
+    if not meta or meta.get("engine") != "assigner":
+        return False
+    return _assigner_service().jobs.claim_report(meta["request_id"])
 
 
 def start_code(
-    task: str,
+    task,
     *,
-    directory: str = "",
-    variant: str = "",
-    popen=None,
-    background: bool = True,
-) -> dict:
-    """Start a coding project on headless opencode. Returns its meta."""
-    task = (task or "").strip()[:4000]
+    directory="",
+    variant="",
+    request_id="",
+    service=None,
+):
+    """Queue scoped code/patch generation. Activation is explicit; no fallback.
+
+    A stable caller request ID is mandatory, including across HTTP retries.
+    Existing deployments must adopt the companion bridge request-ID patch.
+    Workers are read-only and return code/patches for separate owner review.
+    """
+    task = (task or "").strip()
     variant = variant if variant in ("high", "max") else choose_variant(task)
     title = " ".join(task.split())
-    path, error = resolve_directory(directory, title)
-    meta = _new_meta(
-        "code",
-        title,
-        task,
-        OPENCODE_MODEL,
-        variant=variant,
-        directory=str(path) if path else (directory or None),
-    )
-    if error:
-        meta.update(status="failed", error=error)
-        _write_meta(meta)
+
+    def blocked(error):
+        meta = _new_meta(
+            "code", title, task, "gpt-6.1-sol", status="blocked", error=error
+        )
         return meta
-    log_path = _dir(meta["id"]) / "output.log"
 
-    def work() -> None:
-        opener = popen or subprocess.Popen
-        try:
-            with open(log_path, "wb") as log:
-                proc = opener(
-                    code_argv(task, path, variant),
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    cwd=str(path),
-                    start_new_session=True,
+    if os.environ.get("JARVIS_ASSIGNER_ROUTING") != "1":
+        return blocked(
+            "Dedicated Assigner routing is not activated; no fallback was used."
+        )
+    if not request_id:
+        return blocked("A stable coding request ID is required before dispatch.")
+    try:
+        if not 3 <= len(task) <= 4000 or not re.fullmatch(
+            r"[A-Za-z0-9_-]{1,128}", request_id
+        ):
+            return blocked("Invalid coding task or request ID.")
+        service = service or _assigner_service()
+        with _CODE_LOCK, service.jobs.project_lock():
+            existing = service.jobs.get(request_id)
+            if existing:
+                # Validate original goal/effort/directory before accepting duplicate.
+                resolved = (
+                    str(Path(directory).expanduser().resolve())
+                    if directory
+                    else existing["directory"]
                 )
-                with _LOCK:
-                    _PROCS[meta["id"]] = proc
-                current = _read_meta(meta["id"]) or meta
-                current["pid"] = proc.pid
-                _write_meta(current)
-                started = last_growth = time.monotonic()
-                last_size = 0
-                rc = None
-                stalled = False
-                while rc is None:
-                    try:
-                        rc = proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        size = log_path.stat().st_size if log_path.exists() else 0
-                        now = time.monotonic()
-                        if size != last_size:
-                            last_size, last_growth = size, now
-                        if (
-                            now - last_growth > CODE_STALL_S
-                            or now - started > CODE_TIMEOUT_S
-                        ):
-                            stalled = now - last_growth > CODE_STALL_S
-                            with contextlib.suppress(OSError):
-                                os.killpg(proc.pid, signal.SIGTERM)
-                            rc = -1
-        except OSError as exc:
-            rc, stalled = None, False
-            current = _read_meta(meta["id"]) or meta
-            current.update(
-                status="failed", error=f"opencode failed to start: {exc}"[:200]
+                if (
+                    task != existing["goal"]
+                    or variant != existing["effort"]
+                    or resolved != existing["directory"]
+                ):
+                    return blocked("Request ID already belongs to another coding task.")
+                return _sync_code_job(existing) or blocked(
+                    "Stored project is unavailable; request was not replayed."
+                )
+            path, error = resolve_directory(directory, title)
+            if error:
+                return blocked(error)
+            meta = _new_meta(
+                "code",
+                title,
+                task,
+                "gpt-6.1-sol",
+                status="pending",
+                variant=variant,
+                directory=str(path),
+                request_id=request_id,
+                engine="assigner",
             )
-            _write_meta(current)
-            _announce(current)
-            return
-        finally:
-            with _LOCK:
-                _PROCS.pop(meta["id"], None)
-        current = _read_meta(meta["id"]) or meta
-        if current.get("status") == "cancelled":
-            return
-        output = log_path.read_text(errors="replace") if log_path.exists() else ""
-        current["summary"] = tail_summary(output)
-        current["pid"] = None
-        if rc == 0:
-            current["status"] = "done"
-        else:
-            current["status"] = "failed"
-            if stalled:
-                current["error"] = (
-                    "The coding engine went silent (the free model is likely "
-                    "rate-limited). Try again later."
+            try:
+                job = service.submit(
+                    request_id, task, str(path), variant, project_id=meta["id"]
                 )
-            elif rc == -1:
-                current["error"] = "Coding engine timed out."
-            else:
-                current["error"] = f"opencode exited {rc}"
-        _write_meta(current)
-        _announce(current)
-
-    if background:
-        threading.Thread(target=work, name=f"code-{meta['id']}", daemon=True).start()
-    else:
-        work()
-    return _read_meta(meta["id"]) or meta
+            except assigner_headless.RoutingError as exc:
+                meta.update(status="blocked", error=str(exc))
+                _write_meta(meta)
+                return meta
+            return _sync_code_job(job) or meta
+    except (OSError, assigner_headless.RoutingError):
+        return blocked("Assigner is unavailable; no fallback was used.")
 
 
 # --- UI command bus (voice → Project Archive window) ------------------------
@@ -902,7 +1019,11 @@ def parse_voice(text: str, projects: list[dict] | None = None) -> list[dict] | N
                 cmds.append({"action": "missing", "query": m.group(1)})
             else:
                 cmds.append(
-                    {"action": "delete", "project_id": proj["id"], "title": proj.get("title", "")}
+                    {
+                        "action": "delete",
+                        "project_id": proj["id"],
+                        "title": proj.get("title", ""),
+                    }
                 )
         elif name == "confirm_delete":
             # A bare "confirm" is only ours while a delete is waiting.
@@ -912,8 +1033,17 @@ def parse_voice(text: str, projects: list[dict] | None = None) -> list[dict] | N
     # Bare navigation words ("back", "faster", "go to the top") are only
     # ours when the archive is the active surface: require a projects
     # clause in the utterance or a prior voice selection.
-    strong = {"show", "hide", "select", "open_document", "filter", "abort", "missing",
-              "delete", "confirm_delete"}
+    strong = {
+        "show",
+        "hide",
+        "select",
+        "open_document",
+        "filter",
+        "abort",
+        "missing",
+        "delete",
+        "confirm_delete",
+    }
     if not any(c["action"] in strong for c in cmds) and not BUS.active():
         return None
     return cmds
@@ -988,7 +1118,9 @@ def build_nav_commands(
         proj = _find_project(project, plist)
         if proj is None:
             return None, f"I can't find a project called {project.strip()}, Sir."
-        return [{"action": a, "project_id": proj["id"], "title": proj.get("title", "")}], ""
+        return [
+            {"action": a, "project_id": proj["id"], "title": proj.get("title", "")}
+        ], ""
     if number != 0:
         return [{"action": a, "index": int(number)}], ""
     if a == "delete":
@@ -1013,9 +1145,10 @@ def reply_for(cmds: list[dict]) -> str:
     if a == "open_document":
         return f"Document {_speak_ordinal(last.get('index', 1))}, Sir."
     if a == "delete":
-        what = (
-            last.get("title")
-            or (f"project {_speak_ordinal(last['index'])}" if "index" in last else "this project")
+        what = last.get("title") or (
+            f"project {_speak_ordinal(last['index'])}"
+            if "index" in last
+            else "this project"
         )
         return f"Say 'confirm delete' to erase {what}, Sir. It cannot be undone."
     if a == "confirm_delete":
@@ -1103,7 +1236,11 @@ def execute_voice(cmds: list[dict], heard: str = "", run=subprocess.run) -> dict
             if not meta:
                 ok = False
                 continue
-            BUS.pending_delete = {"id": pid, "title": meta.get("title", ""), "at": time.monotonic()}
+            BUS.pending_delete = {
+                "id": pid,
+                "title": meta.get("title", ""),
+                "at": time.monotonic(),
+            }
             show()
             BUS.push("delete_pending", heard=echo, project_id=pid)
             echo = None

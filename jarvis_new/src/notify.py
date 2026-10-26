@@ -140,6 +140,10 @@ def send(
     toaster=None,
 ) -> dict:
     """Route one notification. Returns {"route": announce|notification|deduped|empty}."""
+    from phone_session import private
+
+    if private():
+        raise PermissionError("A private phone call cannot send desktop notifications or queued announcements.")
     now = time.time() if now is None else now
     body = _clean(text)
     if not body:
@@ -233,6 +237,10 @@ def _save_queue(items: list[dict]) -> None:
 
 def enqueue(item: dict) -> bool:
     """Append one item for later announcement. Never raises."""
+    from phone_session import private
+
+    if private():
+        return False
     try:
         with _locked():
             items = load_queue()

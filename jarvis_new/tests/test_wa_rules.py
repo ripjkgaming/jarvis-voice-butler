@@ -212,4 +212,4 @@ def test_mimic_prompt_carries_exam_status(home) -> None:
         status="in an exam (Physics P4) until 11:30",
     )
     assert "owner_status: in an exam (Physics P4) until 11:30" in prompt
-    assert "wish me luck" in wa_mimic.system_prompt()
+    assert "Never promise he will text afterwards" in wa_mimic.system_prompt()

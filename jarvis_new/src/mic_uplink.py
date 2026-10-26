@@ -69,53 +69,63 @@ def load_model():
     return Model(wakeword_models=[WAKE_MODEL])
 
 
+_model_lock = threading.Lock()
+
+
 def serve_client(conn: socket.socket, addr, model, threshold: float) -> None:
-    """One phone session: handshake, stream, WAKE lines. Never raises."""
-    peer = f"{addr[0]}:{addr[1]}"
+    """A bounded framed handshake, then lossless PCM in one isolated session."""
+    acquired = False
     conn.settimeout(HANDSHAKE_TIMEOUT)
     try:
-        line = b""
-        while not line.endswith(b"\n"):
+        raw = b""
+        while b"\n" not in raw:
             chunk = conn.recv(256)
             if not chunk:
                 return
-            line += chunk
-            if len(line) > 1024:
+            raw += chunk
+            if b"\n" not in raw and len(raw) > 1024:
                 raise ValueError("handshake too long")
+        line, _, pending_bytes = raw.partition(b"\n")
+        if len(line) > 1024:
+            raise ValueError("handshake too long")
         parse_handshake(line)
+        # openWakeWord is stateful. Never mix two clients' embedding history.
+        acquired = _model_lock.acquire(blocking=False)
+        if not acquired:
+            raise ValueError("another microphone stream is active")
+        reset = getattr(model, "reset", None)
+        if callable(reset):
+            reset()
         conn.sendall(b'{"ok": true}\n')
-    except (OSError, ValueError) as exc:
-        with contextlib.suppress(OSError):
-            conn.sendall(
-                json.dumps({"ok": False, "error": str(exc)[:120]}).encode() + b"\n"
-            )
-        return
-    logger.info("mic uplink from %s", peer)
-    conn.settimeout(CHUNK_TIMEOUT)
-    import numpy as np
+        conn.settimeout(CHUNK_TIMEOUT)
+        import numpy as np
 
-    pending16 = np.zeros(0, dtype=np.int16)
-    last_wake = 0.0
-    try:
+        pending16 = np.zeros(0, dtype=np.int16)
+        last_wake = 0.0
         while True:
-            raw = conn.recv(4096)
-            if not raw:
-                return
-            # Zero-copy int16 (was struct.unpack per-sample list).
-            even = raw[: len(raw) // 2 * 2]
-            if not even:
-                continue
-            pending16 = np.concatenate([pending16, np.frombuffer(even, dtype=np.int16)])
+            if len(pending_bytes) < 2:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    return
+                pending_bytes += chunk
+            complete = len(pending_bytes) // 2 * 2
+            even, pending_bytes = pending_bytes[:complete], pending_bytes[complete:]
+            pending16 = np.concatenate([pending16, np.frombuffer(even, dtype="<i2")])
             scores, pending16 = score_frames(model, pending16)
             for score in scores:
                 now = time.time()
                 if score >= threshold and now - last_wake >= COOLDOWN_S:
                     last_wake = now
                     conn.sendall(f"WAKE {now}\n".encode())
-    except (OSError, TimeoutError):
-        pass
+    except (OSError, ValueError) as exc:
+        with contextlib.suppress(OSError):
+            conn.sendall(
+                json.dumps({"ok": False, "error": str(exc)[:120]}).encode() + b"\n"
+            )
     finally:
-        logger.info("mic uplink closed %s", peer)
+        if acquired:
+            _model_lock.release()
+        conn.close()
 
 
 def serve_forever(port: int = DEFAULT_PORT, bind: str = "127.0.0.1") -> None:

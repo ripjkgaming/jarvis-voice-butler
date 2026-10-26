@@ -1,14 +1,15 @@
-"""Loopback dashboard API. Refreshing quotes never invokes a trading model."""
+"""Read-only dashboard with an explicitly enabled local intraday scheduler."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from .calendar import session_at
-from .engine import refresh
+from .engine import Engine, refresh
 from .ledger import Ledger, utcnow
 
 HOST = "127.0.0.1"
@@ -93,14 +94,15 @@ def serve(ledger: Ledger, *, port: int = PORT):
                 return
             try:
                 refresh(ledger)
+                if ledger.autotrading_enabled():
+                    asyncio.run(Engine(ledger).risk_once())
             except Exception:
                 ledger.runtime(
                     last_refresh_error="Quote refresh failed; last observed values remain visible."
                 )
             else:
                 ledger.runtime(last_refresh_error=None)
-            # Closed markets are checked infrequently, but wake for the next
-            # opening. This thread refreshes only; it never schedules decisions.
+            # Risk checks use observed quotes and never invoke a model.
             market = session_at(utcnow())
             delay = 60.0 if market.is_open else 900.0
             if market.next_open_at:
@@ -109,6 +111,29 @@ def serve(ledger: Ledger, *, port: int = PORT):
                 )
             stopped.wait(delay)
 
+    def decision_loop():
+        last_slot = None
+        while not stopped.is_set():
+            now = utcnow()
+            if now >= datetime.fromisoformat(ledger.experiment()["expires_at"]):
+                return
+            try:
+                if ledger.autotrading_enabled() and session_at(now).is_open:
+                    slot = int(now.timestamp()) // 300
+                    if slot != last_slot:
+                        result = asyncio.run(Engine(ledger).run_once())
+                        if result["status"] != "busy":
+                            last_slot = slot
+            except Exception:
+                ledger.runtime(
+                    last_error="Automatic paper decision failed; inspect the ledger and feed status."
+                )
+            stopped.wait(15)
+
+    decision_thread = threading.Thread(
+        target=decision_loop, name="paper-decisions", daemon=True
+    )
+    decision_thread.start()
     thread = threading.Thread(target=mark_loop, name="paper-quote-marks", daemon=True)
     thread.start()
     try:
@@ -117,3 +142,4 @@ def serve(ledger: Ledger, *, port: int = PORT):
         stopped.set()
         server.server_close()
         thread.join(timeout=20)
+        decision_thread.join(timeout=5)

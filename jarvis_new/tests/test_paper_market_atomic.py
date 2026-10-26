@@ -41,7 +41,7 @@ def result():
     return {
         "proposal": proposal(),
         "model": "gpt-6-astra",
-        "effort": "high",
+        "effort": "medium",
         "usage": {"last": {"inputTokens": 21, "outputTokens": 9, "totalTokens": 30}},
         "verification": {
             "model_verified": True,
@@ -92,7 +92,24 @@ def ledger(tmp_path):
 
 def quotes(at=NOW, symbols=("SPY",)):
     return {
-        symbol: Quote(symbol, Decimal("100"), at, fetched_at=at) for symbol in symbols
+        symbol: Quote(
+            symbol,
+            Decimal("100"),
+            at,
+            fetched_at=at,
+            bars=tuple(
+                {
+                    "at": (at - timedelta(minutes=20 - i)).isoformat(),
+                    "open": "100",
+                    "high": "101",
+                    "low": "99",
+                    "close": str(Decimal("100") + Decimal(i) / 100),
+                    "volume": 1000,
+                }
+                for i in range(20)
+            ),
+        )
+        for symbol in symbols
     }
 
 
@@ -147,7 +164,7 @@ async def test_fill_status_requires_atomic_proposal_usage_and_verification(ledge
     assert json.loads(decision["verification_json"]) == response["verification"]
     assert decision["rationale"] == response["proposal"]["rationale"]
     assert decision["model"] == "gpt-6-astra"
-    assert decision["effort"] == "high"
+    assert decision["effort"] == "medium"
     assert worker.closed
 
 

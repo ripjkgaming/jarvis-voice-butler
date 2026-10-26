@@ -36,6 +36,7 @@ import itertools
 import json
 import os
 import re
+import threading
 import time
 import urllib.request
 
@@ -88,13 +89,15 @@ def page_ws_url(targets: list | None = None) -> str:
     return ""
 
 
-async def cdp_evaluate(wsurl: str, expr: str, timeout: int = 25):
+async def cdp_evaluate(wsurl: str, expr: str, timeout: int = 25, *, authorized=None):
     """Evaluate JS in the WhatsApp page; returns the value (or None)."""
     import websockets
 
     req_id = next(_cdp_ids)
     # websockets>=14 renamed connect()'s `timeout` to `open_timeout`.
     async with websockets.connect(wsurl, max_size=10_000_000, open_timeout=10) as ws:
+        if authorized is not None and not authorized():
+            return None
         await ws.send(
             json.dumps(
                 {
@@ -428,7 +431,61 @@ async def list_chats(limit: int = 20) -> list[dict]:
     return seen[: max(1, limit)]
 
 
+# The single WhatSie page is shared by voice tools and the watcher, sometimes
+# on different event loops. Cancellation while waiting must never leak a lock.
+_page_lock = threading.Lock()
+
+
+@contextlib.asynccontextmanager
+async def _page_session():
+    while not _page_lock.acquire(blocking=False):
+        await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        _page_lock.release()
+
+
+async def cdp_once(expr: str, timeout: int = 25, *, authorized=None):
+    """Mutations must not be replayed after an uncertain transport failure."""
+    if authorized is not None and not authorized():
+        return None
+    wsurl = page_ws_url()
+    if not wsurl:
+        return None
+    try:
+        if authorized is not None:
+            return await cdp_evaluate(wsurl, expr, timeout, authorized=authorized)
+        return await cdp_evaluate(wsurl, expr, timeout)
+    except Exception:
+        return None
+
+
+def _same_chat(header: str, name: str) -> bool:
+    return (
+        clean(str(header).split("\n")[0]).casefold()[:50] == clean(name).casefold()[:50]
+    )
+
+
 async def open_chat(name: str, timeout_s: int = 12) -> dict:
+    async with _page_session():
+        return await _open_chat_unlocked(name, timeout_s)
+
+
+async def read_chat(name: str, n: int = 30) -> dict:
+    async with _page_session():
+        return await _read_chat_unlocked(name, n)
+
+
+async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
+    import phone_session
+    if phone_session.private():
+        return {"ok": False, "err": "Private phone WhatsApp sends require exact spoken draft approval."}
+    async with _page_session():
+        return await _send_chat_unlocked(name, text, timeout_s)
+
+
+async def _open_chat_unlocked(name: str, timeout_s: int = 12) -> dict:
     """Focus a chat by name (atomic page-side match+click).
 
     The pane virtualizes and re-renders constantly, so the click is
@@ -492,7 +549,7 @@ async def open_chat(name: str, timeout_s: int = 12) -> dict:
             )
             or ""
         )
-        if clicked[:20].lower() in hdr.lower() or want[:20].lower() in hdr.lower():
+        if _same_chat(hdr, want):
             return {"ok": True, "name": clicked or want}
         await asyncio.sleep(0.7)
     hdr = (
@@ -502,14 +559,12 @@ async def open_chat(name: str, timeout_s: int = 12) -> dict:
         )
         or ""
     )
-    if hdr:
-        return {"ok": True, "name": hdr.split("\n")[0][:50]}
     return {"ok": False, "err": "conversation did not open"}
 
 
-async def read_chat(name: str, n: int = 30) -> dict:
+async def _read_chat_unlocked(name: str, n: int = 30) -> dict:
     """Recent messages from a chat. Opening marks them read (WhatsApp does)."""
-    opened = await open_chat(name)
+    opened = await _open_chat_unlocked(name)
     if not opened.get("ok"):
         return {"ok": False, **opened}
     raw = await cdp(_MSG_JS % max(1, min(60, n)))
@@ -532,6 +587,8 @@ async def read_chat(name: str, n: int = 30) -> dict:
         )
         or ""
     )
+    if not _same_chat(hdr, opened.get("name", name)):
+        return {"ok": False, "err": "conversation changed while reading"}
     return {
         "ok": True,
         "name": opened.get("name", name),
@@ -541,74 +598,213 @@ async def read_chat(name: str, n: int = 30) -> dict:
     }
 
 
-async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
-    """Send a WhatsApp message via the open conversation (watcher only).
-
-    Opens the chat, types into the composer page-side, dispatches Enter,
-    then verifies the tail of the thread carries our text. Text is capped
-    at 500 chars. Returns {"ok": True} or {"ok": False, "err": ...}.
-    """
+async def _send_chat_unlocked(name: str, text: str, timeout_s: int = 15,
+                              *, approved_target=None, authorized=lambda: True) -> dict:
+    """One send attempt, verified against a fresh exact outgoing message."""
     text = (text or "").strip()[:500]
     if not text:
         return {"ok": False, "err": "empty message"}
-    opened = await open_chat(name)
-    if not opened.get("ok"):
-        return {"ok": False, **opened}
-    esc = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-    type_js = (
-        """(()=>{const box=document.querySelector(
-          'footer [contenteditable="true"]')||document.querySelector(
-          '[data-testid="conversation-compose-box-input"]');
-          if(!box) return 'nobox';
-          box.focus();
-          document.execCommand('selectAll',false,null);
-          const ok=document.execCommand('insertText',false,'"""
-        + esc
-        + """');
-          const cur=(box.innerText||'').slice(0,120);
-          for (const t of ['keydown','keypress']) {
-            box.dispatchEvent(new KeyboardEvent(t,{bubbles:true,
-              cancelable:true,key:'Enter',code:'Enter',keyCode:13,which:13}));
-          }
-          box.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,
-            cancelable:true,key:'Enter',code:'Enter',keyCode:13,which:13}));
-          return 'typed:'+ok+':'+cur;
-        })()"""
+    if not authorized():
+        return {"ok": False, "err": "owner authorization ended"}
+    if approved_target:
+        opened = await _open_approval_chat_unlocked(name)
+    else:
+        chats = await list_chats(30)
+        if not any(
+            clean(c.get("name", "")).casefold() == clean(name).casefold() for c in chats
+        ):
+            return {"ok": False, "err": "exact recipient unavailable"}
+        opened = await _open_chat_unlocked(name)
+    matches = opened.get("name") == name if approved_target else _same_chat(opened.get("name", ""), name)
+    if not opened.get("ok") or not matches:
+        return {"ok": False, "err": opened.get("err", "recipient mismatch")}
+    if approved_target:
+        fresh = await _approval_snapshot_unlocked(name)
+        if not fresh.get("ok") or fresh.get("jid") != approved_target["jid"]:
+            return {"ok": False, "err": "approved conversation changed or unavailable"}
+    guard = (
+        "const hdr=(document.querySelector('#main header')||{innerText:''}).innerText;"
+        "if(hdr.split('\\n')[0].trim().toLowerCase().slice(0,50)!=="
+        + json.dumps(clean(name).casefold()[:50])
+        + ") return 'wrongchat';"
     )
-    typed = await cdp(type_js)
-    if not isinstance(typed, str) or not typed.startswith("typed:"):
-        return {"ok": False, "err": f"composer unreachable ({typed})"}
-    # WhatsApp Web ignores synthetic Enter key events (untrusted), so press
-    # the Send button too. Once a send lands the button turns into the mic,
-    # so this cannot double-send.
-    await asyncio.sleep(0.8)
-    await cdp_press_enter()
-    await asyncio.sleep(0.8)
-    with contextlib.suppress(Exception):
-        await cdp(
-            "(()=>{const b=document.querySelector("
-            "'footer button[aria-label=\"Send\"]');"
-            "if(b){b.click();return 'clicked';}return 'nobtn';})()"
-        )
-    want = text[:60].lower()
+    if approved_target:
+        # The same page-side check runs atomically with each composer mutation.
+        guard = _approval_guard(approved_target)
+
+    def mutation(body: str) -> str:
+        return "(()=>{" + guard + body + "})()"
+
+    async def own_count():
+        raw = await cdp(_MSG_JS % 60)
+        try:
+            rows = json.loads(raw) if isinstance(raw, str) else None
+            if not isinstance(rows, list):
+                return None
+            return sum(
+                m.get("me") and clean(m.get("text", "")) == clean(text)
+                for m in parse_messages(rows)
+            )
+        except (ValueError, TypeError):
+            return None
+
+    before = await own_count()
+    if before is None:
+        return {"ok": False, "err": "cannot establish send verification baseline"}
+    box_js = "const box=document.querySelector('footer [contenteditable=\"true\"]');"
+    if not authorized():
+        return {"ok": False, "err": "owner authorization ended"}
+    typed = await cdp_once(
+        mutation(
+            box_js
+            + "if(!box) return 'nobox'; if((box.innerText||'').trim()) return 'draftpresent';"
+            "box.focus(); const ok=document.execCommand('insertText',false,"
+            + json.dumps(text)
+            + "); return ok?'typed':'typefailed';"
+        ),
+        **({"authorized": authorized} if approved_target else {}),
+    )
+    if typed != "typed":
+        return {"ok": False, "err": f"composer refused ({typed}); no send attempted"}
+    # One trusted send action; no synthetic Enter + button + Enter sequence.
+    if not authorized():
+        return {"ok": False, "err": "owner authorization ended; no send attempted"}
+    sent = await cdp_once(
+        mutation(
+            box_js
+            + "if(!box||(box.innerText||'').trim()!=="
+            + json.dumps(text)
+            + ") return 'draftchanged';"
+            "const b=document.querySelector('footer button[aria-label=\"Send\"]');"
+            "if(!b) return 'nobtn'; b.click(); return 'clicked';"
+        ),
+        **({"authorized": authorized} if approved_target else {}),
+    )
+    if sent == "nobtn" and not approved_target:
+        sent = "clicked" if await cdp_press_enter() else None
+    if sent != "clicked":
+        return {"ok": False, "err": f"send uncertain/refused ({sent}); will not retry"}
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        tail = (
-            await cdp(
-                "(()=>{const all=[...document.querySelectorAll("
-                "'[data-testid=\"msg-container\"]')];"
-                "return all.slice(-4).map(x=>x.innerText.slice(-700)).join(' || ');})()"
-            )
-            or ""
+        hdr = await cdp(
+            "(document.querySelector('#main header')||{innerText:''}).innerText"
         )
-        if want[:30] in str(tail).lower():
-            return {"ok": True, "name": opened.get("name", name)}
-        await asyncio.sleep(1.0)
-    # Never leave our text sitting in the composer for Sir to trip over.
-    with contextlib.suppress(Exception):
-        await cdp(
-            "(()=>{const b=document.querySelector('footer [contenteditable=\"true\"]');"
-            "if(b){b.focus();document.execCommand('selectAll',false,null);"
-            "document.execCommand('delete',false,null);}return 1;})()"
-        )
-    return {"ok": False, "err": "send unverified (no tail match)"}
+        if not _same_chat(hdr or "", name):
+            return {"ok": False, "err": "conversation changed; send unverified"}
+        if approved_target:
+            fresh = await _approval_snapshot_unlocked(name)
+            if not fresh.get("ok") or fresh.get("jid") != approved_target["jid"]:
+                return {"ok": False, "err": "conversation changed; send unverified"}
+        count = await own_count()
+        if count is not None and count > before:
+            return {"ok": True, "name": name}
+        await asyncio.sleep(0.5)
+    # Remove only our unchanged draft in the same conversation.
+    await cdp_once(
+        mutation(
+            box_js + "if(box&&(box.innerText||'').trim()===" + json.dumps(text) + ") {"
+            "box.focus();document.execCommand('selectAll',false,null);"
+            "document.execCommand('delete',false,null);} return 'cleaned';"
+        ),
+        **({"authorized": authorized} if approved_target else {}),
+    )
+    return {
+        "ok": False,
+        "err": "send unverified (no new exact outgoing message); will not retry",
+    }
+
+
+# Chat JIDs are taken only from WhatsApp's message-container identifiers.
+# Unsupported/empty/ambiguous DOM formats refuse approval rather than guessing.
+_APPROVAL_SNAPSHOT_JS = """JSON.stringify({
+  names: [...document.querySelectorAll('#pane-side [data-testid^="list-item-"]')]
+    .map(r => (r.querySelector('[data-testid="cell-frame-title"]')?.textContent || '').trim()),
+  name: (document.querySelector('#main header')?.innerText || '').split('\\n')[0].trim(),
+  ids: [...document.querySelectorAll('#main [data-id]')]
+    .map(r => r.getAttribute('data-id'))
+})"""
+
+
+def approval_identity(snapshot: dict, name: str) -> dict:
+    """Exact mounted title + verified opaque chat JID; no global uniqueness claim."""
+    names = snapshot.get("names", [])
+    if (not isinstance(names, list) or names.count(name) != 1
+            or snapshot.get("name") != name):
+        return {"ok": False, "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation."}
+    jids = set()
+    for value in snapshot.get("ids", []):
+        match = re.match(r"^(?:true|false)_([0-9-]+@(?:g\.us|c\.us))_", str(value))
+        if match:
+            jids.add(match.group(1))
+    if len(jids) != 1:
+        return {"ok": False, "err": "WhatsApp did not expose one stable conversation ID. Nothing will be sent."}
+    return {"ok": True, "name": name, "jid": jids.pop()}
+
+
+async def _approval_snapshot_unlocked(name: str) -> dict:
+    try:
+        raw = await cdp(_APPROVAL_SNAPSHOT_JS)
+        snapshot = json.loads(raw) if isinstance(raw, str) else None
+        if isinstance(snapshot, dict):
+            return approval_identity(snapshot, name)
+    except (ValueError, TypeError):
+        pass
+    return {"ok": False, "err": "WhatsApp recipient identity is unavailable."}
+
+
+async def _open_approval_chat_unlocked(name: str) -> dict:
+    """One atomic full-title match/click. Never call the fuzzy legacy opener."""
+    script = (
+        "(()=>{const rows=[...document.querySelectorAll('#pane-side [data-testid^=\"list-item-\"]')];"
+        "const hits=rows.filter(r=>(r.querySelector('[data-testid=\"cell-frame-title\"]')?.textContent||'').trim()==="
+        + json.dumps(name)
+        + ");if(hits.length!==1)return 'unavailable';hits[0].click();return 'opened';})()"
+    )
+    if await cdp_once(script) != "opened":
+        return {"ok": False, "err": "Exact visible conversation unavailable or ambiguous; select the intended chat and review again."}
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        fresh = await _approval_snapshot_unlocked(name)
+        if fresh.get("ok"):
+            return fresh
+        await asyncio.sleep(0.1)
+    return {"ok": False, "err": "Exact conversation identity did not become available."}
+
+
+async def resolve_approval_recipient(name: str) -> dict:
+    """Review only: exact title, opens/marks read, never writes a message."""
+    async with _page_session():
+        try:
+            raw = await cdp(_APPROVAL_SNAPSHOT_JS)
+            snapshot = json.loads(raw) if isinstance(raw, str) else {}
+            if not isinstance(snapshot, dict) or snapshot.get("names", []).count(name) != 1:
+                return {"ok": False, "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation."}
+        except (ValueError, TypeError, AttributeError):
+            return {"ok": False, "err": "WhatsApp chat list is unavailable."}
+        opened = await _open_approval_chat_unlocked(name)
+        if not opened.get("ok"):
+            return {"ok": False, "err": "WhatsApp conversation could not be opened for review."}
+        return await _approval_snapshot_unlocked(name)
+
+
+def _approval_guard(target: dict) -> str:
+    return (
+        "const hdr=(document.querySelector('#main header')||{innerText:''}).innerText;"
+        "if(hdr.split('\\n')[0].trim()!==" + json.dumps(target["name"]) + ") return 'wrongchat';"
+        "const names=[...document.querySelectorAll('#pane-side [data-testid^=\"list-item-\"]')]"
+        ".map(r=>(r.querySelector('[data-testid=\"cell-frame-title\"]')?.textContent||'').trim());"
+        "if(names.filter(n=>n===" + json.dumps(target["name"]) + ").length!==1) return 'ambiguous';"
+        "const jids=new Set([...document.querySelectorAll('#main [data-id]')].map(r=>"
+        "(r.getAttribute('data-id')||'').match(/^(?:true|false)_([0-9-]+@(?:g\\.us|c\\.us))_/))"
+        ".filter(Boolean).map(m=>m[1]));"
+        "if(jids.size!==1||!jids.has(" + json.dumps(target["jid"]) + ")) return 'wrongidentity';"
+    )
+
+
+async def send_approved_chat(target: dict, text: str, authorized) -> dict:
+    """Only the trusted spoken-event gate calls this. One attempt, page lock."""
+    async with _page_session():
+        if not authorized():
+            return {"ok": False, "err": "owner authorization ended"}
+        return await _send_chat_unlocked(target["name"], text,
+                                        approved_target=target, authorized=authorized)

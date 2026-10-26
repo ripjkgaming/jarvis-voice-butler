@@ -22,7 +22,28 @@ STAGES = (
     ("5min", 60, 5 * 60 + 30, "high"),
     ("10min", 5 * 60 + 30, 10 * 60 + 30, "normal"),
 )
-_cache: dict = {"at": 0.0, "events": []}
+_cache: dict = {"at": 0.0, "events": [], "identity": None}
+_failure: dict = {"identity": None, "retry_at": 0.0, "attempts": 0, "code": None}
+BACKOFF_MAX_S = 900.0
+
+
+def _log(message):
+    from system import log_action
+
+    log_action("proactive", message)
+
+
+def _credential_identity():
+    """Metadata only: replacing credentials resets failure and event caches."""
+    import google_api
+
+    path = google_api.token_path(calendar_account())
+    try:
+        stat = path.stat()
+        version = (stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+    except OSError:
+        version = None
+    return (str(path), calendar_account(), calendar_id(), version)
 
 
 def calendar_account() -> str:
@@ -39,23 +60,60 @@ def _rfc(ts: float) -> str:
 
 def fetch(now: float, lister=None) -> list[dict]:
     """Events from now to LOOKAHEAD_H ahead, cached. Raises on API failure."""
+    managed = lister is None
+    identity = _credential_identity() if managed else None
+    if managed:
+        if _failure["identity"] != identity:
+            _failure.update(identity=identity, retry_at=0.0, attempts=0)
+            if _cache.get("identity") != identity:
+                _cache.update(at=0.0, events=[], identity=identity)
+        if now < _failure["retry_at"]:
+            return []  # Never announce stale events while authorization is broken.
     if (
         now - _cache["at"] < FETCH_TTL_S
         and _cache["events"] is not None
-        and lister is None
+        and (not managed or _cache.get("identity") in (None, identity))
     ):
+        if managed:
+            _cache["identity"] = identity
         return _cache["events"]
-    if lister is None:
+    if managed:
         import google_api
 
         lister = google_api.calendar_list
-    events = lister(
-        _rfc(now - 60 * 60),
-        _rfc(now + LOOKAHEAD_H * 3600),
-        calendar_id=calendar_id(),
-        account=calendar_account(),
+    try:
+        events = lister(
+            _rfc(now - 60 * 60),
+            _rfc(now + LOOKAHEAD_H * 3600),
+            calendar_id=calendar_id(),
+            account=calendar_account(),
+        )
+    except Exception as exc:
+        if managed:
+            attempts = _failure["attempts"] + 1
+            status = getattr(exc, "http_status", None)
+            code = getattr(exc, "oauth_error", None)
+            failure_code = (type(exc).__name__, status, code)
+            delay = (
+                BACKOFF_MAX_S
+                if code == "invalid_grant"
+                else min(BACKOFF_MAX_S, 60.0 * 2 ** min(attempts - 1, 4))
+            )
+            changed = _failure["code"] != failure_code
+            _failure.update(attempts=attempts, retry_at=now + delay, code=failure_code)
+            if changed:
+                _log(f"calendar-source backoff retry_s={int(delay)}")
+                raise
+            return []  # Same failure is already visible; do not repeat it in COMMS.
+        raise
+    if managed and _failure["code"] is not None:
+        _log("calendar-source recovered")
+        _failure.update(attempts=0, retry_at=0.0, code=None)
+    _cache.update(
+        at=now,
+        events=list(events or []),
+        identity=identity if managed else _credential_identity(),
     )
-    _cache.update(at=now, events=list(events or []))
     return _cache["events"]
 
 

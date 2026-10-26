@@ -566,9 +566,68 @@ def test_request_stop_only_when_running(home, monkeypatch: pytest.MonkeyPatch) -
     assert watch_mode.stop_path().exists()
 
 
-def test_launch_clears_stale_stop_request(home, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_launch_clears_stale_stop_request(
+    home, monkeypatch: pytest.MonkeyPatch
+) -> None:
     watch_mode.state_dir().mkdir(parents=True, exist_ok=True)
     watch_mode.stop_path().write_text("old")
     monkeypatch.setattr(watch_mode, "is_running", lambda: False)
     watch_mode.launch(popen=lambda *a, **k: None)
     assert not watch_mode.stop_path().exists()
+
+
+def test_guest_latch_survives_process_exit(home, monkeypatch):
+    watch_mode.enter_guest()
+    monkeypatch.setattr(watch_mode, "is_running", lambda: False)
+    assert watch_mode.guest_required()
+    assert watch_mode.request_stop()
+    assert not watch_mode.guest_required()
+
+
+def test_motion_centroid_uses_existing_mask():
+    det = watch_mode.MotionDetector()
+    frame = _still()
+    det.update(frame)
+    assert det.target is None
+    frame[100:300, 850:1100] = 255
+    assert det.update(frame)
+    x, y = det.target
+    assert 0.65 < x < 0.9
+    assert 0.1 < y < 0.45
+    det.update(_still())
+    assert det.target is None
+
+
+def test_animation_failure_keeps_panel_cover():
+    panel = object.__new__(watch_mode._Panel)
+    calls = []
+
+    def fail(*a, **k):
+        raise RuntimeError("renderer")
+
+    panel.eyes = types.SimpleNamespace(
+        update=fail, destroy=lambda: calls.append("destroy")
+    )
+    panel.update_eyes(1, (0.2, 0.4), True)
+    assert panel.eyes is None
+    assert calls == ["destroy"]
+    panel.update_eyes(2, None, False)
+
+
+def test_monitors_native_kde_and_negative_coordinates():
+    data = [
+        {
+            "enabled": True,
+            "pos": {"x": -1920, "y": 0},
+            "size": {"width": 1920, "height": 1080},
+        },
+        {"enabled": False, "pos": {"x": 0, "y": 0}},
+    ]
+
+    def run(argv, **kw):
+        assert argv == ["kscreen-doctor", "-j"]
+        return types.SimpleNamespace(
+            returncode=0, stdout=__import__("json").dumps({"outputs": data})
+        )
+
+    assert watch_mode.monitors(run) == [(-1920, 0, 1920, 1080)]

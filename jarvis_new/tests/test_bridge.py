@@ -960,8 +960,12 @@ def test_absolute_volume_routing_and_validation(monkeypatch):
     # Over-100 levels report honestly (regression: clamp lied at 100).
     assert bridge._parse_volume_pct("Volume: front-left: 78643 / 120% / x") == 120
     code, payload = bridge.handle_route({"text": "set volume to 76"})
-    assert code == 200 and payload["action"] == {"tool": "volume_set", "ok": True}
-    assert payload["reply"] == "Volume 76 percent, live, Sir."
+    assert code == 200
+    assert payload["action"]["tool"] == "volume_set"
+    assert payload["action"]["ok"] is True
+    assert payload["action"]["outcome"]["state"] == "verified"
+    assert payload["action"]["outcome"]["evidence"]["actual_pct"] == 76
+    assert payload["reply"] == "Volume reads back at 76 percent."
 
 
 def test_screenshot_crops_to_output(monkeypatch, tmp_path):
@@ -1681,15 +1685,32 @@ def test_sys_stats_never_starts_real_listener(monkeypatch):
 
 def test_watch_mode_voice_routing(monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_WATCH_MODE", "1")
-    assert bridge._match_voice_tool("Jarvis, I'm leaving") == (
-        "watch_mode",
-        {},
-        "Watching the laptop, Sir.",
-    )
+    assert bridge._match_voice_tool("Jarvis, I'm leaving") is None
     assert bridge._match_voice_tool("jarvis watch the laptop") == (
         "watch_mode",
         {},
         "Watching the laptop, Sir.",
+    )
+    assert bridge._match_voice_tool("guard my computer") is None or (
+        bridge._match_voice_tool("guard my computer")[0] != "watch_mode"
+    )
+    assert bridge._match_voice_tool("start sentry mode") is None or (
+        bridge._match_voice_tool("start sentry mode")[0] != "watch_mode"
+    )
+    assert bridge._match_voice_tool("stop watch mode") == (
+        "computer_watch",
+        {"action": "stop"},
+        None,
+    )
+    assert bridge._match_voice_tool("watch mode status") == (
+        "computer_watch",
+        {"action": "status"},
+        None,
+    )
+    assert bridge._match_voice_tool("what happened while watching") == (
+        "computer_watch",
+        {"action": "briefing"},
+        None,
     )
     hit = bridge._match_voice_tool("jarvis i'm leaving for school at eight remind me")
     assert hit is None or hit[0] != "watch_mode"
@@ -1697,8 +1718,11 @@ def test_watch_mode_voice_routing(monkeypatch) -> None:
 
 def test_watch_mode_voice_routing_can_be_disabled(monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_WATCH_MODE", "0")
-    hit = bridge._match_voice_tool("jarvis watch the laptop")
-    assert hit is None or hit[0] != "watch_mode"
+    assert bridge._match_voice_tool("jarvis watch the laptop") == (
+        "computer_watch",
+        {"action": "start"},
+        None,
+    )
 
 
 # --- Drafts window: voice route + GET /drafts + POST /drafts/close ---

@@ -1,0 +1,25 @@
+# On-demand build observation by voice
+
+Two tools are added to the owner desktop Assistant and protected from adaptive demotion: `build_monitor_register(context, pid=0, label="")` and `build_monitor_status(context, job_id_or_label="")`. They are separate from background task launch/cancellation and from the opt-in background monitor thread.
+
+Say **“Monitor my build PID 12345, label compile”** for an existing build whose numeric PID you know. The tool asks for a PID/short label if missing; it never finds or starts a process. Supported explicit request verbs are monitor/watch/track/register and the request must contain “build” plus exactly one `PID [digits]` or `process id [digits]`. Registration fails closed if current SDK user text, message ID, speech identity or uninterrupted current speech is unavailable. Written digits are required in the final transcript; ambiguous speech transcription gets a clarification instead of a guessed PID. This conservative grammar deliberately refuses requests phrased as quoted tool/build output.
+
+Ask **“Check my registered build”**, **“How is build compile doing?”** or give its returned `job-<32hex>` ID. Empty/label lookup selects only one unambiguous registration. Multiple jobs, duplicate labels or a capped listing return bounded ID/label choices, never an automatic latest selection. An exact job ID is authoritative when history exceeds the bounded 20-row listing.
+
+Observation reuses the existing `build-monitor` / `monitor_observation` registry contract: owner UID, boot ID, PID and start ticks are validated, including double identity checks at registration and PID-reuse detection on polling. The request key hashes the SDK user-message ID so mirrored/replayed responses cannot resurrect a stopped registration. Status refresh invokes the existing on-demand poll over already registered monitors; it does not enumerate processes. A PID is a locator for an explicitly named owner process, not proof that its program is a compiler.
+
+No launch, signal, cancellation tool, background thread, toast or log access is added. Voice registration binds no log. Existing separately approved exact-file API bindings remain untouched; the new tools never call `tail`. Labels/observations are data, not commands. Success/failure stays unknown when the process exits/disappears, observation becomes unavailable or identity changes. A registration receipt is not an ActionOutcome or build-success proof. A cancelled tool cooperatively prevents work not yet begun; a registry write already committed may remain as an observation record. It never changes the build.
+
+Availability requires `JARVIS_LOCAL=1`, on-demand `JARVIS_BUILD_TOOLS` (default on), owner/guest/watch/private-call gates and a current approval epoch. `JARVIS_BUILD_MONITOR` can remain off. Authority is rechecked before/after worker operations; a changed current registration input refuses work or suppresses the result. No device/audio/capture grant is involved.
+
+Librarian `librarian_find` also stays on the router. Without grants it asks “Which exact local folder or Drive folder/account should the librarian use?” and returns `needs_approval`, `source_selection_required=true`, `granted=false` and no evidence. This is a selection request, not access approval or a completed search. The trusted host must separately install an exact source grant through the existing consent flow. Content reading and model disclosure remain distinct grants. No source is inferred, persisted or approved by the tool.
+
+## Activation and acceptance
+
+This extension is staged only. Apply the exact six-file hash-guarded patch after review; preserve the already installed occlusion repair, wake recovery and bridge. No bridge, monitor-core, registry-core, permission or screen flag edits are required. A subsequently authorized owner-agent reload/new AgentSession is needed to register the tools; an already running Assistant does not acquire them from source changes. No restart is performed by this handoff.
+
+Offline acceptance covers fake process identities, temporary owner registries, real SDK schemas/ChatMessages/RunContext, ambiguity, replay, PID reuse, unknown exit, guest/private/epoch refusal, cancellation and grant-free librarian clarification. No model calls or real builds/process monitors are used. Actual model tool selection and final numeric PID transcript availability in the installed voice pipeline remain live acceptance needs; failure must ask for clarification, not fall back to guessed registration. Real build observation needs a later explicitly identified synthetic build and separate runtime coordination, not this staging task.
+
+Rollback: reverse the accompanying patch against the exact candidate hashes, then perform a separately authorized agent reload when idle. Existing registry observations and original user documents are not deleted by rollback.
+
+SDK registration follows the existing repository tool pattern and the official [LiveKit function-tool documentation](https://docs.livekit.io/agents/logic/tools/definition/); installed SDK 1.8.2 was exercised without starting a session/provider.

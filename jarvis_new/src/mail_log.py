@@ -30,11 +30,15 @@ def record(kind: str, **fields) -> None:
     """Append one event. Never raises."""
     if kind not in KINDS:
         return
-    entry = {"ts": float(fields.pop("ts", None) or time.time()), "kind": kind}
-    for key in ("sender", "to", "subject", "level", "summary", "body", "id"):
-        if fields.get(key):
-            entry[key] = " ".join(str(fields[key]).split())[:400]
     with contextlib.suppress(Exception):
+        timestamp = fields.pop("ts", None)
+        entry = {
+            "ts": float(time.time() if timestamp is None else timestamp),
+            "kind": kind,
+        }
+        for key in ("sender", "to", "subject", "level", "summary", "body", "id"):
+            if fields.get(key):
+                entry[key] = " ".join(str(fields[key]).split())[:400]
         p = path()
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.exists() and p.stat().st_size > KEEP_BYTES:
@@ -51,6 +55,8 @@ def recent(
     limit: int = 50,
 ) -> list[dict]:
     """Newest-first events, optionally filtered by kind, time and person."""
+    if limit <= 0:
+        return []
     who = who.strip().lower()
     out: list[dict] = []
     try:
@@ -60,9 +66,9 @@ def recent(
     for line in reversed(lines):
         try:
             e = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(e, dict) or float(e.get("ts") or 0) < since:
+            if not isinstance(e, dict) or float(e.get("ts", 0)) < since:
+                continue
+        except (ValueError, TypeError, OverflowError):
             continue
         if kinds and e.get("kind") not in kinds:
             continue

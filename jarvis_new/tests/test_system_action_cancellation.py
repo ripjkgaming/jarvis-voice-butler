@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import action_guard
+from action_outcome import ActionOutcome
 from system import audio_ctl, closer, core, school_tools
 
 
@@ -22,7 +23,7 @@ def guarded_action(request, monkeypatch):
     monkeypatch.setattr(school_tools, "loud_guard", lambda *args: None)
     tools = core.SystemTools()
     if request.param == "volume":
-        module, attribute = audio_ctl, "volume"
+        module, attribute = audio_ctl, "volume_result"
         call = partial(core.SystemTools.set_volume, tools, object(), "up")
         route_tool, route_args = "volume_up", {}
     elif request.param == "media":
@@ -35,13 +36,35 @@ def guarded_action(request, monkeypatch):
         route_tool, route_args = "close_app", {"name": "example"}
 
     def result(ok, say):
+        if request.param == "volume":
+            level = {
+                "actual worker result": 60,
+                "later request": 65,
+                "queued worker finished": 70,
+                "worker 0": 75,
+                "worker 1": 80,
+            }[say]
+            return ActionOutcome(
+                "setting.volume",
+                "verified" if ok else "failed",
+                "started" if ok else "not_started",
+                "matched" if ok else "not_attempted",
+                "audio_service",
+                evidence={"expected_pct": level, "actual_pct": level} if ok else {},
+            ).result()
         if request.param == "close":
             return {"ok": ok, "say": say, "closed": "example"}
         return ok, say
 
     return SimpleNamespace(
         call=call,
-        patch=lambda worker: monkeypatch.setattr(module, attribute, worker),
+        patch=lambda worker: monkeypatch.setattr(
+            module, attribute, lambda *args, **kwargs: worker(*args)
+        ),
+        modern=request.param == "volume",
+        say=lambda message: (
+            result(True, message)["say"] if request.param == "volume" else message
+        ),
         claim=lambda source, **kwargs: action_guard.claim(
             route_tool, route_args, source, **kwargs
         ),
@@ -103,7 +126,7 @@ async def test_cancelled_action_retains_guard_until_worker_settles(
         if outcome == "success":
             assert completed is not None
             assert completed["ok"] is True
-            assert completed["say"] == "actual worker result"
+            assert completed["say"] == action.say("actual worker result")
         else:
             assert completed is None, "a failed worker must allow a fresh attempt"
             # Release the new probe claim; it did not submit another worker.
@@ -112,7 +135,7 @@ async def test_cancelled_action_retains_guard_until_worker_settles(
         assert len(effects) == 1
         # A later request from the originating source is still legitimate.
         action.patch(lambda *args: action.result(True, "later request"))
-        assert (await action.call())["say"] == "later request"
+        assert (await action.call())["say"] == action.say("later request")
         assert len(settlements) == 2
         await asyncio.sleep(0)
         gc.collect()
@@ -189,17 +212,20 @@ async def test_identical_workers_settle_their_own_claims(guarded_action):
         second = asyncio.create_task(action.call())
         assert await asyncio.to_thread(starts[1].wait, 1)
         releases[1].set()
-        assert (await asyncio.wait_for(second, 1))["say"] == "worker 1"
+        assert (await asyncio.wait_for(second, 1))["say"] == action.say("worker 1")
         duplicate = action.claim("route")
         assert duplicate is not None and duplicate["ok"] is None, (
             "the second worker settled the still-running first worker's claim"
         )
         releases[0].set()
-        with pytest.raises(core.ToolError, match="worker 0"):
-            await asyncio.wait_for(first, 1)
+        if action.modern:
+            assert (await asyncio.wait_for(first, 1))["ok"] is False
+        else:
+            with pytest.raises(core.ToolError, match="worker 0"):
+                await asyncio.wait_for(first, 1)
         duplicate = action.claim("fast")
         assert duplicate is not None and duplicate["ok"] is True
-        assert duplicate["say"] == "worker 1"
+        assert duplicate["say"] == action.say("worker 1")
     finally:
         for release in releases:
             release.set()

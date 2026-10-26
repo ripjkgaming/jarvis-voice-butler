@@ -68,7 +68,12 @@ def load_creds() -> dict:
 
 
 def mint_token_payload(
-    room: str = "", dispatch: bool = True, agent_name: str = ""
+    room: str = "",
+    dispatch: bool = True,
+    agent_name: str = "",
+    *,
+    phone_call_id: str = "",
+    private_phone: bool = False,
 ) -> dict:
     """Mint a join token. Import-safe core of main() for bridge reuse.
 
@@ -82,6 +87,12 @@ def mint_token_payload(
         VideoGrants,
     )
 
+    import phone_session
+
+    if private_phone and (room or not dispatch):
+        raise ValueError("Private calls require a fresh owner phone session")
+    if not private_phone and phone_session.private_room(room):
+        raise ValueError("Private phone rooms cannot be joined or dispatched again")
     creds = load_creds()
     missing = [
         k
@@ -99,9 +110,28 @@ def mint_token_payload(
         else f"voice_assistant_room_{random.randint(0, 9999)}"
     )
     identity = f"voice_assistant_user_{random.randint(0, 9999)}"
+    private_metadata = ""
+    if private_phone:
+        room = phone_session.new_room()
+        identity = phone_session.identity_for(room)
+        private_metadata = phone_session.sign(room)
+    if phone_call_id:
+        import phone_calls
+
+        if not phone_calls.queue().accepted(phone_call_id, __import__("time").time()):
+            raise RuntimeError("Invitation unavailable")
+        if not private_phone:
+            identity = "jarvis-phone-" + phone_call_id
 
     token = AccessToken(creds["LIVEKIT_API_KEY"], creds["LIVEKIT_API_SECRET"])
     token.with_identity(identity).with_name("user")
+    attributes = {}
+    if private_phone:
+        attributes["jarvis.phone_owner"] = room
+    if phone_call_id:
+        attributes["jarvis.phone_call"] = phone_call_id
+    if attributes:
+        token.with_attributes(attributes)
     token.with_grants(
         VideoGrants(
             room_join=True,
@@ -109,11 +139,12 @@ def mint_token_payload(
             can_publish=True,
             can_publish_data=True,
             can_subscribe=True,
+            can_update_own_metadata=False,
         )
     )
     if dispatch:
         token.with_room_config(
-            RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent)])
+            RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent, metadata=private_metadata)])
         )
     token.with_ttl(timedelta(minutes=15))
     return {

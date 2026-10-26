@@ -32,13 +32,13 @@ import re
 import shlex
 import shutil
 import time
-import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
+import phone_session
 from system import LocalSystemError, log_action, require_local, run_cmd
 
 DATA_DIR = Path.home() / ".jarvis" / "voice-butler"
@@ -404,7 +404,7 @@ async def _guarded_thread_action(
     tool: str,
     args: dict,
     source: str,
-    work: Callable[[], tuple[bool, str]],
+    work: Callable[[], tuple[bool, str] | dict],
     fallback: str,
 ) -> dict[str, str]:
     """Keep a desktop worker's claim until it ends, even if its caller leaves."""
@@ -417,7 +417,13 @@ async def _guarded_thread_action(
 
     def run() -> dict[str, str]:
         try:
-            ok, say = work()
+            result = work()
+            from action_outcome import parse_outcome
+            receipt = parse_outcome(result)
+            if receipt is not None:
+                action_guard.settle(tool, args, source, receipt.accepted, lease=lease, outcome=receipt)
+                return result
+            ok, say = result
         except BaseException:
             action_guard.settle(tool, args, source, False, lease=lease)
             raise
@@ -528,7 +534,6 @@ class SystemTools:
             self.now_playing,
             self.play_media,
             self.close_app,
-            self.launch_gods_eye,
             self.set_brightness,
             self.battery_status,
             self.disk_space,
@@ -712,6 +717,7 @@ class SystemTools:
     # --- sound / media ---
 
     @function_tool()
+    @phone_session.approval_action
     async def set_volume(
         self, context: RunContext, action: str, level: int = 50
     ) -> dict[str, str]:
@@ -731,13 +737,19 @@ class SystemTools:
         from system import audio_ctl
 
         # Verify the volume change and return the real read-back.
-        def change_volume() -> tuple[bool, str]:
-            ok, say = audio_ctl.volume(action, level)
+        ticket = phone_session.approval_ticket()
+        def authorize():
+            phone_session.check_approval_effect(ticket, current=True)
+            if phone_session.guest_required():
+                raise LocalSystemError("Guest mode refuses owner actions.")
+        def change_volume() -> dict:
+            result = audio_ctl.volume_result(action, level, authorize=authorize)
+            ok = bool(result["ok"])
             log_action(
                 "volume",
                 f"{action} {level if action in ('set', 'level') else ''} ok={ok}",
             )
-            return ok, say
+            return result
 
         return await _guarded_thread_action(
             "set_volume",
@@ -851,21 +863,13 @@ class SystemTools:
     async def play_media(
         self, context: RunContext, query: str, show: bool = False
     ) -> dict[str, str]:
-        """Play music/video on the SYSTEM YouTube (Brave), never the agent browser.
+        """Compare bounded public metadata, then request a system Brave launch.
 
-        "Play X" always lands here: a system Brave window on YouTube search
-        results for the query, so playback uses Sir's own browser, logins,
-        and speakers. The Playwright backend browser is for research and
-        automation only — never for watching or listening.
-        A bare "play some music" (no query) opens the saved playlist.
-
-        The window opens in the BACKGROUND: whatever Sir is working in
-        stays in front and the music just starts. Only pass show=true when
-        he asks to see it ("play X and show me", "put it on screen").
-
-        Args:
-            query: What to play, e.g. "lofi hip hop". Empty means the playlist.
-            show: True to leave the player window in front.
+        Pass the complete topic, event, location, date, live/footage and duration
+        constraints. Uncertain matches ask for clarification and open nothing.
+        Empty query uses the saved playlist. show=True keeps the window in front.
+        Neither metadata nor process launch proves visible frames or playback.
+        Explicit video URLs use open_url instead of a replacement search.
         """
         try:
             require_local()
@@ -875,7 +879,7 @@ class SystemTools:
         from system.school_tools import loud_guard
 
         loud_guard("play_media", {"query": query})
-        query = (query or "").strip()[:200]
+        query = (query or "").strip()
         import action_guard
 
         # One window per request: the voice fast path may already have
@@ -883,7 +887,7 @@ class SystemTools:
         # hears the same audio and calls us too).
         dup = action_guard.claim("play_media", {"query": query}, _source(context))
         if dup is not None:
-            return action_guard.duplicate_reply(dup, "Playing it now, Sir.")
+            return action_guard.duplicate_reply(dup, "The video launch request is already handled; playback is not verified.")
         try:
             from system.desktop import sandbox_display
 
@@ -893,46 +897,24 @@ class SystemTools:
                 if show or display
                 else await asyncio.to_thread(window_ctl.active_title)
             )
-            if query:
-                # Autoplay: resolve the top hit to a watch URL so playback
-                # starts on its own; fall back to the results page.
-                url = (
-                    "https://www.youtube.com/results?search_query="
-                    + urllib.parse.quote_plus(query)
-                )
-                ytdlp = shutil.which("yt-dlp")
-                if ytdlp:
-                    search = None
-                    try:
-                        search = await asyncio.create_subprocess_exec(
-                            ytdlp,
-                            "--get-id",
-                            "--flat-playlist",
-                            f"ytsearch1:{query}",
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.DEVNULL,
-                        )
-                        out, _ = await asyncio.wait_for(search.communicate(), 12)
-                        vid = out.decode().strip().splitlines()
-                        if vid and re.fullmatch(r"[\w-]{11}", vid[0]):
-                            url = f"https://www.youtube.com/watch?v={vid[0]}"
-                    except (OSError, asyncio.TimeoutError):
-                        pass  # Fall back to YouTube's results page.
-                    finally:
-                        # Cancellation used to leave yt-dlp running after an
-                        # interrupted request; timeout killed it without reaping.
-                        if (
-                            search is not None
-                            and getattr(search, "returncode", 0) is None
-                        ):
-                            with contextlib.suppress(ProcessLookupError):
-                                search.kill()
-                            with contextlib.suppress(OSError, asyncio.TimeoutError):
-                                await asyncio.wait_for(search.wait(), 2)
-                say = f"Playing {query} on YouTube."
-            else:
-                url = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
-                say = "Playing your playlist on YouTube."
+            from media_selection import receipt, resolve_async
+
+            ticket = phone_session.approval_ticket()
+            def authorize():
+                phone_session.check_approval_effect(ticket, current=True)
+                error = phone_session.private_tool_error("play_media")
+                if error:
+                    raise LocalSystemError(error)
+                loud_guard("play_media", {"query": query})
+
+            authorize()
+            selection = await resolve_async(query, guard=authorize) if query else None
+            if selection is not None and selection.decision != "selected":
+                result = receipt(selection)
+                action_guard.settle("play_media", {"query": query}, _source(context),
+                                    False, result["say"], outcome=result)
+                return result
+            url = selection.url if selection else "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
             brave = shutil.which("brave-browser") or shutil.which("brave")
             if brave is None:
                 raise ToolError("Brave is not installed on this system.")
@@ -945,6 +927,7 @@ class SystemTools:
             launch_env = None
             if display:
                 argv, launch_env = _sandbox_launch(argv, display)
+            authorize()
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
@@ -955,10 +938,13 @@ class SystemTools:
                 )
             except FileNotFoundError:
                 raise ToolError("I could not launch Brave.") from None
-            log_action("play", url)
-            action_guard.settle(
-                "play_media", {"query": query}, _source(context), True, say
-            )
+            result = receipt(selection, launched=True)
+            result.update(pid=str(proc.pid or 0), url=url)
+            action_guard.settle("play_media", {"query": query}, _source(context),
+                                True, result["say"], outcome=result)
+            # Logging cannot turn an already-dispatched launch into a safe retry.
+            with contextlib.suppress(Exception):
+                log_action("play", url)
             if before is not None:
                 _bg = asyncio.create_task(_background_player(before, previous))
                 self._tasks.add(_bg)
@@ -967,47 +953,10 @@ class SystemTools:
                 _bg = asyncio.create_task(_return_to(previous))
                 self._tasks.add(_bg)
                 _bg.add_done_callback(self._tasks.discard)
-            return {"say": say, "pid": str(proc.pid or 0)}
+            return result
         except BaseException:
             action_guard.settle("play_media", {"query": query}, _source(context), False)
             raise
-
-    @function_tool()
-    async def launch_gods_eye(self, context: RunContext) -> dict[str, str]:
-        """Show the God's-Eye globe window (ambient display only).
-
-        "Launch gods eye view" / "show the globe" lands here: it toggles
-        the Tauri globe window visible. The page runs ambient (slow
-        auto-spin, all input ignored) — this tool is show/hide only,
-        there is nothing to click or drive inside it.
-        """
-        try:
-            require_local()
-        except LocalSystemError as exc:
-            raise ToolError(str(exc)) from exc
-        repo = Path(__file__).resolve().parent.parent.parent
-        candidates = [
-            [str(repo / "shell" / "src-tauri" / "target" / "debug" / "jarvis-shell")],
-            ["jarvis-shell"],
-            ["jarvis"],
-        ]
-        for argv in candidates:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *argv,
-                    # Show-only (never toggle): a second "launch" while
-                    # visible is a no-op, not a hide.
-                    "globeshow",
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                await asyncio.wait_for(proc.wait(), timeout=10.0)
-                log_action("globe", "toggle")
-                return {"say": "God's Eye on screen."}
-            except Exception:
-                continue
-        raise ToolError("The Jarvis shell is not running.")
 
     # --- devices ---
 
@@ -1182,29 +1131,42 @@ class SystemTools:
         return {"text": txt, "say": f"{rp.name}: {txt[:1500]}"}
 
     @function_tool()
-    async def write_file(
-        self, context: RunContext, path: str, text: str
-    ) -> dict[str, str]:
-        """Write text to a file (confined to /home/ripjk and /tmp).
+    @phone_session.approval_action
+    async def write_file(self, context: RunContext, path: str, text: str) -> dict:
+        """Write up to 256 KiB UTF-8 text, then check saved bytes.
 
-        Args:
-            path: Destination file path, absolute or ~/... .
-            text: Content to write.
+        Confined to the existing home root and /tmp. Refuses symlinks and
+        hardlinks. Reports uncertainty if read-back fails; never retries a
+        dispatched write. This does not prove cloud sync or crash durability.
         """
+        import hashlib
+
+        from system.action_verify import MAX_TEXT_BYTES, write_verified
         try:
             require_local()
+            if phone_session.guest_required():
+                raise LocalSystemError("Guest mode refuses owner actions.")
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        rp = _resolve_user_path(path)
-        if rp is None:
-            raise ToolError("That path is outside /home/ripjk.")
-        try:
-            rp.parent.mkdir(parents=True, exist_ok=True)
-            rp.write_text(text)
-        except Exception as exc:
-            raise ToolError(f"I could not write {rp}: {exc}") from exc
-        log_action("files-write", str(rp))
-        return {"say": f"Wrote {len(text)} characters to {rp.name}."}
+        if not isinstance(path, str) or not path.strip() or len(path.strip()) > 400:
+            raise ToolError("Provide an explicit file path of at most 400 characters.")
+        if not isinstance(text, str):
+            raise ToolError("Provide text to write.")
+        if len(text) > MAX_TEXT_BYTES or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
+            raise ToolError("Text writes are limited to 256 KiB of UTF-8 bytes.")
+        target = Path(os.path.abspath(os.path.expanduser(path.strip())))
+        # Do not resolve symlinks here: the verifier refuses every symlink component.
+        ticket = phone_session.approval_ticket()
+        def authorize():
+            phone_session.check_approval_effect(ticket, current=True)
+            if phone_session.guest_required():
+                raise LocalSystemError("Guest mode refuses owner actions.")
+        args = {"path": str(target), "text_digest": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+        def work():
+            result = write_verified(target, text, roots=(HOME_ROOT, Path("/tmp")), authorize=authorize, request_id=__import__("action_guard").request_id(context))
+            log_action("files-write", result["outcome"]["state"])
+            return result
+        return await _guarded_thread_action("write_file", args, _source(context), work, "The file write is not verified.")
 
     @function_tool()
     async def move_file(
@@ -1430,6 +1392,10 @@ class SystemTools:
         command = data.get("shortcuts", {}).get(name)
         if not command:
             raise ToolError(f"No shortcut named {name}.")
+        from system.launcher import is_blocked, blocked_say
+
+        if blocked := is_blocked(command):
+            raise ToolError(blocked_say(blocked))
         usage = data.get("usage", {})
         usage[name] = usage.get(name, 0) + 1
         _write_json(SHORTCUTS_PATH, {"shortcuts": data["shortcuts"], "usage": usage})
@@ -1471,6 +1437,10 @@ class SystemTools:
         from system.school_tools import loud_guard
 
         loud_guard("open_app", {"app": app, "url": url})
+        from system.launcher import is_blocked, blocked_say
+
+        if blocked := is_blocked(app, url):
+            raise ToolError(blocked_say(blocked))
         app = app.strip().lower()[:60]
         if not app or len(app) < 2:
             raise ToolError("Which app should I open?")
@@ -1480,7 +1450,7 @@ class SystemTools:
         # "open YouTube": the fast path may already have launched it from
         # the transcript; never open the same thing twice.
         guard_args = {"app": app, "url": url}
-        dup = action_guard.claim("open_app", guard_args, _source(context))
+        dup = action_guard.claim("open_app", guard_args, _source(context), request_id=action_guard.request_id(context))
         if dup is not None:
             return action_guard.duplicate_reply(dup, f"Opening {app}.")
         try:
@@ -1508,7 +1478,7 @@ class SystemTools:
             if pri is not None and not pri.argv:
                 # Single-instance app already up (Sober/Resolve): no duplicate.
                 say = pri.say or f"{pri.target} is already running, Sir."
-                action_guard.settle("open_app", guard_args, _source(context), True, say)
+                action_guard.settle("open_app", guard_args, _source(context), True, say, request_id=action_guard.request_id(context))
                 return {"say": say}
             if pri is not None:
                 argv = list(pri.argv)
@@ -1543,6 +1513,8 @@ class SystemTools:
                 except Exception:
                     known = None
                 decision = resolve_launch(app, known_sites=known)
+                if decision.kind == "blocked":
+                    raise ToolError(decision.say)
                 if decision.kind == "app" and decision.argv:
                     argv = decision.argv
                     target = decision.target
@@ -1550,10 +1522,14 @@ class SystemTools:
                     argv = ["xdg-open", decision.target]
                     target = decision.target
                 say = decision.say or say
-            from system.launcher import blocked_say, is_blocked
+            from system.launcher import blocked_say, is_blocked, require_launch_allowed
 
             if blocked := is_blocked(app, url, target, *argv):
                 raise ToolError(blocked_say(blocked))
+            try:
+                require_launch_allowed(argv)
+            except ValueError as exc:
+                raise ToolError(str(exc)) from exc
             launch_env = None
             if display:
                 argv, launch_env = _sandbox_launch(argv, display)
@@ -1564,6 +1540,9 @@ class SystemTools:
                 before = set()
             # Sandbox mode: launch onto the nested test display, never the
             # real session (see system.desktop.sandbox_display).
+            if not display:
+                from system.cinematic import mark_launch
+                await asyncio.to_thread(mark_launch, argv)
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
@@ -1574,6 +1553,12 @@ class SystemTools:
                 )
             except FileNotFoundError:
                 raise ToolError(f"I could not launch {app}.") from None
+            # The process exists now. Record success before optional window
+            # bookkeeping so an error there cannot permit a website retry.
+            action_guard.settle(
+                "open_app", guard_args, _source(context), True, say,
+                request_id=action_guard.request_id(context),
+            )
             # Maximize what just opened without delaying the reply: the
             # follow-up snapshots wmctrl itself and no-ops when Sir already
             # placed the window or nothing new appeared.
@@ -1583,10 +1568,10 @@ class SystemTools:
             self._tasks.add(_max_task)
             _max_task.add_done_callback(self._tasks.discard)
             log_action("launch", target)
-            action_guard.settle("open_app", guard_args, _source(context), True, say)
+            action_guard.settle("open_app", guard_args, _source(context), True, say, request_id=action_guard.request_id(context))
             return {"say": say, "pid": str(proc.pid or 0)}
         except BaseException:
-            action_guard.settle("open_app", guard_args, _source(context), False)
+            action_guard.settle("open_app", guard_args, _source(context), False, request_id=action_guard.request_id(context))
             raise
 
     @function_tool()
@@ -1724,6 +1709,11 @@ class SystemTools:
         action = action.strip().lower()
         if action == "restart":
             action = "reboot"
+        from power_actions import LOCK_READ_ARGV, argv, parse_lock_active, receipt
+
+        command = argv(action)
+        if command is None or action == "logout":
+            raise ToolError(f"Unknown power action {action}.")
         if action in ("shutdown", "reboot"):
             if self._confirmed_power != action:
                 raise ToolError(
@@ -1731,21 +1721,28 @@ class SystemTools:
                     f"sir. Say confirm {action} and I will obey."
                 )
             self._confirmed_power = None
+        try:
+            rc, _, _ = await run_cmd(*command, timeout=5.0)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            outcome = receipt(action, None)
+        else:
+            active = None
+            if rc == 0 and action == "lock":
+                try:
+                    check_rc, text, _ = await run_cmd(*LOCK_READ_ARGV, timeout=2.0)
+                    if check_rc == 0:
+                        active = parse_lock_active(text)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+            outcome = receipt(action, rc, active)
+        # Bookkeeping failure cannot erase a dispatch or invite replay.
+        with contextlib.suppress(Exception):
             log_action("power", action)
-            if action == "shutdown":
-                await run_cmd("systemctl", "poweroff", timeout=5.0)
-            else:
-                await run_cmd("systemctl", "reboot", timeout=5.0)
-            return {"say": f"{action.capitalize()} initiated, sir."}
-        if action == "lock":
-            await run_cmd("loginctl", "lock-session", timeout=5.0)
-            log_action("power", "lock")
-            return {"say": "Locked."}
-        if action == "suspend":
-            await run_cmd("systemctl", "suspend", timeout=5.0)
-            log_action("power", "suspend")
-            return {"say": "Suspending."}
-        raise ToolError(f"Unknown power action {action}.")
+        return {"say": outcome.say, "outcome": outcome.to_dict()}
 
     @function_tool()
     async def confirm_command_action(self, context: RunContext, command: str) -> str:
@@ -1773,6 +1770,7 @@ class SystemTools:
         return f"Authorized one run of {cmd[:200]}."
 
     @function_tool()
+    @phone_session.approval_action
     async def run_command(
         self, context: RunContext, command: str, timeout_s: int = 30
     ) -> dict[str, str]:
@@ -1847,6 +1845,10 @@ def _normalize_command(cmd: str) -> str:
 
 def command_denied(cmd: str) -> str | None:
     """Reason a command must never run, or None if allowed. Pure."""
+    from system.launcher import is_blocked
+
+    if blocked := is_blocked(cmd):
+        return f"{blocked} launch disabled"
     text = _normalize_command(cmd)
     if not text:
         return "empty command"

@@ -74,7 +74,8 @@ async def test_code_project_passes_effort_and_dir(monkeypatch):
         directory="~/code/app",
         effort="MAX",
     )
-    assert "coding engine" in out["say"]
+    assert "Assigner" in out["say"]
+    assert seen["body"].pop("request_id").startswith("coding-")
     assert seen["body"] == {
         "kind": "code",
         "task": "refactor the api",

@@ -1,0 +1,27 @@
+{
+  "label": "baseline",
+  "scope": "offline synthetic I/O; not live voice latency",
+  "fixture": {
+    "slow_unused_provider_ms": 80,
+    "valid_provider_ms": 5,
+    "rounds": 30,
+    "metadata_read_ms": 5,
+    "metadata_rounds": 10
+  },
+  "source_sha256": {
+    "tools": "ffe48d846ae8b6f59b43e8934b44c450c5db5f22911e115dd9bb1c0e8f71b8cc",
+    "inbox": "9d2546b3e20c11af98619334f31c843005aa162a098b3bee0dd2018b1eca7133"
+  },
+  "search_slow_unused_provider": {
+    "n": 30,
+    "p50_ms": 81.06409699394135,
+    "p95_ms": 82.01652400020976
+  },
+  "observer_us_per_four_event_turn": 4.724001500289887,
+  "ten_metadata_reads": {
+    "n": 10,
+    "p50_ms": 8.288878998428117,
+    "p95_ms": 14.193586001056246,
+    "peak_active_reads": 10
+  }
+}

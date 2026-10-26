@@ -19,10 +19,14 @@ Pure logic, injectable clock, no I/O. JARVIS_CLAIM_GUARD=0 disables it.
 
 from __future__ import annotations
 
+import ast
+import json
 import os
 import re
 import time
 from dataclasses import dataclass, field
+
+from action_outcome import parse_outcome
 
 USER_WINDOW_S = 90.0  # a claim this long after Sir's request still answers it
 MAX_CORRECTIONS = 2  # re-prompt once, then one fixed honest line, then silence
@@ -147,6 +151,7 @@ class Verdict:
     claim: str  # the sentence that claimed it
     reason: str  # "no-tool" | "tool-failed"
     detail: str = ""  # failed tool names
+    uncertain: bool = False
 
 
 @dataclass
@@ -155,6 +160,8 @@ class _Turn:
     at: float = 0.0
     tools_ok: list[str] = field(default_factory=list)
     tools_failed: list[str] = field(default_factory=list)
+    outcomes: list = field(default_factory=list)
+    unverified: list[str] = field(default_factory=list)
     corrections: int = 0
 
 
@@ -206,6 +213,42 @@ def claims(text: str) -> list[tuple[str, str]]:
     return out
 
 
+_MIGRATED = {
+    "open_app",
+    "open_url",
+    "open_visible_url",
+    "open_google_app",
+    "browse_url",
+    "write_file",
+    "set_volume",
+    "volume_set",
+    "volume_up",
+    "volume_down",
+    "volume_mute",
+    "volume_unmute",
+    "click",
+    "type_text",
+}
+
+
+def sdk_tool_result(output):
+    """Installed SDK stringifies dict outputs; accept bounded literal/JSON data."""
+    value = getattr(output, "output", None)
+    if not isinstance(value, str) or len(value) > 65536:
+        return None
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        try:
+            tree = ast.parse(value, mode="eval")
+            if sum(1 for _ in ast.walk(tree)) > 512:
+                return None
+            result = ast.literal_eval(tree)
+            return result if isinstance(result, dict) else None
+        except (ValueError, TypeError, SyntaxError, RecursionError, MemoryError):
+            return None
+
+
 class ClaimGuard:
     """Per-user-turn ledger of what ran vs. what was claimed."""
 
@@ -218,11 +261,86 @@ class ClaimGuard:
         self._turn = _Turn(text=text or "", at=self._clock())
 
     def note_tool(self, name: str, ok: bool) -> None:
-        (self._turn.tools_ok if ok else self._turn.tools_failed).append(str(name or ""))
+        name = str(name or "")
+        if name in _MIGRATED:
+            self._turn.unverified.append(name)
+            if not ok:
+                self._turn.tools_failed.append(name)
+        else:
+            (self._turn.tools_ok if ok else self._turn.tools_failed).append(name)
 
-    def _backed(self, category: str) -> bool:
+    def note_result(self, name: str, result, *, is_error=False) -> None:
+        outcome = parse_outcome(result)
+        if outcome is not None and not is_error:
+            self._turn.outcomes.append((name, outcome))
+        else:
+            self.note_tool(name, not is_error)
+
+    def _backed(self, category: str, sentence: str = "") -> bool:
+        outcomes = self._turn.outcomes
         if category == "done":
-            return bool(self._turn.tools_ok)
+            if self._turn.unverified or any(not o.verified for _, o in outcomes):
+                return False
+            return bool(self._turn.tools_ok) or any(o.verified for _, o in outcomes)
+        for _name, outcome in outcomes:
+            if not outcome.verified:
+                continue
+            # A saved file is not a scheduled appointment or generic update.
+            if (
+                outcome.effect == "file.write"
+                and category == "create"
+                and re.search(r"\b(saved|wrote|written)\b", _norm(sentence))
+            ):
+                return True
+            if (
+                outcome.effect == "url.navigate"
+                and category == "window"
+                and "backend" in sentence.lower()
+                and not re.search(r"visible|desktop", sentence, re.I)
+            ):
+                return True
+            if outcome.effect in {"setting.volume", "setting.mute"} and category in {
+                "media",
+                "create",
+            }:
+                if category == "create" and "volume" not in sentence.lower():
+                    continue
+                if category == "media" and not re.search(
+                    r"\b(?:volume|muted|unmuted|silenced|lowered|raised)\b|turned .*(?:down|up)",
+                    sentence,
+                    re.I,
+                ):
+                    continue
+                before = outcome.evidence.get("before_pct")
+                actual = outcome.evidence.get("actual_pct")
+                if re.search(r"lowered|turned .*down", sentence, re.I) and (
+                    before is None or actual is None or actual >= before
+                ):
+                    continue
+                if re.search(r"raised|turned .*up", sentence, re.I) and (
+                    before is None or actual is None or actual <= before
+                ):
+                    continue
+                nums = [int(n) for n in re.findall(r"\b(\d{1,3})\b", sentence)]
+                actual = outcome.evidence.get("actual_pct")
+                if nums and any(n != actual for n in nums):
+                    continue
+                if (
+                    re.search(r"\bunmuted\b", sentence, re.I)
+                    and outcome.evidence.get("actual_muted") is not False
+                ):
+                    continue
+                if (
+                    re.search(r"\bmuted\b", sentence, re.I)
+                    and outcome.evidence.get("actual_muted") is not True
+                ):
+                    continue
+                if outcome.effect == "setting.mute" and not re.search(
+                    r"\b(?:muted|unmuted)\b", sentence, re.I
+                ):
+                    continue
+                return True
+
         keys = _TOOL_KEYS.get(category, ())
         return any(any(k in n.lower() for k in keys) for n in self._turn.tools_ok)
 
@@ -245,15 +363,39 @@ class ClaimGuard:
             )
         if not _REQUEST.search(_norm(turn.text)):
             return None  # chit-chat, not a command
-        for category, sentence in claims(assistant_text):
-            if self._backed(category):
+        found = claims(assistant_text)
+        if (
+            any(o.effect.startswith("setting.") for _, o in turn.outcomes)
+            and re.search(
+                r"\bvolume\b[^.!?]*\b\d{1,3}\s*(?:percent|%)", assistant_text, re.I
+            )
+            and not _NEGATED.search(_norm(assistant_text))
+        ):
+            found.append(("media", assistant_text))
+        if (
+            (turn.outcomes or turn.unverified)
+            and re.search(
+                r"\b(?:page|tab|website|link)\b[^.!?]*\b(?:visible|loaded|displayed)\b",
+                assistant_text,
+                re.I,
+            )
+            and not _NEGATED.search(_norm(assistant_text))
+        ):
+            found.append(("window", assistant_text))
+        for category, sentence in found:
+            if self._backed(category, sentence):
                 continue
             failed = list(turn.tools_failed)
             return Verdict(
                 category=category,
                 claim=sentence[:160],
-                reason="tool-failed" if failed else "no-tool",
+                reason="unverified"
+                if turn.outcomes or turn.unverified
+                else "tool-failed"
+                if failed
+                else "no-tool",
                 detail=", ".join(failed[:3]),
+                uncertain=bool(turn.outcomes or turn.unverified),
             )
         return None
 
@@ -283,6 +425,12 @@ def reprompt(verdict: Verdict, user_text: str) -> str:
             "real result. Only if no tool exists for it, say so in one short "
             "sentence."
         )
+    if verdict.uncertain:
+        return (
+            "The requested result is not backed by matching read-back evidence. "
+            "Do not repeat any mutation or claim success. Report only the recorded "
+            "outcome; a launch request is not visibility and a click is not delivery."
+        )
     why = (
         f"the tool failed ({verdict.detail})"
         if verdict.reason == "tool-failed"
@@ -301,6 +449,8 @@ def fixed_line(verdict: Verdict) -> str:
     """Last resort: never leave a false 'done' standing ('' = stay quiet)."""
     if verdict.category == "refusal":
         return ""  # an honest "can't" after the retry needs no correction
+    if verdict.uncertain:
+        return "Correction, Sir: that result is not verified. The command may have been dispatched."
     return (
         "Correction, Sir: I said that was done, but it wasn't. "
         "Nothing actually happened. Please ask me again."

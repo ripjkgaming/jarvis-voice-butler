@@ -1,5 +1,5 @@
 """Voice tools for background projects: in-depth research (ChatGPT via
-Sir's subscription) and coding (headless opencode), plus the Project Archive.
+Sir's subscription) and coding (a dedicated headless Assigner), plus the Project Archive.
 
 The jobs run in the bridge (src/projects.py), which outlives this voice
 call; these tools only start them over the bridge's HTTP API, return at
@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import urllib.request
+import uuid
 
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
 POLL_S = 15.0
-MAX_WAIT_S = 20 * 60.0
+TERMINAL = {"done", "failed", "blocked", "cancelled", "timed_out"}
+MAX_WAIT_S = 50 * 60.0
 
 
 def _bridge_call(method: str, path: str, body: dict | None = None) -> dict | None:
@@ -48,7 +51,15 @@ def spoken_result(meta: dict) -> str:
         if meta.get("kind") == "research":
             summary = meta.get("summary") or "The report is in your archive."
             return f"Research on {title} is complete, Sir. {summary}"
+        if meta.get("engine") == "assigner":
+            return f"The code or patch for {title} is ready for review, Sir. Details are in the archive."
         return f"The coding job is done, Sir: {title}. Details are in the archive."
+    if meta.get("status") == "blocked":
+        return f"The {title} coding request needs attention, Sir: {meta.get('error') or 'owner review is required'}."
+    if meta.get("status") == "timed_out":
+        return (
+            f"The {title} coding request timed out. Its remote status is being checked."
+        )
     if meta.get("status") == "cancelled":
         return f"The {title} project was cancelled."
     return f"I'm afraid the {title} project failed, Sir: {meta.get('error') or 'no detail'}."
@@ -80,9 +91,14 @@ class ProjectTools:
                 waited += POLL_S
                 got = await asyncio.to_thread(_bridge_call, "GET", f"/projects/{pid}")
                 meta = (got or {}).get("project")
-                if not meta or meta.get("status") == "running":
+                if not meta or meta.get("status") not in TERMINAL:
                     continue
                 if session is not None:
+                    if meta.get("engine") == "assigner":
+                        import projects
+
+                        if not await asyncio.to_thread(projects.claim_completion, pid):
+                            return
                     with contextlib.suppress(Exception):
                         await session.say(spoken_result(meta))
                 return
@@ -127,11 +143,12 @@ class ProjectTools:
         directory: str = "",
         effort: str = "",
     ) -> dict[str, str]:
-        """Hand a CODING task to the background coding engine (opencode).
+        """Delegate a CODING request to the dedicated headless Assigner.
 
         For "write / build / fix / refactor code", "make me a script that…".
-        Runs unattended in a project folder; results land in the Project
-        Archive.
+        Queues read-only workers that return code or patches to the Project
+        Archive for owner review. This tool does not approve file changes,
+        deployment, external messages, or other consequential actions.
 
         Args:
             task: The complete coding task, with every detail Sir gave.
@@ -140,26 +157,45 @@ class ProjectTools:
             effort: "high" for ordinary tasks, "max" for big or hard ones
                 (refactors, debugging, multi-file work); blank = auto.
         """
+        import phone_session
+
+        private_error = phone_session.private_tool_error("code_project")
+        if private_error:
+            raise ToolError(private_error)
+        phone_session.check_approval_effect(current=True)
         task = (task or "").strip()
-        if len(task) < 3:
+        if not 3 <= len(task) <= 4000:
             raise ToolError("What should I build, Sir?")
-        body = {"kind": "code", "task": task, "directory": directory.strip()}
+        call_id = getattr(getattr(context, "function_call", None), "call_id", None)
+        request_id = "coding-" + (
+            hashlib.sha256(call_id.encode()).hexdigest()
+            if call_id
+            else uuid.uuid4().hex
+        )
+        body = {
+            "kind": "code",
+            "task": task,
+            "directory": directory.strip(),
+            "request_id": request_id,
+        }
         if effort.strip().lower() in ("high", "max"):
             body["variant"] = effort.strip().lower()
         got = await asyncio.to_thread(_bridge_call, "POST", "/projects", body)
         meta = (got or {}).get("project")
         if not meta:
             raise ToolError("The coding engine isn't reachable right now.")
-        if meta.get("status") == "failed":
+        if meta.get("status") in {"failed", "blocked"}:
             raise ToolError(meta.get("error") or "The coding job could not start.")
         self._report_when_done(context, meta["id"])
         return {
-            "say": "Handing that to the coding engine, Sir. I'll let you know when it's done.",
+            "say": "Handing that to Assigner, Sir. I'll report back when the code or patch is ready for review.",
             "project_id": meta["id"],
         }
 
     @function_tool()
-    async def open_projects(self, context: RunContext, command: str = "") -> dict[str, str]:
+    async def open_projects(
+        self, context: RunContext, command: str = ""
+    ) -> dict[str, str]:
         """Show Sir's Project Archive window and steer it by voice.
 
         For "open / show my (research) projects", and for anything that
@@ -188,8 +224,14 @@ class ProjectTools:
             {"tool": "projects_ui", "args": {"commands": cmds, "heard": command[:200]}},
         )
         if not (got or {}).get("ok"):
-            raise ToolError((got or {}).get("error") or "The project archive didn't respond.")
-        return {"say": _projects.reply_for(cmds) if command.strip() else "Your projects, Sir."}
+            raise ToolError(
+                (got or {}).get("error") or "The project archive didn't respond."
+            )
+        return {
+            "say": _projects.reply_for(cmds)
+            if command.strip()
+            else "Your projects, Sir."
+        }
 
     @function_tool()
     async def list_archive(self, context: RunContext) -> dict:
@@ -213,7 +255,9 @@ class ProjectTools:
         ]
         return {
             "projects": rows,
-            "say": f"You have {len(projects)} on file, Sir." if projects else "The archive is empty, Sir.",
+            "say": f"You have {len(projects)} on file, Sir."
+            if projects
+            else "The archive is empty, Sir.",
         }
 
     @function_tool()
@@ -259,5 +303,7 @@ class ProjectTools:
             {"tool": "projects_ui", "args": {"commands": cmds, "heard": action[:200]}},
         )
         if not (got or {}).get("ok"):
-            raise ToolError((got or {}).get("error") or "The project archive didn't respond.")
+            raise ToolError(
+                (got or {}).get("error") or "The project archive didn't respond."
+            )
         return {"say": _projects.reply_for(cmds)}

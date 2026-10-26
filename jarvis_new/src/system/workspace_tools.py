@@ -54,11 +54,19 @@ async def _share_for_school(meta: dict, done: str) -> dict[str, str]:
     import google_apps
 
     try:
-        email = await asyncio.to_thread(google_api.share_with_school, str(meta.get("id", "")))
+        email = await asyncio.to_thread(
+            google_api.share_with_school, str(meta.get("id", ""))
+        )
     except google_api.GoogleError as exc:
-        return {"say": f"{done}, Sir, but sharing it with your school account failed: {exc}"}
+        return {
+            "say": f"{done}, Sir, but sharing it with your school account failed: {exc}"
+        }
     log_action("drive", f"shared {meta.get('id', '')} with school")
-    url = google_apps.with_authuser(meta.get("webViewLink", ""), email) if meta.get("webViewLink") else ""
+    url = (
+        google_apps.with_authuser(meta.get("webViewLink", ""), email)
+        if meta.get("webViewLink")
+        else ""
+    )
     return {
         "say": f"{done} and shared it with your school account, Sir. {google_api.SCHOOL_SHARE_NOTE}",
         "url": url,
@@ -183,7 +191,10 @@ class WorkspaceTools:
             raise ToolError(str(exc)) from exc
         log_action("drive", f"create doc {title[:60]}")
         if google_api.normalize_account(account) != "school":
-            return {"say": f"Created {title[:100]} in Drive, Sir.", "url": meta.get("webViewLink", "")}
+            return {
+                "say": f"Created {title[:100]} in Drive, Sir.",
+                "url": meta.get("webViewLink", ""),
+            }
         return await _share_for_school(meta, f"Created {title[:100]}")
 
     @function_tool()
@@ -355,7 +366,11 @@ class WorkspaceTools:
 
     @function_tool()
     async def generate_document(
-        self, context: RunContext, kind: str = "invoice", request: str = "", account: str = "personal"
+        self,
+        context: RunContext,
+        kind: str = "invoice",
+        request: str = "",
+        account: str = "personal",
     ) -> dict[str, str]:
         """Generate a brand document from Sir's words (new files need no confirm).
 
@@ -383,7 +398,9 @@ class WorkspaceTools:
         import google_api
 
         if result.get("drive_id") and google_api.normalize_account(account) == "school":
-            shared = await _share_for_school({"id": result["drive_id"]}, result["title"])
+            shared = await _share_for_school(
+                {"id": result["drive_id"]}, result["title"]
+            )
             return {"say": f"{result['say']} {shared['say']}", "pdf": result["pdf"]}
         return {"say": result["say"], "pdf": result["pdf"]}
 
@@ -400,7 +417,9 @@ class WorkspaceTools:
             try:
                 instructions = await job()
             except Exception as exc:  # never let a background job die silently
-                instructions = f"Tell Sir briefly that the background job failed: {str(exc)[:200]}"
+                instructions = (
+                    f"Tell Sir briefly that the background job failed: {str(exc)[:200]}"
+                )
             if not instructions or session is None:
                 return
             try:
@@ -432,7 +451,9 @@ class WorkspaceTools:
         import backend_model
 
         if self._importing:
-            return {"say": "I'm still reading the last schedule, Sir; I'll tell you when it's done."}
+            return {
+                "say": "I'm still reading the last schedule, Sir; I'll tell you when it's done."
+            }
         path = await asyncio.to_thread(backend_model.find_schedule_file, file_hint)
         if path is None:
             raise ToolError(
@@ -470,9 +491,13 @@ class WorkspaceTools:
             )
 
         self._in_background(
-            context, job, fallback="I've read your schedule, Sir. Shall I add it to your calendar?"
+            context,
+            job,
+            fallback="I've read your schedule, Sir. Shall I add it to your calendar?",
         )
-        return {"say": f"Reading {path.name} now, Sir. Carry on; I'll tell you what I find."}
+        return {
+            "say": f"Reading {path.name} now, Sir. Carry on; I'll tell you what I find."
+        }
 
     @function_tool()
     async def email_to_calendar(
@@ -495,7 +520,9 @@ class WorkspaceTools:
         from system.inbox import _gmail_access_token, thread_text
 
         if self._importing:
-            return {"say": "I'm still reading the last one, Sir; I'll tell you when it's done."}
+            return {
+                "say": "I'm still reading the last one, Sir; I'll tell you when it's done."
+            }
         token = await asyncio.to_thread(_gmail_access_token)
         subject, text, newest = await asyncio.to_thread(thread_text, token, query)
         self._importing = True
@@ -524,9 +551,13 @@ class WorkspaceTools:
             )
 
         self._in_background(
-            context, job, fallback="I've read that email, Sir. Shall I book it in your calendar?"
+            context,
+            job,
+            fallback="I've read that email, Sir. Shall I book it in your calendar?",
         )
-        return {"say": f"Reading '{subject[:60]}' now, Sir. Carry on; I'll tell you what I find."}
+        return {
+            "say": f"Reading '{subject[:60]}' now, Sir. Carry on; I'll tell you what I find."
+        }
 
     @function_tool()
     async def confirm_calendar_import(self, context: RunContext) -> dict[str, str]:
@@ -536,52 +567,106 @@ class WorkspaceTools:
         email_to_calendar preview, OR to a spoken suggestion like "the email from X
         mentions Y. Shall I book it in your calendar?" (those wait on disk, so call
         this even if you never ran a tool). Entries already on the calendar (same
-        title and day) are skipped.
+        title, day and start time) are skipped.
         """
         _guard()
         import event_suggest
         import google_api
+        from proactive.sources import calendar_source
+
+        target = {
+            "calendar_id": calendar_source.calendar_id(),
+            "account": calendar_source.calendar_account(),
+        }
+        saved = event_suggest.load()
 
         events, self._pending_events = self._pending_events, []
         if not events:
-            saved = event_suggest.load()
             events = list(saved["events"]) if saved else []
         if not events:
             raise ToolError("There's nothing waiting to be added, Sir.")
-        dates = sorted(e["date"] for e in events)
         tz_day = "T00:00:00Z"
         try:
             import datetime as dt
 
+            for event in events:
+                if not isinstance(event, dict):
+                    raise google_api.GoogleError(
+                        "The calendar preview contains an invalid event, Sir."
+                    )
+                google_api.event_body(event)
+            dates = sorted(e["date"] for e in events)
             last = (dt.date.fromisoformat(dates[-1]) + dt.timedelta(days=2)).isoformat()
             first = (dt.date.fromisoformat(dates[0]) - dt.timedelta(days=1)).isoformat()
             existing = await asyncio.to_thread(
-                google_api.calendar_list, first + tz_day, last + tz_day
+                google_api.calendar_list, first + tz_day, last + tz_day, **target
             )
-        except google_api.GoogleError as exc:
+        except (
+            google_api.GoogleError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OverflowError,
+        ) as exc:
             self._pending_events = events
-            raise ToolError(str(exc)) from exc
+            message = (
+                str(exc)
+                if isinstance(exc, google_api.GoogleError)
+                else "The calendar preview has invalid dates; please extract it again, Sir."
+            )
+            raise ToolError(message) from exc
+        from zoneinfo import ZoneInfo
+
         have = set()
         for item in existing:
             start = item.get("start") or {}
-            day = str(start.get("date") or start.get("dateTime") or "")[:10]
-            have.add(_event_key(str(item.get("summary", "")), day))
+            raw = str(start.get("dateTime") or "")
+            clock = ""
+            day = str(start.get("date") or "")
+            if raw:
+                try:
+                    when = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    if when.tzinfo is not None:
+                        when = when.astimezone(ZoneInfo(google_api.local_timezone()))
+                    day, clock = when.date().isoformat(), when.strftime("%H:%M")
+                except (ValueError, KeyError):
+                    # A malformed existing event must not suppress a new event.
+                    continue
+            have.add(_event_key(str(item.get("summary", "")), day, clock))
         added, skipped, failed = 0, 0, []
         for e in events:
-            if _event_key(e["title"], e["date"]) in have:
+            start = google_api.event_body(e)["start"]
+            clock = str(start.get("dateTime", ""))[11:16]
+            key = _event_key(e["title"], e["date"], clock)
+            if key in have:
                 skipped += 1
                 continue
             try:
-                await asyncio.to_thread(google_api.calendar_create, e)
+                await asyncio.to_thread(google_api.calendar_create, e, **target)
                 added += 1
+                have.add(key)
             except google_api.GoogleError as exc:
                 failed.append(e)
                 if added == 0 and len(failed) == 1 and "calendar" in str(exc).lower():
                     self._pending_events = events
                     raise ToolError(str(exc)) from exc
-        log_action("calendar", f"import added={added} skipped={skipped} failed={len(failed)}")
+        log_action(
+            "calendar", f"import added={added} skipped={skipped} failed={len(failed)}"
+        )
+        self._pending_events = failed
         with contextlib.suppress(Exception):
-            event_suggest.clear()
+            # Preserve only failed suggestions for a retry, and do not consume an
+            # unrelated suggestion that arrived while another preview was pending.
+            if saved and saved["events"] == events and event_suggest.load() == saved:
+                if failed:
+                    event_suggest.save(
+                        saved.get("msg_id", ""),
+                        saved.get("sender", ""),
+                        saved.get("subject", ""),
+                        failed,
+                    )
+                else:
+                    event_suggest.clear()
         say = f"Added {added} to your calendar, Sir."
         if skipped:
             say += f" {skipped} were already there."
@@ -590,7 +675,9 @@ class WorkspaceTools:
         return {"say": say}
 
     @function_tool()
-    async def exams_to_calendar(self, context: RunContext, days: int = 60) -> dict[str, str]:
+    async def exams_to_calendar(
+        self, context: RunContext, days: int = 60
+    ) -> dict[str, str]:
         """Prepare Sir's upcoming exams (the exam schedule) for his Google
         Calendar: "add my exams to my calendar". Reads them back first;
         nothing is added until Sir says yes and you call
@@ -670,7 +757,9 @@ class WorkspaceTools:
         event_extractor.set_status(record["id"], "added")
         log_action("calendar", f"email-event added {record['id'][:16]}")
         ev = record["event"]
-        return {"say": f"Added {ev['title']}, {event_extractor.when_text(ev)}, to your calendar."}
+        return {
+            "say": f"Added {ev['title']}, {event_extractor.when_text(ev)}, to your calendar."
+        }
 
     @function_tool()
     async def dismiss_email_event(
@@ -687,10 +776,14 @@ class WorkspaceTools:
         record = _pick_suggestion(msg_id)
         event_extractor.set_status(record["id"], "dismissed")
         log_action("calendar", f"email-event dismissed {record['id'][:16]}")
-        return {"say": f"Very well, I'll leave {record['event']['title']} off the calendar."}
+        return {
+            "say": f"Very well, I'll leave {record['event']['title']} off the calendar."
+        }
 
     @function_tool()
-    async def calendar_upcoming(self, context: RunContext, days: int = 7) -> dict[str, str]:
+    async def calendar_upcoming(
+        self, context: RunContext, days: int = 7
+    ) -> dict[str, str]:
         """What's on Sir's Google Calendar over the next few days.
 
         Args:
@@ -719,7 +812,11 @@ class WorkspaceTools:
             raw = str(start.get("dateTime") or start.get("date") or "")
             try:
                 when = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                label = when.strftime("%a %d %b %H:%M") if "T" in raw else when.strftime("%a %d %b")
+                label = (
+                    when.strftime("%a %d %b %H:%M")
+                    if "T" in raw
+                    else when.strftime("%a %d %b")
+                )
             except ValueError:
                 label = raw
             rows.append(f"{item.get('summary', '(untitled)')}, {label}")
@@ -754,8 +851,14 @@ class WorkspaceTools:
                 "Give Sir the gist conversationally in a few sentences and offer detail."
             )
 
-        self._in_background(context, job, fallback="The backend has finished, Sir. Shall I go through it?")
-        return {"say": "On it, Sir. That's with the backend; I'll come back to you when it's done."}
+        self._in_background(
+            context,
+            job,
+            fallback="The backend has finished, Sir. Shall I go through it?",
+        )
+        return {
+            "say": "On it, Sir. That's with the backend; I'll come back to you when it's done."
+        }
 
 
 def describe_events(events: list[dict], limit: int = 8) -> str:
@@ -790,7 +893,7 @@ def _pick_suggestion(msg_id: str) -> dict:
     return rows[-1]
 
 
-def _event_key(title: str, date: str) -> str:
-    """Dedupe key: title words + day. Pure."""
+def _event_key(title: str, date: str, start: str = "") -> str:
+    """Dedupe key: title words, local day and normalized start time. Pure."""
     words = re.sub(r"\W+", " ", (title or "").casefold()).strip()
-    return f"{words}|{date}"
+    return f"{words}|{date}|{start}"

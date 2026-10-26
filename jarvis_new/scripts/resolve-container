@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Run Resolve in rootless Podman, integrated with the KDE desktop by default.
+# RESOLVE_DISPLAY_MODE=isolated retains the previous Gamescope display.
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+HERE="$(dirname "$SELF")"
+IMAGE=localhost/davinci-resolve:isolated-v2
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/davinci-resolve"
+NAME=jarvis-davinci-resolve
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+if [[ "${1:-}" == --stop ]]; then
+  exec podman stop --time 3 "$NAME"
+fi
+if [[ "${1:-}" != --inside-display && "${1:-}" != --prepare-only ]] && \
+   [[ "$(podman inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null || true)" == true ]]; then
+  command -v notify-send >/dev/null && notify-send 'DaVinci Resolve' 'Resolve is already open. Save and close it before launching again.'
+  exit 0
+fi
+for cmd in podman nvidia-ctk; do
+  command -v "$cmd" >/dev/null || fail "Required program missing: $cmd"
+done
+[[ -x /opt/resolve/bin/resolve ]] || fail "Resolve installation missing: /opt/resolve"
+nvidia-ctk cdi list 2>/dev/null | rg -q '^nvidia.com/gpu=all$' || fail "NVIDIA CDI unavailable; restart nvidia-cdi-refresh.service."
+if ! podman image exists "$IMAGE"; then
+  podman build --pull=missing -t "$IMAGE" -f "$HERE/resolve.Containerfile" "$HERE"
+fi
+if [[ "${1:-}" == --prepare-only ]]; then
+  printf 'Resolve image ready: %s\n' "$IMAGE"
+  exit 0
+fi
+if [[ "${1:-}" != --inside-display && "${RESOLVE_DISPLAY_MODE:-desktop}" == desktop ]]; then
+  DISPLAY_MODE=desktop
+elif [[ "${1:-}" != --inside-display ]]; then
+  [[ "${RESOLVE_DISPLAY_MODE:-}" == isolated ]] || fail "Unknown RESOLVE_DISPLAY_MODE; use desktop or isolated."
+  command -v gamescope >/dev/null || fail "Required program missing: gamescope"
+  [[ -n "${WAYLAND_DISPLAY:-}" ]] || fail "Start Resolve from the Wayland desktop."
+  exec gamescope --backend wayland --prefer-vk-device 8086:a7a8 -w 1600 -h 900 -W 1600 -H 900 -r "${RESOLVE_DISPLAY_REFRESH:-60}" -o 15 -- \
+    env -u XAUTHORITY RESOLVE_HOST_DISPLAY="${DISPLAY:-}" RESOLVE_NESTED=1 "$SELF" --inside-display "$@"
+else
+  DISPLAY_MODE=isolated
+  shift
+  [[ "${RESOLVE_NESTED:-}" == 1 && "${DISPLAY:-}" != "${RESOLVE_HOST_DISPLAY:-}" ]] || fail "Dedicated Resolve display is required."
+fi
+[[ "${DISPLAY:-}" =~ ^:([0-9]+)(\.[0-9]+)?$ ]] || fail "Unexpected local display: ${DISPLAY:-unset}"
+SOCKET="/tmp/.X11-unix/X${BASH_REMATCH[1]}"
+[[ -S "$SOCKET" ]] || fail "Xwayland socket unavailable: $SOCKET"
+# The Wayland output may follow the monitor's refresh; cap application frames too.
+if [[ "$DISPLAY_MODE" == isolated ]]; then
+  xprop -root -f GAMESCOPE_FPS_LIMIT 32c -set GAMESCOPE_FPS_LIMIT "${RESOLVE_DISPLAY_REFRESH:-60}"
+else
+  # Keep authentication scoped to this user; never disable X server access control.
+  [[ -n "${XAUTHORITY:-}" && -r "$XAUTHORITY" ]] || fail "Desktop XAUTHORITY is unavailable; launch from KDE."
+  xdpyinfo >/dev/null 2>&1 || fail "Cannot authenticate to the desktop Xwayland display."
+fi
+# Fusion GetKeyMap constructs en_US.UTF-8 explicitly, regardless of LANG.
+# The minimal Ubuntu image has no US locale; use the validated host archive read-only.
+[[ -r /usr/lib/locale/locale-archive ]] || fail "Resolve requires the host locale archive for Fusion keyboard input."
+mkdir -p "$DATA_DIR/home" "$DATA_DIR/logs"
+if [[ ! -f "$DATA_DIR/home/.asoundrc" ]]; then
+  printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > "$DATA_DIR/home/.asoundrc"
+fi
+# Copy existing Resolve settings once; keep the original database intact.
+if [[ ! -d "$DATA_DIR/home/.local/share/DaVinciResolve" && -d "$HOME/.local/share/DaVinciResolve" ]]; then
+  mkdir -p "$DATA_DIR/home/.local/share"
+  cp -a "$HOME/.local/share/DaVinciResolve" "$DATA_DIR/home/.local/share/"
+fi
+args=(run --rm --name "$NAME" --security-opt=label=disable --userns=keep-id:uid=1000,gid=1000
+  --user=1000:1000 --shm-size=1g --device=nvidia.com/gpu=all
+  -e "DISPLAY=$DISPLAY" -e "HOME=$HOME" -e QT_QPA_PLATFORM=xcb -e QT_X11_NO_MITSHM=1
+  -e QT_XCB_GL_INTEGRATION=glx -e __GLX_VENDOR_LIBRARY_NAME=nvidia
+  -v "$SOCKET:$SOCKET:rw" -v /opt/resolve:/opt/resolve:ro -v "$DATA_DIR/logs:/opt/resolve/logs:rw"
+  -v "$DATA_DIR/home:$HOME:rw"
+  -v /usr/lib/locale/locale-archive:/usr/lib/locale/locale-archive:ro)
+if [[ "$DISPLAY_MODE" == desktop ]]; then
+  args+=(-e XAUTHORITY=/run/resolve-xauthority -v "$XAUTHORITY:/run/resolve-xauthority:ro")
+fi
+# Sound socket only; no desktop session bus. Desktop Xwayland handles KDE drag/drop.
+if [[ -S "${XDG_RUNTIME_DIR:-}/pulse/native" ]]; then
+  AUDIO_SINK="${RESOLVE_AUDIO_SINK:-}"
+  if [[ -z "$AUDIO_SINK" && -f "$DATA_DIR/audio-sink" ]]; then
+    read -r AUDIO_SINK < "$DATA_DIR/audio-sink"
+  fi
+  if [[ -n "$AUDIO_SINK" ]]; then
+    printf 'pcm.!default { type pulse device "%s" }\nctl.!default { type pulse device "%s" }\n' "$AUDIO_SINK" "$AUDIO_SINK" > "$DATA_DIR/home/.asoundrc"
+    args+=(-e "PULSE_SINK=$AUDIO_SINK")
+  fi
+  args+=(-e PULSE_SERVER=unix:/run/resolve-pulse -v "$XDG_RUNTIME_DIR/pulse/native:/run/resolve-pulse:rw")
+fi
+for path in "$HOME/Videos" "$HOME/Movies" "$HOME/Pictures" "$HOME/Music" "$HOME/Downloads" "$HOME/Documents" "$HOME/Desktop" "/run/media/$USER" /mnt/data; do
+  [[ -d "$path" ]] && args+=(-v "$path:$path:rw")
+done
+args+=("$IMAGE" "$@")
+exec podman "${args[@]}"

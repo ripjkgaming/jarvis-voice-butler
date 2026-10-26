@@ -33,6 +33,7 @@ from typing import Any
 
 from PIL import Image
 
+import phone_session
 from system import LocalSystemError, desktop, log_action, require_local
 from system.computer_focus import ComputerFocusError, FocusProbe
 from system.computer_freshness import (
@@ -488,6 +489,7 @@ class ComputerSurface:
             return
 
         def check_age():
+            phone_session.check_approval_effect(current=True)
             if time.monotonic() - captured_at > MAX_INPUT_EVIDENCE_AGE_S:
                 raise FreshnessError(
                     "Screenshot evidence aged before input; observe again."

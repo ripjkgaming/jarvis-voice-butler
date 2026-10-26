@@ -1,19 +1,14 @@
-"""Second wake phrase: "daddy" ("wake up, daddy's home").
+"""Shared local Whisper worker used for school wake confirmation.
 
-openWakeWord only ships "hey jarvis", and training a custom model is an
-hours-long job, so this spots the word with a tiny local Whisper instead:
-an energy segmenter cuts short utterances out of the wake client's 16 kHz
-stream (only while no call is live), and a separate worker process (the
-main venv, which has faster-whisper; the wake venv's onnxruntime stays
-untouched) transcribes each one. Nothing leaves the laptop.
-
-JARVIS_DADDY_WAKE=0 turns it off.
+The secondary wake word has been removed from the wake client. Legacy pure
+segmentation helpers remain available, but normal microphone input never
+runs background Whisper checks and JARVIS_DADDY_WAKE cannot re-enable them.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
-import os
 import re
 import struct
 import subprocess
@@ -37,12 +32,8 @@ _DADDY = re.compile(
 
 
 def enabled() -> bool:
-    return os.environ.get("JARVIS_DADDY_WAKE", "1").strip().lower() not in (
-        "0",
-        "false",
-        "off",
-        "no",
-    )
+    """Compatibility query: the removed secondary wake feature stays disabled."""
+    return False
 
 
 def has_daddy(text: str) -> bool:
@@ -111,7 +102,10 @@ class WhisperWorker:
 
     def __init__(self, python: str | None = None) -> None:
         repo = Path(__file__).resolve().parent.parent
-        self._argv = [python or str(repo / ".venv" / "bin" / "python"), str(repo / "src" / "stt_worker.py")]
+        self._argv = [
+            python or str(repo / ".venv" / "bin" / "python"),
+            str(repo / "src" / "stt_worker.py"),
+        ]
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
 
@@ -147,7 +141,5 @@ class WhisperWorker:
     def close(self) -> None:
         proc, self._proc = self._proc, None
         if proc is not None:
-            try:
+            with contextlib.suppress(OSError):
                 proc.kill()
-            except OSError:
-                pass

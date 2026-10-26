@@ -638,20 +638,34 @@ class DeviceTools:
         target = known.get(app.strip().lower(), app.strip())
         if target == "sober" and shutil.which("sober") is None:
             target = "flatpak run org.vinegarhq.Sober"
-        from system.launcher import blocked_say, is_blocked
+        from system.launcher import blocked_say, is_blocked, require_launch_allowed
 
         if blocked := is_blocked(app, target):
             raise ToolError(blocked_say(blocked))
+        import action_guard
+
+        identity = action_guard.request_id(context)
+        source = "fast" if context is None else "model"
+        guard_args = {"app": app}
+        duplicate = action_guard.claim("open_app", guard_args, source, request_id=identity)
+        if duplicate is not None:
+            return action_guard.duplicate_reply(duplicate, "Done, Sir.")
         try:
             argv = target.split() if " " in target else [target]
+            require_launch_allowed(argv)
             await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
             )
-        except FileNotFoundError:
-            raise ToolError(f"I could not find the app {app}.") from None
+        except BaseException as exc:
+            action_guard.settle("open_app", guard_args, source, False, request_id=identity)
+            if isinstance(exc, (FileNotFoundError, ValueError)):
+                raise ToolError(str(exc)) from exc
+            raise
+        action_guard.settle("open_app", guard_args, source, True,
+                            f"Opening {app} toward {r['name']}.", request_id=identity)
         log_action("launch-monitor", f"{target} -> {r['name']}")
         fb = " (only that screen is live, clamped to main)" if r["fallback"] else ""
         return {"say": f"Opening {app} toward {r['name']}{fb}."}

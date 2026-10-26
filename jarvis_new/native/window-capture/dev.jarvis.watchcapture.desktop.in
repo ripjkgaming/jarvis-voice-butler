@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Jarvis selected-window capture
+Comment=Dedicated read-only capture of one explicitly chosen Jarvis Watch Mode window
+Exec=@HELPER_EXEC@
+Icon=accessories-screenshot
+NoDisplay=true
+Terminal=false
+Categories=Utility;
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+X-Jarvis-Watch-Capture-Package=1

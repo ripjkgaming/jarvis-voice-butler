@@ -13,7 +13,9 @@ existing Gmail token (same Google Cloud project) when present, else read
 from GOOGLE_OAUTH_CLIENT_ID/SECRET in $JARVIS_HOME/keys.env.
 
 Safe to run with --help any time; anything else needs Sir at the browser
-to click consent (60s window).
+to click consent (180s window). Personal reconnects preserve the existing
+permission list and require the existing account identity; missing metadata
+stops before opening consent. School connection behavior is unchanged.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import http.server
 import json
 import os
 import sys
+import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -32,10 +35,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from google_api import SCOPES, jarvis_home, remember_account_email
+from google_api import (
+    DRIVE_BASE,
+    SCOPES,
+    TOKEN_URI,
+    _request_json,
+    account_email,
+    jarvis_home,
+    remember_account_email,
+)
 from google_api import token_path as google_token_path
-
-SCOPE = " ".join(SCOPES)
 
 
 def _find_free_port() -> int:
@@ -79,6 +88,90 @@ def _client_creds() -> tuple[str, str]:
     )
 
 
+def personal_reconnect_profile() -> dict:
+    """Fail closed: a reconnect cannot add permissions or replace another owner."""
+    try:
+        saved = json.loads(google_token_path("personal").read_text())
+    except (OSError, ValueError):
+        raise SystemExit(
+            "Existing personal Google connection is missing or unreadable."
+        ) from None
+    if not isinstance(saved, dict):
+        raise SystemExit("Existing personal Google connection is invalid.")
+    scopes = saved.get("scopes")
+    if isinstance(scopes, str):
+        scopes = scopes.split()
+    if (
+        not isinstance(scopes, list)
+        or not scopes
+        or any(not isinstance(scope, str) or scope not in SCOPES for scope in scopes)
+        or len(set(scopes)) != len(scopes)
+        or "https://www.googleapis.com/auth/calendar.events" not in scopes
+    ):
+        raise SystemExit(
+            "Existing personal scopes are missing or ambiguous; no consent started."
+        )
+    email = account_email("personal").strip().lower()
+    if not email or "@" not in email:
+        raise SystemExit(
+            "Existing personal account identity is missing; no consent started."
+        )
+    if (
+        not saved.get("client_id")
+        or not saved.get("client_secret")
+        or not saved.get("refresh_token")
+        or saved.get("token_uri") != TOKEN_URI
+    ):
+        raise SystemExit(
+            "Existing personal OAuth configuration is incomplete; no consent started."
+        )
+    return {"saved": saved, "scopes": list(scopes), "email": email}
+
+
+def validate_personal_grant(profile, tokens, email):
+    """Validate the grant and owner before any credential replacement."""
+    scopes = tokens.get("scope")
+    if (
+        not isinstance(scopes, str)
+        or set(scopes.split()) != set(profile["scopes"])
+        or not tokens.get("refresh_token")
+        or not tokens.get("access_token")
+    ):
+        raise SystemExit(
+            "Google returned unexpected or missing permissions; existing token preserved."
+        )
+    if not isinstance(email, str) or email.strip().lower() != profile["email"]:
+        raise SystemExit(
+            "Selected Google account differs from the existing owner; token preserved."
+        )
+    try:
+        unchanged = (
+            json.loads(google_token_path("personal").read_text()) == profile["saved"]
+        )
+    except (OSError, ValueError):
+        unchanged = False
+    if not unchanged:
+        raise SystemExit(
+            "Personal connection changed during consent; existing token preserved."
+        )
+
+
+def _write_token(path, saved):
+    """Atomic, private replacement only after consent and identity validation."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=path.parent, delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(saved, stream)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=0, help="loopback port (0 = free port)")
@@ -90,7 +183,13 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    client_id, client_secret = _client_creds()
+    profile = personal_reconnect_profile() if args.account == "personal" else None
+    scopes = profile["scopes"] if profile else SCOPES
+    client_id, client_secret = (
+        (profile["saved"]["client_id"], profile["saved"]["client_secret"])
+        if profile
+        else _client_creds()
+    )
     if not client_id or not client_secret:
         raise SystemExit(
             "No OAuth client found, Sir: connect Gmail first, or put "
@@ -123,7 +222,7 @@ def main() -> None:
             "client_id": client_id,
             "redirect_uri": redirect,
             "response_type": "code",
-            "scope": SCOPE,
+            "scope": " ".join(scopes),
             "access_type": "offline",
             # select_account: always show the picker so Sir can choose his
             # school account when connecting --account school.
@@ -159,20 +258,25 @@ def main() -> None:
         tokens = json.loads(resp.read().decode())
     if not tokens.get("refresh_token"):
         raise SystemExit("No refresh token returned. Remove prior consent and retry.")
-    token_path = google_token_path(args.account)
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(
-        json.dumps(
-            {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": tokens["refresh_token"],
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "scopes": SCOPES,
-            }
+    if profile:
+        about = _request_json(
+            "GET",
+            f"{DRIVE_BASE}/about?fields=user(emailAddress)",
+            tokens.get("access_token", ""),
         )
+        email = str(((about or {}).get("user") or {}).get("emailAddress") or "")
+        validate_personal_grant(profile, tokens, email)
+    token_path = google_token_path(args.account)
+    _write_token(
+        token_path,
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": tokens["refresh_token"],
+            "token_uri": TOKEN_URI,
+            "scopes": scopes,
+        },
     )
-    token_path.chmod(0o600)
     print(f"Saved. Google ({args.account}) is connected: {token_path}")
     email = remember_account_email(args.account)
     if email:

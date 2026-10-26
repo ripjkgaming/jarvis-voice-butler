@@ -22,7 +22,7 @@ from system.codex_worker import MAX_OUTPUT_BYTES, VERIFIED_VERSION, CodexWorker
 from system.codex_worker import CodexWorkerError as PaperMarketWorkerError
 
 RUNTIME_MODEL = "gpt-6-astra"
-RUNTIME_EFFORT = "high"
+RUNTIME_EFFORT = "medium"
 ALLOWED_SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
 MAX_ACTIONS = 4
 MAX_CONTEXT_BYTES = 131_072
@@ -75,7 +75,20 @@ latest context's cash, holdings, trading windows and risk limits. The determinis
 paper ledger will independently validate all proposals and model simulated fills.
 If data is stale, missing or contradictory, if no safe eligible action exists, or
 if expected benefit does not justify trading costs, hold with actions: []. Explain
-the decision briefly using the supplied evidence; do not promise returns."""
+the decision briefly using the supplied evidence; do not promise returns.
+
+Act as an intraday technical paper trader. Code has already collected quotes and
+computed completed-minute momentum, VWAP and session range at zero model cost.
+Your only task is the final buy/sell/hold decision and its size. No research or
+summarization is needed. Look for positive 5- and 15-minute momentum above VWAP;
+use a small 10-20% equity starter when that setup is convincing, within cash and
+position limits. This is a candidate setup, not a guaranteed profit or mandatory
+entry. Reject weak/conflicting setups with a concrete technical reason. Absence
+of news/fundamentals alone is not a reason to ignore an otherwise valid technical
+setup. Manage held positions if momentum reverses. Automatic code checks a 1%
+stop loss and 2% take profit every minute and attempts to flatten in the last ten
+minutes; do not enter during the last thirty minutes. Respect observed data gaps.
+Keep rationale under 400 characters."""
 
 _ALLOWED_ITEMS = {"userMessage", "agentMessage", "reasoning", "contextCompaction"}
 _USAGE_FIELDS = {
@@ -167,7 +180,7 @@ def _usage_snapshot(value: Any) -> dict[str, Any] | None:
 
 
 class PaperMarketWorker(CodexWorker):
-    """One ephemeral no-tools thread, fixed to GPT-6 Astra with high effort.
+    """One ephemeral no-tools thread, fixed to GPT-6 Astra with medium effort.
 
     Call ``start(private_workspace)`` before ``propose(context)`` and always call
     ``close()`` in a finally block. Failures and cancellation also close the
@@ -209,7 +222,7 @@ class PaperMarketWorker(CodexWorker):
                     "inputModalities", ["text", "image"]
                 ):
                     raise PaperMarketWorkerError(
-                        "GPT-6 Astra with high effort is unavailable in the Codex catalog."
+                        "GPT-6 Astra with medium effort is unavailable in the Codex catalog."
                     )
                 return
             cursor = page.get("nextCursor")
@@ -305,7 +318,7 @@ class PaperMarketWorker(CodexWorker):
             raise PaperMarketWorkerError("Paper worker is not started and verified.")
         if self.model != RUNTIME_MODEL or self.effort != RUNTIME_EFFORT:
             raise PaperMarketWorkerError(
-                "Paper worker requires exactly gpt-6-astra with high effort."
+                "Paper worker requires exactly gpt-6-astra with medium effort."
             )
         try:
             if not isinstance(context, dict):

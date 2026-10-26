@@ -5,11 +5,11 @@ for 108 s (no speech events, no transcript, no error) while Sir kept
 talking, then flushed everything at once and re-ran a finished tool.
 
 The watchdog wraps each RealtimeSession the google plugin hands out:
-  - every message from Gemini (content, tool call, usage, go-away)
-    stamps "heard from the server";
+  - model output or a tool call stamps "answered by the server";
   - mic frames pushed to Gemini are split into utterances (plain RMS
     gate; the wake client already denoises).
-When Sir has finished UTTERANCES utterances that Gemini never answered,
+When a completed utterance has gone unanswered for SILENT_S, or Sir
+has finished UTTERANCES utterances that Gemini never answered,
 the first at least SILENT_S ago, the session is marked for restart, the same path the plugin
 uses for its own errors (it resumes with the session handle). At most one
 forced restart per COOLDOWN_S, so a noisy room cannot loop it.
@@ -49,8 +49,6 @@ VOICE_RMS = 400.0
 _SERVER_HANDLERS = (
     "_handle_server_content",
     "_handle_tool_calls",
-    "_handle_usage_metadata",
-    "_handle_go_away",
 )
 
 
@@ -85,6 +83,7 @@ class StallClock:
         #: Start of the first unanswered utterance (None: none yet).
         self.first_at: float | None = None
         self.unanswered = 0
+        self.finished_at: float | None = None
         self._utter_at: float | None = None
         self._utter_s = 0.0
         self._voice_at = 0.0
@@ -100,14 +99,18 @@ class StallClock:
             span = max(1e-6, self._voice_at - self._utter_at)
             if self._utter_s >= UTTER_MIN_S and self._utter_s >= UTTER_DENSITY * span:
                 self.unanswered += 1
+                self.finished_at = now
                 if self.first_at is None:
                     self.first_at = self._utter_at
             self._utter_at = None
             self._utter_s = 0.0
         if (
             self.first_at is not None
-            and self.unanswered >= UTTERANCES
-            and now - self.first_at >= SILENT_S
+            and self._utter_at is None
+            and (
+                (self.unanswered >= UTTERANCES and now - self.first_at >= SILENT_S)
+                or (self.finished_at is not None and now - self.finished_at >= SILENT_S)
+            )
             and now - self.forced_at >= COOLDOWN_S
         ):
             self.forced_at = now
@@ -124,8 +127,16 @@ def _guard(session) -> None:
         if original is None:
             continue
 
-        def stamped(*args, _orig=original, **kwargs):
-            clock.server(time.monotonic())
+        def stamped(*args, _orig=original, _name=name, **kwargs):
+            # Input transcripts and usage/keepalive traffic prove transport
+            # liveness, not an answer. They must not mask a deaf model.
+            content = args[0] if args else kwargs.get("server_content")
+            answered = _name == "_handle_tool_calls" or any(
+                getattr(content, field, None)
+                for field in ("model_turn", "output_transcription")
+            )
+            if answered:
+                clock.server(time.monotonic())
             return _orig(*args, **kwargs)
 
         setattr(session, name, stamped)

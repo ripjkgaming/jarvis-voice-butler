@@ -23,8 +23,10 @@ LAUNCH = [
 
 def ensure(timeout_s: float = 60.0, spawn=subprocess.Popen, sleep=time.sleep) -> bool:
     """True when the WhatsApp page answers, launching it headless if needed."""
-    if wa.alive() and wa.page_present():
-        return True
+    if wa.alive():
+        # A running client on an offline/blank page needs recovery of that
+        # existing session, not another hidden launch on every watcher pass.
+        return wa.page_present()
     try:
         spawn(
             LAUNCH,

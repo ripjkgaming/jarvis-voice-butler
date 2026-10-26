@@ -502,7 +502,9 @@ def transcribe_ogg(ogg: bytes, run=None, model=None) -> str:
                 whisper_model_name(), device="cpu", compute_type="int8"
             )
         model = _WHISPER
-    segments, _info = model.transcribe(audio, language="en", beam_size=1)
+    segments, _info = model.transcribe(
+        audio, language="en", task="transcribe", beam_size=1
+    )
     return " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
 
 

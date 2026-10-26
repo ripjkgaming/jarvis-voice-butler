@@ -1,0 +1,23 @@
+{
+  "metrics": {
+    "vad_end_to_agent_speaking_s": {
+      "n": 32,
+      "p50_s": 0.958654,
+      "p95_s": 2.924855
+    },
+    "vad_end_to_verified_workflow_s": {
+      "n": 0,
+      "p50_s": null,
+      "p95_s": null
+    },
+    "provider_generation_to_first_audio_s": {
+      "n": 256,
+      "p50_s": 0.419335,
+      "p95_s": 3.683948
+    }
+  },
+  "window": 256,
+  "overlap_observations_in_log": 411,
+  "acoustic_end_to_physical_first_audible": "unavailable; requires coordinated live measurement",
+  "scope": "VAD/state, validated read-workflow, and provider-generation intervals are distinct; no inference of action correctness or spoken completion"
+}

@@ -172,6 +172,8 @@ def write_session(summary: dict, when: float) -> bool:
         f"**Open loops**\n{_bullets(summary.get('open_loops'))}"
     )
     ok = _append(daily_path(day), body, f"# {day.strftime('%A %d %B %Y')}")
+    if not ok:
+        return False
     for th in summary.get("threads") or []:
         if not isinstance(th, dict) or not str(th.get("name") or "").strip():
             continue
@@ -280,7 +282,8 @@ def capture_once(
     summary, warning = (summarise_fn or summarise)(fresh, touched_today(now))
     if summary is None:
         return f"failed:{warning}"[:80]
-    write_session(summary, newest)
+    if not write_session(summary, newest):
+        return "failed:could not save session"
     state["last_ts"] = newest
     save_state(state)
     return "captured"
@@ -339,19 +342,26 @@ def forget(query: str, now: float | None = None) -> list[str]:
     except OSError:
         lines = []
     keep = []
+    archived_preferences = []
     for line in lines:
         if line.startswith("- ") and q in line.lower():
-            _append(
+            archived = _append(
                 archive_dir() / "Forgotten.md",
                 f"- {line[2:]} (forgotten {stamp})",
                 "# Forgotten",
             )
-            moved.append(line[2:])
+            if archived:
+                archived_preferences.append(line[2:])
+            else:
+                # The archive must contain the preference before we remove
+                # its only active copy.
+                keep.append(line)
         else:
             keep.append(line)
     if len(keep) != len(lines):
         with contextlib.suppress(OSError):
             prefs_path().write_text("\n".join(keep) + "\n")
+            moved.extend(archived_preferences)
     with contextlib.suppress(OSError):
         for note in sorted(threads_dir().glob("*.md")):
             if q in note.stem.lower():

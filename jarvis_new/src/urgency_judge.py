@@ -1,4 +1,4 @@
-"""ChatGPT decides whether an incoming email is urgent for Sir.
+"""Mercury Decide (ChatGPT as fallback) decides whether an incoming email is urgent for Sir.
 
 The mail watcher's keyword triage (system.inbox.classify_email) is fast but
 blunt: "urgent" in a newsletter or a school domain on a routine notice both
@@ -17,6 +17,7 @@ import os
 import re
 
 import chatgpt_cli
+import mercury_decide
 
 from draft_engine import _END, _START, MAX_EMAIL_CHARS, _fence
 
@@ -77,12 +78,79 @@ def parse_verdict(reply: str) -> dict | None:
     return {"urgent": data["urgent"] and not scam, "scam": scam, "reason": reason}
 
 
+#: Mercury probability a yes/no answer must clear to count as yes. Scam is
+#: stricter because a scam verdict silences the mail.
+URGENT_THRESHOLD = 0.5
+SCAM_THRESHOLD = 0.8
+
+MERCURY_QUESTIONS = {
+    "urgent": {
+        "type": "noul",
+        "instructions": (
+            "Does this email need Sir's attention within hours? Judge the "
+            "content, not shouting in the subject."
+        ),
+        "criteria": {
+            "true": (
+                "A real person needs Sir within hours: a deadline today or "
+                "tomorrow, changed exam, class, room or schedule, safety, "
+                "health, money or account trouble, or a time-critical request."
+            ),
+            "false": (
+                "Newsletter, promotion, receipt, social notification, "
+                "automated digest, routine question, or marketing that "
+                "merely says URGENT or ACT NOW."
+            ),
+        },
+    },
+    "scam": {
+        "type": "noul",
+        "instructions": "Is this clearly a scam or phishing email?",
+        "criteria": {
+            "true": (
+                "Fake prize or invoice, extended-warranty spam, advance-fee "
+                "or crypto pitch, credential-harvesting link, impersonation."
+            ),
+            "false": (
+                "A real person, a legitimate company, a newsletter, or "
+                "anything uncertain."
+            ),
+        },
+    },
+}
+
+
+def judge_mercury(parsed_msg: dict) -> tuple[dict | None, str | None]:
+    """Mercury Decide (~0.6s, free) -> verdict or (None, warning). Never raises."""
+    answers, warning = mercury_decide.decide(
+        build_prompt(parsed_msg), MERCURY_QUESTIONS
+    )
+    if warning:
+        return None, warning
+    urgent = mercury_decide.yes_prob(answers, "urgent")
+    scam = mercury_decide.yes_prob(answers, "scam")
+    if urgent is None or scam is None:
+        return None, "Mercury answer was incomplete"
+    is_scam = scam >= SCAM_THRESHOLD
+    return {
+        "urgent": urgent >= URGENT_THRESHOLD and not is_scam,
+        "scam": is_scam,
+        "reason": f"mercury urgent={urgent:.2f} scam={scam:.2f}",
+    }, None
+
+
 def judge(
     parsed_msg: dict, *, timeout: float = 60.0, runner=None
 ) -> tuple[dict | None, str | None]:
-    """Ask ChatGPT -> ({"urgent", "reason"}, None) or (None, warning). Never raises."""
+    """Mercury first, ChatGPT as fallback -> ({"urgent", "reason"}, None) or
+    (None, warning). Never raises. An injected runner means a hermetic test of
+    the ChatGPT path, so Mercury is skipped."""
     if not enabled():
         return None, f"Urgency AI disabled ({ENV}=0)"
+    if runner is None:
+        verdict, _ = judge_mercury(parsed_msg)
+        if verdict is not None:
+            return verdict, None
     try:
         reply, warning = chatgpt_cli.chatgpt_reply(
             build_prompt(parsed_msg),

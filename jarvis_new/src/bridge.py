@@ -57,8 +57,9 @@ Phone API (JarvisLink Android app over Tailscale): the same server, with
     POST /camera/frame {image_b64} ingest phone photo (pruned to last 50)
     GET  /camera/latest          newest ingested photo (image/jpeg)
 
-Security: binds 127.0.0.1 by default. If JARVIS_BRIDGE_TOKEN is set, all
-endpoints require `Authorization: Bearer <token>` (constant-time compare).
+Security: binds 127.0.0.1 by default. Startup requires the existing token
+from JARVIS_BRIDGE_TOKEN or $JARVIS_HOME/bridge_token (~/.jarvis by default).
+All endpoints require `Authorization: Bearer <token>` (constant-time compare).
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import hashlib
+import hmac
 import json
 import os
 import re
@@ -121,6 +122,12 @@ _GUEST_VOICE_TOOLS = frozenset(
     }
 )
 _GUEST_REFUSAL = "No. Guests don't get that."
+
+def _effective_guest(body: dict) -> bool:
+    import phone_session
+
+    return body.get("guest") is True or phone_session.guest_required()
+
 
 # Spoken/chatted text -> allowlisted PC tool. First regex match wins, so
 # unlock sits before lock ("unlock" contains "lock") and unmute before
@@ -361,6 +368,11 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     lowered = _clean_voice_text(text)
     if not lowered:
         return None
+    import protocols
+
+    proto = protocols.parse(lowered)
+    if proto is not None:
+        return ("protocol", proto, None)
     import suit_diagnostics
 
     suit_open = suit_diagnostics.parse_command(lowered)
@@ -375,13 +387,19 @@ def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
     expr = _spoken_math(text)
     if expr is not None:
         return ("do_math", {"expr": expr}, None)
-    # Watch mode ("I'm leaving" / "watch the laptop"): camera guard +
-    # fullscreen card, stopped only by its keybind (src/watch_mode.py).
+    # Productive observation takes precedence over the legacy camera guard.
     try:
+        import computer_watch
+
         import watch_mode as _watch
 
-        if _watch.parse_command(lowered):
+        action = computer_watch.parse_command(lowered)
+        # Starting Watch Mode means the fullscreen ASCII card + camera guard
+        # (src/watch_mode.py), stopped by Ctrl+Alt+Shift+W / jarvis-watch-stop.
+        if action == "start" and _watch.enabled():
             return ("watch_mode", {}, "Watching the laptop, Sir.")
+        if action is not None:
+            return ("computer_watch", {"action": action}, None)
     except Exception:
         pass
     mode = _school.parse_command(lowered)
@@ -440,50 +458,27 @@ _PLAY_FILLER = re.compile(
     r"\s+(?:by|from|of|about)\s+",
 )
 _YT_PLAYLIST = "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
-_YT_VIDEO_ID = re.compile(r'"videoId":"([A-Za-z0-9_-]{11})"')
-
-
 def _clean_play_query(text: str) -> str:
     """Strip filler: a video by grant wisler -> grant wisler. Pure."""
     q = (text or "").strip().rstrip(".!?")
     return _PLAY_FILLER.sub("", q).strip() or q
 
 
-def _youtube_url(query: str, fetch=None) -> str:
-    """First YouTube video for the query, else the results page. Never raises."""
-    import urllib.parse
-
-    results = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(
-        query
-    )
-    try:
-        if fetch is None:
-            req = urllib.request.Request(
-                results,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
-                    ),
-                    "Accept-Language": "en",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                html = resp.read(2_000_000).decode("utf-8", "replace")
-        else:
-            html = fetch(results)
-        m = _YT_VIDEO_ID.search(html)
-        if m:
-            return f"https://www.youtube.com/watch?v={m.group(1)}"
-    except Exception:
-        pass
-    return results
+def _youtube_url(query: str, runner=None) -> str | None:
+    """Only a supported metadata match returns a watch URL; never first HTML ID."""
+    from media_selection import resolve
+    return resolve(query, runner=runner).url
 
 
 def _spawn_desktop(argv) -> None:
     """Launch with the same sandbox isolation as the agent's system tools."""
     from system.desktop import sandbox_display
+    from system.launcher import require_launch_allowed
 
+    try:
+        require_launch_allowed(argv)
+    except ValueError as exc:
+        raise OSError(str(exc)) from exc
     options = {}
     display = sandbox_display()
     if display:
@@ -500,28 +495,43 @@ def _spawn_desktop(argv) -> None:
 
 
 def _play_media(query: str) -> dict:
-    """Open YouTube in Sir's Brave: first matching video, or the playlist."""
-    query = (query or "").strip()[:200]
-    url = _youtube_url(query) if query else _YT_PLAYLIST
-    brave = _which("brave-browser") or _which("brave")
-    argv = [brave, "--new-window", url] if brave else ["xdg-open", url]
-    # Music plays in the background: remember Sir's window and the Brave
-    # windows already open, then minimize the new one once it maps.
-    from system import window_ctl
+    """Shared metadata policy; launch request never proves playback."""
+    import phone_session
+    from media_selection import receipt, resolve
+    from system import LocalSystemError, window_ctl
+    from system.school_tools import loud_guard
 
-    before = window_ctl.brave_window_ids()
-    previous = window_ctl.active_title() if before is not None else ""
+    query = (query or "").strip()
+    ticket = phone_session.approval_ticket()
+    def authorize():
+        phone_session.check_approval_effect(ticket, current=True)
+        error = phone_session.private_tool_error("play_media")
+        if error:
+            raise LocalSystemError(error)
+        loud_guard("play_media", {"query": query})
+
     try:
-        _spawn_desktop(argv)
-    except OSError as exc:
-        return _tool_result(False, error=str(exc)[:200])
+        authorize()
+        selection = resolve(query, guard=authorize) if query else None
+        if selection is not None and selection.decision != "selected":
+            return receipt(selection)
+        brave = _which("brave-browser") or _which("brave")
+        if not brave:
+            return receipt(selection, reason="brave_unavailable")
+        url = selection.url if selection else _YT_PLAYLIST
+        before = window_ctl.brave_window_ids()
+        previous = window_ctl.active_title() if before is not None else ""
+        authorize()
+        _spawn_desktop([brave, "--new-window", url])
+    except (OSError, LocalSystemError):
+        return receipt(reason="launch_refused")
+    result = receipt(selection, launched=True)
+    result.update(query=query, url=url)
     if before is not None:
-        Thread(
-            target=window_ctl.background_new_brave,
-            args=(before, previous),
-            daemon=True,
-        ).start()
-    return _tool_result(True, query=query, url=url)
+        # Window bookkeeping cannot turn a dispatched launch into a safe retry.
+        with contextlib.suppress(Exception):
+            Thread(target=window_ctl.background_new_brave, args=(before, previous), daemon=True).start()
+    return result
 
 
 _TYPE_MAX = 500
@@ -808,6 +818,9 @@ SIDECAR_THREADS = (
     ("exams", "JARVIS_EXAM_REMIND"),
     # Proactive engine: calendar/mail/jobs/disk/deadline signals, one policy.
     ("proactive.engine", "JARVIS_PROACTIVE_ENGINE"),
+    # Explicit user reminders/calls survive restarts and do not depend on
+    # whether unsolicited proactive suggestions are enabled.
+    ("scheduled_tasks", "JARVIS_SCHEDULED_TASKS"),
     # Long-term memory: summarise each session into the vault when it ends.
     ("memory", "JARVIS_MEMORY"),
     # Background tasks: resume any a restart interrupted.
@@ -821,6 +834,15 @@ def start_sidecar_threads() -> None:
     """Start each hosted service's start_thread(). A service whose kill
     switch is 0/off, or that fails to import, is skipped. Never raises."""
     import importlib
+
+    # Build observation is explicitly opt-in; its module never emits notices.
+    if _env("JARVIS_BUILD_MONITOR", "0").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            import build_monitor
+
+            build_monitor.start_thread()
+        except Exception as exc:
+            print(f"build monitor unavailable: {exc}", flush=True)
 
     for module, switch in SIDECAR_THREADS:
         if _env(switch, "1").strip().lower() in ("0", "false", "off", "no"):
@@ -1817,6 +1839,8 @@ def _launch_anything(name: str) -> dict:
 
     if blocked := is_blocked(name, decision.target, *decision.argv):
         return _tool_result(False, error=blocked_say(blocked))
+    if decision.kind == "blocked":
+        return _tool_result(False, error=decision.say)
     if decision.kind == "app" and decision.argv:
         argv = list(decision.argv)
     else:
@@ -1929,6 +1953,11 @@ def _is_usage_error(exc: Exception) -> bool:
     )
 
 
+GEMINI_ATTEMPT_TIMEOUT_MS = 10_000
+GEMINI_COOLDOWN_S = 60.0
+_GEMINI_COOLDOWN: dict[str, float] = {}
+
+
 def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None]:
     """Direct Gemini reply with high-usage backups. Returns (reply, warning).
 
@@ -1953,11 +1982,6 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
         return _fallback_chat(transcript, persona, "voice stack missing (google-genai)")
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-GEMINI_ATTEMPT_TIMEOUT_MS = 10_000
-GEMINI_COOLDOWN_S = 60.0
-_GEMINI_COOLDOWN: dict[str, float] = {}
-
-
         return _fallback_chat(transcript, persona, "GOOGLE_API_KEY not configured")
     if guest:
         brief = (
@@ -1975,12 +1999,20 @@ _GEMINI_COOLDOWN: dict[str, float] = {}
     chain = [GEMINI_TEXT_MODEL, *GEMINI_TEXT_FALLBACKS]
     seen = set()
     models = [m for m in chain if not (m in seen or seen.add(m))]
+    # Skip models that just failed (504/429) so a dead model costs nothing
+    # on the next requests; the last model is always tried.
+    now = time.monotonic()
+    live = [m for m in models if _GEMINI_COOLDOWN.get(m, 0.0) <= now]
+    models = live or models[-1:]
     last_err: Exception | None = None
     for idx, model_id in enumerate(models):
         # Per-attempt deadline (ms). Gemini rejects deadlines under 10s
         # (400), so 10s is the floor; the final attempt gets longer.
         timeout_ms = GEMINI_ATTEMPT_TIMEOUT_MS * (2 if idx == len(models) - 1 else 1)
         try:
+            client = genai.Client(
+                api_key=api_key, http_options={"timeout": timeout_ms}
+            )
             return (
                 client.models.generate_content(
                     model=model_id,
@@ -1992,6 +2024,7 @@ _GEMINI_COOLDOWN: dict[str, float] = {}
             last_err = exc
             if not _is_usage_error(exc):
                 return "", f"LLM unavailable: {last_err}"[:200]
+            _GEMINI_COOLDOWN[model_id] = time.monotonic() + GEMINI_COOLDOWN_S
     # Every Gemini text model is out of quota: Ling 3.0 Flash via OpenRouter
     # (free tier) keeps chat alive.
     return _fallback_chat(transcript, persona, f"LLM unavailable: {last_err}"[:200])
@@ -2002,17 +2035,9 @@ def _fallback_chat(
 ) -> tuple[str, str | None]:
     """Ling 3.0 Flash via OpenRouter; the original warning if it
     fails too. Never raises."""
-    # Skip models that just failed (504/429) so a dead model costs nothing
-    # on the next requests; the last model is always tried.
-    now = time.monotonic()
-    live = [m for m in models if _GEMINI_COOLDOWN.get(m, 0.0) <= now]
-    models = live or models[-1:]
     try:
         import openrouter_chat
 
-            client = genai.Client(
-                api_key=api_key, http_options={"timeout": timeout_ms}
-            )
         reply, _ = openrouter_chat.chat_reply(
             transcript,
             system=persona,
@@ -2024,12 +2049,18 @@ def _fallback_chat(
 
 
 def _tool_result(ok: bool, **fields) -> dict:
-            _GEMINI_COOLDOWN[model_id] = time.monotonic() + GEMINI_COOLDOWN_S
     return {"ok": ok, **fields}
 
 
 def run_phone_tool(tool: str, args: dict) -> dict:
     """Execute one allowlisted phone-control tool. No shell, argv only."""
+    import phone_session
+
+    if phone_session.private() and phone_session.guest_required():
+        return _tool_result(False, error="The private phone call has ended.")
+    private_error = phone_session.private_tool_error(tool)
+    if private_error:
+        return _tool_result(False, error=private_error)
     if not isinstance(args, dict):
         args = {}
     if tool == "set_suit_diagnostics":
@@ -2043,44 +2074,30 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return result or _tool_result(
             False, error="The suit diagnostics panel didn't respond"
         )
-    if tool == "volume_get":
-        rc, out, err = _run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], 5.0)
-        _, mute_out, _ = _run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], 5.0)
-        if rc != 0:
-            return _tool_result(False, error=err or "pactl failed")
-        return _tool_result(
-            True,
-            volume=_parse_volume_pct(out),
-            muted="yes" in mute_out.lower(),
-        )
-    if tool in ("volume_up", "volume_down"):
-        if _which("pactl") is None:
-            return _tool_result(False, error="pactl not installed")
-        delta = "+5%" if tool == "volume_up" else "-5%"
-        rc, _, err = _run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", delta], 5.0)
-        return _tool_result(rc == 0, error=None if rc == 0 else err)
-    if tool == "volume_set":
-        # Absolute level 0..150 (pactl allows >100% boost). Always
-        # verifies by reading back: the reply reports the real level,
-        # never the requested one.
-        if _which("pactl") is None:
-            return _tool_result(False, error="pactl not installed")
-        try:
-            level = int(args.get("level", -1))
-        except (TypeError, ValueError):
+    if tool in {"volume_get", "volume_up", "volume_down", "volume_set", "volume_mute", "volume_unmute"}:
+        from action_outcome import parse_outcome
+        from system import audio_ctl
+        from system.school_tools import loud_guard
+        action = {"volume_get": "status", "volume_up": "up", "volume_down": "down", "volume_set": "set", "volume_mute": "mute", "volume_unmute": "unmute"}[tool]
+        level = args.get("level")
+        if action == "set" and (type(level) is not int or not 0 <= level <= 150):
             return _tool_result(False, error="level must be 0..150")
-        if not 0 <= level <= 150:
-            return _tool_result(False, error="level must be 0..150")
-        rc, _, err = _run(
-            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"], 5.0
-        )
-        if rc != 0:
-            return _tool_result(False, error=err or "pactl failed")
-        return run_phone_tool("volume_get", {})
-    if tool in ("volume_mute", "volume_unmute"):
-        toggle = "1" if tool == "volume_mute" else "0"
-        rc, _, err = _run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", toggle], 5.0)
-        return _tool_result(rc == 0, error=None if rc == 0 else err)
+        ticket = phone_session.approval_ticket()
+        def authorize():
+            phone_session.check_approval_effect(ticket, current=True)
+            if phone_session.private() and phone_session.guest_required():
+                raise PermissionError("Private owner session ended")
+            loud_guard("set_volume", {"action": action, "level": level})
+        def runner(argv, **kwargs):
+            rc, out, err = _run(argv, kwargs.get("timeout", 5.0))
+            return subprocess.CompletedProcess(argv, rc, out, err)
+        result = audio_ctl.volume_result(action, level, run=runner, which=_which, step=5, authorize=authorize)
+        outcome = parse_outcome(result)
+        if "actual_pct" in outcome.evidence:
+            result["volume"] = outcome.evidence["actual_pct"]
+        if "actual_muted" in outcome.evidence:
+            result["muted"] = outcome.evidence["actual_muted"]
+        return result
     if tool in ("media_play_pause", "media_next", "media_prev"):
         action = {
             "media_play_pause": "play-pause",
@@ -2235,11 +2252,52 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return result
     if tool == "school_mode":
         return _tool_result(True, **set_school_mode(str(args.get("mode", ""))))
-    if tool == "watch_mode":
-        import watch_mode as _watch
+    if tool == "computer_watch":
+        import computer_watch
+        from watch_control import accept_transport
 
-        got = dict(_watch.launch())
-        return _tool_result(bool(got.pop("ok", False)), **got)
+        if not accept_transport(args):
+            return _tool_result(False, error="Watch request was cancelled by Stop.")
+
+        action = str(args.get("action", ""))
+        if action == "stop":
+            stopped = computer_watch.stop()
+            return _tool_result(True, active=False, say="Stopped watching the computer, Sir.")
+        if not computer_watch.allowed():
+            return _tool_result(False, error="Computer watch requires the local owner session.")
+        if action == "context":
+            computer_watch.note_context(str(args.get("context", ""))[-1000:])
+            return _tool_result(True)
+        if action == "briefing":
+            if computer_watch.status().get("screen_observation"):
+                return _tool_result(True, say="Open Watch Mode briefing in the native tray to read the private visual summary.")
+            return _tool_result(True, say=computer_watch.briefing())
+        if action not in {"start", "stop", "status"}:
+            return _tool_result(False, error="Unknown watch action.")
+        got = dict(getattr(computer_watch, action)())
+        if action == "status" and got.get("screen_observation"):
+            got.pop("events", None)
+            got.pop("task", None)
+        ok = bool(got.pop("ok", True))
+        if not ok:
+            return _tool_result(False, **got)
+        say = (
+            "Watching the computer, Sir: the configured Gemini text model analyzes active-window metadata, tracked activity and recent conversation."
+            if action == "start" else
+            "Stopped watching the computer, Sir."
+            if action == "stop" else "Visual Watch Mode is active; use the native tray briefing for private details." if got.get("screen_observation") else computer_watch.briefing()
+        )
+        return _tool_result(ok, **got, say=say)
+    if tool == "watch_mode":
+        import watch_mode
+
+        from system import log_action
+
+        got = watch_mode.launch()
+        if not got.get("ok"):
+            return _tool_result(False, error=str(got.get("error") or "Watch mode did not start."))
+        log_action("watch_mode", "launched")
+        return _tool_result(True, state=got.get("state", "watching"), say="Watching the laptop, Sir.")
     if tool == "notify":
         title = str(args.get("title", "Jarvis phone"))[:120]
         body = str(args.get("body", ""))[:300]
@@ -2395,6 +2453,12 @@ def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
     """Execute one routed voice command. "type" goes via wtype."""
     if tool == "type":
         return handle_type(args)
+    if tool == "protocol":
+        import protocols
+
+        # Always 200: "Protocol N is unassigned" is an answer, not a failure.
+        res = protocols.handle(args)
+        return 200, {**res, "ok": True, "protocol_ok": res.get("ok", False)}
     result = run_phone_tool(tool, args if isinstance(args, dict) else {})
     if tool == "screenshot" and result.get("ok"):
         result = {"ok": True}  # voice can't show the image; keep replies light
@@ -2403,6 +2467,10 @@ def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
 
 def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
     """Success replies that need the tool result. Pure."""
+    if tool == "protocol":
+        return str(result.get("say") or "")
+    if tool == "computer_watch":
+        return str(result.get("say") or "Watch status unavailable, Sir.")
     if tool in ("volume_get", "volume_set"):
         vol = result.get("volume")
         if isinstance(vol, int):
@@ -2415,8 +2483,7 @@ def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
         say = result.get("say")
         return say if isinstance(say, str) and say else "Very good."
     if tool == "play_media":
-        q = args.get("query") or ""
-        return f"Playing {q} on YouTube, Sir." if q else "Playing your playlist, Sir."
+        return result.get("say") or "The video launch is not verified."
     if tool == "open_app":
         name = result.get("app") or args.get("app", "it")
         if result.get("state") == "already running":
@@ -2445,8 +2512,23 @@ def _voice_tool_reply(
             "audio_rate": rate,
             "action": {"tool": tool, "ok": False, "denied": "guest mode"},
         }
-    code, result = _run_voice_action(tool, args)
-    if code == 200 and result.get("ok"):
+    import action_guard
+    duplicate = action_guard.claim(tool, args, "talk") if tool == "play_media" else None
+    if duplicate is not None:
+        result = action_guard.duplicate_reply(duplicate, "The video request is already in progress.")
+        code = 200
+    else:
+        try:
+            code, result = _run_voice_action(tool, args)
+        except Exception:
+            if tool == "play_media":
+                action_guard.settle(tool, args, "talk", False)
+            raise
+    from action_outcome import parse_outcome
+    receipt = parse_outcome(result)
+    if receipt is not None:
+        reply = result.get("say", receipt.say) if tool == "play_media" else receipt.say
+    elif code == 200 and result.get("ok"):
         reply = (
             ok_reply
             if ok_reply is not None
@@ -2454,8 +2536,12 @@ def _voice_tool_reply(
         )
     else:
         reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
+    if tool == "play_media" and duplicate is None:
+        action_guard.settle(tool, args, "talk", bool(result.get("ok")), reply, outcome=receipt)
     audio_b64, rate = _speak_quietly(reply)
     action = {"tool": tool, "ok": bool(result.get("ok"))}
+    if receipt is not None:
+        action["outcome"] = receipt.to_dict()
     if not result.get("ok"):
         action["error"] = result.get("error")
     elif tool == "remote_start":
@@ -2624,8 +2710,19 @@ def handle_route(body: dict) -> tuple[int, dict]:
     text = body.get("text", "")
     if not isinstance(text, str) or not text.strip() or len(text) > 500:
         return 400, {"ok": False, "error": "body needs text 1..500 chars"}
-    guest = body.get("guest") is True
+    guest = _effective_guest(body)
     clean = text.strip()
+    if not guest:
+        from watch_control import controls
+
+        watched = controls.handle(clean, "bridge-owner")
+        if watched is not None:
+            return 200, {**watched, "reply": watched.get("say") or watched.get("error", "Watch Mode unavailable."), "action": {"tool": "computer_watch", "ok": watched.get("ok", False)}}
+    if not guest:
+        with contextlib.suppress(Exception):
+            import computer_watch
+
+            computer_watch.note_context(clean)
 
     def denied(tool: str) -> tuple[int, dict]:
         return 200, {
@@ -2659,17 +2756,22 @@ def handle_route(body: dict) -> tuple[int, dict]:
         # audio it heard: then don't act twice, and stay quiet (it speaks).
         dup = action_guard.claim(tool, args, "route")
         if dup is not None:
+            duplicate = action_guard.duplicate_reply(dup, "Done, Sir.")
             return 200, {
                 "ok": True,
-                "reply": action_guard.duplicate_reply(dup, "Done, Sir.")["say"],
+                "reply": duplicate["say"],
                 "duplicate": True,
-                "action": {"tool": tool, "ok": dup.get("ok")},
+                "action": {"tool": tool, "ok": dup.get("ok"), **({"outcome": duplicate["outcome"]} if "outcome" in duplicate else {})},
             }
         try:
             code, result = _run_voice_action(tool, args)
         except Exception as exc:
             code, result = 500, {"ok": False, "error": str(exc)[:150] or "action failed"}
-        if code == 200 and result.get("ok"):
+        from action_outcome import parse_outcome
+        receipt = parse_outcome(result)
+        if receipt is not None:
+            reply = result.get("say", receipt.say) if tool == "play_media" else receipt.say
+        elif code == 200 and result.get("ok"):
             reply = (
                 ok_reply
                 if ok_reply is not None
@@ -2680,9 +2782,11 @@ def handle_route(body: dict) -> tuple[int, dict]:
         else:
             reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
         action_guard.settle(
-            tool, args, "route", code == 200 and bool(result.get("ok")), reply
+            tool, args, "route", code == 200 and bool(result.get("ok")), reply, outcome=receipt
         )
         action: dict = {"tool": tool, "ok": bool(result.get("ok"))}
+        if receipt is not None:
+            action["outcome"] = receipt.to_dict()
         if not result.get("ok"):
             action["error"] = result.get("error")
         elif tool == "remote_start":
@@ -2740,20 +2844,24 @@ def handle_talk(body: dict) -> tuple[int, dict]:
         return 501, {"ok": False, "error": "voice stack missing (faster-whisper)"}
     global _PHONE_WHISPER
     if _PHONE_WHISPER is None:
+        from whisper_config import configured_model
+
         _PHONE_WHISPER = WhisperModel(
-            os.environ.get("JARVIS_PHONE_WHISPER", "tiny"),
+            configured_model("JARVIS_PHONE_WHISPER"),
             device="cpu",
             compute_type="int8",
         )
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
     try:
-        segments, _ = _PHONE_WHISPER.transcribe(audio, language="en", beam_size=1)
+        segments, _ = _PHONE_WHISPER.transcribe(
+            audio, language="en", task="transcribe", beam_size=1
+        )
         transcript = " ".join(s.text.strip() for s in segments).strip()
     except Exception as exc:
         return 500, {"ok": False, "error": f"transcribe failed: {exc}"[:200]}
     if not transcript:
         return 200, {"ok": True, "transcript": "", "reply": "", "audio_b64": ""}
-    guest = body.get("guest") is True
+    guest = _effective_guest(body)
     cmd = _match_voice_tool(transcript)
     if cmd is not None:
         return _voice_tool_reply(cmd, transcript, guest)
@@ -2818,7 +2926,18 @@ def handle_chat(body: dict) -> tuple[int, dict]:
         if reply is not None:
             return 200, {"ok": True, "voice": "summoned"}
         # Listener absent: fall through to the text answer below.
-    guest = body.get("guest") is True
+    guest = _effective_guest(body)
+    if not guest:
+        from watch_control import controls
+
+        watched = controls.handle(text.strip(), "bridge-owner")
+        if watched is not None:
+            return 200, {**watched, "reply": watched.get("say") or watched.get("error", "Watch Mode unavailable.")}
+    if not guest:
+        with contextlib.suppress(Exception):
+            import computer_watch
+
+            computer_watch.note_context(text.strip())
     cmd = _match_voice_tool(text.strip())
     if cmd is not None:
         tool, args, ok_reply = cmd
@@ -2869,17 +2988,37 @@ def handle_chat(body: dict) -> tuple[int, dict]:
             "You are Jarvis, a terse British butler texting with Sir. "
             "Keep replies short (a few sentences max), plain text, no formatting. "
         )
-    if turns:
+    if turns and not guest:
         prompt += "Conversation so far:\n" + "\n".join(turns) + "\n"
     prompt += f"Sir: {text.strip()}"
-    reply, warning = _gemini_reply(prompt)
+    reply, warning = _gemini_reply(prompt, guest=True) if guest else _gemini_reply(prompt)
     if warning and not reply:
         return 200, {"ok": True, "reply": "", "warning": warning}
     return 200, {"ok": True, "reply": reply}
 
 
+class _CountingReader:
+    """rfile proxy counting bytes read so unread POST bodies can be drained."""
+
+    def __init__(self, raw: object) -> None:
+        self._raw = raw
+        self.count = 0
+
+    def read(self, *args: object) -> bytes:
+        data = self._raw.read(*args)  # type: ignore[attr-defined]
+        self.count += len(data)
+        return data
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._raw, name)
+
+
 class _Handler(BaseHTTPRequestHandler):
     token: str = ""
+    # HTTP/1.1 keep-alive: every response path (_send, _send_bytes,
+    # do_OPTIONS) sets Content-Length; do_POST drains unread bodies.
+    protocol_version = "HTTP/1.1"
+    timeout = 30  # reap idle keep-alive sockets
 
     def log_message(self, *args: object) -> None:  # keep voice logs clean
         pass
@@ -2889,15 +3028,14 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         got = self.headers.get("Authorization", "")
         want = "Bearer " + self.token
-        return (
-            hashlib.sha256(got.encode()).digest()
-            == hashlib.sha256(want.encode()).digest()
-        )
+        return hmac.compare_digest(got.encode(), want.encode())
 
     def _send(self, code: int, payload: dict | list) -> None:
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        if urlparse(self.path).path.startswith("/health-recorder/"):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         # The Tauri webview (tauri://localhost) and the Next dev server
         # fetch the bridge cross-origin. Loopback-only server + no cookies:
@@ -2929,12 +3067,145 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def handle_one_request(self) -> None:
+        super().handle_one_request()
+        # Keep-alive hygiene: a POST rejected before its body was read
+        # (401, 400...) would leave the body to be parsed as the next
+        # request. Drain it (bounded) or close the connection.
+        reader = self.rfile
+        if not isinstance(reader, _CountingReader) or self.command != "POST":
+            return
+        try:
+            want = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            want = 0
+        left = want - reader.count
+        if left > 0 and not self.close_connection:
+            if left <= 1_048_576:
+                try:
+                    reader.read(left)
+                except Exception:
+                    self.close_connection = True
+            else:
+                self.close_connection = True
+
+    def parse_request(self) -> bool:
+        ok = super().parse_request()
+        if isinstance(self.rfile, _CountingReader):
+            self.rfile.count = 0  # count body bytes only
+        return ok
+
+    def setup(self) -> None:
+        super().setup()
+        self.rfile = _CountingReader(self.rfile)  # type: ignore[assignment]
+
     def do_POST(self) -> None:
         if not self._authorized():
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route.startswith("/event-monitor/"):
+            import event_monitor_bridge
+
+            event_monitor_bridge.handle(self, "POST", parsed)
+            return
+        if route.startswith("/health-recorder/"):
+            from health_recorder_bridge import handle
+
+            handle(self, "POST", parsed)
+            return
+        if route.startswith("/goodnight/"):
+            import goodnight_bridge
+
+            goodnight_bridge.handle(self, "POST", parsed)
+            return
+        if route.startswith("/build-monitor/"):
+            import build_monitor
+
+            body = _read_json_body(self, 4096)
+            code, payload = build_monitor.endpoint(
+                "POST",
+                route,
+                parse_qs(parsed.query, keep_blank_values=True),
+                body,
+                authorized=bool(self.token) and self._authorized(),
+                peer=self.client_address[0],
+            )
+            self._send_bytes(
+                code, "application/json", json.dumps(payload).encode(), no_store=True
+            )
+            return
+        if route == "/phone/v1/calls":
+            if not self.token:
+                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                return
+            import watch_mode
+            if watch_mode.guest_required():
+                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                return
+            import phone_calls
+            from mint_token import mint_token_payload
+            body = _read_json_body(self, 4096)
+            if isinstance(body, dict) and body.get("guest") is True:
+                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                return
+            self._send(*phone_calls.endpoint(body, phone_calls.mint_phone_token))
+            return
+        if route in {"/phone/v1/command", "/phone/v1/session"}:
+            # Explicitly require the existing token, even for loopback configurations.
+            if not self.token:
+                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                return
+            import phone_api
+            body = _read_json_body(self, 65536)
+            if route.endswith("/command"):
+                self._send(*phone_api.command(body, handle_route, handle_chat))
+            else:
+                # Every new authenticated owner phone call gets a private room;
+                # laptop joins stay restricted while its local audience is guest.
+                import watch_mode
+                watching = watch_mode.guest_required()
+                if watching and isinstance(body, dict) and body.get("mode") == "laptop":
+                    self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                    return
+                from mint_token import mint_token_payload
+
+                def mint_phone(room, dispatch):
+                    return mint_token_payload(room, dispatch, private_phone=dispatch)
+
+                self._send(*phone_api.session(body, read_hud_room, read_hud_waking, mint_phone))
+            return
+        if route == "/shopping/open":
+            from shopping import open_product_source
+            body = _read_json_body(self, 4096)
+            if not isinstance(body, dict) or not isinstance(body.get("url"), str):
+                self._send(400, {"ok": False, "error": "invalid source"})
+                return
+            result = open_product_source(body["url"], body.get("confirmed") is True)
+            self._send(200 if result["ok"] else 400, result)
+            return
+        if route == "/watch/owner":
+            body = _read_json_body(self, 256)
+            if not self.token or not isinstance(body, dict) or body != {"mode": "owner"}:
+                self._send(403, {"ok": False, "error": "explicit owner control requires the configured bearer token and mode owner"})
+                return
+            import watch_mode
+
+            watch_mode.request_stop()
+            watch_mode.restore_owner()
+            self._send(200, {"ok": True, "mode": "owner"})
+            return
+        import watch_mode
+
+        if watch_mode.guest_required() and route not in {
+            "/talk", "/route", "/chat", "/tool", "/phone/telemetry", "/mic", "/summon", "/watch-control"
+        }:
+            if route == "/power":
+                import taskbar
+                taskbar._power_confirmations.revoke(self.token)
+            self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+            return
         if route == "/suit":
             import suit_diagnostics
 
@@ -2997,28 +3268,8 @@ class _Handler(BaseHTTPRequestHandler):
                 elif not isinstance(seed, str):
                     self._send(400, {"ok": False, "error": "text must be a string"})
                     return
-class _CountingReader:
-    """rfile proxy counting bytes read so unread POST bodies can be drained."""
-
-    def __init__(self, raw: object) -> None:
-        self._raw = raw
-        self.count = 0
-
-    def read(self, *args: object) -> bytes:
-        data = self._raw.read(*args)  # type: ignore[attr-defined]
-        self.count += len(data)
-        return data
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._raw, name)
-
-
                 elif len(seed.strip()) > 500:
                     self._send(400, {"ok": False, "error": "seed text max 500 chars"})
-    # HTTP/1.1 keep-alive: every response path (_send, _send_bytes,
-    # do_OPTIONS) sets Content-Length; do_POST drains unread bodies.
-    protocol_version = "HTTP/1.1"
-    timeout = 30  # reap idle keep-alive sockets
                     return
                 else:
                     talk["text"] = seed.strip()
@@ -3033,7 +3284,7 @@ class _CountingReader:
             if body is None:
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
-            if body.get("guest") is True:
+            if _effective_guest(body):
                 self._send(403, {"ok": False, "error": "guest mode refuses type"})
                 return
             code, result = handle_type(body)
@@ -3044,7 +3295,7 @@ class _CountingReader:
             if body is None or not isinstance(body.get("tool"), str):
                 self._send(400, {"ok": False, "error": 'body needs {"tool": str}'})
                 return
-            if body.get("guest") is True and body["tool"] not in _GUEST_VOICE_TOOLS:
+            if _effective_guest(body) and body["tool"] not in _GUEST_VOICE_TOOLS:
                 self._send(
                     403,
                     {"ok": False, "error": f"guest mode refuses {body['tool']!r}"},
@@ -3067,44 +3318,12 @@ class _CountingReader:
         if route == "/youtube/download":
             import youtube_download
             from system import LocalSystemError
-    def handle_one_request(self) -> None:
-        super().handle_one_request()
-        # Keep-alive hygiene: a POST rejected before its body was read
-        # (401, 400...) would leave the body to be parsed as the next
-        # request. Drain it (bounded) or close the connection.
-        reader = self.rfile
-        if not isinstance(reader, _CountingReader) or self.command != "POST":
-            return
-        try:
-            want = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            want = 0
-        left = want - reader.count
-        if left > 0 and not self.close_connection:
-            if left <= 1_048_576:
-                try:
-                    reader.read(left)
-                except Exception:
-                    self.close_connection = True
-            else:
-                self.close_connection = True
-
-    def parse_request(self) -> bool:
-        ok = super().parse_request()
-        if isinstance(self.rfile, _CountingReader):
-            self.rfile.count = 0  # count body bytes only
-        return ok
-
-    def setup(self) -> None:
-        super().setup()
-        self.rfile = _CountingReader(self.rfile)  # type: ignore[assignment]
-
 
             body = _read_json_body(self, 4096)
             if not isinstance(body, dict):
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
-            if body.get("guest") is True:
+            if _effective_guest(body):
                 self._send(403, {"ok": False, "error": "guest mode refuses YouTube downloads"})
                 return
             url = body.get("url", "")
@@ -3128,7 +3347,7 @@ class _CountingReader:
             if body is None:
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
-            if body.get("guest") is True:
+            if _effective_guest(body):
                 self._send(403, {"ok": False, "error": "guest mode refuses projects"})
                 return
             kind = body.get("kind")
@@ -3147,6 +3366,7 @@ class _CountingReader:
                     task,
                     directory=str(body.get("directory") or ""),
                     variant=str(body.get("variant") or ""),
+                    request_id=str(body.get("request_id") or ""),
                 )
             else:
                 self._send(400, {"ok": False, "error": 'kind "research" or "code"'})
@@ -3172,6 +3392,27 @@ class _CountingReader:
             code, result = handle_chat(body)
             self._send(code, result)
             return
+        if route == "/watch-control":
+            # Dedicated trusted SDK/native user ingress, never a model tool.
+            body = _read_json_body(self, 4096)
+            if not isinstance(body, dict) or not {"text", "session_id"} <= set(body) or set(body) - {"text", "session_id", "transport_id", "transport_epoch"} or not all(isinstance(body[key], str) and 0 < len(body[key]) <= 500 for key in ("text", "session_id")):
+                self._send(400, {"ok": False, "error": "Expected fresh user text and session identity."})
+                return
+            from watch_control import controls, accept_transport
+
+            if not accept_transport(body):
+                self._send(200, {"ok": False, "error": "Watch request was cancelled by Stop."})
+                return
+
+            result = controls.handle(body["text"], body["session_id"])
+            self._send(200, result or {"ok": False, "error": "Unknown watch control."})
+            return
+        if route == "/protocol/abort":
+            import netscan
+
+            netscan.abort()
+            self._send(200, {"ok": True})
+            return
         if route == "/route":
             # Instant command path: text -> tool in ms, no LLM, no TTS.
             # 200 with action, 200 with bare reply (confirm/clarify),
@@ -3196,6 +3437,11 @@ class _CountingReader:
             room = body.get("room", "")
             if not isinstance(room, str):
                 self._send(400, {"ok": False, "error": "room must be a string"})
+                return
+            import phone_session
+
+            if phone_session.private_room(room):
+                self._send(403, {"ok": False, "error": "private phone rooms cannot be joined or dispatched again"})
                 return
             if room and not valid_room_name(room):
                 self._send(400, {"ok": False, "error": "bad room name"})
@@ -3263,7 +3509,7 @@ class _CountingReader:
             if not isinstance(body, dict):
                 self._send(400, {"ok": False, "error": "invalid JSON body"})
                 return
-            code, result = taskbar.handle_power(body)
+            code, result = taskbar.handle_power(body, confirmation_scope=self.token)
             self._send(code, result)
             return
         self._send(404, {"ok": False, "error": "unknown route"})
@@ -3273,6 +3519,16 @@ class _CountingReader:
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/event-monitor/"):
+            import event_monitor_bridge
+
+            event_monitor_bridge.handle(self, "GET", parsed)
+            return
+        if parsed.path.startswith("/health-recorder/"):
+            from health_recorder_bridge import handle
+
+            handle(self, "GET", parsed)
+            return
         if parsed.path in ("/insights/usage", "/paper-market"):
             import insights_proxy
 
@@ -3287,6 +3543,48 @@ class _CountingReader:
             self._send_bytes(code, "application/json; charset=utf-8", raw, no_store=True)
             return
         route, qs = parsed.path, parse_qs(parsed.query)
+        if route.startswith("/goodnight/"):
+            import goodnight_bridge
+
+            goodnight_bridge.handle(self, "GET", parsed)
+            return
+        if route.startswith("/build-monitor/"):
+            import build_monitor
+
+            code, payload = build_monitor.endpoint(
+                "GET",
+                route,
+                parse_qs(parsed.query, keep_blank_values=True),
+                None,
+                authorized=bool(self.token) and self._authorized(),
+                peer=self.client_address[0],
+            )
+            self._send_bytes(
+                code, "application/json", json.dumps(payload).encode(), no_store=True
+            )
+            return
+        if route == "/phone/v1/calls":
+            if not self.token:
+                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                return
+            import watch_mode
+            if watch_mode.guest_required():
+                self._send(403, {"ok": False, "error": "guest mode refuses owner actions"})
+                return
+            import phone_calls
+            self._send(*phone_calls.endpoint(None))
+            return
+        if route == "/phone/v1/capabilities":
+            if not self.token:
+                self._send(403, {"ok": False, "error": "phone API requires the configured bearer token"})
+                return
+            import phone_api
+            self._send(200, phone_api.capabilities())
+            return
+        if route == "/shopping":
+            from shopping import search_products
+            self._send(200, search_products(qs.get("q", [""])[0]))
+            return
         if route == "/health":
             self._send(
                 200,
@@ -3305,6 +3603,14 @@ class _CountingReader:
                 limit = 50
             self._send(
                 200, {"ok": True, "actions": _tail_log(_actions_log_path(), limit)}
+            )
+        elif route == "/protocol/state":
+            import netscan
+            import protocols
+
+            self._send(
+                200,
+                {"ok": True, **netscan.snapshot(), "notice": protocols.notice()},
             )
         elif route == "/sys":
             import suit_diagnostics
@@ -3367,11 +3673,22 @@ class _CountingReader:
                 geom = None
             self._send(200, {"ok": True, "geom": geom})
         elif route == "/room":
+            import watch_mode
+            from hud_voice_state import read_snapshot as read_voice_snapshot
+
+            candidate = read_hud_room(max_age_s=float("inf"))
+            voice = read_voice_snapshot(candidate)
+            # A genuinely live long call may outlast the room-file age limit.
+            room = candidate if voice and voice["live"] else read_hud_room()
             self._send(
                 200,
                 {
                     "ok": True,
-                    "room": read_hud_room(),
+                    "room": room,
+                    "guest_mode": watch_mode.guest_required(),
+                    "agent_state": voice["state"] if voice else None,
+                    "call_live": bool(voice and voice["live"]),
+                    "voice_owner": voice["owner"] if voice else None,
                     "waking": read_hud_waking(),
                     "boot": read_hud_boot(),
                 },
@@ -3381,9 +3698,15 @@ class _CountingReader:
                 limit = max(1, min(50, int(qs.get("limit", ["20"])[0])))
             except ValueError:
                 limit = 20
-            self._send(200, {"ok": True, "captions": read_captions(limit)})
+            import phone_session
+
+            hidden = phone_session.hide_shared_captions(self.client_address[0])
+            self._send(200, {"ok": True, "captions": [] if hidden else read_captions(limit)})
         elif route == "/caption/live":
-            self._send(200, {"ok": True, "live": read_live_caption()})
+            import phone_session
+
+            hidden = phone_session.hide_shared_captions(self.client_address[0])
+            self._send(200, {"ok": True, "live": None if hidden else read_live_caption()})
         elif route == "/activity":
             self._send(200, {"ok": True, "items": read_activity()})
         elif route == "/panels":
@@ -3501,12 +3824,45 @@ def serve_forever(
     # the user left it; Projects UI and School Mode are the only intentional
     # layout transitions.
     start_sidecar_threads()
+    # Sampling requires a separate coordinated runtime opt-in.
+    from health_recorder_bridge import RECORDER
+
+    if os.environ.get("JARVIS_HEALTH_RECORDER") == "1":
+        RECORDER.enabled = True
+        RECORDER.start()
+    import event_monitor_bridge
+
+    event_monitor_bridge.start_service()
+    import goodnight_supervisor
+    import goodnight_bridge
+    goodnight_bridge.HOST = goodnight_supervisor.start_service()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        try:
+            goodnight_supervisor.close_service()
+        finally:
+            goodnight_bridge.HOST = None
+            event_monitor_bridge.close_service()
+            RECORDER.close()
+            server.server_close()
+
+
+def resolve_token() -> str:
+    """Load the existing shared credential; never create one or start unauthenticated."""
+    token = _env("JARVIS_BRIDGE_TOKEN").strip()
+    if not token:
+        home = Path(_env("JARVIS_HOME").strip() or Path.home() / ".jarvis")
+        try:
+            token = (home / "bridge_token").read_text().strip()
+        except (OSError, UnicodeError):
+            token = ""
+    if not token or any(char.isspace() for char in token):
+        print("REFUSING to start bridge without a valid existing bearer token.", flush=True)
+        raise SystemExit(2)
+    return token
 
 
 def main() -> None:
@@ -3514,15 +3870,15 @@ def main() -> None:
         port = int(_env("JARVIS_BRIDGE_PORT", str(DEFAULT_PORT)))
     except ValueError:
         port = DEFAULT_PORT
-    host, token_required = resolve_bind()
-    token = _env("JARVIS_BRIDGE_TOKEN")
-    if token_required and not token:
-        print(
-            f"REFUSING to bind {host} without JARVIS_BRIDGE_TOKEN "
-            "(set a token or keep JARVIS_BRIDGE_BIND=127.0.0.1).",
-            flush=True,
-        )
-        raise SystemExit(2)
+    host, _ = resolve_bind()
+    token = resolve_token()
+    with contextlib.suppress(Exception):
+        import netscan
+
+        # Launch-time nmap check: the HUD shows the install/setup hint.
+        pf = netscan.refresh_preflight()
+        if pf["message"]:
+            print(f"[protocols] {pf['message']}", flush=True)
     serve_forever(port=port, token=token, host=host)
 
 

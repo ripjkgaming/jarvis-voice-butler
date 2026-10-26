@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REQUIRED_KEYS = ("GOOGLE_API_KEY",)
-OPTIONAL_KEYS = ("BRAVE_API_KEY", "YDC_API_KEY")
+OPTIONAL_KEYS = ("BRAVE_API_KEY", "YDC_API_KEY", "OPENROUTER_API_KEY")
 OSINT_KEYS = ("SHODAN_API_KEY", "CENSYS_API_ID", "CENSYS_API_SECRET")
 
 
@@ -47,6 +47,9 @@ class CollectedKeys:
     shodan: str = ""
     censys_id: str = ""
     censys_secret: str = ""
+    # Jarvis Chess explanations (free OpenRouter models). Kept in keys.env
+    # (0600), never in a committed file and never logged.
+    openrouter: str = ""
 
     def worker_updates(self) -> dict[str, str]:
         out = {}
@@ -65,6 +68,7 @@ class CollectedKeys:
             ("SHODAN_API_KEY", self.shodan),
             ("CENSYS_API_ID", self.censys_id),
             ("CENSYS_API_SECRET", self.censys_secret),
+            ("OPENROUTER_API_KEY", self.openrouter),
         ):
             if val.strip():
                 out[key] = val.strip()
@@ -100,4 +104,7 @@ def keys_summary(repo: Path) -> dict[str, bool]:
         "ydc": bool(worker.get("YDC_API_KEY")),
         "shodan": bool(osint.get("SHODAN_API_KEY")),
         "censys": bool(osint.get("CENSYS_API_ID") and osint.get("CENSYS_API_SECRET")),
+        "openrouter": bool(
+            osint.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+        ),
     }

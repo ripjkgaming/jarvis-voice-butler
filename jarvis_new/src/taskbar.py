@@ -66,6 +66,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from power_actions import CONFIRM_ACTIONS, ConfirmationStore, dispatch_sync
+
 # Window id: KWin internalId UUID, with or without braces.
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _WINDOW_ID = re.compile(r"^\{?(" + _UUID + r")\}?$")
@@ -502,7 +504,9 @@ def launch_desktop(desktop: str, dirs=None, which=None, popen=None) -> bool:
         if path is None:
             return False
         from system.desktop import sandbox_display
+        from system.launcher import require_launch_allowed
 
+        require_launch_allowed([valid], desktop_text=path.read_text())
         display = sandbox_display()
         options = {}
         if display:
@@ -981,11 +985,43 @@ def run_power(action: str, run=None) -> bool:
         return False
 
 
-def handle_power(body: dict) -> tuple[int, dict]:
-    """POST /power {"action"}. Returns (http_code, payload). Pure-ish."""
+_power_confirmations = ConfirmationStore()
+
+
+def dispatch_power(action):
+    import watch_mode
+    if watch_mode.guest_required():
+        from action_outcome import ActionOutcome
+        from power_actions import normalize
+        return ActionOutcome("power." + normalize(action), "blocked", reason="owner_required")
+    outcome = dispatch_sync(action, _default_run)
+    with contextlib.suppress(Exception):
+        from system import log_action
+        log_action("power", action)
+    return outcome
+
+
+def handle_power(body: dict, *, confirmation_scope="") -> tuple[int, dict]:
+    """Fixed power actions; destructive HUD actions use a two-click ticket."""
     if not isinstance(body, dict):
         return 400, {"ok": False, "error": "invalid JSON body"}
     action = body.get("action")
     if action not in _POWER_ACTIONS:
-        return 400, {"ok": False, "error": "action must be lock, sleep, logout, restart or shutdown"}
-    return 200, {"ok": run_power(str(action))}
+        return 400, {"ok": False, "error": "invalid power action"}
+    if action in CONFIRM_ACTIONS:
+        if not confirmation_scope:
+            return 403, {"ok": False, "error": "authenticated owner confirmation required"}
+        if body == {"action": action, "phase": "request"}:
+            try:
+                ticket = _power_confirmations.issue(action, confirmation_scope)
+            except ValueError:
+                return 409, {"ok": False, "error": "confirmation unavailable"}
+            return 200, {"ok": False, "confirmation_required": True, "confirmation": ticket, "expires_in_ms": 3500}
+        if set(body) != {"action", "phase", "confirmation"} or body.get("phase") != "confirm":
+            return 428, {"ok": False, "error": "explicit confirmation required"}
+        if not _power_confirmations.consume(body.get("confirmation"), action, confirmation_scope):
+            return 403, {"ok": False, "error": "confirmation expired, mismatched or used"}
+    elif body != {"action": action}:
+        return 400, {"ok": False, "error": "invalid power request"}
+    outcome = dispatch_power(action)
+    return 200, {"ok": outcome.accepted, "say": outcome.say, "outcome": outcome.to_dict()}

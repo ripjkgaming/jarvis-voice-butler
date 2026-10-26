@@ -123,6 +123,13 @@ class Ledger:
                 raise RuntimeError("Paper experiment has not been initialized.")
             return dict(row)
 
+    def autotrading_enabled(self) -> bool:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT value FROM runtime WHERE key='autotrading_enabled'"
+            ).fetchone()
+            return row is not None and json.loads(row[0]) is True
+
     def runtime(self, **values) -> None:
         with self.connect() as db:
             db.executemany(
@@ -423,6 +430,9 @@ class Ledger:
             "decisions": decisions,
             "fills": fills,
             "runtime": {
+                "autotrading_enabled": False,
+                "scheduler": "service",
+                "risk_interval_seconds": 60,
                 "last_cycle_at": None,
                 "last_cycle_status": "not_started",
                 "last_error": None,

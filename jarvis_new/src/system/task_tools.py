@@ -15,15 +15,30 @@ def _guard() -> None:
         require_local()
     except LocalSystemError as exc:
         raise ToolError(str(exc)) from exc
+    import phone_session
+
+    if phone_session.private():
+        raise ToolError(
+            "Detached task controls are unavailable during a private phone call."
+        )
+    if phone_session.guest_required():
+        raise ToolError("Guest mode refuses owner task controls.")
 
 
 class TaskTools:
     @property
     def tools(self) -> list:
-        return [self.start_task, self.task_status, self.approve_task, self.cancel_task]
+        return [
+            self.start_task,
+            self.task_status,
+            self.approve_task,
+            self.cancel_task,
+            self.redirect_task,
+            self.cancel_tool,
+        ]
 
     @function_tool()
-    async def start_task(self, context: RunContext, goal: str) -> dict[str, str]:
+    async def start_task(self, context: RunContext, goal: str) -> dict:
         """Start a multi-step job in the background: "research laptops under
         1000 and draft an email to dad about it". Jarvis plans it, works
         through it, and asks before anything that sends, pays, posts or books.
@@ -36,23 +51,38 @@ class TaskTools:
 
         if len((goal or "").strip()) < 8:
             raise ToolError("What should the task do, Sir?")
-        task = await asyncio.to_thread(agent_tasks.start, goal)
+        from cancellation_adapters import available_adapter
+
+        adapter = available_adapter()
+        options = (
+            {"on_created": adapter.register} if adapter.registry is not None else {}
+        )
+        task = await asyncio.to_thread(agent_tasks.start, goal, **options)
         log_action("task", f"start {task['id']}")
-        return {
-            "say": "On it, Sir. I'll work through that in the background and report back."
+        result = {
+            "say": "On it, Sir. I'll work through that in the background and report back.",
+            "task_id": task["id"],
         }
+        row = adapter.sync(task)
+        if row:
+            result["job_id"] = row["id"]
+        return result
 
     @function_tool()
-    async def task_status(self, context: RunContext) -> dict[str, str]:
+    async def task_status(self, context: RunContext) -> dict:
         """How the background tasks are going, and their results when done."""
         _guard()
         import agent_tasks
+        from cancellation_adapters import available_adapter
 
         rows = agent_tasks.all_tasks()[-3:]
         if not rows:
             return {"say": "No background tasks, Sir."}
+        adapter = available_adapter()
+        receipts = [adapter.receipt(t) for t in reversed(rows)]
         return {
-            "say": " | ".join(agent_tasks.describe(t) for t in reversed(rows))[:1500]
+            "say": " | ".join(agent_tasks.describe(t) for t in reversed(rows))[:1500],
+            "tasks": receipts,
         }
 
     @function_tool()
@@ -89,22 +119,110 @@ class TaskTools:
         }
 
     @function_tool()
-    async def cancel_task(
-        self, context: RunContext, task_id: str = ""
-    ) -> dict[str, str]:
-        """Stop a background task ("cancel that task").
+    async def cancel_task(self, context: RunContext, task_id: str = "") -> dict:
+        """Request stopping one background task ("cancel that task").
+
+        Speech interruption only yields the conversation. It never means an
+        external effect was undone. Use state/settled in this tool's receipt.
 
         Args:
-            task_id: Empty = the most recent unfinished task.
+            task_id: Native task ID or explicitly mapped agent-task job ID.
+                Empty selects only one unambiguous unfinished task.
         """
         _guard()
         import agent_tasks
+        from cancellation_adapters import available_adapter
+        from cancellation_control import resolve_task
 
-        task = agent_tasks.cancel(task_id)
-        if task is None:
-            return {"say": "There's no running task to cancel, Sir."}
-        log_action("task", f"cancelled {task['id']}")
-        return {"say": f"Cancelled '{task['title']}'."}
+        adapter = available_adapter()
+        if not task_id:
+            task = resolve_task(agent_tasks.all_tasks(), "")
+            if task is None:
+                return {
+                    "say": "Name one unfinished task ID to cancel; no task was changed.",
+                    "accepted": False,
+                    "settled": False,
+                }
+            task_id = task["id"]
+        receipt = adapter.cancel(task_id)
+        if receipt is None:
+            return {
+                "say": "No eligible task with that ID; no task was changed.",
+                "accepted": False,
+                "settled": False,
+            }
+        log_action(
+            "task", f"cancel request {receipt['task_id']} state={receipt['state']}"
+        )
+        return receipt
+
+    @function_tool()
+    async def cancel_tool(self, context: RunContext, operation_id: str) -> dict:
+        """Cancel one explicitly identified owned computer-use operation.
+
+        Other tool invocations, external build PIDs and job-monitor IDs are
+        unsupported here. Current input may finish; do not claim rollback.
+        """
+        _guard()
+        from cancellation_adapters import TaskCancellationAdapter
+        from system.computer_use import _SERVICE
+
+        result = TaskCancellationAdapter().cancel_tool(operation_id, _SERVICE)
+        return result or {
+            "say": "No supported owned operation with that ID; no work was changed.",
+            "accepted": False,
+            "settled": False,
+        }
+
+    @function_tool()
+    async def redirect_task(self, context: RunContext, task_id: str, goal: str) -> dict:
+        """Explicitly replace one task with a new goal after old work stops.
+
+        Requires task ID and replacement goal; earlier effects stay committed.
+        If still stopping, wait for status and ask for the replacement again.
+        Never forward the old task's approvals to the new task.
+        """
+        _guard()
+        import action_guard
+        import agent_tasks
+        from cancellation_adapters import available_adapter
+
+        input_id = action_guard.request_id(context)
+        if not input_id:
+            raise ToolError("A fresh user-turn identity is required to replace a task.")
+        if len((goal or "").strip()) < 8:
+            raise ToolError("Give the explicit replacement goal before stopping work.")
+        adapter = available_adapter()
+        native = adapter.native_id(task_id)
+        if not native:
+            raise ToolError("No eligible task with that ID; no task was changed.")
+        receipt = adapter.cancel(task_id)
+        if receipt is None or receipt["state"] not in {"cancelled", "cancelling"}:
+            raise ToolError("Only an unfinished or cancelled task can be replaced.")
+        if not receipt["settled"]:
+            return {
+                **receipt,
+                "replacement_started": False,
+                "say": "Stopping the old preparation first. Request the replacement again after it stops.",
+            }
+        try:
+            replacement = await asyncio.to_thread(
+                agent_tasks.redirect,
+                native,
+                goal,
+                input_id,
+                on_created=adapter.register if adapter.registry is not None else None,
+            )
+        except (ValueError, OSError) as exc:
+            raise ToolError(str(exc)) from exc
+        row = adapter.sync(replacement)
+        return {
+            "say": "Replacement task prepared with fresh approvals; earlier effects have not been undone.",
+            "task_id": replacement["id"],
+            "supersedes": native,
+            "job_id": row["id"] if row else None,
+            "replacement_started": True,
+        }
 
 
 class WorkshopTools:

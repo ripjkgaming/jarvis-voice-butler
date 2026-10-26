@@ -104,6 +104,10 @@ class MuseTools:
             task: Ignored unless given; the armed brief is what is sent.
             via: Ignored; the armed channel is what is used.
         """
+        import phone_session
+        blocked = phone_session.private_tool_error("confirm_muse_send")
+        if blocked:
+            raise ToolError(blocked)
         try:
             require_local()
         except LocalSystemError as exc:

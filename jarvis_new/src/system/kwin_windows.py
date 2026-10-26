@@ -55,10 +55,16 @@ def act(action: str, query: str, run=subprocess.run) -> tuple[str, int] | None:
     if not wins:
         return None
     uuid, title = wins[0]
+    from system.cinematic import mark_window
+
+    mark_window(action, uuid, run=run)
     _dbus("Run", f"string:{code}_{uuid}", "string:", run=run)
     return title, len(wins)
 
 
 def act_on(action: str, uuid: str, run=subprocess.run) -> None:
     """Apply action to one window found by find()."""
+    from system.cinematic import mark_window
+
+    mark_window(action, uuid, run=run)
     _dbus("Run", f"string:{ACTIONS[action]}_{uuid}", "string:", run=run)

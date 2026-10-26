@@ -198,6 +198,15 @@ TOOLS: tuple[Tool, ...] = (
         description="Share files / ping the owner's phone.",
     ),
     Tool(
+        name="stockfish",
+        label="Stockfish (Jarvis Chess engine)",
+        binaries=("stockfish",),
+        dnf_packages=("stockfish",),
+        required=False,
+        description="Chess engine that picks and judges every move. Without it"
+        " chess falls back to a much weaker built-in engine.",
+    ),
+    Tool(
         name="qdbus",
         label="qdbus (D-Bus, brightness)",
         binaries=("qdbus",),

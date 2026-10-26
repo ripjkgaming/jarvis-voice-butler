@@ -1,6 +1,7 @@
 """No model calls or desktop input: the controller runs only injected fakes."""
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,14 +10,14 @@ import pytest
 from system.computer_use import ComputerUseService, ComputerUseTools, Limits
 
 
-def test_computer_worker_defaults_to_luna_without_changing_effort(monkeypatch):
+def test_computer_worker_defaults_to_luna_at_medium(monkeypatch):
     from system.computer_use import _worker
 
     monkeypatch.delenv("JARVIS_COMPUTER_USE_MODEL", raising=False)
     monkeypatch.delenv("JARVIS_COMPUTER_USE_EFFORT", raising=False)
     worker = _worker()
     assert worker.model == "gpt-6-luna"
-    assert worker.effort == "low"
+    assert worker.effort == "medium"
 
 
 def test_computer_worker_preserves_explicit_model_and_effort(monkeypatch):
@@ -391,3 +392,41 @@ async def test_background_completion_uses_existing_session_without_another_model
     notifications = list(tools._notifications)
     await asyncio.gather(*notifications)
     assert spoken == [service.status()["say"]]
+
+
+async def test_task_timings_do_not_log_private_task_or_screen_text(setup, monkeypatch):
+    import system.computer_use as module
+
+    lines = []
+    monkeypatch.setattr(
+        module, "log_action", lambda category, detail: lines.append((category, detail))
+    )
+    service, _, _ = setup([decision(status="done", summary="PRIVATE SCREEN SUMMARY")])
+    tools = ComputerUseTools(service)
+
+    async def say(text):
+        pass
+
+    started = await tools.computer_use(
+        SimpleNamespace(session=SimpleNamespace(say=say)), "PRIVATE USER TASK"
+    )
+    await asyncio.gather(*list(tools._notifications))
+    traces = [
+        json.loads(detail)
+        for category, detail in lines
+        if category == "computer-timing"
+    ]
+    events = {trace["event"] for trace in traces}
+    assert {
+        "accepted",
+        "selected",
+        "startup",
+        "proposal",
+        "result",
+        "settled",
+        "speech_requested",
+        "speech_returned",
+    } <= events
+    assert all(trace["task_id"] == started["id"] for trace in traces)
+    assert all(trace["elapsed_ms"] >= 0 for trace in traces)
+    assert "PRIVATE" not in str(traces)

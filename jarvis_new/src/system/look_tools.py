@@ -26,25 +26,30 @@ class LookTools:
     async def look_at_screen(
         self, context: RunContext, question: str = ""
     ) -> dict[str, str]:
-        """Look at the window Sir is working in and answer about it: "what's
-        wrong with this error", "what does this say", "is this right".
+        """Read the explicitly selected foreground window once using local OCR.
+        Requires a fresh explicit screen request and approved text disclosure.
+        Never captures the full desktop, uploads images, or performs fixes.
 
         Args:
             question: What Sir wants to know about his screen.
         """
         _guard()
-        import look
+        from screen_understanding import ScreenError, local_owner_authorized
 
-        image = await asyncio.to_thread(look.capture_window)
-        if image is None:
-            raise ToolError("I couldn't capture the screen, Sir (spectacle missing?).")
-        answer, warning = await asyncio.to_thread(
-            look.ask, image, "image/png", question, "screen"
-        )
-        log_action("look", "screen")
-        if not answer:
-            raise ToolError(f"I couldn't make it out: {warning}.")
-        return {"say": answer[:900]}
+        if not local_owner_authorized():
+            raise ToolError("Screen reading requires the local owner session.")
+        session = getattr(context, "session", None)
+        service = getattr(session, "jarvis_screen_service", None)
+        # Trusted adapter sets the correlated turn; tool arguments cannot do so.
+        turn_id = getattr(session, "jarvis_screen_turn_id", None)
+        if service is None or not turn_id:
+            raise ToolError(
+                "Ask explicitly to read the selected window after screen privacy setup."
+            )
+        try:
+            return await service.inspect(turn_id, question)
+        except ScreenError as exc:
+            raise ToolError(str(exc)) from exc
 
     @function_tool()
     async def look_through_camera(

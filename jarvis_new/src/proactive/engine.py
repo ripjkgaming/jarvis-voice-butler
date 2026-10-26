@@ -294,6 +294,10 @@ class ProactiveEngine:
         state["spoken"] = spoken
         results = []
         for signal in self.poll(now):
+            # Phone policy is independent: school hours never inherit desktop critical bypass.
+            with contextlib.suppress(Exception):
+                import phone_calls
+                phone_calls.offer_signal(signal, now)
             if signal.key in delivered:
                 continue
             ctx = self.context_fn(state, signal.kind, now)
@@ -309,12 +313,17 @@ class ProactiveEngine:
                     with contextlib.suppress(Exception):
                         ok = bool(self.deliver["toast"](signal))
                     decision = Decision("toast", f"{decision.reason}+speaker-failed")
-            if decision.action == "say":
+            if decision.action == "say" and ok:
                 spoken[day] += 1
                 state.setdefault("pending_acks", []).append(
                     {"ts": now, "kind": signal.kind}
                 )
-            delivered[signal.key] = now
+            if ok or decision.action == "drop":
+                delivered[signal.key] = now
+            else:
+                # A transport outage is not a delivery receipt. Sources that
+                # still offer this signal can retry on the next polling pass.
+                decision = Decision(decision.action, f"{decision.reason}+delivery-failed")
             with contextlib.suppress(Exception):
                 self.log(
                     "proactive",
@@ -348,6 +357,10 @@ def start_thread(interval: float = 30.0, first_delay: float = 45.0):
             return
         engine = None
         while not stop.is_set():
+            # User-requested phone check-in uses the existing sidecar timer, independently of desktop speech.
+            with contextlib.suppress(Exception):
+                import phone_calls
+                phone_calls.poll_schedule()
             with contextlib.suppress(Exception):
                 if enabled():
                     engine = engine or ProactiveEngine()

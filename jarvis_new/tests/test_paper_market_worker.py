@@ -39,9 +39,9 @@ class FakeProcess:
         self.config_mutation = None
         self.account_type = "chatgpt"
         self.models = ["gpt-6-astra"]
-        self.efforts = ["high"]
+        self.efforts = ["medium"]
         self.thread_model = "gpt-6-astra"
-        self.thread_effort = "high"
+        self.thread_effort = "medium"
         self.version_text = b"codex-cli 0.159.2\n"
         self.notifications = []
         self.final_text = '{"actions":[],"rationale":"Hold with current cash."}'
@@ -167,7 +167,7 @@ async def test_isolated_text_only_proposal_and_verified_metadata(
         "rationale": "Hold with current cash.",
     }
     assert result["model"] == "gpt-6-astra"
-    assert result["effort"] == "high"
+    assert result["effort"] == "medium"
     assert result["usage"] is None
     assert result["verification"]["model_verified"] is True
     assert result["verification"]["effort_verified"] is True
@@ -184,7 +184,7 @@ async def test_isolated_text_only_proposal_and_verified_metadata(
     assert start["developerInstructions"] == ""
     turn = next(m["params"] for m in server.messages if m.get("method") == "turn/start")
     assert turn["model"] == "gpt-6-astra"
-    assert turn["effort"] == "high"
+    assert turn["effort"] == "medium"
     assert turn["environments"] == []
     assert turn["approvalPolicy"] == "never"
     assert turn["outputSchema"] == PROPOSAL_SCHEMA
@@ -201,9 +201,9 @@ async def test_isolated_text_only_proposal_and_verified_metadata(
     ("attribute", "value"),
     [
         ("models", ["gpt-6-sol"]),
-        ("efforts", ["medium"]),
+        ("efforts", ["high"]),
         ("thread_model", "gpt-6-sol"),
-        ("thread_effort", "medium"),
+        ("thread_effort", "high"),
         ("thread_effort", None),
         ("account_type", "apiKey"),
         ("version_text", b"codex-cli 999\n"),
@@ -463,7 +463,7 @@ async def test_verified_settings_update_preserves_worker(fake_codex, tmp_path):
             "thread/settings/updated",
             threadSettings={
                 "model": "gpt-6-astra",
-                "effort": "high",
+                "effort": "medium",
                 "modelProvider": "openai",
                 "approvalPolicy": "never",
                 "sandboxPolicy": {"type": "readOnly", "networkAccess": False},

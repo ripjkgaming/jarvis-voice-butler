@@ -25,6 +25,18 @@ from pathlib import Path
 from livekit.agents import tts, utils
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 
+# Pure, LiveKit-free pieces live in audio_shared (the chess voice engine uses
+# them too); the names stay importable from here for existing callers.
+from audio_shared import (  # noqa: F401
+    DEFAULT_LENGTH_SCALE,
+    _ends_with_abbreviation,
+    load_piper_voice,
+    render_sentence_pcm,
+    resolve_length_scale,
+    resolve_voice_path,
+    sentence_split,
+)
+
 logger = logging.getLogger("jarvis-voice")
 
 RENDER_TIMEOUT_S = 15.0
@@ -33,86 +45,6 @@ VOICE_DIR = Path.home() / ".jarvis" / "voices"
 DEFAULT_VOICE_NAME = "en_GB-alan-medium"
 DEFAULT_VOICE_PATH = VOICE_DIR / f"{DEFAULT_VOICE_NAME}.onnx"
 
-_SENTENCE_END = re.compile(r"[.!?…]+(?=\s|$)")
-
-_ABBREVIATIONS = frozenset(
-    {
-        "mr",
-        "mrs",
-        "ms",
-        "dr",
-        "st",
-        "sr",
-        "jr",
-        "prof",
-        "etc",
-        "vs",
-        "pm",
-        "am",
-        "eg",
-        "ie",
-        "us",
-        "uk",
-        "no",
-        "ave",
-        "blvd",
-        "rd",
-    }
-)
-
-
-def _ends_with_abbreviation(head: str) -> bool:
-    """True when the text so far ends in Dr./p.m./initials (not a boundary)."""
-    match = re.search(r"([A-Za-z][A-Za-z.]*)$", head.rstrip())
-    if not match:
-        return False
-    token = match.group(1).lower().replace(".", "")
-    return token in _ABBREVIATIONS or len(token) == 1
-
-
-def sentence_split(text: str) -> list[str]:
-    """Split reply text into speakable sentences. Pure."""
-    text = (text or "").strip()
-    if not text:
-        return []
-    bounds = [0]
-    for match in _SENTENCE_END.finditer(text):
-        if not _ends_with_abbreviation(text[: match.end()]):
-            bounds.append(match.end())
-    bounds.append(len(text))
-    return [
-        text[start:end].strip()
-        for start, end in zip(bounds, bounds[1:])
-        if text[start:end].strip()
-    ]
-
-
-DEFAULT_LENGTH_SCALE = 0.85
-
-
-def resolve_length_scale(explicit: float | None = None) -> float:
-    """Speaking pace: explicit > JARVIS_VOICE_LENGTH_SCALE > default.
-
-    Lower is faster (0.85 ≈ brisk butler, 1.0 = model default).
-    """
-    if explicit is not None:
-        return explicit
-    try:
-        return float(
-            os.environ.get("JARVIS_VOICE_LENGTH_SCALE", str(DEFAULT_LENGTH_SCALE))
-        )
-    except ValueError:
-        return DEFAULT_LENGTH_SCALE
-
-
-def resolve_voice_path(explicit: str | None = None) -> Path:
-    """Voice model file: explicit > JARVIS_VOICE_MODEL > default."""
-    if explicit:
-        return Path(explicit).expanduser()
-    override = os.environ.get("JARVIS_VOICE_MODEL", "").strip()
-    if override:
-        return Path(override).expanduser()
-    return DEFAULT_VOICE_PATH
 
 
 class PiperTTS(tts.TTS):
@@ -124,6 +56,7 @@ class PiperTTS(tts.TTS):
         model_path: str | Path | None = None,
         speaker_id: int | None = None,
         length_scale: float | None = None,
+        strict_sentence_audio: bool = False,
     ) -> None:
         super().__init__(
             capabilities=tts.TTSCapabilities(streaming=True),
@@ -134,6 +67,9 @@ class PiperTTS(tts.TTS):
         self._speaker_id = speaker_id
         self._length_scale = resolve_length_scale(length_scale)
         self._voice = None
+        # Fixed approval readback must fail if any sentence is unavailable.
+        # Ordinary conversational TTS retains its existing streaming behavior.
+        self._strict_sentence_audio = strict_sentence_audio
         self._lock = asyncio.Lock()
         # Async cancellation cannot stop a native inference already running.
         # Keep all model loads/renders/releases on one worker so interrupted
@@ -159,14 +95,7 @@ class PiperTTS(tts.TTS):
         if cancelled is not None and cancelled.is_set():
             return None
         if self._voice is None:
-            if not self._model_path.exists():
-                raise RuntimeError(
-                    f"Voice model not found: {self._model_path}. "
-                    "Download it into ~/.jarvis/voices/ first."
-                )
-            from piper import PiperVoice
-
-            self._voice = PiperVoice.load(str(self._model_path))
+            self._voice = load_piper_voice(self._model_path)
         # Adopt the voice's real sample rate (config-dependent).
         try:
             rate = int(self._voice.config.sample_rate)
@@ -183,33 +112,17 @@ class PiperTTS(tts.TTS):
         self, sentence: str, *, cancelled: threading.Event | None = None
     ) -> bytes:
         """Render one sentence to 16-bit PCM bytes (blocking; run in thread)."""
-        from piper import SynthesisConfig
-
         voice = self._get_voice(cancelled=cancelled)
-        if (
-            voice is None
-            or self._closed
-            or (cancelled is not None and cancelled.is_set())
-        ):
+        if voice is None:
             return b""
-        config = SynthesisConfig(
+        return render_sentence_pcm(
+            voice,
+            sentence,
             speaker_id=self._speaker_id,
             length_scale=self._length_scale,
+            cancelled=cancelled,
+            closed=lambda: self._closed,
         )
-        out = bytearray()
-        chunks = voice.synthesize(sentence, syn_config=config)
-        try:
-            for chunk in chunks:
-                if self._closed or (cancelled is not None and cancelled.is_set()):
-                    break
-                data = chunk.audio_int16_bytes
-                if data:
-                    out += data
-        finally:
-            close = getattr(chunks, "close", None)
-            if close is not None:
-                close()
-        return bytes(out)
 
     async def _run_worker(self, function, *args):
         if self._closed:
@@ -250,6 +163,8 @@ class PiperTTS(tts.TTS):
         *,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
     ) -> tts.SynthesizeStream:
+        if self._strict_sentence_audio:
+            raise RuntimeError("Complete approval readback requires synthesize, not incremental text")
         return _PiperSynthesizeStream(tts=self, conn_options=conn_options)
 
     async def aclose(self) -> None:
@@ -333,8 +248,22 @@ class _PiperChunkedStream(tts.ChunkedStream):
             mime_type="audio/pcm",
         )
         async with plugin._lock:
-            for sentence in sentences:
-                pcm = await plugin._run_worker(plugin._render_sentence, sentence)
-                if pcm:
+            if plugin._strict_sentence_audio:
+                if not sentences:
+                    raise RuntimeError("Complete readback has no renderable sentences")
+                rendered = []
+                for sentence in sentences:
+                    pcm = await plugin._run_worker(plugin._render_sentence, sentence)
+                    if plugin._closed or not pcm or len(pcm) < 2 or len(pcm) % 2:
+                        raise RuntimeError("Complete readback sentence audio is unavailable")
+                    rendered.append(pcm)
+                # Emit only after every sentence completed. A failed/cancelled
+                # message cannot leave a recipient/code-only partial review.
+                for pcm in rendered:
                     output_emitter.push(pcm)
+            else:
+                for sentence in sentences:
+                    pcm = await plugin._run_worker(plugin._render_sentence, sentence)
+                    if pcm:
+                        output_emitter.push(pcm)
         output_emitter.flush()

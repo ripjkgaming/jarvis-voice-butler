@@ -38,6 +38,8 @@ import threading
 import time
 from pathlib import Path
 
+from wake_events import WakeEventBroadcaster
+
 logger = logging.getLogger("jarvis-wake")
 
 MIC_RATE = 48000
@@ -467,7 +469,12 @@ def extract_announce_text(msg: object) -> str | None:
 
 
 def mint_summon_token(
-    *, url: str, api_key: str, api_secret: str, room: str, agent_name: str,
+    *,
+    url: str,
+    api_key: str,
+    api_secret: str,
+    room: str,
+    agent_name: str,
     reason: str = "wake",
     announce: str = "",
 ) -> str:
@@ -496,6 +503,9 @@ def mint_summon_token(
 
 class WakeClient:
     def __init__(self) -> None:
+        # Best-effort broadcast of wake / call_ended to local subscribers
+        # (the chess voice engine pauses its own listening on these).
+        self._events = WakeEventBroadcaster()
         try:
             from dotenv import load_dotenv
 
@@ -509,12 +519,11 @@ class WakeClient:
         )
         self._ack_pcm: bytes = b""
         self._ack_rate = 22050
-        # "daddy" second wake phrase (keyword_spot): Whisper worker is
-        # spawned lazily on the first utterance it has to check.
+        # Shared local transcription remains lazy for school wake confirmation.
+        # Ordinary microphone input only runs the primary openWakeWord detector.
         from keyword_spot import WhisperWorker
 
         self._spotter = WhisperWorker()
-        self._spot_tasks: set = set()
         # Mic mute state (tray/HUD driven via the wake.sock listener below).
         # Guarded by a lock: set from the socket thread, read from the
         # asyncio mic loops and the hotword loop.
@@ -567,9 +576,17 @@ class WakeClient:
                 with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(drain_queue, queue)
 
+    def _publish_event(self, event: str) -> None:
+        bus = getattr(self, "_events", None)
+        if bus is not None:
+            bus.publish(event)
+
     def _set_in_call(self, in_call: bool) -> None:
         with self._mic_lock:
+            was = self._in_call
             self._in_call = bool(in_call)
+        if was and not in_call:
+            self._publish_event("call_ended")
 
     def _mic_snapshot(self) -> tuple[bool, float, bool]:
         with self._mic_lock:
@@ -721,6 +738,7 @@ class WakeClient:
         logger.warning("mic: %s", await asyncio.to_thread(audio_aec.set_mic_headroom))
         logger.warning("aec: %s", await asyncio.to_thread(audio_aec.engage))
         self.start_mic_control()
+        self._events.start()
         self._render_ack()
         from openwakeword.model import Model
 
@@ -737,6 +755,7 @@ class WakeClient:
     async def _listen_loop(self, model) -> None:
         import numpy as np
         import sounddevice as sd
+
         from audio_dsp import Downsampler48to16, downsample_48k_to_16k
 
         loop = asyncio.get_running_loop()
@@ -784,12 +803,8 @@ class WakeClient:
         ):
             pending16 = np.zeros(0, dtype=np.int16)
             down16 = Downsampler48to16()
-            import keyword_spot as _spot
             import school as _school
 
-            spot_on = _spot.enabled()
-            segmenter = _spot.Segmenter() if spot_on else None
-            spot_state = {"busy": False, "last": 0.0}
             hot = {"run": 0}
             # ~1.5 s of audio before the wake frame: in school mode it is
             # replayed so the transcript starts "Hey Jarvis, ..." (the
@@ -802,24 +817,9 @@ class WakeClient:
             ring_epoch = getattr(self, "_mute_epoch", 0)
             if _school.is_school():
                 # Warm the Whisper worker so the first school wake is quick.
-                loop.run_in_executor(None, self._spotter.transcribe, np.zeros(16000, np.int16))
-
-            async def _check_daddy(seg) -> None:
-                try:
-                    text = await loop.run_in_executor(None, self._spotter.transcribe, seg)
-                finally:
-                    spot_state["busy"] = False
-                if not _spot.has_daddy(text) or self._in_call or self.muted:
-                    return
-                if _school.is_school():
-                    return  # school mode: only a strict "hey Jarvis" summons
-                now = time.monotonic()
-                if now - spot_state["last"] < _spot.COOLDOWN_S:
-                    return
-                spot_state["last"] = now
-                logger.warning("daddy wake heard: %r", text[:80])
-                summon_overlay()
-                await self._summon_session(reason="daddy")
+                loop.run_in_executor(
+                    None, self._spotter.transcribe, np.zeros(16000, np.int16)
+                )
 
             while True:
                 raw = await queue.get()
@@ -852,6 +852,7 @@ class WakeClient:
                     self._talk_event.clear()
                     pending16 = np.zeros(0, dtype=np.int16)
                     logger.warning("PTT talk requested")
+                    self._publish_event("wake")
                     mark_hud_waking()
                     summon_overlay()
                     if not self._in_call:
@@ -865,24 +866,26 @@ class WakeClient:
                         with contextlib.suppress(Exception):
                             model.reset()
                     continue
-                if segmenter is not None and not self._in_call and not _school.is_school():
-                    for seg in segmenter.feed(block16):
-                        if not spot_state["busy"]:
-                            spot_state["busy"] = True
-                            task = asyncio.create_task(_check_daddy(seg))
-                            self._spot_tasks.add(task)
-                            task.add_done_callback(self._spot_tasks.discard)
                 scores, pending16 = score_frames(model, pending16)
                 strict = _school.is_school()
-                need = max(self._threshold, _school.WAKE_THRESHOLD) if strict else self._threshold
+                need = (
+                    max(self._threshold, _school.WAKE_THRESHOLD)
+                    if strict
+                    else self._threshold
+                )
                 for score in scores:
                     hot["run"] = hot["run"] + 1 if score >= need else 0
                     if hot["run"] >= (_school.WAKE_FRAMES if strict else 1):
                         hot["run"] = 0
-                        logger.warning("wake word detected (%.2f)%s", score, " [school]" if strict else "")
+                        logger.warning(
+                            "wake word detected (%.2f)%s",
+                            score,
+                            " [school]" if strict else "",
+                        )
                         # First thing, before any network: the HUD starts
                         # its link log off this stamp (it turns purple only
                         # once the agent is online).
+                        self._publish_event("wake")
                         mark_hud_waking()
                         summon_overlay()
                         if strict:
@@ -892,12 +895,23 @@ class WakeClient:
                             # captured audio is replayed into the call, so
                             # nothing said after the wake word is lost.
                             levels = [
-                                float(np.sqrt(np.mean(np.frombuffer(b, dtype=np.int16).astype(np.float32) ** 2)))
+                                float(
+                                    np.sqrt(
+                                        np.mean(
+                                            np.frombuffer(b, dtype=np.int16).astype(
+                                                np.float32
+                                            )
+                                            ** 2
+                                        )
+                                    )
+                                )
                                 for b in ring
                             ]
                             hud_stage("capture")
                             heard = list(ring) + await self._record_question(
-                                queue, max(levels, default=0.0), min(levels, default=None)
+                                queue,
+                                max(levels, default=0.0),
+                                min(levels, default=None),
                             )
                             pcm16 = downsample_48k_to_16k(
                                 np.frombuffer(b"".join(heard), dtype=np.int16)
@@ -924,7 +938,9 @@ class WakeClient:
                                 )
                             else:
                                 clear_hud_waking()
-                                logger.warning("school wake ignored (not addressed): %r", text[:80])
+                                logger.warning(
+                                    "school wake ignored (not addressed): %r", text[:80]
+                                )
                             ring.clear()
                         else:
                             await self._summon_with_rewake(
@@ -1093,6 +1109,14 @@ class WakeClient:
             hud_stage("connect")
             try:
                 await room.connect(self._creds["LIVEKIT_URL"], jwt)
+            except rtc.ConnectError:
+                # A signaling/DNS outage must not kill the offline listener.
+                # Cleanup below drains the check and clears unjoined call state.
+                # Require a fresh wake/PTT; never replay this opening request.
+                logger.warning("call connection failed; returning to listening")
+                if announce_text:
+                    self._speak_fallback(announce_text)
+                return False
             except Exception:
                 if announce_text:
                     self._speak_fallback(announce_text)
@@ -1214,8 +1238,9 @@ class WakeClient:
         """
         import numpy as np
         import sounddevice as sd
-        from audio_dsp import Downsampler48to16
         from livekit import rtc
+
+        from audio_dsp import Downsampler48to16
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
@@ -1271,7 +1296,9 @@ class WakeClient:
                     hot_run = hot_run + 1 if score >= REWAKE_THRESHOLD else 0
                     quiet = time.monotonic() - self._last_agent_voice
                     if should_rewake(hot_run, quiet):
-                        logger.warning("in-call wake (%.2f), agent quiet %.0fs", score, quiet)
+                        logger.warning(
+                            "in-call wake (%.2f), agent quiet %.0fs", score, quiet
+                        )
                         self._rewake.set()
                         return
 
@@ -1320,8 +1347,9 @@ class WakeClient:
         their opening question has already been sent as text.
         """
         import numpy as np
-        from audio_dsp import Downsampler48to16
         from livekit import rtc
+
+        from audio_dsp import Downsampler48to16
 
         if capture_epoch is None:
             capture_epoch = getattr(self, "_mute_epoch", 0)
@@ -1407,7 +1435,9 @@ class WakeClient:
                 await forward(raw, backlog=not queue.empty())
             else:
                 gated = self._gate_mic(raw, time.monotonic())
-                await source.capture_frame(rtc.AudioFrame(gated, MIC_RATE, 1, len(gated) // 2))
+                await source.capture_frame(
+                    rtc.AudioFrame(gated, MIC_RATE, 1, len(gated) // 2)
+                )
             if model is None or self._rewake is None:
                 continue
             pending16 = np.concatenate(
@@ -1418,7 +1448,9 @@ class WakeClient:
                 hot_run = hot_run + 1 if score >= REWAKE_THRESHOLD else 0
                 quiet = time.monotonic() - self._last_agent_voice
                 if should_rewake(hot_run, quiet):
-                    logger.warning("in-call wake (%.2f), agent quiet %.0fs", score, quiet)
+                    logger.warning(
+                        "in-call wake (%.2f), agent quiet %.0fs", score, quiet
+                    )
                     self._rewake.set()
                     return
 
@@ -1446,7 +1478,9 @@ class WakeClient:
                     rms = float((samples.astype("float32") ** 2).mean() ** 0.5)
                     gate.note_playback(rms, time.monotonic())
                 if _school_quiet():
-                    samples = (samples.astype("float32") * _school_gain()).astype("int16")
+                    samples = (samples.astype("float32") * _school_gain()).astype(
+                        "int16"
+                    )
                 await output.write(samples, frame.sample_rate)
         finally:
             try:

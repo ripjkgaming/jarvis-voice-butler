@@ -1,7 +1,6 @@
 """Jarvis looks at the screen or through the camera (IRONMAN_SPEC §5.2).
 
-look_at_screen: captures the ACTIVE window (spectacle -a; full screen as a
-fallback) and asks Gemini vision the question ("what's wrong with this
+look_at_screen: captures only the ACTIVE window (spectacle -a) and asks Gemini vision the question ("what's wrong with this
 error?"). look_through_camera: one camera_hub frame ("what's this part?").
 Frames live only in memory and a temp file deleted at once; nothing is
 stored unless Sir asks.
@@ -33,8 +32,8 @@ PROMPTS = {
 
 
 def capture_window(run=subprocess.run) -> bytes | None:
-    """Active window PNG (spectacle -a), else full screen. Never raises."""
-    for flag in ("-a", "-f"):
+    """Active window PNG (spectacle -a), no full-screen fallback. Never raises."""
+    for flag in ("-a",):
         fd, out = tempfile.mkstemp(suffix=".png")
         os.close(fd)
         try:

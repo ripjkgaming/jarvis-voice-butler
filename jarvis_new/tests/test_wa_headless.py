@@ -70,3 +70,19 @@ def test_ensure_spawn_raises_false(monkeypatch) -> None:
         raise RuntimeError("no flatpak here")
 
     assert wa_headless.ensure(spawn=bad_spawn, sleep=lambda s: None) is False
+
+
+def test_existing_offline_client_is_not_relaunched(monkeypatch):
+    monkeypatch.setattr(wa_headless.wa, "alive", lambda: True)
+    monkeypatch.setattr(wa_headless.wa, "page_present", lambda: False)
+    spawns = []
+
+    def spawn(*a, **k):
+        spawns.append(a)
+        return object()
+
+    def forbidden(*a, **k):
+        raise AssertionError("existing offline client must not be waited on")
+
+    assert wa_headless.ensure(spawn=spawn, sleep=forbidden) is False
+    assert not spawns

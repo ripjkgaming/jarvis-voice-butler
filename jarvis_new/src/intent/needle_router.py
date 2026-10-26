@@ -339,6 +339,13 @@ def _spawn() -> None:
         stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
+        env={
+            **os.environ,
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "TOKENIZERS_PARALLELISM": "false",
+        },
     )
     threading.Thread(target=_pump, args=(_proc, _replies), daemon=True).start()
 
@@ -378,7 +385,12 @@ def warm_up() -> None:
 
 
 def _isolated() -> bool:
-    return os.environ.get(ISOLATE_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+    return os.environ.get(ISOLATE_ENV, "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 def route_with_needle(text: str) -> dict | None:
@@ -392,6 +404,12 @@ def route_with_needle(text: str) -> dict | None:
 
 def _worker_main() -> None:
     """Child process: own fd 1 for the protocol, send everything else to stderr."""
+    with __import__("contextlib").suppress(OSError):
+        os.nice(10)
+    with __import__("contextlib").suppress(OSError, AttributeError):
+        # Native runtimes may ignore BLAS/OpenMP limits. Keep all their
+        # threads on one available CPU while the audio loop stays elsewhere.
+        os.sched_setaffinity(0, {max(os.sched_getaffinity(0))})
     out = os.fdopen(os.dup(1), "w", buffering=1)
     os.dup2(2, 1)
     try:

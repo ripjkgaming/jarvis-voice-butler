@@ -46,6 +46,7 @@ class Quote:
     fetched_at: datetime | None = None
     currency: str = "USD"
     previous_close: Decimal | None = None
+    bars: tuple[dict, ...] = ()
 
     @property
     def change_percent(self) -> Decimal | None:
@@ -248,9 +249,77 @@ def parse_chart_quote(
         quoted_at=quoted_at,
         fetched_at=now,
         previous_close=previous_close,
+        bars=parse_bars(results[0], now),
     )
     _validate_structure(result, now)
     return result
+
+
+def parse_bars(result: dict, now: datetime) -> tuple[dict, ...]:
+    """Keep real, completed one-minute OHLCV bars; never interpolate gaps."""
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators", {})
+    rows = indicators.get("quote", []) if isinstance(indicators, dict) else []
+    if (
+        not isinstance(timestamps, list)
+        or len(timestamps) > 1000
+        or not isinstance(rows, list)
+        or not rows
+        or not isinstance(rows[0], dict)
+    ):
+        return ()
+    series = rows[0]
+    if any(
+        not isinstance(series.get(k), list) or len(series[k]) != len(timestamps)
+        for k in ("open", "high", "low", "close", "volume")
+    ):
+        return ()
+    bars = []
+    previous = None
+    for i, timestamp in enumerate(timestamps):
+        try:
+            if type(timestamp) is not int:
+                continue
+            at = datetime.fromtimestamp(timestamp, timezone.utc)
+            if (now - at).total_seconds() < 60 or not session_at(at).is_open:
+                continue
+            if previous is not None and at <= previous:
+                return ()
+            previous = at
+            values = {}
+            for key in ("open", "high", "low", "close"):
+                # Yahoo bars contain binary-float tails. Round only bar analytics;
+                # executable last-trade prices retain the stricter validator.
+                raw = series[key][i]
+                if isinstance(raw, bool) or not isinstance(raw, (int, float, Decimal)):
+                    raise QuoteError("invalid bar price")
+                number = Decimal(str(raw))
+                if (
+                    not number.is_finite()
+                    or not MIN_PRICE_USD <= number <= MAX_PRICE_USD
+                ):
+                    raise QuoteError("invalid bar price")
+                values[key] = _price(number.quantize(Decimal("0.000001")))
+            volume = series["volume"][i]
+            if type(volume) is not int or not 0 <= volume <= 10**12:
+                continue
+            if (
+                not values["low"]
+                <= min(values["open"], values["close"])
+                <= max(values["open"], values["close"])
+                <= values["high"]
+            ):
+                continue
+            bars.append(
+                {
+                    "at": at.isoformat(),
+                    **{k: str(v) for k, v in values.items()},
+                    "volume": volume,
+                }
+            )
+        except (ValueError, OverflowError, OSError, InvalidOperation):
+            continue
+    return tuple(bars[-390:])
 
 
 class _NoRedirect(HTTPRedirectHandler):

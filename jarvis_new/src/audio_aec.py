@@ -8,8 +8,9 @@ echo-cancelled pair the system defaults, so every stream that opens after
 that (mic capture and playback alike) goes through it.
 
 Only engages when the default sink is the built-in speaker: with a headset
-there is no acoustic path, so nothing is touched. Everything is best-effort
-and never raises. JARVIS_AEC=0 disables, JARVIS_AEC=1 forces it on.
+there is no acoustic path, so an old Jarvis-owned canceller is released
+before capture opens, preserving the selected output and microphone. Everything
+is best-effort and never raises. JARVIS_AEC=0 disables, JARVIS_AEC=1 forces it on.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -93,17 +95,65 @@ def _loaded() -> bool:
 def _first_speaker_master() -> tuple[str, str] | None:
     """Built-in (source, sink) masters when the default sink is not a speaker."""
     try:
-        sinks = [ln.split("\t")[1] for ln in _pactl("list", "short", "sinks").splitlines()]
+        sinks = [
+            ln.split("\t")[1] for ln in _pactl("list", "short", "sinks").splitlines()
+        ]
         sources = [
             ln.split("\t")[1] for ln in _pactl("list", "short", "sources").splitlines()
         ]
     except Exception:
         return None
     spk = next((s for s in sinks if SPEAKER_MARK in s), "")
-    mic = next(
-        (s for s in sources if ".monitor" not in s and "Mic1" in s), ""
-    ) or next((s for s in sources if ".monitor" not in s and "pci" in s), "")
+    mic = next((s for s in sources if ".monitor" not in s and "Mic1" in s), "") or next(
+        (s for s in sources if ".monitor" not in s and "pci" in s), ""
+    )
     return (mic, spk) if mic and spk else None
+
+
+def _release_stale_aec(default_sink: str) -> None:
+    """Startup-only cleanup; restore owned defaults before removing our pair."""
+    owned = []
+    for line in _pactl("list", "short", "modules").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3 or parts[1] != "module-echo-cancel":
+            continue
+        args = dict(
+            token.split("=", 1) for token in shlex.split(parts[2]) if "=" in token
+        )
+        if args.get("source_name") == AEC_MIC and args.get("sink_name") == AEC_SPEAKER:
+            owned.append((parts[0], args))
+    if not owned:
+        return
+
+    default_source = _pactl("get-default-source")
+    restores = []
+    for _module_id, args in owned:
+        for kind, selected, virtual in (
+            ("source", default_source, AEC_MIC),
+            ("sink", default_sink, AEC_SPEAKER),
+        ):
+            if selected != virtual:
+                continue
+            master = args.get(f"{kind}_master", "")
+            available = {
+                fields[1]
+                for line in _pactl("list", "short", f"{kind}s").splitlines()
+                if len(fields := line.split("\t")) >= 2
+            }
+            if (
+                not master
+                or master == virtual
+                or master.endswith(".monitor")
+                or master not in available
+            ):
+                raise RuntimeError(f"cannot restore stale AEC {kind} master")
+            restores.append((f"set-default-{kind}", master))
+    # Validate every restoration before changing any default or unloading.
+    for command in restores:
+        _pactl(*command)
+    for module_id, _args in owned:
+        _pactl("unload-module", module_id)
+    logger.warning("released stale Jarvis echo cancellation before capture")
 
 
 def engage() -> str:
@@ -115,6 +165,8 @@ def engage() -> str:
         cfg = mode()
         sink = _pactl("get-default-sink")
         if not should_engage(sink, cfg):
+            if sink:
+                _release_stale_aec(sink)
             return f"skipped ({'off' if cfg == 'off' else 'not on laptop speakers'})"
         if not _loaded():
             if sink == AEC_SPEAKER:
@@ -173,7 +225,9 @@ def _amixer(*args: str) -> str:
 
 def _dmic_card() -> str | None:
     try:
-        cards = re.findall(r"^\s*(\d+)\s*\[", Path("/proc/asound/cards").read_text(), re.M)
+        cards = re.findall(
+            r"^\s*(\d+)\s*\[", Path("/proc/asound/cards").read_text(), re.M
+        )
     except OSError:
         return None
     for card in cards:

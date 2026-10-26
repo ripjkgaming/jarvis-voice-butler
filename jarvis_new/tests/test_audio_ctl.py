@@ -45,6 +45,8 @@ class FakeSink:
         if tool == "pactl" and argv[1] == "set-sink-volume":
             self.pct = int(argv[-1].rstrip("%"))
             return done()
+        if tool == "pactl" and argv[1] == "get-sink-mute":
+            return done(0, f"Mute: {'yes' if self.muted else 'no'}")
         if tool == "pactl" and argv[1] == "set-sink-mute":
             self.muted = argv[-1] == "1"
             return done()

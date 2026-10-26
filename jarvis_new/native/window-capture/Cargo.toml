@@ -1,0 +1,11 @@
+[package]
+name = "jarvis-watch-capture"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+dbus = { version = "=0.9.12", features = ["stdfd"] }
+libc = "=0.2.189"
+png = "=0.17.16"
+serde_json = "1"

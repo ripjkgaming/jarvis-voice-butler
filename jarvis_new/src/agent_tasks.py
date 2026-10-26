@@ -18,6 +18,7 @@ tasks (the bridge sidecar picks them up). MAX_STEPS caps each task
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import os
 import re
@@ -25,11 +26,14 @@ import threading
 import time
 from pathlib import Path
 
+from goodnight_fence import admission, execution
+
 KINDS = ("research", "think", "write", "consequential")
 DEFAULT_MAX_STEPS = 6
 OUTPUT_CHARS = 3000
 _running: set[str] = set()
 _lock = threading.Lock()
+TERMINAL = frozenset({"done", "failed", "cancelled"})
 
 PLAN_SYSTEM = (
     "You plan a background task for Sir's assistant Jarvis. Reply with ONLY "
@@ -70,19 +74,95 @@ def _path(task_id: str) -> Path:
     return tasks_dir() / f"{re.sub(r'[^A-Za-z0-9_-]', '_', task_id)[:80]}.json"
 
 
-def save(task: dict) -> None:
+@contextlib.contextmanager
+def _state_lock():
+    """Serialize revision checks and replacement across voice/bridge processes."""
+    tasks_dir().mkdir(parents=True, exist_ok=True)
+    with (tasks_dir() / ".state.lock").open("a") as handle:
+        deadline = time.monotonic() + 2.0
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        "Task state is busy; no change was recorded."
+                    ) from None
+                time.sleep(0.005)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _execution_lock(task_id: str):
+    """Only the executor holding this task lease can start backend work."""
+    tasks_dir().mkdir(parents=True, exist_ok=True)
+    with _path(task_id).with_suffix(".run.lock").open("a") as handle:
+        acquired = False
+        try:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError:
+                pass
+            yield acquired
+        finally:
+            if acquired:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@admission
+def _write_locked(task: dict) -> None:
     task["updated"] = time.time()
-    with contextlib.suppress(OSError):
-        tasks_dir().mkdir(parents=True, exist_ok=True)
-        tmp = _path(task["id"]).with_suffix(".tmp")
+    task["revision"] = int(task.get("revision", 0)) + 1
+    tmp = _path(task["id"]).with_suffix(".tmp")
+    try:
         tmp.write_text(json.dumps(task, indent=2))
         os.replace(tmp, _path(task["id"]))
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
+def save(task: dict) -> bool:
+    """Commit this snapshot only if its revision is current. Never resurrect work.
+
+    Persistence failure propagates: dispatch cannot follow an unrecorded start.
+    Legacy records without revision begin at zero.
+    """
+    with _state_lock():
+        current = _load(task["id"])
+        if current is not None:
+            if current.get("revision", 0) != task.get("revision", 0):
+                return False
+            if current.get("status") in TERMINAL:
+                return False
+            if (
+                current.get("status") == "cancelling"
+                and task.get("status") != "cancelled"
+            ):
+                return False
+        _write_locked(task)
+        return True
+
+
+def _load(task_id: str) -> dict | None:
+    """Authoritative reads fail closed; never overwrite unreadable/corrupt state."""
+    try:
+        data = json.loads(_path(task_id).read_text())
+    except FileNotFoundError:
+        return None
+    if not isinstance(data, dict) or data.get("id") != task_id:
+        raise ValueError("Invalid task state; no work was changed.")
+    return data
 
 
 def get(task_id: str) -> dict | None:
     try:
-        data = json.loads(_path(task_id).read_text())
-        return data if isinstance(data, dict) else None
+        return _load(task_id)
     except (OSError, ValueError):
         return None
 
@@ -204,8 +284,49 @@ def _tell(text: str, key: str, urgent: bool = False) -> None:
         )
 
 
-def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
+@execution
+def advance(task_id: str, runner=None, tell=None) -> dict | None:
     """Run the task until it finishes, fails, or waits for Sir. Idempotent."""
+    tell = _tell if tell is None else tell
+    with _execution_lock(task_id) as acquired:
+        if not acquired:
+            return get(task_id)
+        snapshot = get(task_id)
+        admitted = bool(
+            snapshot
+            and snapshot.get("status") in {"planning", "running"}
+            and not snapshot.get("executor_started")
+        )
+        if not admitted:
+            return snapshot
+        try:
+            result = _advance_owned(task_id, runner, tell)
+        finally:
+            # The synchronous backend has returned. No thread/process stop is
+            # implied before this point; late output was discarded by save().
+            with _state_lock():
+                current = _load(task_id)
+                if current and current.get("status") == "cancelling":
+                    current.update(
+                        status="cancelled",
+                        settled_at=time.time(),
+                        executor_started=False,
+                    )
+                    _write_locked(current)
+            with _lock:
+                _running.discard(task_id)
+        result = get(task_id) or result
+    # Native executor lease has been released. Registry errors leave the
+    # projection pending; explicit status reads retry, never invent settlement.
+    if result:
+        with contextlib.suppress(Exception):
+            from cancellation_adapters import sync_registered_task
+
+            sync_registered_task(result)
+    return result
+
+
+def _advance_owned(task_id: str, runner, tell) -> dict | None:
     with _lock:
         if task_id in _running:
             return get(task_id)
@@ -215,15 +336,20 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
         if task is None or task["status"] not in ("planning", "running"):
             return task
         if task["status"] == "planning":
+            task["executor_started"] = True
+            if not save(task):
+                return get(task_id)
             raw, warning = _chatgpt(
                 f"GOAL: {_fence(task['goal'])[:1500]}",
                 PLAN_SYSTEM.replace("{max_steps}", str(max_steps())),
                 runner=runner,
             )
+            task["executor_started"] = False
             plan = parse_plan(raw) if not warning else None
             if plan is None:
                 task.update(status="failed", error=warning or "no usable plan")
-                save(task)
+                if not save(task):
+                    return get(task_id)
                 tell(f"Sir, I couldn't plan the task '{task['goal'][:60]}'.", task_id)
                 return task
             task.update(
@@ -231,17 +357,19 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
                 title=plan["title"] or task["goal"][:60],
                 steps=plan["steps"],
             )
-            save(task)
+            if not save(task):
+                return get(task_id)
         for i, step in enumerate(task["steps"]):
             if step["status"] == "done":
                 continue
             fresh = get(task_id) or task
-            if fresh.get("status") == "cancelled":
+            if fresh.get("status") in TERMINAL | {"cancelling"}:
                 return fresh
             if step["kind"] == "consequential" and not step.get("approved"):
                 step["status"] = "waiting"
                 task["status"] = "waiting"
-                save(task)
+                if not save(task):
+                    return get(task_id)
                 _hud(task)
                 tell(
                     f"Sir, the task '{task['title']}' is ready to {step['title'].lower()}. "
@@ -259,15 +387,19 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
                 continue
             tools = "WebSearch,WebFetch" if step["kind"] == "research" else ""
             step["status"] = "running"
-            save(task)
+            task["executor_started"] = True
+            if not save(task):
+                return get(task_id)
             _hud(task)
             out, warning = _chatgpt(
                 step_prompt(task, i), STEP_SYSTEM, tools=tools, runner=runner
             )
+            task["executor_started"] = False
             if warning or not out.strip():
                 step["status"] = "failed"
                 task.update(status="failed", error=warning or "empty step result")
-                save(task)
+                if not save(task):
+                    return get(task_id)
                 _hud(task)
                 tell(
                     f"Sir, the task '{task['title']}' failed at '{step['title']}'.",
@@ -275,11 +407,13 @@ def advance(task_id: str, runner=None, tell=_tell) -> dict | None:
                 )
                 return task
             step.update(status="done", output=out.strip()[:OUTPUT_CHARS])
-            save(task)
+            if not save(task):
+                return get(task_id)
             _hud(task)
         task["status"] = "done"
         task["report"] = report(task)
-        save(task)
+        if not save(task):
+            return get(task_id)
         _hud(task)
         with contextlib.suppress(OSError):
             (tasks_dir() / f"{task_id}.md").write_text(task["report"])
@@ -305,7 +439,11 @@ def report(task: dict) -> str:
 
 
 def start(
-    goal: str, runner=None, background: bool = True, now: float | None = None
+    goal: str,
+    runner=None,
+    background: bool = True,
+    now: float | None = None,
+    on_created=None,
 ) -> dict:
     goal = " ".join(str(goal or "").split())[:1500]
     now = time.time() if now is None else now
@@ -316,8 +454,20 @@ def start(
         "status": "planning",
         "steps": [],
         "created": now,
+        "executor_started": False,
     }
-    save(task)
+    if not save(task):
+        raise ValueError("Task identity already exists; no new work dispatched.")
+    if on_created is not None:
+        try:
+            on_created(task)
+        except Exception:
+            task.update(
+                status="failed",
+                error="Task registration failed; no backend dispatched.",
+            )
+            save(task)
+            raise
     if background:
         threading.Thread(target=advance, args=(task["id"], runner), daemon=True).start()
     else:
@@ -339,7 +489,8 @@ def approve(task_id: str = "", runner=None, background: bool = True) -> dict | N
             s.update(approved=True, status="pending")
             break
     task["status"] = "running"
-    save(task)
+    if not save(task):
+        return None
     if background:
         threading.Thread(target=advance, args=(task["id"], runner), daemon=True).start()
     else:
@@ -349,10 +500,28 @@ def approve(task_id: str = "", runner=None, background: bool = True) -> dict | N
 
 def cancel(task_id: str = "") -> dict | None:
     task = get(task_id) if task_id else latest(("planning", "running", "waiting"))
-    if task is None or task.get("status") in ("done", "failed", "cancelled"):
+    if task is None:
         return None
-    task["status"] = "cancelled"
-    save(task)
+    with _state_lock():
+        task = _load(task["id"])
+        if task is None or task.get("status") in TERMINAL:
+            return None
+        if task.get("status") == "cancelling":
+            return task
+        with _execution_lock(task["id"]) as idle:
+            # An absent lease cannot establish that an orphaned backend exited.
+            stopped = idle and (
+                task.get("executor_started") is False or task.get("status") == "waiting"
+            )
+            task.update(
+                status="cancelled" if stopped else "cancelling",
+                cancel_requested_at=time.time(),
+            )
+            if stopped:
+                task["settled_at"] = time.time()
+            for step in task.get("steps", []):
+                step.pop("approved", None)
+            _write_locked(task)
     _hud(task)
     return task
 
@@ -381,9 +550,82 @@ def describe(task: dict) -> str:
     return base
 
 
+def redirect(
+    task_id: str,
+    goal: str,
+    input_id: str,
+    *,
+    runner=None,
+    background=True,
+    on_created=None,
+) -> dict:
+    """Replace a settled cancelled preparation, once per explicit input.
+
+    Running preparations must settle first. Never carry old approvals to the
+    replacement, start conflicting work, or automatically undo completed work.
+    """
+    goal = " ".join(str(goal or "").split())[:1500]
+    if len(goal) < 8 or not isinstance(input_id, str) or not 1 <= len(input_id) <= 128:
+        raise ValueError("A replacement goal and fresh input identity are required.")
+    with _state_lock():
+        source = _load(task_id)
+        if source is None or source["status"] != "cancelled":
+            raise ValueError(
+                "The old task must finish stopping before replacement starts."
+            )
+        if source.get("replacement_task_id"):
+            if (
+                source.get("redirect_input_id") != input_id
+                or source.get("redirect_goal") != goal
+            ):
+                raise ValueError("This task already has a replacement; use its ID.")
+            return _load(source["replacement_task_id"])
+        now = time.time()
+        stamp = int(now * 1000)
+        while _load(f"task-{stamp}") is not None:
+            stamp += 1
+        replacement = {
+            "id": f"task-{stamp}",
+            "goal": goal,
+            "title": goal[:60],
+            "status": "replacement_pending",
+            "steps": [],
+            "created": now,
+            "supersedes": task_id,
+            "executor_started": False,
+        }
+        _write_locked(replacement)
+        try:
+            if on_created is not None:
+                on_created(replacement)
+            source.update(
+                replacement_task_id=replacement["id"],
+                redirect_input_id=input_id,
+                redirect_goal=goal,
+            )
+            _write_locked(source)
+            replacement["status"] = "planning"
+            _write_locked(replacement)
+        except Exception:
+            # Pending records cannot be resumed after partial allocation. The
+            # old cancellation remains intact; no backend has been dispatched.
+            raise
+    if background:
+        threading.Thread(
+            target=advance, args=(replacement["id"], runner), daemon=True
+        ).start()
+    else:
+        advance(replacement["id"], runner)
+    return get(replacement["id"]) or replacement
+
+
 def resume_all(runner=None) -> list[str]:
     """Continue tasks a restart interrupted. Returns their ids."""
-    ids = [t["id"] for t in all_tasks() if t.get("status") in ("planning", "running")]
+    ids = [
+        t["id"]
+        for t in all_tasks()
+        if t.get("status") in ("planning", "running") and not t.get("executor_started")
+    ]
     for tid in ids:
         threading.Thread(target=advance, args=(tid, runner), daemon=True).start()
     return ids

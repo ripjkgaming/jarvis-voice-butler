@@ -1,4 +1,4 @@
-"""Explicit CLI operations. There is deliberately no decision scheduler."""
+"""Paper ledger controls, including a persisted automatic-trading switch."""
 
 from __future__ import annotations
 
@@ -72,6 +72,8 @@ def main():
         "run-once",
         "preflight",
         "install-service",
+        "enable-auto",
+        "pause-auto",
     ):
         subparsers.add_parser(name)
     server_parser = subparsers.add_parser("serve")
@@ -86,6 +88,12 @@ def main():
         ledger.experiment()  # Missing state must never silently restart a run.
     if args.command == "init" or args.command == "snapshot":
         result = ledger.snapshot()
+    elif args.command in {"enable-auto", "pause-auto"}:
+        from .engine import cycle_lock
+
+        with cycle_lock(ledger):
+            ledger.runtime(autotrading_enabled=args.command == "enable-auto")
+        result = {"status": "enabled" if ledger.autotrading_enabled() else "paused"}
     elif args.command == "refresh":
         result = refresh(ledger)
     elif args.command == "run-once":

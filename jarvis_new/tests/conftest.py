@@ -194,3 +194,31 @@ def _fresh_action_guard() -> None:
     import action_guard
 
     action_guard.reset()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_security_guard(monkeypatch):
+    """Guard tests must inject runners; never spawn a guard or lock the host."""
+    import watch_mode
+
+    launch = watch_mode.launch
+    lock = watch_mode.fail_safe_lock
+
+    def safe_launch(popen=None):
+        if popen is None or popen is subprocess.Popen:
+            raise AssertionError("Tests must inject a fake security guard launcher")
+        return launch(popen=popen)
+
+    def safe_lock(run=None):
+        if run is None or run is subprocess.run or run is _HOST_SUBPROCESS_RUN:
+            raise AssertionError("Tests must inject a fake session lock runner")
+        return lock(run=run)
+
+    monkeypatch.setattr(watch_mode, "launch", safe_launch)
+    monkeypatch.setattr(watch_mode, "fail_safe_lock", safe_lock)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_mercury(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mercury Decide is a live OpenRouter call; tests opt in by clearing this."""
+    monkeypatch.setenv("JARVIS_MERCURY", "0")

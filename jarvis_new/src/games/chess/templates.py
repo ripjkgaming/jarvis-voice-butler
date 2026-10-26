@@ -124,6 +124,11 @@ def result_line(outcome: str, reason: str, human_white: bool) -> str:
 
 
 def disambiguation_question(board: chess.Board, moves: list[chess.Move]) -> str:
+    if len({m.from_square for m in moves}) == 1:
+        p = board.piece_at(moves[0].from_square)
+        dests = [chess.square_name(m.to_square) for m in moves]
+        name = piece_name(p.piece_type) if p else "piece"
+        return f"The {name} to {' or '.join(dests)}, Sir?"
     names = []
     for m in moves:
         p = board.piece_at(m.from_square)

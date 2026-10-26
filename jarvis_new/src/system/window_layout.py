@@ -70,6 +70,30 @@ def _js(value) -> str:
     return json.dumps(value)
 
 
+def _motion_gate(windows: str) -> str:
+    """Visual preparation cannot block or duplicate the actual layout operation."""
+    return """
+var geometryApplied = false;
+var motionDeadline = new QTimer();
+motionDeadline.singleShot = true;
+motionDeadline.interval = 180;
+function finishGeometryPreparation() {
+  if (geometryApplied) return;
+  geometryApplied = true;
+  motionDeadline.stop();
+  applyGeometry();
+}
+motionDeadline.timeout.connect(finishGeometryPreparation);
+motionDeadline.start();
+try {
+  callDBus("org.jarvis.TaskbarPuppet", "/Puppet", "org.jarvis.TaskbarPuppet",
+    "PrepareGeometry", JSON.stringify(WINDOWS.map(function(w) {
+      return {pid:w.pid, caption:String(w.caption||"")};
+    })), finishGeometryPreparation);
+} catch(ignore) { finishGeometryPreparation(); }
+""".replace("WINDOWS", windows)
+
+
 def arrange_script(layout: str, queries: list[str], bus: tuple[str, str, str]) -> str:
     """One-shot KWin script: pick windows, push undo snapshot, place them. Pure."""
     name, path, iface = bus
@@ -118,6 +142,7 @@ var snap = picked.map(function (w) {{
 }});
 callDBus({_js(name)}, {_js(path)}, {_js(iface)}, {_js(LAYOUT_MEMBER)}, JSON.stringify({{layout: {_js(layout)}, windows: snap}}));
 var fr = fracsByN[String(Math.max(1, Math.min(9, picked.length)))] || [];
+function applyGeometry() {{
 picked.forEach(function (w, i) {{
   var f = fr[i]; if (!f) return;
   var a = workspace.clientArea(KWin.MaximizeArea, w);
@@ -126,6 +151,8 @@ picked.forEach(function (w, i) {{
                       width: Math.round(f[2] * a.width), height: Math.round(f[3] * a.height)}};
 }});
 if (picked.length) workspace.activeWindow = picked[0];
+}}
+{_motion_gate('picked')}
 """
 
 
@@ -135,10 +162,14 @@ def restore_script(snapshot: dict) -> str:
 var snap = {_js(snapshot.get("windows") or [])};
 var byId = {{}};
 workspace.windowList().forEach(function (w) {{ byId[String(w.internalId)] = w; }});
+function applyGeometry() {{
 snap.forEach(function (s) {{
   var w = byId[s.id]; if (!w) return;
   w.frameGeometry = {{x: s.x, y: s.y, width: s.w, height: s.h}};
 }});
+}}
+var picked = snap.map(function(s) {{return byId[s.id];}}).filter(function(w) {{return !!w;}});
+{_motion_gate('picked')}
 """
 
 

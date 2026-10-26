@@ -52,9 +52,9 @@ async def _pass_on_reply(
         import mail_log
         from system import log_action
         from system.inbox import (
-            _extract_email,
             _gmail_send_api,
             _header,
+            automatic_reply_recipient,
             build_mime_b64,
             passon_body,
             scam_body,
@@ -63,7 +63,7 @@ async def _pass_on_reply(
         if os.environ.get("JARVIS_AUTOREPLY", "1") == "0":
             return " replied=no(disabled)"
         thread_id = str(full.get("threadId", "") or "")
-        addr = _extract_email(_header(full, "From") or parsed["sender"])
+        addr = automatic_reply_recipient(full)
         if not addr:
             return " replied=no(no-address)"
         own = os.environ.get("JARVIS_OWNER_EMAIL", "").lower()
@@ -428,12 +428,14 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
     outcome = f"high pinged={pinged}"
     acked = False
     try:
-        from system.inbox import _extract_email
+        from system.inbox import automatic_reply_recipient
 
-        addr = _extract_email(_header(full, "From") or sender)
+        addr = automatic_reply_recipient(full)
         thread_id = str(full.get("threadId", "") or "")
         now = time.time()
-        if not ack_allowed(acks, thread_id, addr, now):
+        if not addr:
+            outcome += " replied=no(automated-or-invalid-recipient)"
+        elif not ack_allowed(acks, thread_id, addr, now):
             outcome += " replied=no(already-acked)"
         elif verdict["human"] and os.environ.get("JARVIS_AUTOREPLY", "1") != "0":
             orig_from = addr or sender
@@ -489,8 +491,6 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
     return outcome
 
 
-async def main() -> None:
-    from system import log_action
 _BACKOFF_CAP_S = 1800.0
 _backoff: dict[str, float] = {"fails": 0, "until": 0.0}
 
@@ -507,12 +507,14 @@ def _poll_failed(exc: Exception, log_action) -> None:
     log_action("mailwatch", f"poll failed: {exc} (retry in {int(wait)}s)")
 
 
+async def main() -> None:
+    from system import log_action
 
-    os.environ["JARVIS_LOCAL"] = "1"
-    _run["drafts"] = 0
     if time.monotonic() < _backoff["until"]:
         return
 
+    os.environ["JARVIS_LOCAL"] = "1"
+    _run["drafts"] = 0
     _run["events"] = 0
     state = _load_state()
     seen = set(state.get("seen", []))
@@ -529,9 +531,9 @@ def _poll_failed(exc: Exception, log_action) -> None:
     except Exception as exc:
         _poll_failed(exc, log_action)
         return
+    _backoff.update(fails=0, until=0.0)
     seen_map = dict(state.get("seen_map", {}))
     for entry in seen:
-    _backoff.update(fails=0, until=0.0)
         # Back-compat with the firstdraft "id:outcome" list format.
         seen_map.setdefault(str(entry).split(":")[0], "seen")
     fresh = [

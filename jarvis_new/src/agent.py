@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import difflib
+import logging
 import math
 import os
 import random
@@ -29,7 +30,7 @@ from livekit.agents.beta.tools import EndCallTool
 from livekit.agents import llm
 from livekit.agents.llm import StopResponse
 from livekit.agents.llm import FallbackAdapter, RealtimeModelFallbackAdapter
-from livekit.agents.types import NOT_GIVEN
+from livekit.agents.types import APIConnectOptions, NOT_GIVEN
 from livekit.agents.voice import UserStateChangedEvent, io
 from livekit.plugins import google
 
@@ -39,6 +40,8 @@ except ImportError:  # pragma: no cover - direct pipeline needs the extra
     silero = None  # type: ignore[assignment]
 
 from browser import BrowserManager
+
+import phone_session
 
 try:
     from src.local_voice import PiperTTS
@@ -62,6 +65,7 @@ from system.files_tools import FilesTools
 from system.focus_tools import FocusTools
 from draft_tools import DraftTools
 from notify_tools import NotifyTools
+from system.schedule_tools import ScheduleTools
 from system.exam_tools import ExamTools
 from system.muse_tools import MuseTools
 from system.memory_tools import MemoryTools
@@ -78,6 +82,7 @@ from system.projects_tools import ProjectTools
 from system.quotes_tools import QuoteTools
 from system.school_tools import SchoolTools
 from system.suit_tools import SuitTools
+from system.watch_tools import WatchTools
 from system.vision_tools import VisionTools
 from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
@@ -110,7 +115,7 @@ def _patch_gemini_turn_end() -> bool:
         return False
     try:
         from google.genai import types as _gt
-        from livekit.agents.types import NOT_GIVEN
+        from livekit.agents.types import APIConnectOptions, NOT_GIVEN
         from livekit.plugins.google.realtime import realtime_api as _ra
     except Exception:
         return False
@@ -240,6 +245,8 @@ def _realtime_llm():
     """
     return RealtimeModelFallbackAdapter(
         [_voice_model(mid) for mid in _voice_chain()],
+        cooldown=60.0,
+        regenerate_on_swap=False,
     )
 
 
@@ -291,13 +298,18 @@ def _voice_model(model_id: str):
     elif "2.5" in model_id:
         thinking = {"thinking_config": genai_types.ThinkingConfig(thinking_budget=32)}
     import gemini_watchdog
+    import realtime_startup
 
-    return gemini_watchdog.install(
+    return realtime_startup.install(gemini_watchdog.install(
         google.realtime.RealtimeModel(
             model=model_id,
             voice="Enceladus",
-            # No language code: native-audio models reject explicit codes
-            # and default to English anyway.
+            http_options=realtime_startup.http_options(),
+            # The adapter owns failover. Child reconnects reset retry accounting
+            # on inbound metadata and can otherwise cycle on provider errors.
+            conn_options=APIConnectOptions(max_retry=0),
+            # Native audio chooses language automatically; English output is
+            # an instruction policy, not a supported input-language lock.
             **thinking,
             # Let Gemini detect the spoken turn. Local Silero classified the
             # live microphone background as continuous speech, withholding
@@ -315,7 +327,7 @@ def _voice_model(model_id: str):
             ),
             tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
         )
-    )
+    ))
 
 
 # Cheap pipeline model IDs (LiveKit Inference; billed from credits).
@@ -389,7 +401,8 @@ class _HudLiveCaption(io.TextOutput):
     mirrors the growing line to the HUD (which has no WebRTC to read the
     room's own transcription stream)."""
 
-    def __init__(self) -> None:
+    def __init__(self, features=None) -> None:
+        self.features = features
         super().__init__(label="HudLiveCaption", next_in_chain=None)
         self._seq = 0
         self._text = ""
@@ -398,7 +411,14 @@ class _HudLiveCaption(io.TextOutput):
         self.on_loop = None
         self._loop_fired = False
 
+    def clear_sensitive(self) -> None:
+        self._text = ""
+        self._open = False
+
     async def capture_text(self, text: str) -> None:
+        if self.features is not None and not self.features.captions_allowed:
+            self.clear_sensitive()
+            return
         if not self._open:
             self._seq += 1
             self._text = ""
@@ -412,6 +432,9 @@ class _HudLiveCaption(io.TextOutput):
                 self.on_loop(self._text)
 
     def flush(self) -> None:
+        if self.features is not None and not self.features.captions_allowed:
+            self.clear_sensitive()
+            return
         if self._open:
             self._open = False
             _write_live_caption(f"{os.getpid()}-{self._seq}", self._text, True)
@@ -481,6 +504,12 @@ def _wake_announce(room: object) -> str:
         parts = getattr(room, "remote_participants", None) or {}
         items = parts.values() if hasattr(parts, "values") else parts
         for participant in items or []:
+            attrs = getattr(participant, "attributes", None) or {}
+            if attrs.get("jarvis.phone_call"):
+                import phone_calls
+                return phone_calls.consume_announcement(
+                    attrs["jarvis.phone_call"], getattr(participant, "identity", "")
+                )
             if getattr(participant, "identity", "") == "jarvis-master":
                 attrs = getattr(participant, "attributes", None) or {}
                 return " ".join(str(attrs.get("jarvis.announce") or "").split())
@@ -870,8 +899,11 @@ def desktop_fast_prefix(text: str) -> tuple | None:
         clean = _fastpath_short(text)
         if clean is None:
             return None
+        import watch_mode
         from bridge import _match_voice_tool
 
+        if phone_session.guest_required():
+            return None
         hit = _match_voice_tool(clean)
         if (
             hit is not None
@@ -912,6 +944,12 @@ def desktop_fast_command(text: str) -> dict | None:
     event loop.
     """
     try:
+        import watch_mode
+
+        if phone_session.guest_required():
+            return None
+        if _pipeline_name() == "realtime":
+            return None
         if not _desktop_fastpath_enabled():
             return None
         clean = _fastpath_short(text)
@@ -956,13 +994,30 @@ async def _reply_or_say(
             await session.say(fallback)
 
 
+ANNOUNCEMENT_TIMEOUT_S = 15.0
+
+
 async def _say_with_caption(
     session: AgentSession, line: str, caption: Callable[[str, str], None]
 ) -> bool:
     """Handle an announcement without captioning failed or interrupted speech."""
     try:
         speech = session.say(line)
-        await speech
+        try:
+            # A stalled greeting used to prevent follow-up/idle watchdogs
+            # below the join gate from ever starting, leaving a live audio
+            # call (and its encoder/renderer CPU cost) open indefinitely.
+            await asyncio.wait_for(
+                speech,
+                timeout=ANNOUNCEMENT_TIMEOUT_S * min(4.0, max(1.0, len(line) / 180)),
+            )
+        except TimeoutError:
+            with contextlib.suppress(Exception):
+                speech.interrupt(force=True)
+            logging.getLogger("jarvis.voice").warning(
+                "Announcement timed out; released speech and startup wait"
+            )
+            return False
         # An interruption already handed the conversation to the user.
         # Do not overwrite their partial caption or trigger a greeting retry.
         if speech.interrupted:
@@ -978,16 +1033,49 @@ async def _say_with_caption(
     return True
 
 
+def _note_wake_greeting_input(session, event) -> None:
+    """Remember real requests; a bare/prefix wake transcript is not a request."""
+    words = re.findall(r"[a-z]+", str(getattr(event, "transcript", "") or "").casefold())
+    if not words:
+        return
+    text = " ".join(words)
+    bare = re.fullmatch(
+        r"(?:(?:hey|hi|hello|ok|okay) )?(?:jarvis|jarvus|javis|jervis|jeeves)", text
+    )
+    if bare or text in {"hey", "hi", "hello", "ok", "okay"}:
+        return
+    session._jarvis_wake_request_seen = True
+
+
 async def _sir_already_talking(session, window_s: float) -> bool:
-    """Poll the input meter for up to window_s; True as soon as Sir speaks."""
-    deadline = time.monotonic() + window_s
+    """Defer on wake-tail energy, but abandon only for a request/reply or timeout.
+
+    A single PCM spike is not a user request. Allow a bounded settling period
+    so the detector's tail / initial noise floor cannot permanently mute a
+    bare wake. Native user speech and the input meter still protect a request
+    while it is in progress, even before its transcript arrives.
+    """
+    started = time.monotonic()
+    earliest = started + window_s
+    deadline = earliest + 4.0
+    quiet_since = None
     while True:
-        if getattr(session, "user_state", None) == "speaking" or _input_activity_holds(
-            session, grace=0.3
-        ):
+        now = time.monotonic()
+        if getattr(session, "_jarvis_wake_request_seen", False) or getattr(
+            session, "agent_state", None
+        ) in {"thinking", "speaking"}:
             return True
-        if time.monotonic() >= deadline:
+        busy = getattr(session, "user_state", None) == "speaking" or _input_activity_holds(
+            session, grace=0.3
+        )
+        if busy:
+            quiet_since = None
+        elif quiet_since is None:
+            quiet_since = now
+        if quiet_since is not None and now >= earliest and now - quiet_since >= 0.3:
             return False
+        if now >= deadline:
+            return True
         await asyncio.sleep(0.05)
 
 
@@ -997,17 +1085,24 @@ async def _greet_with_retry(
     *,
     budget_aside: str = "",
     listen_first_s: float = 0.0,
+    can_greet: Callable[[], bool] = lambda: True,
 ) -> None:
     """Give the realtime scheduler one retry when the greeting fails.
 
     listen_first_s: on a wake call the wake client replays what Sir said
     around the hotword. A greeting sent over that audio stalled ~3 s, got
     cancelled, or answered INSTEAD of his question (reproduced live on
-    gemini-3.8-live, 2 Oct). So listen first and stay quiet if he is
-    already talking: Gemini answers him directly.
+    gemini-3.8-live, 2 Oct). Let wake-tail noise settle, and yield to
+    actual requests or replies: Gemini answers those directly.
     """
     line = "Good day, Sir. What do you require?"
     if listen_first_s > 0 and await _sir_already_talking(session, listen_first_s):
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("greeting", "wake greeting yielded to request/reply or unsettled input")
+        return
+    if not can_greet():
         return
     if await _say_with_caption(session, f"{line}{budget_aside}", caption):
         return
@@ -1020,7 +1115,8 @@ async def _greet_with_retry(
         or _input_activity_holds(session, grace=2.0)
     ):
         return
-    await _say_with_caption(session, line, caption)
+    if can_greet():
+        await _say_with_caption(session, line, caption)
 
 
 #: Wake calls listen this long for replayed speech before greeting: the
@@ -1296,6 +1392,24 @@ def _wrap_tools_with_timing(tools: list) -> list:
         async def _timed(
             *args: object, _orig: object = orig, _tid: str = tid, **kwargs: object
         ):  # type: ignore[no-untyped-def]
+            from livekit.agents.llm import ToolError
+
+            import watch_mode
+
+            if phone_session.private() and phone_session.guest_required():
+                raise ToolError("The private phone call has ended.")
+            if phone_session.guest_required() and _tid not in {"tell_time", "do_math", "set_volume", "media_control", "end_call"}:
+                raise ToolError("Guest mode refuses owner actions. Only the owner's explicit stop control can restore owner mode.")
+            private_error = phone_session.private_tool_error(_tid)
+            if private_error:
+                raise ToolError(private_error)
+            context = kwargs.get("context")
+            if not isinstance(context, RunContext):
+                context = next((a for a in args if isinstance(a, RunContext)), None)
+            goodnight_binding = getattr(getattr(context, "session", None), "jarvis_goodnight", None)
+            if (goodnight_binding is not None and goodnight_binding.blocks_tools
+                    and _tid not in {"goodnight_status", "goodnight_cancel"}):
+                raise ToolError("The trusted goodnight host owns this command. Use goodnight_status or goodnight_cancel; no immediate lock or hangup is authorized by goodnight.")
             start = time.monotonic()
             try:
                 loop = asyncio.get_running_loop()
@@ -1322,12 +1436,33 @@ def _wrap_tools_with_timing(tools: list) -> list:
             slow_task = (
                 loop.call_later(SLOW_TOOL_S, _nudge) if loop is not None else None
             )
-            _say_ack(_tid, args, kwargs)
-            TRACKER.call_started()
+            import action_guard
+
+            context = kwargs.get("context")
+            if not isinstance(context, RunContext):
+                context = next((a for a in args if isinstance(a, RunContext)), None)
+            cleanup = contextlib.ExitStack()
+            call_started = False
             try:
+                scope = action_guard.request_scope(action_guard.request_id(context))
+                cleanup.enter_context(scope)
+                from hud_voice_state import execution_scope
+
+                cleanup.enter_context(execution_scope(getattr(context, "session", None)))
+                _say_ack(_tid, args, kwargs)
+                from goodnight_fence import Fence
+
+                goodnight_work = (Fence().work() if os.environ.get("JARVIS_GOODNIGHT_V2") == "1" else contextlib.nullcontext())
+                cleanup.enter_context(goodnight_work)
+                TRACKER.call_started()
+                call_started = True
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
                 if _inspect.isawaitable(res):
                     res = await res
+                if phone_session.private() and phone_session.guest_required():
+                    raise ToolError("The private phone call has ended.")
+                if phone_session.guest_required() and _tid not in {"tell_time", "do_math", "set_volume", "media_control", "end_call"}:
+                    raise ToolError("Guest mode suppresses owner tool results.")
                 from handoff_recovery import remember
 
                 context = kwargs.get("context")
@@ -1335,12 +1470,33 @@ def _wrap_tools_with_timing(tools: list) -> list:
                     context = next((a for a in args if isinstance(a, RunContext)), None)
                 remember(context, res)
                 return res
+            except BaseException as exc:
+                # Preserve tool failure/cancellation; health sees fixed categories only.
+                with contextlib.suppress(Exception):
+                    from health_recorder_client import classify_error
+
+                    health = getattr(
+                        getattr(context, "session", None), "_jarvis_health", None
+                    )
+                    if health:
+                        health[1](None, None, "tool_call", classify_error(exc, "tool_failed"))
+                raise
             finally:
+                # Drain every acquired scope even when a later entry or tool fails.
+                # Cleanup must not suppress the original tool error or cancellation.
+                with contextlib.suppress(Exception):
+                    cleanup.close()
                 if slow_task is not None:
                     slow_task.cancel()
                 try:
                     ms = (time.monotonic() - start) * 1000.0
-                    TRACKER.call_finished(_tid, ms)
+                    if call_started:
+                        TRACKER.call_finished(_tid, ms)
+                    health = getattr(
+                        getattr(context, "session", None), "_jarvis_health", None
+                    )
+                    if health:
+                        health[1]("tool_duration_s", ms / 1000.0, "tool_call")
                     import acks as _acks
 
                     _acks.record(_tid, ms / 1000.0)
@@ -1469,6 +1625,9 @@ class ResearchAgent(_SpecialistAgent):
         task, self.task = self.task.strip(), ""
         if not task:
             return
+        from handoff_recovery import begin_specialist
+
+        begin_specialist(self)
         # Arm before generation: a stalled reply must not delay its own timer.
         self._arm_watchdog()
         try:
@@ -1634,6 +1793,9 @@ class SystemAgent(_SpecialistAgent):
         task, self.task = self.task.strip(), ""
         if not task:
             return
+        from handoff_recovery import begin_specialist
+
+        begin_specialist(self)
         # Same deal as ResearchAgent: never land silent, arm the watchdog.
         self._arm_watchdog()
         try:
@@ -1695,6 +1857,26 @@ def _never_demote(tool_id: str) -> bool:
         or "confirm" in tool_id
         or tool_id in {
             "latency_report",
+            "launch_chess",
+            "system_health_incident",
+            "build_monitor_register",
+            "build_monitor_status",
+            "monitor_create",
+            "monitor_list",
+            "monitor_status",
+            "monitor_stop",
+            "librarian_find",
+            "cancel_task",
+            "task_status",
+            "cancel_tool",
+            "redirect_task",
+            "computer_use_cancel",
+            "start_watch_mode",
+            "stop_watch_mode",
+            "watch_mode_status",
+            "watch_mode_briefing",
+            "goodnight_status",
+            "goodnight_cancel",
             "set_volume",
             "tell_time",
             "download_youtube_video",
@@ -1713,6 +1895,7 @@ class Assistant(Agent):
         background_tools: BackgroundTools | None = None,
         inbox_tools: InboxTools | None = None,
         reddit_tools: RedditTools | None = None,
+        librarian_service=None,
     ) -> None:
         self.browser = browser or BrowserManager(headless=True)
         self.browser_tools = BrowserTools(self.browser)
@@ -1725,6 +1908,7 @@ class Assistant(Agent):
         self.reddit_tools = reddit_tools or RedditTools()
         self.draft_tools = DraftTools(self.inbox_tools)
         self.notify_tools = NotifyTools()
+        self.schedule_tools = ScheduleTools()
         self.osint_tools = OsintTools()
         self.project_tools = ProjectTools()
         self.quote_tools = QuoteTools(
@@ -1732,6 +1916,13 @@ class Assistant(Agent):
         )
         self.school_tools = SchoolTools()
         self.suit_tools = SuitTools()
+        self.watch_tools = WatchTools()
+        from goodnight_tools import GoodnightTools
+
+        # Coordinator supplies a trusted status/cancel client after host review.
+        from goodnight_host import control as goodnight_control
+
+        self.goodnight_tools = GoodnightTools(goodnight_control)
         self.files_tools = FilesTools()
         self.alternatives_tools = AlternativesTools()
         self.focus_tools = FocusTools()
@@ -1745,6 +1936,19 @@ class Assistant(Agent):
         self.look_tools = LookTools()
         self.code_tools = CodeTools()
         self.task_tools = TaskTools()
+        from system.build_monitor_tools import BuildMonitorTools
+
+        self.build_monitor_tools = BuildMonitorTools()
+        from event_monitor.voice import MonitorTools
+        from event_monitor_bridge import LazyAPI
+
+        self.monitor_tools = MonitorTools(LazyAPI())
+        from librarian import Librarian
+        from librarian_sources import DriveSource, LocalSource
+        from system.librarian_tools import LibrarianTools
+
+        self.librarian_service = librarian_service or Librarian(adapters={"local": LocalSource(), "drive": DriveSource()})
+        self.librarian_tools = LibrarianTools(self.librarian_service)
         self.panel_tools = PanelTools()
         self.workshop_tools = WorkshopTools()
         self._research_agent: ResearchAgent | None = None
@@ -1770,8 +1974,11 @@ class Assistant(Agent):
             # School mode switch + loud-action confirmation.
             *self.school_tools.tools,
             *self.suit_tools.tools,
+            *self.watch_tools.tools,
+            *self.goodnight_tools.tools,
             # Find / open / describe / tidy Sir's files (second brain).
             *self.files_tools.tools,
+            *self.librarian_tools.tools,
             # "Find me a cheaper alternative to X" -> research project.
             *self.alternatives_tools.tools,
             # Focus mode: lock on to a window/tab, drift alerts, review.
@@ -1800,12 +2007,15 @@ class Assistant(Agent):
             *self.code_tools.tools,
             # Multi-step background tasks; acts pause for Sir's yes.
             *self.task_tools.tools,
+            *self.build_monitor_tools.tools,
+            *self.monitor_tools.tools,
             # HUD panels by voice: show mail / hide calendar.
             *self.panel_tools.tools,
             # Workshop: parallel read-only specialists, one merged status.
             *self.workshop_tools.tools,
             # One voice tool: notify Sir (spoken if present, toast otherwise).
             *self.notify_tools.tools,
+            *self.schedule_tools.tools,
             *[
                 tool
                 for group in (
@@ -1839,6 +2049,7 @@ class Assistant(Agent):
         always = {t.id for t in self.browser_tools.tools}
         always |= {t.id for t in self._end_call_tool.tools}
         always |= {t.id for t in self.notify_tools.tools}
+        always |= {t.id for t in self.schedule_tools.tools}
         # Gemini Live gets its tool list once per connection, so demoting
         # saves nothing per turn there. It costs a lot: a handoff changes the
         # tool list, which forces a full Gemini reconnect on the way out and
@@ -1859,7 +2070,11 @@ class Assistant(Agent):
         self._cold_extras = cold + [t for t in router if "confirm" in t.id]
         if cold:
             router.append(self._more_tools_handoff(sorted(cold_ids)))
-        instructions = _with_memory(AGENT_INSTRUCTIONS)
+        import watch_mode
+
+        self._owner_instructions = _with_memory(AGENT_INSTRUCTIONS)
+        self._watch_guest = phone_session.guest_required()
+        instructions = watch_mode.GUEST_INSTRUCTIONS if self._watch_guest else self._owner_instructions
         super().__init__(
             # A Large Language Model (LLM) is your agent's brain. In realtime
             # mode this is the bundled Gemini voice model; in local-pipeline
@@ -1883,29 +2098,14 @@ class Assistant(Agent):
         # each twice and LiveKit raises "duplicate function name".
         _wrap_tools_with_timing(self.tools)
 
+    async def on_enter(self) -> None:
+        from handoff_recovery import resume_return
+
+        await resume_return(self)
+
     async def _goodnight(self, text: str) -> bool:
-        """ "Goodnight" -> fixed farewell + armed lock watcher (src/goodnight.py).
-
-        Any other spoken turn while a lock is pending cancels it: talking to
-        Jarvis again is input. Returns True when the turn was fully handled."""
-        import goodnight
-
-        if not goodnight.enabled():
-            return False
-        if not goodnight.is_goodnight(text):
-            goodnight.cancel()
-            return False
-        with contextlib.suppress(Exception):
-            goodnight.arm()
-        with contextlib.suppress(Exception):
-            from system import log_action
-
-            log_action(
-                "goodnight", "armed: lock after 5 min idle, if nothing is coding"
-            )
-        with contextlib.suppress(Exception):
-            self.session.say(goodnight.farewell())
-        return True
+        """Legacy watcher disabled; trusted owner ingress owns goodnight v2."""
+        return False
 
     def _more_tools_handoff(self, names: list[str]):
         """The one tool that reaches every demoted (unused-lately) tool."""
@@ -1966,13 +2166,12 @@ class Assistant(Agent):
         return hit[0], hit[1], "goal"
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        """Catch instant commands before Gemini replies (IRONMAN fast path).
+        """Execute instant commands before the text model replies.
 
-        Gemini Live sometimes announced "turned it down" without calling any
-        tool. The final transcript of every turn is matched against a strict
+        In text pipelines the completed turn is matched against a strict
         volume/media grammar (then the intent resolver / Needle when it is
         confident); a hit runs the verified local tool here and the line is
-        spoken with tool_choice="none", so Gemini never gets that turn. Sir
+        spoken with tool_choice="none", so the text model never gets that turn. Sir
         keeps saying "turn it down" and it actually happens. Everything else
         falls through to Gemini untouched. JARVIS_FAST_PATH=0 disables it.
         """
@@ -1984,8 +2183,73 @@ class Assistant(Agent):
                 text = new_message.text_content or ""
             except Exception:
                 text = ""
-            if await self._goodnight(text):
+            import watch_mode
+
+            if phone_session.guest_required():
+                if not self._watch_guest:
+                    await self.update_instructions(watch_mode.GUEST_INSTRUCTIONS)
+                return
+            features = getattr(self.session, "jarvis_features", None)
+            # Fresh SDK user messages own visual consent; model tools cannot
+            # synthesize confirmation arguments or reuse conversation context.
+            if not phone_session.private() and not getattr(features, "sensitive_active", False) and not getattr(features, "input_quarantined", False):
+                import computer_watch
+                import computer_watch_client
+                from watch_control import confirmation_command
+
+                turn_id = getattr(new_message, "id", None)
+                seen = getattr(self, "_watch_control_turns", set())
+                if getattr(new_message, "role", None) == "user" and confirmation_command(text) and (getattr(self.session, "agent_state", None) == "speaking" or (features is not None and features.is_echo(text))):
+                    raise StopResponse()  # speaker echo can never mint consent
+                if getattr(new_message, "role", None) == "user" and turn_id and not (features is not None and features.is_echo(text)) and (computer_watch.parse_command(text) is not None or confirmation_command(text)):
+                    if turn_id in seen:
+                        raise StopResponse()
+                    if len(seen) >= 256 and computer_watch.parse_command(text) != "stop":
+                        await self.session.say("Start a fresh voice session for more Watch Mode requests. Stop remains available in the tray.", add_to_chat_ctx=False)
+                        raise StopResponse()
+                    seen.add(turn_id)
+                    self._watch_control_turns = seen
+                    if computer_watch.parse_command(text) == "start":
+                        # Watch Mode = fullscreen ASCII card + camera guard.
+                        launched = await asyncio.to_thread(watch_mode.launch)
+                        if launched.get("ok"):
+                            from system import log_action
+
+                            log_action("watch_mode", "launched")
+                        await self.session.say("Watching the laptop, Sir." if launched.get("ok") else str(launched.get("error") or "Watch Mode unavailable."), add_to_chat_ctx=False)
+                        raise StopResponse()
+                    result = await asyncio.to_thread(computer_watch_client.trusted_user_control, text, f"voice-{id(self.session)}")
+                    reply = "Open Watch Mode briefing in the tray to read the private visual summary." if result.get("visual_private") else str(result.get("spoken_disclosure") or result.get("say") or result.get("error") or "Watch Mode unavailable.")
+                    echo_guard = getattr(getattr(features, "is_echo", None), "__self__", None)
+                    if callable(getattr(echo_guard, "note_agent", None)):
+                        echo_guard.note_agent(reply)
+                    await self.session.say(reply, add_to_chat_ctx=False)
+                    raise StopResponse()
+            if not phone_session.private() and not getattr(features, "sensitive_active", False):
+                with contextlib.suppress(Exception):
+                    import computer_watch_client
+
+                    computer_watch_client.note_context(text)
+            goodnight_binding = getattr(self.session, "jarvis_goodnight", None)
+            if goodnight_binding is not None and goodnight_binding.consume(new_message):
                 raise StopResponse()
+            features = getattr(self.session, "jarvis_features", None)
+            if features is not None and await features.handle_message(new_message):
+                raise StopResponse()
+            if text:
+                import protocols
+
+                proto = protocols.parse(text)
+                if proto is not None:
+                    # Protocols answer only "Protocol N engaged" (nothing when
+                    # silent); the model never gets the turn.
+                    res = await asyncio.to_thread(protocols.handle, proto)
+                    if res.get("say"):
+                        with contextlib.suppress(Exception):
+                            await self.session.say(res["say"], add_to_chat_ctx=False)
+                    raise StopResponse()
+            if _pipeline_name() == "realtime":
+                return  # Gemini already owns this audio turn.
             if not fast_path.enabled():
                 return
             hit = await fast_path.match_async(text)
@@ -1999,7 +2263,12 @@ class Assistant(Agent):
                 ok, say = await goals.execute(self._goal_owners(), tool, args)
             else:
                 tool, args, source = hit
-                ok, say = await fast_path.execute(self.system_tools, tool, args)
+                import action_guard
+
+                with action_guard.request_scope(getattr(new_message, "id", None)):
+                    ok, say = await fast_path.execute(self.system_tools, tool, args)
+            if phone_session.private() and phone_session.guest_required():
+                raise StopResponse()
             with contextlib.suppress(Exception):
                 import claim_guard
 
@@ -2020,6 +2289,18 @@ class Assistant(Agent):
 
                 log_action("fastpath", "error; deferring to Gemini")
             return
+
+    @function_tool()
+    async def system_health_incident(
+        self, context: RunContext, window_s: int = 300
+    ) -> dict[str, str]:
+        """Explain recent measured host pressure/voice errors only when explicitly asked.
+
+        Collection is opt-in; unknown causes stay unknown. No remediation actions.
+        """
+        from health_recorder_client import incident_report
+
+        return await incident_report(window_s)
 
     @function_tool()
     async def latency_report(self, context: RunContext) -> dict[str, str]:
@@ -2062,7 +2343,8 @@ class Assistant(Agent):
         """Hand off rare laptop actions: shutdown/reboot, opening desktop
         programs, moving windows, media keys, brightness, keyboard light,
         monitors, smart home, games, and full desktop control (seeing the
-        screen, clicking, typing into desktop apps).
+        screen, clicking, typing into desktop apps). Chess is NOT handled
+        here: "let's play chess" goes to launch_chess.
 
         Use ONLY for those; everything else on the laptop is a direct
         tool on this agent. Refuses automatically when not running
@@ -2083,6 +2365,25 @@ class Assistant(Agent):
         # opened its worked example (Calculator -> KCalc) for every launch.
         self._system_agent.task = task
         return self._system_agent, f"Handing off to system control: {task}."
+
+    @function_tool()
+    async def launch_chess(self, context: RunContext):
+        """Start a game of chess. Use when Sir says "let's play chess",
+        "play chess", "fancy a game of chess" or similar. This is NOT a
+        system-control task and not a handoff: it opens the chess board in
+        Voice Mode and then ends this call. Chess runs on its own local
+        voice engine, so no more of this session is needed. Say only the
+        one line you are told to say.
+        """
+        import games_launch
+
+        ok, detail = games_launch.launch_chess_detached()
+        if not ok:
+            return f"I could not start chess, Sir: {detail}"
+        # Same hang-up mechanism as end_call: the session closes after this
+        # reply finishes speaking, which stops all LiveKit / Gemini use.
+        await self._end_call_tool._end_call(context)
+        return 'Say exactly "Very good, Sir. The board awaits." and nothing else.'
 
     @function_tool()
     async def transfer_back_to_main(self, context: RunContext):
@@ -2112,25 +2413,29 @@ server = AgentServer(num_idle_processes=_idle_procs(), load_threshold=math.inf)
 
 
 @server.rtc_session(agent_name=os.environ.get("AGENT_NAME", "my-agent"))
+@phone_session.isolated_job
 async def my_agent(ctx: JobContext):
+    if os.environ.get("JARVIS_SCREEN_HOST") == "1":
+        from screen_host import start_screen_host
+
+        await start_screen_host(ctx)
+        return
     # Logging setup
     # Add any other context you want in all log entries here
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
-    # A new call means Sir is back: drop any pending goodnight lock.
-    with contextlib.suppress(Exception):
-        import goodnight
+    # Goodnight v2 startup/new-session revocation belongs to the elected host.
+    # Never restore an arm from disk or call the retired five-minute watcher.
+    # Realtime commands belong to Gemini; a second local router is unused
+    # and loading one per call creates needless CPU/memory pressure.
+    if _pipeline_name() != "realtime":
+        try:
+            from intent.needle_router import warm_up as _needle_warm_up
 
-        goodnight.cancel()
-    # Start the isolated Needle worker now so its model is loaded by the
-    # first turn (a native crash there only kills the child, never this job).
-    try:
-        from intent.needle_router import warm_up as _needle_warm_up
-
-        _needle_warm_up()
-    except Exception:
-        pass
+            _needle_warm_up()
+        except Exception:
+            pass
     # Warm the local launch-router model off the event loop so the first
     # ambiguous "open <thing>" costs ~0.5s, not a ~6s cold load.
     if os.environ.get("JARVIS_LOCAL") == "1":
@@ -2185,6 +2490,12 @@ async def my_agent(ctx: JobContext):
     # when startup fails or the closed session remains referenced.
     if isinstance(session.tts, PiperTTS):
         ctx.add_shutdown_callback(session.tts.aclose)
+    phone_session.bind_session(session)
+    from feature_sessions import FeatureSession, load_host_consent
+
+    _features = FeatureSession(session)
+    _features.install(realtime=_pipeline_name() == "realtime")
+    ctx.add_shutdown_callback(_features.close)
     from handoff_recovery import install as _install_handoff_recovery
 
     _install_handoff_recovery(session)
@@ -2212,6 +2523,9 @@ async def my_agent(ctx: JobContext):
         _activity_clock["last"] = time.monotonic()
 
     session.on("user_input_transcribed", _mark_active)
+    session.on(
+        "user_input_transcribed", lambda event: _note_wake_greeting_input(session, event)
+    )
     session.on("conversation_item_added", _mark_active)
     session.on("function_tools_executed", _mark_active)
 
@@ -2224,8 +2538,17 @@ async def my_agent(ctx: JobContext):
     from echo_guard import EchoGuard
 
     _echo = EchoGuard()
+    _features.is_echo = _echo.is_echo
+    from goodnight_host import install as install_goodnight
+
+    _goodnight_binding = install_goodnight(session, _features)
+    session.jarvis_goodnight = _goodnight_binding
+    if _goodnight_binding is not None:
+        ctx.add_shutdown_callback(_goodnight_binding.close)
 
     def _note_agent_speech(event) -> None:
+        if _features.sensitive_active:
+            return
         item = getattr(event, "item", None)
         if getattr(item, "role", "") == "assistant":
             text = getattr(item, "text_content", "") or ""
@@ -2246,6 +2569,12 @@ async def my_agent(ctx: JobContext):
                 from proactive import engine as _proactive_engine
 
                 _proactive_engine.note_user_turn()
+            if not phone_session.private() and not phone_session.guest_required():
+                with contextlib.suppress(Exception):
+                    import computer_watch_client
+
+                    if not _features.sensitive_active:
+                        computer_watch_client.note_context(transcript)
 
     def _mark_tools(*_args, **_kwargs) -> None:
         _turn_clock["last"] = time.monotonic()
@@ -2260,17 +2589,22 @@ async def my_agent(ctx: JobContext):
     import claim_guard as _cg
 
     def _guard_user(event) -> None:
+        if _features.input_quarantined:
+            return
         text = (getattr(event, "transcript", "") or "").strip()
         if text and getattr(event, "is_final", False) and not _echo.is_echo(text):
             _cg.GUARD.note_user(text)
 
     def _guard_tools(event) -> None:
         for call, out in event.zipped():
-            _cg.GUARD.note_tool(
-                getattr(call, "name", ""), not getattr(out, "is_error", False)
+            _cg.GUARD.note_result(
+                getattr(call, "name", ""), _cg.sdk_tool_result(out),
+                is_error=bool(getattr(out, "is_error", False)),
             )
 
     def _guard_item(event) -> None:
+        if _features.sensitive_active:
+            return
         item = getattr(event, "item", None)
         if getattr(item, "role", "") != "assistant" or not _cg.enabled():
             return
@@ -2306,7 +2640,12 @@ async def my_agent(ctx: JobContext):
     # reads ~/.jarvis/captions.log via bridge /captions instead.
     # Best-effort, never breaks voice.
     try:
-        from hud_events import caption as _hud_caption
+        from hud_events import caption as _hud_caption_raw
+
+        def _hud_caption(role, text):
+            # Includes mic echo/transcript callbacks arriving after private reply.
+            if _features.captions_allowed:
+                _hud_caption_raw(role, text)
 
         _partial = {"text": "", "at": 0.0}
 
@@ -2372,56 +2711,10 @@ async def my_agent(ctx: JobContext):
                     import latency as _lat_begin
 
                     _lat_begin.TRACKER.turn_begin()
-                    # Desktop fast path (Needle routing): act-tier simple
-                    # commands ("lock the computer", "turn it up") execute
-                    # in ms and the pending model turn is dropped so it
-                    # never double-responds. Two stages: a microsecond
-                    # regex pre-match clears the turn synchronously, then
-                    # a thread runs the full resolve (resolver + Needle)
-                    # for paraphrases. Fail-open throughout: any doubt
-                    # falls through to the model untouched.
-                    try:
-                        _prefix_hit = desktop_fast_prefix(text)
-                    except Exception:
-                        _prefix_hit = None
-                    if _prefix_hit is not None:
-                        with __import__("contextlib").suppress(Exception):
-                            session.clear_user_turn()
-                    _lat_begin.TRACKER.mark("fastpath")
-
-                    async def _run_fast() -> None:
-                        try:
-                            _payload = await asyncio.to_thread(
-                                desktop_fast_command, text
-                            )
-                        except Exception:
-                            return
-                        if not isinstance(_payload, dict):
-                            return
-                        with __import__("contextlib").suppress(Exception):
-                            session.clear_user_turn()
-                        _mark_active()
-                        if _payload.get("duplicate"):
-                            # Gemini already ran it from the audio and is
-                            # answering itself: a second line is noise.
-                            return
-                        _reply = str(_payload.get("reply") or "Done, Sir.")
-                        try:
-                            await session.say(_reply)
-                        except Exception:
-                            return
-                        with __import__("contextlib").suppress(Exception):
-                            _hud_caption("jarvis", _reply)
-                        with __import__("contextlib").suppress(Exception):
-                            import latency as _lat_fast
-
-                            _lat_fast.TRACKER.turn_end()
-
-                    try:
-                        _floop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        _floop = asyncio.get_event_loop()
-                    _floop.call_soon(lambda lp=_floop: lp.create_task(_run_fast()))
+                    # Transcripts are observational. The turn hook owns text
+                    # pipelines; Gemini Live owns realtime audio. Dispatching
+                    # here races both, and clear_user_turn cannot retract audio
+                    # the realtime server has already accepted.
                     # Wake word: the name spoken engages standby at once —
                     # no camera needed when Sir is clearly talking to us.
                     # Ack only bare summons; a full addressed request goes
@@ -2457,6 +2750,8 @@ async def my_agent(ctx: JobContext):
                 pass
 
         def _on_convo_item(event) -> None:
+            if not _features.captions_allowed:
+                return
             try:
                 item = getattr(event, "item", None)
                 if str(getattr(item, "role", "") or "") != "assistant":
@@ -2510,6 +2805,8 @@ async def my_agent(ctx: JobContext):
                 _activity_clock["last"], time.monotonic()
             ) or _input_activity_holds(session, grace=_normal_follow_up_s()):
                 await asyncio.sleep(5.0)
+            if _goodnight_binding is not None and _goodnight_binding.armed():
+                return  # the explicit ten-minute request owns this quiet wait
             # Engaged calls belong to the presence loop now (it closes on
             # confirmed absence); the idle hangup only takes standby calls.
             if _presence["engaged"]:
@@ -2527,10 +2824,34 @@ async def my_agent(ctx: JobContext):
     # Passive, content-free stage observations. Missing SDK timestamps stay
     # unknown; Gemini's provider-generation ttft is not full voice latency.
     with contextlib.suppress(Exception):
+        from health_recorder_client import install_session_recorder
         from latency import install_session_timing
         from system import log_action as _log_timing
 
-        install_session_timing(session, _log_timing)
+        health = install_session_recorder(session)
+        install_session_timing(session, _log_timing, sink=health[1] if health else None)
+        if health:
+
+            async def _stop_health_recorder():
+                health[0].close()
+
+            ctx.add_shutdown_callback(_stop_health_recorder)
+
+    # Bind HUD liveness to this AgentSession, including close/disconnect.
+    # Tool wrappers consult this monitor through their own RunContext.
+    from hud_voice_state import VoiceStateMonitor
+
+    _hud_voice = VoiceStateMonitor(session, ctx.room)
+    _hud_voice_task = _hud_voice.start()
+    _background_tasks.add(_hud_voice_task)
+    _hud_voice_task.add_done_callback(_background_tasks.discard)
+
+    async def _stop_hud_voice() -> None:
+        _hud_voice.close()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _hud_voice_task
+
+    ctx.add_shutdown_callback(_stop_hud_voice)
 
     @session.on("user_state_changed")
     def _on_user_state_changed(event: UserStateChangedEvent) -> None:
@@ -2586,14 +2907,76 @@ async def my_agent(ctx: JobContext):
         except Exception:
             pass
 
-    # Build the brain BEFORE connecting so pydantic/LLM schema warmup
-    # overlaps the network join instead of blocking the audio loop after.
-    assistant = Assistant(browser)
+    # Tool introspection and model TLS defaults are local synchronous work.
+    # Construct on a worker before publishing the assistant to the voice loop.
+    import realtime_startup
+
+    assistant = await asyncio.to_thread(realtime_startup.build_assistant, Assistant, browser)
+    _features.task_tools = assistant.task_tools
+    _features.librarian = assistant.librarian_service
+    # No file read without an explicit configured consent path; invalid grants
+    # fail closed, never disabling the ordinary assistant or approval guards.
+    try:
+        _consent = load_host_consent(os.environ.get("JARVIS_FEATURE_CONSENT_FILE"))
+        if _consent.expires_at and _features.authorized():
+            _features.configure(_consent, confirmed=True)
+    except (OSError, ValueError, TypeError):
+        _features.revoke_authority()
+
+    async def _watch_guest_loop() -> None:
+        import watch_mode
+
+        while True:
+            await asyncio.sleep(0.5)
+            guest = phone_session.guest_required()
+            if guest != assistant._watch_guest:
+                if guest:
+                    with contextlib.suppress(Exception):
+                        import computer_watch_client
+
+                        await asyncio.to_thread(computer_watch_client.stop)
+                    _features.revoke_authority()
+                try:
+                    session.interrupt(force=True)
+                    # Drop private context when entering guest: prompts are not access control.
+                    if guest:
+                        from livekit.agents.llm import ChatContext
+
+                        await assistant.update_chat_ctx(ChatContext())
+                        if session.current_agent is not assistant:
+                            session.update_agent(assistant)
+                    await assistant.update_instructions(
+                        watch_mode.GUEST_INSTRUCTIONS if guest else assistant._owner_instructions
+                    )
+                    assistant._watch_guest = guest
+                except Exception:
+                    if guest:
+                        await session.aclose()
+                        return
+
+    _watch_guest_task = asyncio.create_task(_watch_guest_loop())
+    _background_tasks.add(_watch_guest_task)
+    _watch_guest_task.add_done_callback(_background_tasks.discard)
+
+    async def _stop_guest_loop() -> None:
+        _watch_guest_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _watch_guest_task
+
+    ctx.add_shutdown_callback(_stop_guest_loop)
+
+    async def _stop_computer_watch() -> None:
+        import computer_watch_client
+
+        await asyncio.to_thread(computer_watch_client.stop)
+
+    ctx.add_shutdown_callback(_stop_computer_watch)
 
     # Join the room FIRST so the worker is visibly present even while
     # models warm up. session.start before ctx.connect() leaves the
     # room with no agent and the UI stuck on "connecting".
-    await ctx.connect()
+    if not phone_session.identity():
+        await ctx.connect()
     connected_at = time.monotonic()
 
     async def _record_talk_time() -> None:
@@ -2607,7 +2990,8 @@ async def my_agent(ctx: JobContext):
 
     # Word-synced HUD captions; also the loop guard: a reply stuck repeating
     # itself is cut off and Sir gets a short line instead of minutes of it.
-    _live_caption = _HudLiveCaption()
+    _live_caption = _HudLiveCaption(_features)
+    _features.bind_caption_tail(_live_caption)
 
     def _on_reply_loop(text: str) -> None:
         with contextlib.suppress(Exception):
@@ -2624,6 +3008,7 @@ async def my_agent(ctx: JobContext):
         agent=assistant,
         room=ctx.room,
         room_options=room_io.RoomOptions(
+            participant_identity=phone_session.identity() or NOT_GIVEN,
             video_input=True,
             # The optional activity observer passes raw audio unchanged;
             # no cloud noise enhancement or local speech gate is involved.
@@ -2634,6 +3019,20 @@ async def my_agent(ctx: JobContext):
             delete_room_on_close=True,
         ),
     )
+
+    # Pinned private owner audio is the only source of WhatsApp send approval.
+    # Exact review uses local TTS even when the realtime model owns normal speech.
+    import wa_approvals
+
+    _wa_review_tts = PiperTTS(strict_sentence_audio=True) if phone_session.identity() else None
+    _wa_gate = wa_approvals.install(session, tts=_wa_review_tts)
+    if _wa_gate is not None:
+        async def _close_wa_approval() -> None:
+            _wa_gate.close()
+            await _wa_gate.drain()
+            if _wa_review_tts is not None:
+                await _wa_review_tts.aclose()
+        ctx.add_shutdown_callback(_close_wa_approval)
 
     # Proactive pillar: background battery/climb watcher. Edge-triggered,
     # cooldown-gated, and fully swallowed on failure so sensors can never
@@ -2785,11 +3184,19 @@ async def my_agent(ctx: JobContext):
             return {"status": "unknown", "faces": -1, "say": "Presence check failed."}
 
     async def _say(line: str) -> bool:
+        import watch_mode
+
+        if phone_session.guest_required():
+            return False
         # Captioned on success: say() alone emits no message event, so
         # without this the overlay never shows proactive speech.
         return await _say_with_caption(session, line, _hud_caption)
 
     async def _greet() -> None:
+        import watch_mode
+
+        if phone_session.guest_required():
+            return
         # One retry: the realtime speech scheduler is occasionally not up
         # on the first say ("skipping new realtime generation"), which
         # used to mute the whole call.
@@ -2798,6 +3205,7 @@ async def my_agent(ctx: JobContext):
             _hud_caption,
             budget_aside=_budget_aside(),
             listen_first_s=_WAKE_LISTEN_S if _wake else 0.0,
+            can_greet=lambda: not phone_session.guest_required(),
         )
 
     # Join gate: a wake summons IS the engagement (the spoken words were
@@ -2809,17 +3217,18 @@ async def my_agent(ctx: JobContext):
     import school as _school
 
     _school_call = _school.is_school()
+    _phone = bool(phone_session.identity())
     _wake = _wake_summoned(ctx.room)
     # A wake always greets whatever the camera says, so skip the check: it
     # took ~11s with the camera present, and anything Sir said in that
     # window (e.g. "launch YouTube") was lost before the session listened.
     _join = (
-        {"status": "unknown"} if (_school_call or _wake) else await _presence_snapshot()
+        {"status": "unknown"} if (_school_call or _wake or _phone) else await _presence_snapshot()
     )
     _decision = (
         "school"
         if _school_call
-        else _join_decision(_wake, str(_join.get("status", "unknown")))
+        else _join_decision(_wake or _phone, str(_join.get("status", "unknown")))
     )
     with contextlib.suppress(Exception):
         from system import log_action as _log_join
@@ -2898,8 +3307,10 @@ async def my_agent(ctx: JobContext):
             await asyncio.sleep(random.uniform(5 * 60, 30 * 60))
             if _presence["stopped"]:
                 break
-            if _school.is_school():
-                continue  # no check-ins or remarks in class
+            if _goodnight_binding is not None and _goodnight_binding.armed():
+                continue
+            if _phone or _school.is_school():
+                continue  # A remote phone owner is independent of desk presence.
             snap = await _presence_snapshot()
             status = str(snap.get("status", "unknown"))
             if status == "present":
@@ -2943,6 +3354,8 @@ async def my_agent(ctx: JobContext):
         deaf to "hey Jarvis"."""
         while not _presence["stopped"]:
             await asyncio.sleep(10.0)
+            if _goodnight_binding is not None and _goodnight_binding.armed():
+                continue
             budget = (
                 _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
             )

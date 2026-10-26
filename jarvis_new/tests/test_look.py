@@ -28,7 +28,7 @@ def test_capture_window_prefers_active_and_cleans_up() -> None:
     assert not os.path.exists(seen[0][1])  # frame never kept
 
 
-def test_capture_window_falls_back_to_full_screen() -> None:
+def test_capture_window_never_falls_back_to_full_screen() -> None:
     def run(argv, **kw):
         if argv[3] == "-a":
             return subprocess.CompletedProcess(argv, 1)
@@ -36,7 +36,7 @@ def test_capture_window_falls_back_to_full_screen() -> None:
             f.write(b"FULL")
         return subprocess.CompletedProcess(argv, 0)
 
-    assert look.capture_window(run) == b"FULL"
+    assert look.capture_window(run) is None
 
 
 def test_camera_frame() -> None:
@@ -74,10 +74,15 @@ def test_ask_walks_models(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_tools(monkeypatch) -> None:
     monkeypatch.setenv("JARVIS_LOCAL", "1")
+
+    async def fake_thread(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr("system.look_tools.asyncio.to_thread", fake_thread)
     monkeypatch.setattr(look, "capture_window", lambda: b"png")
     monkeypatch.setattr(look, "ask", lambda img, mime, q, kind: (f"{kind}:{q}", None))
-    out = await LookTools.look_at_screen(LookTools(), None, question="what's wrong")  # type: ignore[arg-type]
-    assert out["say"] == "screen:what's wrong"
+    with pytest.raises(ToolError):
+        await LookTools.look_at_screen(LookTools(), None, question="what's wrong")  # type: ignore[arg-type]
     monkeypatch.setattr(look, "camera_frame", lambda: None)
     with pytest.raises(ToolError):
         await LookTools.look_through_camera(LookTools(), None)  # type: ignore[arg-type]

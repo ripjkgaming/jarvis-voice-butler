@@ -58,6 +58,10 @@ def visible() -> list[str]:
 
 
 def _save(names: list[str]) -> None:
+    from phone_session import private
+
+    if private():
+        raise PermissionError("A private phone call cannot change shared desktop panels.")
     with contextlib.suppress(OSError):
         state_path().parent.mkdir(parents=True, exist_ok=True)
         state_path().write_text(json.dumps({"visible": names, "ts": time.time()}))
@@ -103,6 +107,10 @@ def insights() -> dict:
 
 def set_insights(tab: str | None) -> dict:
     """Open the drawer on a tab, or close it (tab=None). Never raises."""
+    from phone_session import private
+
+    if private():
+        raise PermissionError("A private phone call cannot change shared desktop panels.")
     state = {
         "tab": tab if tab in INSIGHTS_TABS else None,
         "seq": insights()["seq"] + 1,

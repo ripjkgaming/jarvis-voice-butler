@@ -22,6 +22,9 @@ from playwright.async_api import (
 )
 
 
+import phone_session
+
+
 class BrowserError(Exception):
     """A user-facing browser operation failure."""
 
@@ -565,6 +568,7 @@ class BrowserManager:
                             # A resolved-but-unclickable candidate (offscreen,
                             # covered, detached) must not fail the whole sweep:
                             # skip it and try the next safe label.
+                            phone_session.check_approval_effect(current=True)
                             await locator.click(timeout=5_000)
                         except PlaywrightTimeoutError:
                             continue
@@ -744,6 +748,7 @@ class BrowserManager:
             async with self._lock:
                 try:
                     locator = await self._resolve_target(page, target)
+                    phone_session.check_approval_effect(current=True)
                     await locator.click()
                 except PlaywrightTimeoutError as exc:
                     raise BrowserError(
@@ -777,6 +782,7 @@ class BrowserManager:
             async with self._lock:
                 try:
                     locator = await self._resolve_textbox(page, target)
+                    phone_session.check_approval_effect(current=True)
                     await locator.fill(text)
                 except BrowserError:
                     raise
@@ -920,6 +926,7 @@ class BrowserManager:
             page = await self._get_page(tab)
             async with self._lock:
                 try:
+                    phone_session.check_approval_effect(current=True)
                     await page.keyboard.press(key)
                     return {
                         "key": key,

@@ -132,7 +132,7 @@ def test_style_profile_measures_habits() -> None:
     assert "bro" in profile and "ngl" in profile
     formal = wa_mimic.style_profile(["Sounds good.", "See you at five.", "Thanks!"])
     assert "capitalises" in formal and "usually ends with punctuation" in formal
-    assert "never uses emoji" in formal
+    assert "no emoji in these examples" in formal
     assert wa_mimic.style_profile([]) == ""
 
 
@@ -175,7 +175,7 @@ def test_parse_reply_handoff_and_no_jarvis_leak() -> None:
 
 def test_system_prompt_formats() -> None:
     text = wa_mimic.system_prompt()
-    assert "AS Rudra" in text and '"handoff": bool' in text
+    assert "Rudra's evidenced writing style" in text and '"handoff": bool' in text
     assert "Never deny" in text
 
 
@@ -309,13 +309,13 @@ def test_slang_defaults_and_file(home) -> None:
 
 def test_swearing_toggle(home, monkeypatch) -> None:
     # Default: casual swearing in his voice, but no insults and no rude Jarvis.
-    assert "SWEARING is allowed" in wa_mimic.system_prompt()
+    assert "Swearing is optional" in wa_mimic.system_prompt()
     assert "Never slurs" in wa_mimic.system_prompt()
     assert "WHEN THEY ANNOY HIM" not in wa_mimic.system_prompt()
     assert "mild swearing" not in wa_autoreply.reply_system()
     monkeypatch.setenv("JARVIS_WA_RUDE", "1")
-    assert "WHEN THEY ANNOY HIM" in wa_mimic.system_prompt()
-    assert "clown" in wa_mimic.system_prompt()
+    assert "WHEN THEY ANNOY HIM" not in wa_mimic.system_prompt()
+    assert "stock insults" in wa_mimic.system_prompt()
     assert "never slurs of any kind" in wa_autoreply.reply_system()
     assert "mild swearing is allowed" in wa_autoreply.reply_system()
     monkeypatch.setenv("JARVIS_WA_SWEAR", "0")
@@ -341,7 +341,7 @@ def test_prompt_includes_slang_and_analysis(home) -> None:
         "10:00",
         brief=brief,
     )
-    assert "- lwk: lowkey" in prompt
+    assert "- lwk: lowkey" not in prompt
     assert "How they text: all lowercase, says bruh a lot" in prompt
     assert "Suggested pitch: short and hyped" in prompt
     assert prompt.index("ANALYSIS") < prompt.index("<<<CHAT_START>>>")
@@ -446,7 +446,7 @@ def test_openrouter_fallback_when_chatgpt_out(home, monkeypatch) -> None:
         and parsed["reply"] == "ya bro lwk"
         and parsed["model"] == "openrouter"
     )
-    assert "ghost-write" in used[0]["system"]
+    assert "automated drafting assistant" in used[0]["system"]
     jarvis, warn = wa_autoreply.ask_chatgpt(
         "prompt", chat=lambda p, **k: ('{"reply": "Noted.", "rude": false}', None)
     )
@@ -461,3 +461,22 @@ def test_openrouter_fallback_off_switch(home, monkeypatch) -> None:
         "p", chat=lambda p, **k: ('{"reply": "x"}', None)
     )
     assert parsed is None and "openrouter fallback disabled" in warn
+
+
+def test_current_chat_style_is_not_drowned_by_global_slang(home):
+    assert wa_mimic.style_samples(
+        {"style_bank": ["bro lwk lol"] * 80}, ["Sounds good", "See you later"]
+    ) == ["See you later", "Sounds good"]
+
+
+def test_slang_glossary_only_decodes_observed_owner_terms(home):
+    prompt = wa_mimic.build_prompt(
+        "Friend", False, [], "", ["sounds good"], "10:00", slang_map={"bro": "mate"}
+    )
+    assert "- bro:" not in prompt
+    prompt = wa_mimic.build_prompt(
+        "Friend", False, [], "", ["thanks bro"], "10:00", slang_map={"bro": "mate"}
+    )
+    assert "- bro: mate" in prompt
+    assert "never force" in prompt
+    assert "never supply the owner's voice" in wa_mimic.system_prompt()

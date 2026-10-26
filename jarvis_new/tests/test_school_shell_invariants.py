@@ -167,9 +167,14 @@ def test_cover_and_menu_deferred_effects_check_their_original_generation() -> No
     menu = _fn_body("school_menu")
     assert menu.index("TX_GEN.load") < menu.index("std::thread::spawn")
     guard = _compact(_call(menu, "run_guarded_kwin")[2])
-    assert (
-        guard
-        == "||current_mode(true,gen)&&!in_transition()&&MENU_EXTRA_NOW.load(Ordering::SeqCst)==extra"
+    # Rust permits either an expression or block closure; keep checking the
+    # complete generation/transition/menu predicate, independent of formatting.
+    assert guard.startswith("||")
+    predicate = guard.removeprefix("||")
+    if predicate.startswith("{") and predicate.endswith("}"):
+        predicate = predicate[1:-1]
+    assert predicate == (
+        "current_mode(true,gen)&&!in_transition()&&MENU_EXTRA_NOW.load(Ordering::SeqCst)==extra"
     )
 
 

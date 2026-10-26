@@ -288,6 +288,12 @@ async def execute(system_tools, tool: str, args: dict) -> tuple[bool, str]:
     """Run an instant tool on a SystemTools instance -> (ok, spoken line).
 
     context=None marks the call as the fast path's (see once())."""
+    import phone_session
+
+    if phone_session.private() and phone_session.guest_required():
+        return False, "The private phone call has ended."
+    if error := phone_session.private_tool_error(tool):
+        return False, error
     fn = getattr(type(system_tools), tool, None)
     if fn is None:
         return False, f"I can't run {tool} here, Sir."
@@ -295,4 +301,13 @@ async def execute(system_tools, tool: str, args: dict) -> tuple[bool, str]:
         out = await fn(system_tools, None, **args)
     except Exception as exc:  # ToolError carries the spoken reason
         return False, str(exc) or "That didn't work, Sir."
+    if phone_session.private() and phone_session.guest_required():
+        return False, "The private phone call has ended."
+    import claim_guard
+    from action_outcome import parse_outcome
+
+    receipt = parse_outcome(out)
+    if receipt is not None:
+        claim_guard.GUARD.note_result(tool, out)
+        return receipt.verified, receipt.say
     return True, str((out or {}).get("say") or "Done.")

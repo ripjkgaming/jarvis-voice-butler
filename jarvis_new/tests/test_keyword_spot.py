@@ -3,62 +3,79 @@
 import numpy as np
 import pytest
 
-import keyword_spot as K
+import keyword_spot
 
 
 @pytest.mark.parametrize(
     "text",
-    ["Wake up, Daddy's home.", "Daddy", "hey daddy", "Wake up, that is home.",
-     "Dad's home!", "DADDY'S HOME"],
+    [
+        "Wake up, Daddy's home.",
+        "Daddy",
+        "hey daddy",
+        "Wake up, that is home.",
+        "Dad's home!",
+        "DADDY'S HOME",
+    ],
 )
 def test_trigger_texts(text):
-    assert K.has_daddy(text)
+    assert keyword_spot.has_daddy(text)
 
 
 @pytest.mark.parametrize(
     "text",
-    ["I bought a new caddy", "What time is it?", "Did he go home?", "that is home",
-     "the dad joke", "", "paddy field"],
+    [
+        "I bought a new caddy",
+        "What time is it?",
+        "Did he go home?",
+        "that is home",
+        "the dad joke",
+        "",
+        "paddy field",
+    ],
 )
 def test_non_triggers(text):
-    assert not K.has_daddy(text)
+    assert not keyword_spot.has_daddy(text)
 
 
 def _tone(seconds, amp=4000):
-    t = np.arange(int(seconds * K.RATE)) / K.RATE
+    t = np.arange(int(seconds * keyword_spot.RATE)) / keyword_spot.RATE
     return (amp * np.sin(2 * np.pi * 220 * t)).astype(np.int16)
 
 
 def _run(seg, pcm):
     out = []
-    for i in range(0, len(pcm), K.FRAME):
-        out += seg.feed(pcm[i : i + K.FRAME])
+    for i in range(0, len(pcm), keyword_spot.FRAME):
+        out += seg.feed(pcm[i : i + keyword_spot.FRAME])
     return out
 
 
 def test_segmenter_cuts_one_utterance():
-    quiet = np.random.default_rng(0).integers(-50, 50, K.RATE).astype(np.int16)
-    pcm = np.concatenate([quiet, _tone(1.2), np.zeros(K.RATE, np.int16)])
-    segs = _run(K.Segmenter(), pcm)
+    quiet = (
+        np.random.default_rng(0).integers(-50, 50, keyword_spot.RATE).astype(np.int16)
+    )
+    pcm = np.concatenate([quiet, _tone(1.2), np.zeros(keyword_spot.RATE, np.int16)])
+    segs = _run(keyword_spot.Segmenter(), pcm)
     assert len(segs) == 1
-    assert 1.2 <= segs[0].size / K.RATE <= 1.2 + K.HANG_S + 0.1
+    assert 1.2 <= segs[0].size / keyword_spot.RATE <= 1.2 + keyword_spot.HANG_S + 0.1
 
 
 def test_segmenter_drops_clicks_and_caps_long_speech():
-    click = np.concatenate([_tone(0.1), np.zeros(K.RATE, np.int16)])
-    assert _run(K.Segmenter(), click) == []
-    long = np.concatenate([_tone(7.0), np.zeros(K.RATE, np.int16)])
-    segs = _run(K.Segmenter(), long)
-    assert segs and all(s.size <= (K.MAX_SEG_S + 0.1) * K.RATE for s in segs)
+    click = np.concatenate([_tone(0.1), np.zeros(keyword_spot.RATE, np.int16)])
+    assert _run(keyword_spot.Segmenter(), click) == []
+    long = np.concatenate([_tone(7.0), np.zeros(keyword_spot.RATE, np.int16)])
+    segs = _run(keyword_spot.Segmenter(), long)
+    assert segs and all(
+        s.size <= (keyword_spot.MAX_SEG_S + 0.1) * keyword_spot.RATE for s in segs
+    )
 
 
-def test_kill_switch(monkeypatch):
+def test_removed_secondary_wake_ignores_legacy_switch(monkeypatch):
     monkeypatch.setenv("JARVIS_DADDY_WAKE", "0")
-    assert not K.enabled()
+    assert not keyword_spot.enabled()
     monkeypatch.setenv("JARVIS_DADDY_WAKE", "1")
-    assert K.enabled()
+    assert not keyword_spot.enabled()
 
 
 def test_worker_down_is_empty_not_crash():
-    w = K.WhisperWorker(python="/nonexistent/python")
+    w = keyword_spot.WhisperWorker(python="/nonexistent/python")
     assert w.transcribe(np.zeros(1600, np.int16)) == ""

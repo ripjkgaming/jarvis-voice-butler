@@ -325,7 +325,7 @@ def test_repo_root_prefers_env_and_walks_up(monkeypatch, tmp_path) -> None:
 
 def test_hf_cache_summary_marks_used(monkeypatch, tmp_path) -> None:
     used = tmp_path / "models--Cactus-Compute--needle2" / "snapshots" / "x"
-    unused = tmp_path / "models--Systran--faster-whisper-base" / "snapshots" / "y"
+    unused = tmp_path / "models--Systran--faster-whisper-base.en" / "snapshots" / "y"
     used.mkdir(parents=True)
     unused.mkdir(parents=True)
     (used / "m.bin").write_bytes(b"a" * 1024)
@@ -338,22 +338,24 @@ def test_hf_cache_summary_marks_used(monkeypatch, tmp_path) -> None:
     assert data["wasted_bytes"] == 0
     by_name = {m["name"]: m for m in data["models"]}
     assert by_name["models--Cactus-Compute--needle2"]["used"] is True
-    # Default whisper size (base) is protected: prune-hf must never delete
+    # Default English whisper size (base.en) is protected: prune-hf must never delete
     # the direct pipeline's ears (regression: stale audit marked it unused).
-    assert by_name["models--Systran--faster-whisper-base"]["used"] is True
+    assert by_name["models--Systran--faster-whisper-base.en"]["used"] is True
 
 
 def test_hf_audit_follows_whisper_model_env(monkeypatch, tmp_path) -> None:
-    tiny = tmp_path / "models--Systran--faster-whisper-tiny"
-    base = tmp_path / "models--Systran--faster-whisper-base"
+    tiny = tmp_path / "models--Systran--faster-whisper-tiny.en"
+    base = tmp_path / "models--Systran--faster-whisper-base.en"
     tiny.mkdir(parents=True)
     base.mkdir(parents=True)
     monkeypatch.setattr(gate, "HF_HUB", tmp_path)
     monkeypatch.setenv("JARVIS_WHISPER_MODEL", "tiny")
+    monkeypatch.setenv("JARVIS_SPOT_MODEL", "tiny")
+    monkeypatch.setenv("JARVIS_PHONE_WHISPER", "tiny")
     data = gate.hf_cache_summary()
     by_name = {m["name"]: m for m in data["models"]}
-    assert by_name["models--Systran--faster-whisper-tiny"]["used"] is True
-    assert by_name["models--Systran--faster-whisper-base"]["used"] is False
+    assert by_name["models--Systran--faster-whisper-tiny.en"]["used"] is True
+    assert by_name["models--Systran--faster-whisper-base.en"]["used"] is False
 
 
 def test_prune_unused_removes_only_unreferenced(monkeypatch, tmp_path) -> None:

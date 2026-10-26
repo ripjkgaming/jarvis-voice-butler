@@ -205,6 +205,11 @@ def _keys_run() -> str:
     if not current["ydc"]:
         ydc = _prompt_secret("YDC_API_KEY (optional You.com — Enter to skip): ")
     shodan = _prompt_secret("SHODAN_API_KEY (optional OSINT — Enter to skip): ")
+    openrouter = ""
+    if not current.get("openrouter"):
+        openrouter = _prompt_secret(
+            "OPENROUTER_API_KEY (optional, free models explain chess moves — Enter to skip): "
+        )
 
     if not google.strip():
         return "no GOOGLE_API_KEY entered"
@@ -213,6 +218,7 @@ def _keys_run() -> str:
         brave=brave.strip(),
         ydc=ydc.strip(),
         shodan=shodan.strip(),
+        openrouter=openrouter.strip(),
     )
     write_keys(repo_root(), keys)
     return ""

@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "tests": 175,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "time": 3.887
+  },
+  "staged": {
+    "tests": 49,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "time": 4.221
+  },
+  "after": {
+    "tests": 308,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "time": 15.504
+  },
+  "scope": "Offline mocked tests; no live model/account/audio or computer actions. Sandbox thread wakeups required approved test escalation."
+}

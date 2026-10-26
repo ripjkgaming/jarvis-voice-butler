@@ -512,6 +512,7 @@ def test_install_session_timing_logs_numeric_events_without_reading_content(
         "conversation_item_added",
         "user_state_changed",
         "agent_state_changed",
+        "close",
     }
 
     class PrivateItem:
@@ -598,3 +599,44 @@ def test_install_session_timing_isolates_sessions_and_swallows_telemetry_errors(
             raise RuntimeError("bad telemetry")
 
     failing.emit("metrics_collected", SimpleNamespace(metrics=BrokenMetric()))
+
+
+@pytest.mark.asyncio
+async def test_tool_scope_entry_failure_does_not_leak_pending(monkeypatch):
+    import contextlib
+
+    import goodnight_fence
+    import latency
+    from agent import _wrap_tools_with_timing
+
+    tracker = LatencyTracker()
+    monkeypatch.setattr(latency, "TRACKER", tracker)
+    monkeypatch.setenv("JARVIS_GOODNIGHT_V2", "1")
+    closed = []
+
+    @contextlib.contextmanager
+    def scope():
+        try:
+            yield
+        finally:
+            closed.append(True)
+
+    import action_guard
+    monkeypatch.setattr(action_guard, "request_scope", lambda _: scope())
+
+    @contextlib.contextmanager
+    def fail_entry(self):
+        raise RuntimeError("admission failed")
+        yield
+
+    monkeypatch.setattr(goodnight_fence.Fence, "work", fail_entry)
+
+    async def never_called(context):
+        pytest.fail("tool ran despite failed admission")
+
+    tool = SimpleNamespace(id="scope_failure_probe", _func=never_called)
+    _wrap_tools_with_timing([tool])
+    with pytest.raises(RuntimeError, match="admission failed"):
+        await tool._func(None)
+    assert closed == [True]
+    assert tracker.pending == 0

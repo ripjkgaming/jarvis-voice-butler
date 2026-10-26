@@ -8,6 +8,7 @@ import httpx
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
+import phone_session
 from browser import BrowserError, BrowserManager
 
 BRAVE_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
@@ -183,29 +184,38 @@ async def you_search(
 
 
 async def api_search_parallel(query: str) -> dict[str, str] | None:
-    """Race every API provider concurrently; best result wins.
+    """Three independent HTTP reads; first valid result wins.
 
-    Providers run in parallel via gather so a slow/dead one never
-    blocks the others. You.com (LLM-ready) outranks Brave (curated
-    JSON) outranks DDG-lite when several hit. Returns None only when
-    every provider fails — callers then fall through to the agent
-    browser. Add future providers (Tavily/Exa/Serper, You Answers) to
-    _API_PROVIDERS as keys arrive.
+    Prefer You, Brave, then DDG among results already available together.
+    An unfinished preferred provider cannot hold a valid fallback hostage.
+    Cancel and drain unused requests, including on caller cancellation.
+    No browser or action runs here; all misses retain the browser fallback.
     """
-    results = await asyncio.gather(
-        you_search(query),
-        brave_api_search(query),
-        ddg_lite_search(query),
-        return_exceptions=True,
-    )
-    hits = [r for r in results if isinstance(r, dict)]
-    if not hits:
+    tasks = [
+        asyncio.create_task(provider(query))
+        for provider in (you_search, brave_api_search, ddg_lite_search)
+    ]
+    pending = set(tasks)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in tasks:  # stable preference among this ready batch
+                if task not in done or task.cancelled():
+                    continue
+                try:
+                    hit = task.result()
+                except Exception:
+                    continue
+                if isinstance(hit, dict) and hit.get("say") and hit.get("url"):
+                    return hit
         return None
-    for preferred in ("you-search", "brave-api", "ddg-lite"):
-        for hit in hits:
-            if hit.get("fallback") == preferred:
-                return hit
-    return hits[0]
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 _API_PROVIDERS = ("you_search", "brave_api_search", "ddg_lite_search")
@@ -326,6 +336,9 @@ class BrowserTools:
     @property
     def tools(self) -> list:
         return [
+            self.shopping_search,
+            self.open_link,
+            self.open_visible_url,
             self.open_url,
             self.search_the_web,
             self.open_google_app,
@@ -350,6 +363,50 @@ class BrowserTools:
             self.close_deep_research,
         ]
 
+    @function_tool(name="open_url")
+    @phone_session.approval_action
+    async def open_link(self, context: RunContext, url: str) -> dict:
+        """Request a visible new tab in the owner's existing desktop Brave.
+
+        Use for an explicit open/show/play URL or YouTube video request.
+        For a media title/search without a URL, use play_media instead.
+        Never navigate Playwright here. For deliberate backend reading or
+        research use browse_url. launch_requested is only a launch request;
+        visually_confirmed=False never proves a page loaded or video played.
+        """
+        return await self.open_visible_url(context, url)
+
+    @function_tool()
+    @phone_session.approval_action
+    async def open_visible_url(self, context: RunContext, url: str) -> dict:
+        """Request a visible new tab in the owner's existing desktop Brave.
+
+        Compatibility alias of open_url for explicit open/show/play URL requests,
+        including a YouTube video or shopping source on the laptop.
+        No Playwright, alternate profile, purchase, or submission. Report the
+        returned launch status exactly; visually_confirmed=False means never
+        say the page is visible or loaded. Requires an explicit open request.
+        """
+        import action_guard
+        import visible_url
+
+        return await visible_url.launch(
+            url,
+            ticket=phone_session.approval_ticket(),
+            identity=action_guard.request_id(context),
+        )
+
+    @function_tool()
+    async def shopping_search(self, context: RunContext, query: str) -> dict:
+        """Shop via Playwright: read public product prices, currency, availability,
+        source URL and check time. Report blocked/unverified states honestly.
+        Never buy, bypass login/bot blocks, or automatically open a source in
+        the system browser. Ask for explicit user approval before opening it.
+        """
+        from shopping import search_products_browser
+
+        return await search_products_browser(query, self.browser)
+
     @function_tool()
     async def search_the_web(
         self,
@@ -360,7 +417,7 @@ class BrowserTools:
 
         Use this only when the user needs a general internet search and did not name a
         website, service, or domain. If the user names a destination, open its official
-        URL directly with open_url instead. Read or inspect the resulting page before
+        URL directly with browse_url instead. Read or inspect the resulting page before
         answering the user.
 
         Tiered so automated bot checks can't stop a turn: API providers
@@ -397,11 +454,15 @@ class BrowserTools:
             }
         return result
 
-    @function_tool()
+    @function_tool(name="browse_url")
     async def open_url(
         self, context: RunContext, url: str, tab: str | None = None
     ) -> dict[str, str]:
-        """Open a public webpage directly in the agent-controlled browser.
+        """Navigate the separate backend automation browser for reading or inspection.
+
+        This does not open a link in the user's visible desktop Brave. Use
+        open_url (or open_visible_url) for an explicit open/show/play link or video
+        request on the laptop.
 
         Accepts a full http/https URL, a bare domain ("youtube.com"), or a
         well-known site name ("youtube", "gmail", "amazon"). Known names
@@ -418,21 +479,45 @@ class BrowserTools:
             tab: Optional tab id ("main", "helper", "tab-N"). Defaults to
                 the active tab.
         """
+        import action_guard
+        from system.launcher import is_blocked, blocked_say
+
+        if blocked := is_blocked(url):
+            raise ToolError(blocked_say(blocked))
+        if prior := action_guard.launch_for_request(action_guard.request_id(context)):
+            return action_guard.duplicate_reply(prior, "Done, Sir.")
         try:
-            return await self.browser.open_url(resolve_url(url), tab=tab)
+            from urllib.parse import urlsplit
+
+            from action_outcome import ActionOutcome
+            expected = resolve_url(url)
+            result = await self.browser.open_url(expected, tab=tab)
+            # This observes only the exact backend page returned by navigation.
+            observed = result.get("url", "")
+            def key(value):
+                parsed = urlsplit(value)
+                return (parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port, parsed.path or "/", parsed.query, parsed.fragment)
+            matched = bool(observed) and key(expected) == key(observed)
+            receipt = ActionOutcome("url.navigate", "verified" if matched else "dispatched_unverified", "started", "matched" if matched else "mismatched", "backend_browser", reason="" if matched else "redirected_or_mismatched", evidence={"url_matched": matched}, request_id=action_guard.request_id(context))
+            result.update(receipt.result())
+            result["browser"] = "backend_automation"
+            result["visibility"] = "not_verified_on_desktop"
+            return result
         except BrowserError as exc:
             raise ToolError(str(exc)) from exc
 
     @function_tool()
+    @phone_session.approval_action
     async def open_google_app(
         self,
         context: RunContext,
         app: str,
         which: str = "",
         account: str = "personal",
-    ) -> dict[str, str]:
-        """Open Google Docs, Sheets, Slides or Drive. ALWAYS use this (never
-        open_url with a guessed docs.google.com link) for these apps.
+    ) -> dict:
+        """Request a visible Google Docs, Sheets, Slides or Drive tab.
+
+        Always use this for file names; never guess a file URL for browse_url.
 
         "open Google Docs" -> which="" (the homepage, the default).
         "open the second document" / "my latest sheet" -> which="2nd" /
@@ -440,29 +525,54 @@ class BrowserTools:
         "open Physics notes in Docs" -> which="Physics notes" (by name).
         "... on my school account" / "secondary school account" ->
         account="school"; otherwise "personal".
+        If needs_choice is returned, ask the owner to choose and do not open
+        anything yet. After the owner selects a candidate, use its returned
+        URL with open_url; do not reinterpret a choice number as recent order.
+        Report launch_requested as a request only, never visible/loaded without
+        visual evidence. Backend reading remains on browse_url.
 
         Args:
             app: "docs", "sheets", "slides" or "drive".
             which: "" for the homepage, an ordinal like "2nd"/"latest", or a file name.
             account: "personal" (default) or "school".
         """
+        import action_guard
         import google_apps
+        import visible_url
+        from system import require_local
 
+        require_local()
+        if phone_session.guest_required():
+            raise ToolError("Guest mode refuses owner actions.")
+        ticket = phone_session.approval_ticket()
+        identity = action_guard.request_id(context)
         target = await asyncio.to_thread(google_apps.resolve, app, which, account)
-        try:
-            opened = await self.browser.open_url(target["url"])
-        except BrowserError as exc:
-            raise ToolError(str(exc)) from exc
-        return {"say": target["say"], "title": target["title"], "wall": opened.get("wall")}
+        # Preserve the invocation epoch across lookup; never re-ticket a
+        # request queued before a WhatsApp review/cancel or owner revocation.
+        phone_session.check_approval_effect(ticket, current=True)
+        if target.get("status") == "needs_choice":
+            return {**target, "visually_confirmed": False}
+        opened = await visible_url.launch(
+            target["url"], ticket=ticket, identity=identity
+        )
+        result = {
+            **opened,
+            "title": target["title"],
+            "resolution": target.get("status", "resolved"),
+        }
+        if result["resolution"].startswith("fallback_"):
+            result["say"] = f"{target['say']} {opened['say']}"
+        return result
 
     @function_tool()
+    @phone_session.approval_action
     async def dismiss_popups(self, context: RunContext) -> dict[str, str | None]:
         """Dismiss cookie/consent/overlay dialogs blocking the page.
 
         Clicks the first safe dismiss button found (Reject all, Accept
         all, Got it, Dismiss, ...). Only allowlisted labels are ever
         tried: consequential controls are never touched. Call when
-        open_url reports wall "consent" or inspect shows a blocking
+        browse_url reports wall "consent" or inspect shows a blocking
         dialog; afterwards continue the original task.
         """
         try:
@@ -530,6 +640,7 @@ class BrowserTools:
             raise ToolError(str(exc)) from exc
 
     @function_tool()
+    @phone_session.approval_action
     async def click(
         self, context: RunContext, target: str, tab: str | None = None
     ) -> dict[str, str]:
@@ -547,7 +658,10 @@ class BrowserTools:
             self._confirmed_target = None
 
         try:
-            return await self.browser.click(target, tab=tab)
+            from action_outcome import ActionOutcome
+            result = await self.browser.click(target, tab=tab)
+            result.update(ActionOutcome("input.click", "dispatched_unverified", "started", surface="backend_browser").result())
+            return result
         except BrowserError as exc:
             raise ToolError(str(exc)) from exc
 
@@ -564,6 +678,7 @@ class BrowserTools:
         return f"The user confirmed clicking {target!r}."
 
     @function_tool()
+    @phone_session.approval_action
     async def type_text(
         self,
         context: RunContext,
@@ -579,7 +694,10 @@ class BrowserTools:
             tab: Optional tab id. Defaults to the active tab.
         """
         try:
-            return await self.browser.type_text(target, text, tab=tab)
+            from action_outcome import ActionOutcome
+            result = await self.browser.type_text(target, text, tab=tab)
+            result.update(ActionOutcome("input.type", "dispatched_unverified", "started", surface="backend_browser").result())
+            return result
         except BrowserError as exc:
             raise ToolError(str(exc)) from exc
 
@@ -637,6 +755,7 @@ class BrowserTools:
             raise ToolError(str(exc)) from exc
 
     @function_tool()
+    @phone_session.approval_action
     async def press_key(
         self, context: RunContext, key: str, tab: str | None = None
     ) -> dict[str, str]:

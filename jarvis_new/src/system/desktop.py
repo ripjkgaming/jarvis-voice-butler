@@ -31,6 +31,7 @@ import time
 from livekit.agents import RunContext, function_tool
 from livekit.agents.llm import ToolError
 
+import phone_session
 from system import LocalSystemError, log_action, require_local, run_cmd
 from system.computer_use_ownership import serialized_desktop_action
 
@@ -277,6 +278,7 @@ class XdoInput:
         self._subprocess = subprocess
 
     def _xdo(self, *args: str) -> None:
+        phone_session.check_approval_effect(current=True)
         proc = self._subprocess.run(
             ["xdotool", *args],
             env=sandbox_env(self._display),
@@ -424,6 +426,9 @@ class UInputMouse:
             raise DesktopError(f"The virtual mouse failed to start: {exc}.") from exc
 
     def _emit(self, etype: int, code: int, value: int) -> None:
+        # Never block releases: stopping new presses must not leave keys held.
+        if etype == _EV_KEY and value:
+            phone_session.check_approval_effect(current=True)
         os.write(self._fd, struct.pack("llHHi", 0, 0, etype, code, value))
 
     def _syn(self) -> None:
@@ -675,6 +680,7 @@ class DesktopTools:
         }
 
     @function_tool()
+    @phone_session.approval_action
     @serialized_desktop_action
     async def desktop_click(
         self, context: RunContext, x: int, y: int, button: str = "left"
@@ -700,7 +706,9 @@ class DesktopTools:
             px, py = rel_to_abs(x, y, width, height)
             mouse = _make_input(width, height)
             try:
+                phone_session.check_approval_effect(current=True)
                 await asyncio.to_thread(mouse.move, px, py)
+                phone_session.check_approval_effect(current=True)
                 await asyncio.to_thread(mouse.click, button)
             finally:
                 mouse.close()
@@ -719,6 +727,7 @@ class DesktopTools:
         }
 
     @function_tool()
+    @phone_session.approval_action
     @serialized_desktop_action
     async def desktop_type(self, context: RunContext, text: str) -> dict[str, object]:
         """Type text into the focused window (uinput US keyboard).
@@ -741,6 +750,7 @@ class DesktopTools:
                 mouse = None
             if mouse is not None:
                 try:
+                    phone_session.check_approval_effect(current=True)
                     await asyncio.to_thread(mouse.type_text, text)
                 finally:
                     mouse.close()
@@ -758,6 +768,7 @@ class DesktopTools:
         return {"typed": len(text), "say": f"Typed {len(text)} characters."}
 
     @function_tool()
+    @phone_session.approval_action
     @serialized_desktop_action
     async def desktop_key(self, context: RunContext, key: str) -> dict[str, object]:
         """Press one safe key (Return, Escape, Tab, arrows, F1-F12...).
@@ -783,6 +794,7 @@ class DesktopTools:
                 mouse = None
             if mouse is not None:
                 try:
+                    phone_session.check_approval_effect(current=True)
                     await asyncio.to_thread(mouse.tap, KEY_CODES[key])
                 finally:
                     mouse.close()

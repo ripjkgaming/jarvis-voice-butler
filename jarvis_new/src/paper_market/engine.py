@@ -16,6 +16,13 @@ from . import DECISION_INTERVAL_SECONDS, EFFORT, MAX_QUOTE_AGE_SECONDS, MODEL, S
 from .calendar import session_at
 from .feed import QuoteError, fetch_quotes, validate_quote
 from .ledger import Ledger, dollars, encoded, exact, stamp, utcnow
+from .strategy import (
+    ENTRY_CUTOFF_SECONDS,
+    EXIT_WINDOW_SECONDS,
+    STOP_LOSS,
+    TAKE_PROFIT,
+    intraday_context,
+)
 
 ZERO = Decimal("0")
 SLIPPAGE = Decimal("0.001")
@@ -133,7 +140,7 @@ def verify_worker_result(result: dict):
         or not verification.get("turn_id")
     ):
         raise TradeError(
-            "Trading worker did not verify exact GPT-6 Astra/high and proposal-only isolation."
+            "Trading worker did not verify exact GPT-6 Astra/medium and proposal-only isolation."
         )
 
 
@@ -153,6 +160,15 @@ def apply_proposal(
     database transaction and decision status gate prevent accidental replays.
     """
     actions = validate_proposal(proposal)
+    market = session_at(now)
+    if (
+        any(action["side"] == "buy" for action in actions)
+        and market.session_close_at
+        and (market.session_close_at - now).total_seconds() <= ENTRY_CUTOFF_SECONDS
+    ):
+        raise TradeError(
+            "New entries are disabled in the last 30 minutes of the session."
+        )
     # Quote persistence can fail before a fill, never after a committed fill is
     # reported as rejected. Quotes alone do not alter cash or owned shares.
     ledger.store_quotes(quotes, {}, now)
@@ -331,6 +347,15 @@ def apply_proposal(
         # after all inserts; raising here rolls the entire batch back.
         final_now = clock() if clock is not None else now
         ensure_active(experiment, final_now)
+        if (
+            bought
+            and (session_at(final_now).session_close_at - final_now).total_seconds()
+            <= ENTRY_CUTOFF_SECONDS
+        ):
+            raise TradeError(
+                "New entries are disabled in the last 30 minutes of the session."
+            )
+        ensure_active(experiment, final_now)
         for symbol in required:
             try:
                 validate_quote(
@@ -370,6 +395,113 @@ class Engine:
                 "message": "Another paper-market cycle is running.",
             }
 
+    async def risk_once(self) -> dict:
+        """Audited protective exits using the same locked fresh-fill ledger."""
+        try:
+            with cycle_lock(self.ledger):
+                now = self.clock()
+                self.ledger.recover_interrupted(now)
+                experiment = self.ledger.experiment()
+                try:
+                    ensure_active(experiment, now)
+                except TradeError:
+                    return {"status": "inactive"}
+                holdings = self.ledger.snapshot(now)["holdings"]
+                if not holdings:
+                    return {"status": "no_risk_exit"}
+                quotes, errors = await self._fetch([h["symbol"] for h in holdings])
+                now = self.clock()
+                self.ledger.store_quotes(quotes, errors, now)
+                try:
+                    ensure_active(experiment, now)
+                    for holding in holdings:
+                        quote = quotes[holding["symbol"]]
+                        validate_quote(quote, now)
+                        if quote.symbol != holding["symbol"]:
+                            raise QuoteError("Symbol mismatch")
+                except (TradeError, QuoteError, KeyError):
+                    self.ledger.runtime(
+                        last_risk_status="quotes_unavailable", last_risk_at=stamp(now)
+                    )
+                    return {"status": "quotes_unavailable"}
+                market = session_at(now)
+                flatten = (
+                    market.session_close_at - now
+                ).total_seconds() <= EXIT_WINDOW_SECONDS
+                actions, reasons = [], []
+                for holding in holdings:
+                    symbol = holding["symbol"]
+                    gain = (
+                        quotes[symbol].price / Decimal(holding["average_cost_usd"]) - 1
+                    )
+                    reason = (
+                        "session close"
+                        if flatten
+                        else "stop loss"
+                        if gain <= -STOP_LOSS
+                        else "take profit"
+                        if gain >= TAKE_PROFIT
+                        else None
+                    )
+                    if reason:
+                        actions.append(
+                            {
+                                "symbol": symbol,
+                                "side": "sell",
+                                "quantity": holding["quantity"],
+                                "notional_usd": None,
+                            }
+                        )
+                        reasons.append(f"{symbol}: {reason}")
+                if not actions:
+                    self.ledger.runtime(
+                        last_risk_status="no_risk_exit", last_risk_at=stamp(now)
+                    )
+                    return {"status": "no_risk_exit"}
+                identifier = f"{experiment['id']}:risk:{int(now.timestamp()) // 60}"
+                proposal = {
+                    "actions": actions[:4],
+                    "rationale": "Automatic paper risk exit: " + "; ".join(reasons[:4]),
+                }
+                if not self.ledger.begin_decision(
+                    identifier,
+                    now,
+                    {"policy": "intraday_risk", "proposal": proposal},
+                    "risk_exit",
+                ):
+                    return {"status": "duplicate"}
+                with self.ledger.connect() as db:
+                    db.execute(
+                        "UPDATE decisions SET model='deterministic-risk-policy', effort='none' WHERE id=?",
+                        (identifier,),
+                    )
+                try:
+                    fills = apply_proposal(
+                        self.ledger,
+                        identifier,
+                        proposal,
+                        quotes,
+                        now,
+                        clock=self.clock,
+                        result={
+                            "verification": {
+                                "source": "deterministic paper risk policy; no model inference"
+                            }
+                        },
+                    )
+                except Exception:
+                    self.ledger.finish_decision(
+                        identifier,
+                        self.clock(),
+                        "rejected",
+                        error="Risk exit could not obtain a valid fresh atomic fill; retry next minute.",
+                    )
+                    raise
+                self.ledger.runtime(last_risk_status="filled", last_risk_at=stamp(now))
+                return {"status": "filled", "fills": len(fills)}
+        except CycleBusyError:
+            return {"status": "busy"}
+
     def _status(self, status, error=None, **extra):
         response = {"status": status, **({"error": error} if error else {}), **extra}
         try:
@@ -400,6 +532,8 @@ class Engine:
                 if market.next_open_at
                 else None,
             )
+        if (market.session_close_at - now).total_seconds() <= EXIT_WINDOW_SECONDS:
+            return self._status("session_exit_window")
         slot = int(now.timestamp()) // DECISION_INTERVAL_SECONDS
         identifier = f"{experiment['id']}:{slot}"
         if self.ledger.has_decision(identifier):
@@ -427,6 +561,53 @@ class Engine:
             ensure_active(experiment, now)
         except TradeError as error:
             return self._status("skipped", str(error))
+        signals = {
+            symbol: intraday_context(quote, now) for symbol, quote in fresh.items()
+        }
+        ready = {
+            symbol: signal
+            for symbol, signal in signals.items()
+            if signal["status"] == "ready"
+        }
+        if (
+            not held_symbols
+            and (market.session_close_at - now).total_seconds() <= ENTRY_CUTOFF_SECONDS
+        ):
+            return self._status("entry_window_closed")
+        if not ready and not held_symbols:
+            return self._status(
+                "warming_up",
+                "At least 16 consecutive completed minute bars are required for an entry.",
+            )
+        candidates = {
+            symbol
+            for symbol, signal in ready.items()
+            if signal["above_vwap"]
+            and Decimal(signal["momentum_5m_pct"]) > 0
+            and Decimal(signal["momentum_15m_pct"]) > 0
+        }
+        if not held_symbols and not candidates:
+            return self._status("no_setup")
+        # A completed-bar signature avoids paying for the same market evidence.
+        signature = encoded(
+            {
+                "bars": {
+                    symbol: signal.get("as_of")
+                    for symbol, signal in sorted(ready.items())
+                },
+                "cash": snapshot["account"]["cash_usd"],
+                "holdings": [
+                    (h["symbol"], h["quantity"], h["cost_basis_usd"])
+                    for h in snapshot["holdings"]
+                ],
+            }
+        )
+        with self.ledger.connect() as db:
+            previous = db.execute(
+                "SELECT value FROM runtime WHERE key='last_signal_signature'"
+            ).fetchone()
+        if previous and previous[0] == encoded(signature):
+            return self._status("unchanged")
         context = {
             "mode": "paper_trading",
             "as_of": stamp(now),
@@ -442,8 +623,17 @@ class Engine:
                 }
                 for quote in fresh.values()
             ],
-            "allowed_symbols": list(fresh),
-            "recent_decisions": snapshot["decisions"][:5],
+            "allowed_symbols": sorted(set(ready) | held_symbols),
+            "entry_candidates": sorted(candidates),
+            "intraday": {
+                symbol: {k: v for k, v in signal.items() if k != "recent_bars"}
+                for symbol, signal in signals.items()
+            },
+            "market": snapshot["market"],
+            "recent_decisions": [
+                {"at": d["at"], "actions": d["actions"], "rationale": d["rationale"]}
+                for d in snapshot["decisions"][:2]
+            ],
             "constraints": {
                 "maximum_actions": 4,
                 "maximum_symbol_weight": "0.35",
@@ -454,13 +644,29 @@ class Engine:
                 "leverage": False,
                 "slippage_bps": "10",
                 "commission_usd": "0",
+                "stop_loss_pct": "1",
+                "take_profit_pct": "2",
+                "no_entries_minutes_before_close": 30,
+                "flatten_minutes_before_close": 10,
             },
-            "data_limitations": "Quotes are an unofficial best-effort feed. No news or fundamentals are supplied. Prefer holding when evidence is insufficient. This is simulated capital, not a model inference budget.",
+            "data_limitations": "Quotes are an unofficial best-effort feed. Completed one-minute bars supply intraday momentum and VWAP; no news or fundamentals are supplied. Use the intraday evidence, do not require news to make a technical paper trade. Hold when no valid setup exists. This is simulated capital, not a model inference budget.",
         }
-        if not self.ledger.begin_decision(identifier, now, context):
+        if not self.ledger.begin_decision(
+            identifier,
+            now,
+            context
+            | {
+                "observed_bars": {
+                    symbol: list(quote.bars) for symbol, quote in fresh.items()
+                }
+            },
+        ):
             return {"status": "duplicate", "decision_id": identifier}
         self.ledger.runtime(
-            last_cycle_at=stamp(now), last_cycle_status="running", last_error=None
+            last_cycle_at=stamp(now),
+            last_cycle_status="running",
+            last_error=None,
+            last_signal_signature=signature,
         )
         worker = None
         result = None
@@ -468,7 +674,7 @@ class Engine:
             if self.worker_factory is None:
                 from .worker import PaperMarketWorker
 
-                worker = PaperMarketWorker()
+                worker = PaperMarketWorker(timeout=45)
             else:
                 worker = self.worker_factory()
             with tempfile.TemporaryDirectory(
@@ -479,6 +685,11 @@ class Engine:
                 result = await worker.propose(context)
             verify_worker_result(result)
             actions = validate_proposal(result.get("proposal"))
+            if any(
+                action["side"] == "buy" and action["symbol"] not in ready
+                for action in actions
+            ):
+                raise TradeError("New entries require ready intraday evidence.")
             ensure_active(experiment, self.clock())
             # A distinct fetch after the model response is mandatory even for a
             # hold, so the cycle's mark records current observed data.
@@ -529,7 +740,9 @@ class Engine:
         """One auditable no-trade live model entitlement/isolation check."""
         try:
             with cycle_lock(self.ledger):
-                identifier = f"{self.ledger.experiment()['id']}:preflight"
+                identifier = (
+                    f"{self.ledger.experiment()['id']}:preflight:{MODEL}:{EFFORT}"
+                )
                 context = {
                     "mode": "preflight",
                     "instruction": "Return actions=[] and a short rationale confirming a proposal-only paper-market preflight. Do not propose any trade.",

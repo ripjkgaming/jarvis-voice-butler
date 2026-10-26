@@ -76,11 +76,11 @@ def test_generic_queries_match_each_other() -> None:
     )
 
 
-def test_overlapping_query_is_the_same_request() -> None:
+def test_added_query_constraints_are_a_new_request() -> None:
     assert action_guard.claim("play_media", {"query": "lofi"}, "route", now=0.0) is None
     assert (
         action_guard.claim("play_media", {"query": "lofi hip hop"}, "model", now=1.0)
-        is not None
+        is None
     )
 
 
@@ -187,7 +187,7 @@ def test_play_some_music_opens_one_window(monkeypatch) -> None:
     out = asyncio.run(
         core.SystemTools.play_media(tools, object(), "", show=True)  # type: ignore[arg-type]
     )
-    assert "already done" in out["note"].lower()
+    assert out["outcome"]["state"] == "launch_requested"
     assert len(launches) == 1
 
 
@@ -307,7 +307,11 @@ async def test_cancelled_media_search_is_killed_and_reaped(monkeypatch):
         returncode = None
         killed = waited = False
 
-        async def communicate(self):
+        @property
+        def stdout(self):
+            return self
+
+        async def read(self, _size):
             started.set()
             await asyncio.Event().wait()
 

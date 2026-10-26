@@ -8,7 +8,8 @@
    something moves, with a short pre-roll so the start isn't lost;
 2. covers the screen with a fullscreen "WORK ONGOING" card that lights
    up while motion is being seen;
-3. ignores every key, click and voice command except STOP_KEYBIND. On
+3. blocks card input except STOP_KEYBIND; Jarvis continues replying as a guest.
+   An independent watchdog requests the OS lock if the overlay or camera fails. On
    that combo it closes the card, stitches every clip into one video in
    ~/Videos/Jarvis Watch/ and tells Sir how many times something moved.
 
@@ -59,6 +60,7 @@ BG_ALPHA = 0.05
 HIGHLIGHT_HOLD_S = 1.2
 
 LEASE_WHO = "watch"
+GUEST_INSTRUCTIONS = "You are Jarvis in guest mode. Be brief and reserved. The owner is away. Never reveal private information or perform owner actions. Guest requests cannot restore owner mode."
 
 #: New clips stop below this much free disk (events are still counted).
 MIN_FREE_BYTES = 3 * 1024**3
@@ -132,6 +134,70 @@ def stop_path() -> Path:
     return state_dir() / "stop"
 
 
+def guest_path() -> Path:
+    return state_dir() / "guest"
+
+
+def enter_guest() -> None:
+    """Persist restrictions independently of the camera and overlay process."""
+    from goodnight_supervisor import revoke_security
+
+    revoke_security()
+    state_dir().mkdir(parents=True, exist_ok=True)
+    guest_path().touch(mode=0o600, exist_ok=True)
+
+
+def guest_required() -> bool:
+    # Existence is intentional: malformed/stale state must never unlock Jarvis.
+    return guest_path().exists() or is_running()
+
+
+def restore_owner() -> None:
+    """Only local owner controls or the authenticated owner endpoint call this."""
+    with contextlib.suppress(FileNotFoundError):
+        guest_path().unlink()
+
+
+def heartbeat_path() -> Path:
+    return state_dir() / "overlay-heartbeat"
+
+
+def fail_safe_lock(run=None) -> bool:
+    """Existing OS session lock on total protection failure; no new lock policy."""
+    if run is None:
+        run = subprocess.run
+    try:
+        result = run(["loginctl", "lock-session"], timeout=5, capture_output=True)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def guard_watch(pid: int) -> None:
+    """Independent low-cost watchdog, including native/Tk crashes and hangs.
+
+    Never restores owner state. A failed lock is retried with bounded backoff;
+    logout/reboot protection still belongs to the OS session, not this overlay.
+    """
+    started = time.time()
+    while guest_path().exists():
+        failed = not _pid_alive(pid)
+        if time.time() - started > 30.0:
+            try:
+                failed |= time.time() - heartbeat_path().stat().st_mtime > 12.0
+                data = json.loads(status_path().read_text())
+                failed |= time.time() - float(data.get("last_frame", 0)) > 20.0
+            except (OSError, ValueError, TypeError):
+                failed = True
+        if failed:
+            while guest_path().exists():
+                if fail_safe_lock():
+                    return
+                time.sleep(10.0)
+            return
+        time.sleep(2.0)
+
+
 def request_stop() -> bool:
     """Ask a running watch to end and save (the focus-free exit path).
 
@@ -142,10 +208,14 @@ def request_stop() -> bool:
     Never raises.
     """
     if not is_running():
+        if guest_path().exists():
+            restore_owner()
+            return True
         return False
     try:
         state_dir().mkdir(parents=True, exist_ok=True)
         stop_path().write_text(str(time.time()))
+        restore_owner()
     except OSError:
         return False
     return True
@@ -195,14 +265,19 @@ def is_running() -> bool:
     return running_pid() is not None
 
 
-def launch(popen=subprocess.Popen) -> dict:
+def launch(popen=None) -> dict:
     """Start watch mode as a detached process. Never raises.
 
     Wrapped in systemd-inhibit so the laptop neither sleeps nor idles
     into the lock screen while it is watching.
     """
+    if popen is None:
+        popen = subprocess.Popen
     if not enabled():
-        return {"ok": False, "error": "Watch mode is switched off (JARVIS_WATCH_MODE=0)."}
+        return {
+            "ok": False,
+            "error": "Watch mode is switched off (JARVIS_WATCH_MODE=0).",
+        }
     if is_running():
         return {"ok": True, "state": "already watching"}
     argv = [sys.executable, str(Path(__file__).resolve())]
@@ -215,7 +290,7 @@ def launch(popen=subprocess.Popen) -> dict:
             *argv,
         ]
     try:
-        state_dir().mkdir(parents=True, exist_ok=True)
+        enter_guest()
         with contextlib.suppress(OSError):
             stop_path().unlink()  # a stale request must not end the new watch
         log = open(state_dir() / "watch.log", "ab")  # noqa: SIM115
@@ -250,11 +325,13 @@ class MotionDetector:
         self.width = width
         self._bg = None
         self.last_fraction = 0.0
+        self.target: tuple[float, float] | None = None
 
     def update(self, frame) -> bool:
         """Feed one BGR frame; True when it differs enough from the scene."""
         import cv2
 
+        self.target = None
         h, w = frame.shape[:2]
         small = cv2.resize(frame, (self.width, max(1, int(h * self.width / w))))
         grey = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), (21, 21), 0)
@@ -267,7 +344,27 @@ class MotionDetector:
         mask = cv2.dilate(mask, None, iterations=2)
         self.last_fraction = float(cv2.countNonZero(mask)) / mask.size
         cv2.accumulateWeighted(grey, self._bg, self.alpha)
-        return self.last_fraction >= self.area
+        moving = self.last_fraction >= self.area
+        if moving:
+            moments = cv2.moments(mask, binaryImage=True)
+            if moments["m00"]:
+                self.target = (
+                    max(
+                        0.0,
+                        min(
+                            1.0,
+                            moments["m10"] / moments["m00"] / max(1, mask.shape[1] - 1),
+                        ),
+                    ),
+                    max(
+                        0.0,
+                        min(
+                            1.0,
+                            moments["m01"] / moments["m00"] / max(1, mask.shape[0] - 1),
+                        ),
+                    ),
+                )
+        return moving
 
 
 # --- clips ------------------------------------------------------------------
@@ -282,8 +379,12 @@ def _stamp(frame, t: float):
     h = out.shape[0]
     scale = max(0.5, h / 900)
     org = (int(16 * scale), h - int(18 * scale))
-    cv2.putText(out, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 4, cv2.LINE_AA)
-    cv2.putText(out, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(
+        out, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 4, cv2.LINE_AA
+    )
+    cv2.putText(
+        out, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA
+    )
     return out
 
 
@@ -349,7 +450,9 @@ class ClipRecorder:
     def push(self, frame, moving: bool, t: float) -> str | None:
         if self._last_t is not None and t > self._last_t:
             gap = min(1.0, t - self._last_t)
-            self._fps_ema = gap if self._fps_ema is None else 0.9 * self._fps_ema + 0.1 * gap
+            self._fps_ema = (
+                gap if self._fps_ema is None else 0.9 * self._fps_ema + 0.1 * gap
+            )
         self._last_t = t
         stamped = self.stamp(frame, t)
         event = None
@@ -417,10 +520,27 @@ def stitch(clips: list[Path], out: Path, run=subprocess.run) -> bool:
         )
         proc = run(
             [
-                "ffmpeg", "-y", "-loglevel", "error",
-                "-f", "concat", "-safe", "0", "-i", str(listing),
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(listing),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                "-an",
                 str(out),
             ],
             capture_output=True,
@@ -518,8 +638,13 @@ class Watcher:
         self.detector = MotionDetector()
         self.last_motion = 0.0
         self.camera_ok = False
+        self.motion_target = None
+        self.last_frame = 0.0
+        self._status_at = 0.0
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="watch-capture", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="watch-capture", daemon=True
+        )
 
     def start(self) -> None:
         self._thread.start()
@@ -536,6 +661,9 @@ class Watcher:
         return (now or time.time()) >= self.armed_at
 
     def _run(self) -> None:
+        import cv2
+
+        cv2.setNumThreads(1)
         source = FrameSource()
         gap = 1.0 / WATCH_FPS
         try:
@@ -544,10 +672,16 @@ class Watcher:
                 with contextlib.suppress(Exception):
                     got = source.read()
                 if got is None:
+                    if self.last_frame and time.time() - self.last_frame > 3.0:
+                        self.camera_ok = False
+                        self.motion_target = None
                     self._stop.wait(gap / 2 if source.mode == "hub" else 0.5)
                     continue
+                if self._stop.is_set():
+                    break
                 t, frame = got
                 self.camera_ok = True
+                self.last_frame = t
                 try:
                     moving = self.detector.update(frame)
                 except Exception:
@@ -555,15 +689,19 @@ class Watcher:
                 moving = moving and self.armed(t)
                 if moving:
                     self.last_motion = t
+                    self.motion_target = self.detector.target
                 with contextlib.suppress(Exception):
                     self.recorder.push(frame, moving, t)
                 self._write_status()
-                if source.mode == "hub":
-                    self._stop.wait(gap / 3)
+                self._stop.wait(gap)
         finally:
             source.release()
 
     def _write_status(self) -> None:
+        now = time.time()
+        if now - self._status_at < 1.0:
+            return
+        self._status_at = now
         with contextlib.suppress(Exception):
             tmp = status_path().with_suffix(".tmp")
             tmp.write_text(
@@ -573,6 +711,9 @@ class Watcher:
                         "events": self.recorder.events,
                         "recording": self.recorder.recording,
                         "last_motion": self.last_motion,
+                        "camera_ok": self.camera_ok,
+                        "last_frame": self.last_frame,
+                        "target": self.motion_target,
                     }
                 )
             )
@@ -623,7 +764,9 @@ def announce(result: dict, wait_s: float = 8.0) -> None:
     with contextlib.suppress(Exception):
         import speak
 
-        speak.speak(welcome_line(result), source="watch", min_gap_s=0.0, title="Watch mode")
+        speak.speak(
+            welcome_line(result), source="watch", min_gap_s=0.0, title="Watch mode"
+        )
         time.sleep(wait_s)  # speak runs on a daemon thread; let it finish
     with contextlib.suppress(Exception):
         from system import log_action
@@ -642,12 +785,12 @@ def finish_session(watcher: Watcher) -> dict:
 
 BG = "#050608"
 DIM_TEXT = "#2c323a"
-IDLE_TEXT = "#8a939e"
-ALERT_TEXT = "#ffffff"
-ALERT = "#ff3b30"
-ALERT_BAND = "#2a0906"
+IDLE_TEXT = "#6d9fc4"
+ALERT_TEXT = "#b8ddff"
+ALERT = "#55b6ff"
+ALERT_BAND = "#081b32"
 META_TEXT = "#4a525c"
-LIVE = "#5fb3a1"
+LIVE = "#459cde"
 
 
 def _mix(a: str, b: str, k: float) -> str:
@@ -687,9 +830,29 @@ def parse_monitors(text: str) -> list[tuple[int, int, int, int]]:
 
 
 def monitors(run=subprocess.run) -> list[tuple[int, int, int, int]]:
-    """Every connected monitor (XWayland/X11 layout). [] when unknown."""
+    """Native KDE logical output layout, then X11/XWayland fallback."""
     with contextlib.suppress(Exception):
-        proc = run(["xrandr", "--listmonitors"], capture_output=True, text=True, timeout=3)
+        proc = run(["kscreen-doctor", "-j"], capture_output=True, text=True, timeout=2)
+        if proc.returncode == 0:
+            out = []
+            for output in json.loads(proc.stdout).get("outputs", []):
+                if not output.get("enabled"):
+                    continue
+                pos, size = output["pos"], output["size"]
+                geom = (
+                    int(pos["x"]),
+                    int(pos["y"]),
+                    int(size["width"]),
+                    int(size["height"]),
+                )
+                if geom[2] > 0 and geom[3] > 0 and geom not in out:
+                    out.append(geom)
+            if out:
+                return out
+    with contextlib.suppress(Exception):
+        proc = run(
+            ["xrandr", "--listmonitors"], capture_output=True, text=True, timeout=2
+        )
         if proc.returncode == 0:
             return parse_monitors(proc.stdout)
     return []
@@ -703,7 +866,11 @@ def breath(now: float, period: float = 2.8) -> float:
 
 
 class _Panel:
-    """One monitor's card: canvas items the shared tick recolours."""
+    """One monitor's card: a full-screen ASCII frame (src/watch_ascii.py).
+
+    The canvas is opaque on its own, so if the ASCII renderer fails the
+    cover stays up and only a plain title remains.
+    """
 
     def __init__(self, win, geom, display: str, mono: str) -> None:
         import tkinter as tk
@@ -713,70 +880,87 @@ class _Panel:
         win.configure(bg=BG, cursor="none")
         with contextlib.suppress(Exception):
             win.attributes("-fullscreen", False)
-        win.geometry(f"{w}x{h}+{x}+{y}")
+        win.geometry(f"{w}x{h}{x:+d}{y:+d}")
         win.protocol("WM_DELETE_WINDOW", lambda: None)
         win.update_idletasks()
         # Fullscreen lands on the monitor the window sits on.
         win.attributes("-fullscreen", True)
         win.attributes("-topmost", True)
-        c = tk.Canvas(win, width=w, height=h, bg=BG, highlightthickness=0, cursor="none")
+        c = tk.Canvas(
+            win, width=w, height=h, bg=BG, highlightthickness=0, cursor="none"
+        )
         c.pack(fill="both", expand=True)
         self.c = c
-        size = max(28, int(w / 26))
-        meta = max(10, int(w / 150))
-        band_h = int(size * 2.6)
-        self.band = c.create_rectangle(0, h / 2 - band_h / 2, w, h / 2 + band_h / 2, fill=BG, outline="")
-        self.frame = c.create_rectangle(3, 3, w - 3, h - 3, outline=BG, width=6)
-        self.title = c.create_text(w / 2, h / 2, text=_spaced(MESSAGE), fill=IDLE_TEXT, font=(display, size))
-        self.rule = c.create_line(
-            w / 2 - size * 1.5, h / 2 + size * 1.1, w / 2 + size * 1.5, h / 2 + size * 1.1,
-            fill=DIM_TEXT, width=2,
-        )
-        pad = int(w / 40)
-        c.create_text(pad, pad, anchor="nw", text="J A R V I S   ·   W A T C H", fill=META_TEXT, font=(mono, meta))
-        self.clock = c.create_text(w - pad, pad, anchor="ne", text="", fill=META_TEXT, font=(mono, meta))
-        self.status_y = h - pad * 1.4
-        self.status = c.create_text(w / 2, self.status_y, text="", fill=META_TEXT, font=(mono, meta))
-        # Breathing dot left of the status line: the card is live, not frozen.
-        self.live_r = max(3.0, meta * 0.32)
-        self.live = c.create_oval(0, 0, 0, 0, fill=BG, outline="")
-        self.rec = c.create_oval(0, 0, 0, 0, fill=BG, outline="")
-        self.rec_label = c.create_text(pad + meta * 2.2, self.status_y, anchor="w", text="", fill=ALERT, font=(mono, meta))
-        self.rec_xy = (pad, self.status_y, meta * 0.55)
+        self.status_text = ""
+        self.eyes = None
+        self.plain = None
+        try:
+            from watch_ascii import AsciiCard
 
-    def paint(self, g: float, pulse: float, clock: str, status: str, rec_on: bool, recording: bool, live: float) -> None:
-        c = self.c
-        c.itemconfigure(self.title, fill=_mix(IDLE_TEXT, ALERT_TEXT, g))
-        c.itemconfigure(self.band, fill=_mix(BG, ALERT_BAND, g * pulse))
-        c.itemconfigure(self.frame, outline=_mix(BG, ALERT, g * pulse))
-        c.itemconfigure(self.rule, fill=_mix(DIM_TEXT, ALERT, g))
-        c.itemconfigure(self.clock, text=clock)
-        c.itemconfigure(self.status, text=status)
-        box = c.bbox(self.status)
-        if box and status:
-            r = self.live_r
-            cx, cy = box[0] - r * 7, self.status_y
-            c.coords(self.live, cx - r, cy - r, cx + r, cy + r)
-            c.itemconfigure(self.live, fill=_mix(DIM_TEXT, LIVE, live))
-        else:
-            c.itemconfigure(self.live, fill=BG)
-        x, y, r = self.rec_xy
-        c.coords(self.rec, x, y - r, x + 2 * r, y + r)
-        c.itemconfigure(self.rec, fill=ALERT if rec_on else BG)
-        c.itemconfigure(self.rec_label, text="R E C" if recording else "")
+            self.eyes = AsciiCard(c, w, h, mono)
+        except Exception:
+            self._fallback()
+
+    def _fallback(self) -> None:
+        with contextlib.suppress(Exception):
+            w, h = self.c.winfo_width(), self.c.winfo_height()
+            self.plain = self.c.create_text(
+                w / 2,
+                h / 2,
+                text=_spaced(MESSAGE),
+                fill=IDLE_TEXT,
+                font=("TkFixedFont", max(18, int(w / 60))),
+            )
+
+    def _drop_eyes(self) -> None:
+        # Only remove the decoration. Never quit, stop capture, or unlock.
+        with contextlib.suppress(Exception):
+            self.eyes.destroy()
+        self.eyes = None
+        self._fallback()
+
+    def paint(
+        self,
+        g: float,
+        pulse: float,
+        clock: str,
+        status: str,
+        rec_on: bool,
+        recording: bool,
+        live: float,
+    ) -> None:
+        self.status_text = status
+        if self.eyes is None:
+            return
+        try:
+            self.eyes.paint(g, pulse, clock, status, rec_on, recording, live)
+        except Exception:
+            self._drop_eyes()
+
+    def update_eyes(self, now: float, target, active: bool) -> None:
+        if self.eyes is None:
+            return
+        try:
+            self.eyes.update(now, target=target, active=active)
+        except Exception:
+            self._drop_eyes()
 
     def saving(self, title: str, status: str) -> None:
-        c = self.c
-        c.itemconfigure(self.band, fill=BG)
-        c.itemconfigure(self.rec, fill=BG)
-        c.itemconfigure(self.live, fill=BG)
-        c.itemconfigure(self.frame, outline=BG)
-        c.itemconfigure(self.rule, fill=DIM_TEXT)
-        c.itemconfigure(self.title, text=_spaced(title), fill=IDLE_TEXT)
-        c.itemconfigure(self.status, text=status)
-        c.itemconfigure(self.rec_label, text="")
+        self.status_text = status
+        if self.eyes is not None:
+            try:
+                self.eyes.saving(title, status)
+                return
+            except Exception:
+                self._drop_eyes()
+        if self.plain is not None:
+            with contextlib.suppress(Exception):
+                self.c.itemconfigure(self.plain, text=_spaced(title))
 
     def destroy(self, root) -> None:
+        if self.eyes is not None:
+            with contextlib.suppress(Exception):
+                self.eyes.destroy()
         with contextlib.suppress(Exception):
             self.c.destroy()
         if self.win is not root:
@@ -807,8 +991,12 @@ class WatchScreen:
         self.glow = 0.0
         self.closing = False
         self._stop_polled = 0.0
-        self._display = _font(self.root, ("Inter Display Light", "Inter Display", "Inter"))
-        self._mono = _font(self.root, ("Adwaita Mono", "DejaVu Sans Mono"), "TkFixedFont")
+        self._display = _font(
+            self.root, ("Inter Display Light", "Inter Display", "Inter")
+        )
+        self._mono = _font(
+            self.root, ("Adwaita Mono", "DejaVu Sans Mono"), "TkFixedFont"
+        )
         self._fixed_geoms = geoms is not None
         self._monitor_at = time.time()
         self.panels: list[_Panel] = []
@@ -825,16 +1013,29 @@ class WatchScreen:
         import tkinter as tk
 
         if not geoms:
-            geoms = [(0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight())]
-        for p in self.panels:
-            p.destroy(self.root)
-        self.panels = []
-        self.geoms = list(geoms)
-        for i, geom in enumerate(self.geoms):
-            win = self.root if i == 0 else tk.Toplevel(self.root, class_="jarvis-watch")
-            if i:
+            geoms = [
+                (0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight())
+            ]
+        old = self.panels
+        fresh = []
+        try:
+            for geom in geoms:
+                win = tk.Toplevel(self.root, class_="jarvis-watch")
                 win.title("Jarvis Watch")
-            self.panels.append(_Panel(win, geom, self._display, self._mono))
+                try:
+                    fresh.append(_Panel(win, geom, self._display, self._mono))
+                except Exception:
+                    win.destroy()
+                    raise
+        except Exception:
+            for panel in fresh:
+                panel.destroy(self.root)
+            raise
+        self.panels = fresh
+        self.geoms = list(geoms)
+        self.root.withdraw()
+        for panel in old:
+            panel.destroy(self.root)
 
     def _key_down(self, event) -> str:
         self.held.add(event.keysym)
@@ -850,28 +1051,39 @@ class WatchScreen:
         if self.closing:
             return
         # A monitor plugged in or out: re-lay a card on each screen.
-        if not self._fixed_geoms and time.time() - self._monitor_at > self.MONITOR_CHECK_S:
+        if (
+            not self._fixed_geoms
+            and time.time() - self._monitor_at > self.MONITOR_CHECK_S
+        ):
             self._monitor_at = time.time()
             now_geoms = monitors()
             if now_geoms and now_geoms != self.geoms:
-                with contextlib.suppress(Exception):
+                try:
                     self._build(now_geoms)
+                except Exception:
+                    # A newly connected output without a cover is a protection failure.
+                    fail_safe_lock()
         for p in self.panels:
             with contextlib.suppress(Exception):
                 p.win.attributes("-topmost", True)
                 p.win.lift()
         # Keep the keyboard on a card so the keybind always lands.
         with contextlib.suppress(Exception):
-            if self.root.focus_get() is None:
-                self.root.focus_force()
+            if self.root.focus_get() is None and self.panels:
+                self.panels[0].win.focus_force()
         self.root.after(1500, self._keep_on_top)
 
     def _tick(self) -> None:
         if self.closing:
             return
         now = time.time()
+        if not self.panels or any(not p.win.winfo_exists() for p in self.panels):
+            # Stop heartbeat: the independent guard locks even if Tk swallows this error.
+            raise RuntimeError("Watch cover lost")
         if now - self._stop_polled >= 0.25:
             self._stop_polled = now
+            with contextlib.suppress(OSError):
+                heartbeat_path().touch()
             if stop_path().exists():
                 with contextlib.suppress(OSError):
                     stop_path().unlink()
@@ -899,17 +1111,29 @@ class WatchScreen:
         rec_on = recording and int(now * 2) % 2 == 0
         clock = time.strftime("%H:%M")
         dot = breath(now)
+        gaze = wt.motion_target if live and wt.camera_ok else None
         for p in self.panels:
-            p.paint(g, pulse, clock, status, rec_on, recording, dot)
-        self.root.after(33, self._tick)
+            with contextlib.suppress(Exception):
+                p.paint(g, pulse, clock, status, rec_on, recording, dot)
+            p.update_eyes(now, gaze, live)
+        self.root.after(50, self._tick)
 
     def close(self) -> None:
+        if self.closing:
+            return
+        restore_owner()
         self.closing = True
         n = self.watcher.recorder.events
-        status = f"{n}   {'E V E N T' if n == 1 else 'E V E N T S'}" if n else "N O T H I N G   M O V E D"
+        status = (
+            f"{n}   {'E V E N T' if n == 1 else 'E V E N T S'}"
+            if n
+            else "N O T H I N G   M O V E D"
+        )
         for p in self.panels:
-            p.saving("SAVING", status)
-        self.root.update_idletasks()
+            with contextlib.suppress(Exception):
+                p.saving("SAVING", status)
+        with contextlib.suppress(Exception):
+            self.root.update_idletasks()
         if self.saver is None:
             self.root.after(150, self.root.quit)
             return
@@ -926,17 +1150,15 @@ class WatchScreen:
 
     def _await_save(self, thread) -> None:
         if thread.is_alive():
-            # Breathing underline: stitching a long session takes a while
-            # and a static card would look frozen.
-            k = breath(time.time(), 1.6)
+            # Keep the eye animating: stitching a long session takes a
+            # while and a static card would look frozen.
             for p in self.panels:
-                with contextlib.suppress(Exception):
-                    p.c.itemconfigure(p.rule, fill=_mix(DIM_TEXT, IDLE_TEXT, k))
+                p.update_eyes(time.time(), None, False)
             self.root.after(50, lambda: self._await_save(thread))
             return
         for p in self.panels:
-            with contextlib.suppress(Exception):
-                p.saving("SAVED", p.c.itemcget(p.status, "text"))
+            p.saving("SAVED", p.status_text)
+            p.update_eyes(time.time(), None, False)
         self.root.after(900, self.root.quit)
 
     def run(self) -> None:
@@ -950,7 +1172,7 @@ class WatchScreen:
 def main() -> int:
     if is_running() and running_pid() != os.getpid():
         return 0
-    state_dir().mkdir(parents=True, exist_ok=True)
+    enter_guest()
     with contextlib.suppress(OSError):
         stop_path().unlink()
     pid_path().write_text(str(os.getpid()))
@@ -967,6 +1189,8 @@ def main() -> int:
 
     def _term(*_a) -> None:
         # Killed from outside (logout, shutdown): still save the footage.
+        if guest_path().exists():
+            fail_safe_lock()
         announce(save_once(), wait_s=0.0)
         with contextlib.suppress(OSError):
             pid_path().unlink()
@@ -978,7 +1202,23 @@ def main() -> int:
     signal.signal(signal.SIGHUP, _term)
     try:
         watcher.start()
+        try:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    "guard",
+                    str(os.getpid()),
+                ],
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+            )
+        except OSError:
+            fail_safe_lock()
         WatchScreen(watcher, saver=save_once).run()
+    except Exception:
+        fail_safe_lock()
+        raise
     finally:
         result = save_once()
         with contextlib.suppress(OSError):
@@ -991,11 +1231,16 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    if sys.argv[1:2] == ["guard"]:
+        guard_watch(int(sys.argv[2]))
+        raise SystemExit(0)
     if sys.argv[1:2] == ["stop"]:
         # `jarvis-watch-stop`: works from a TTY or the global shortcut.
         got = request_stop()
-        with contextlib.suppress(OSError):
-            with open(state_dir() / "stop-requests.log", "a") as fh:
-                fh.write(f"{time.strftime('%F %T')} stop requested running={got}\n")
+        with (
+            contextlib.suppress(OSError),
+            open(state_dir() / "stop-requests.log", "a") as fh,
+        ):
+            fh.write(f"{time.strftime('%F %T')} stop requested running={got}\n")
         raise SystemExit(0 if got else 1)
     raise SystemExit(main())

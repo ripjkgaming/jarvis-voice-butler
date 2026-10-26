@@ -163,7 +163,13 @@ def test_resume_after_restart(home) -> None:
 
 @pytest.mark.asyncio
 async def test_tools(home, monkeypatch) -> None:
-    monkeypatch.setattr(at, "start", lambda goal: {"id": "task-x"})
+    def fake_start(goal, *, on_created=None):
+        task = {"id": "task-x", "status": "planning"}
+        if on_created is not None:
+            on_created(task)
+        return task
+
+    monkeypatch.setattr(at, "start", fake_start)
     tools = TaskTools()
     said = await TaskTools.start_task(tools, None, goal="research something useful")  # type: ignore[arg-type]
     assert "background" in said["say"]

@@ -6,7 +6,7 @@ the Phase 3 audit: tiny/small/base/medium + large-v3-turbo). The voice
 session endpoint-segments audio with the local Silero VAD and calls
 ``recognize()`` per utterance — no network, no inference credits, no keys.
 
-Model selection: ``JARVIS_WHISPER_MODEL`` (default ``base`` — best
+Model selection: ``JARVIS_WHISPER_MODEL`` (default ``base.en`` — best
 accuracy/latency trade on CPU; ``tiny`` for weak boxes, ``small``/``medium``
 for accuracy). ``JARVIS_WHISPER_DEVICE`` (default ``cpu``) and
 ``JARVIS_WHISPER_COMPUTE`` (default ``int8``) are honored verbatim.
@@ -30,17 +30,15 @@ from livekit.agents.types import (
     NotGivenOr,
 )
 
-logger = logging.getLogger("jarvis-local-stt")
+from whisper_config import configured_model, english_model_name
 
-DEFAULT_MODEL = "base"
+logger = logging.getLogger("jarvis-local-stt")
 TARGET_RATE = 16000
 
 
 def whisper_model_name() -> str:
     """Configured faster-whisper size. Pure (env only)."""
-    return (
-        os.environ.get("JARVIS_WHISPER_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    )
+    return configured_model()
 
 
 def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
@@ -65,10 +63,6 @@ def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
     mono = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
     if rate == TARGET_RATE:
         out = mono
-    elif rate == 48000:
-        from audio_dsp import downsample_48k_to_16k
-
-        out = downsample_48k_to_16k(mono)  # anti-aliased, not naive [::3]
     elif rate == 48000:
         from audio_dsp import downsample_48k_to_16k
 
@@ -103,15 +97,17 @@ class FasterWhisperSTT(stt.STT):
         super().__init__(
             capabilities=stt.STTCapabilities(streaming=False, interim_results=False)
         )
-        self._model_size = model_size or whisper_model_name()
+        self._model_size = (
+            english_model_name(model_size) if model_size else whisper_model_name()
+        )
         self._device = device or os.environ.get("JARVIS_WHISPER_DEVICE", "cpu")
         self._compute_type = compute_type or os.environ.get(
             "JARVIS_WHISPER_COMPUTE", "int8"
         )
         self._model = None
-        # Vocabulary bias mode (audio_shared.VOCAB_PROMPTS); None disables.
+        # Vocabulary bias mode (audio_shared.VOCAB_PROMPTS); off by default: "general" turned "Mute it." into "Mutate".
         self._vocab_mode = (
-            os.environ.get("JARVIS_STT_VOCAB", "general").strip().lower() or None
+            os.environ.get("JARVIS_STT_VOCAB", "off").strip().lower() or None
         )
         if self._vocab_mode in {"off", "none", "0"}:
             self._vocab_mode = None
@@ -127,7 +123,7 @@ class FasterWhisperSTT(stt.STT):
 
     def _load(self):
         if self._model is None:
-            from faster_whisper import WhisperModel
+            from audio_shared import load_whisper_model
 
             logger.info(
                 "loading local whisper model=%s device=%s compute=%s",
@@ -135,10 +131,8 @@ class FasterWhisperSTT(stt.STT):
                 self._device,
                 self._compute_type,
             )
-            self._model = WhisperModel(
-                self._model_size,
-                device=self._device,
-                compute_type=self._compute_type,
+            self._model = load_whisper_model(
+                self._model_size, self._device, self._compute_type
             )
         return self._model
 
@@ -149,6 +143,10 @@ class FasterWhisperSTT(stt.STT):
         with self._inference_lock:
             if cancelled.is_set():
                 return []  # an obsolete queued turn must not delay the next one
+            # Greedy small.en decoding invented extra words on the cached
+            # numeric-command fixture. Beam 5 recovered all ten gate fixtures;
+            # keep the faster tiny/base path's decoding budget unchanged.
+            beam_size = 5 if self._model_size == "small.en" else 1
             from audio_shared import vocab_bias
 
             prompt, hotwords = vocab_bias(self._vocab_mode)
@@ -157,7 +155,8 @@ class FasterWhisperSTT(stt.STT):
                 extra["initial_prompt"] = prompt
                 extra["hotwords"] = hotwords
             segments, _info = self._load().transcribe(
-                audio, language=language, beam_size=1, vad_filter=False, **extra
+                audio, language="en", task="transcribe", beam_size=beam_size,
+                vad_filter=False, **extra,
             )
             result = []
             try:
@@ -185,7 +184,7 @@ class FasterWhisperSTT(stt.STT):
                 type=stt.SpeechEventType.FINAL_TRANSCRIPT,
                 alternatives=[stt.SpeechData(language="en", text="")],
             )
-        lang = language if utils.is_given(language) else "en"
+        lang = "en"  # English-only: caller locale must not re-enable autodetection.
         cancelled = threading.Event()
         try:
             segments = await asyncio.to_thread(self._transcribe, audio, lang, cancelled)

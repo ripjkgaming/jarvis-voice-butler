@@ -142,6 +142,10 @@ def speak(
     force_quiet: bool = False,
 ) -> bool:
     """Say one line out of call. Returns False when rate-limited or empty."""
+    from phone_session import private
+
+    if private():
+        return False
     text = " ".join(str(text or "").split())
     if not text or not allowed(source, time.time(), min_gap_s):
         return False
@@ -167,6 +171,10 @@ def speak(
 
 def speak_local(text: str, title: str = "Jarvis") -> None:
     """Say one line with the local Piper voice, no call (fallback path)."""
+    from phone_session import private
+
+    if private():
+        return
     text = " ".join(str(text or "").split())
     if text:
         threading.Thread(

@@ -2,7 +2,7 @@
 
 "open Google Docs"            -> the Docs homepage (never a guessed file URL)
 "open the second document"    -> his 2nd most recently opened Doc
-"open Physics notes in Docs"  -> the Doc whose name best matches
+"open Physics notes in Docs"  -> a unique exact name, or choices to clarify
 "... on my school account"    -> same, as the school Google account
 
 Nth/name lookups use the Drive API for that account (src/google_api.py);
@@ -108,8 +108,15 @@ def score_name(name: str, wanted: str) -> int:
     return int(40 * hits / len(words)) if words and hits else 0
 
 
-def _files(app: str, account: str, query: str, limit: int, opener=None) -> list[dict]:
-    """Drive files of this app type, most recently opened by Sir first."""
+def _filename_key(name: str) -> str:
+    """Compare ordinary whitespace and case without removing words/punctuation."""
+    return re.sub(r"[ \t\r\n\f\v]+", " ", name).strip(" ").casefold()
+
+
+def _files(
+    app: str, account: str, query: str, limit: int, opener=None
+) -> tuple[list[dict], bool]:
+    """Recent files of this app type plus whether the search is incomplete."""
     _home, mime, _noun = APPS[app]
     clauses = ["trashed = false"]
     if mime:
@@ -121,7 +128,7 @@ def _files(app: str, account: str, query: str, limit: int, opener=None) -> list[
         {
             "q": " and ".join(clauses),
             "orderBy": "viewedByMeTime desc,modifiedTime desc",
-            "fields": "files(id,name,webViewLink,viewedByMeTime)",
+            "fields": "nextPageToken,incompleteSearch,files(id,name,webViewLink,viewedByMeTime)",
             "pageSize": max(1, min(50, limit)),
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
@@ -132,11 +139,21 @@ def _files(app: str, account: str, query: str, limit: int, opener=None) -> list[
         "GET", f"{google_api.DRIVE_BASE}/files?{params}", token, opener=opener
     )
     files = got.get("files", []) if isinstance(got, dict) else []
-    return [f for f in files if isinstance(f, dict) and f.get("webViewLink")]
+    incomplete = (
+        bool(got.get("nextPageToken") or got.get("incompleteSearch"))
+        if isinstance(got, dict)
+        else True
+    )
+    return [f for f in files if isinstance(f, dict) and f.get("webViewLink")], incomplete
 
 
 def resolve(app: str, which: str = "", account: str = "personal", opener=None) -> dict:
-    """Where to go: {"url", "say", "title"}. Never raises."""
+    """Resolve an opening target or return choices; never claim a launch.
+
+    Only a unique exact filename after ordinary-whitespace/case normalization
+    is selected automatically. Partial or duplicate names need an owner choice. Ordinals retain
+    their existing meaning: the Nth most recently opened file of this app.
+    """
     app = normalize_app(app)
     account = google_api.normalize_account(account)
     home, _mime, noun = APPS[app]
@@ -144,51 +161,102 @@ def resolve(app: str, which: str = "", account: str = "personal", opener=None) -
     if not email and account == "school":
         email = google_api.remember_account_email(account, opener=opener)
     if not email and account == "school":
-        # School account not connected to the API: Google's account index
-        # ("second signed-in account") still opens it in the browser.
         import os
 
         email = os.environ.get("JARVIS_SCHOOL_AUTHUSER", "1").strip()
-    label = {"docs": "Google Docs", "sheets": "Google Sheets",
-             "slides": "Google Slides", "drive": "Google Drive"}[app]
+    label = {
+        "docs": "Google Docs",
+        "sheets": "Google Sheets",
+        "slides": "Google Slides",
+        "drive": "Google Drive",
+    }[app]
     whose = " on your school account" if account == "school" else ""
+
+    def target(url, title, status="resolved", say=""):
+        return {
+            "url": with_authuser(url, email),
+            "title": title,
+            "status": status,
+            "say": say or f"Resolved {title}{whose}.",
+        }
+
     kind, arg = parse_which(which)
     if kind == "home":
-        return {"url": with_authuser(home, email), "title": label,
-                "say": f"Opening {label}{whose}, Sir."}
+        return target(home, label)
     try:
         if kind == "nth":
-            n = int(arg)  # type: ignore[arg-type]
-            files = _files(app, account, "", max(n, 10), opener)
+            n = int(arg)
+            files, _incomplete = _files(app, account, "", max(n, 10), opener)
             if n > len(files):
-                return {"url": with_authuser(home, email), "title": label,
-                        "say": f"You only have {len(files)} recent {noun}s, Sir; "
-                               f"I've opened {label}{whose} instead."}
+                return target(
+                    home,
+                    label,
+                    "fallback_home",
+                    f"Only {len(files)} recent {noun}s were found; the fallback is {label}{whose}.",
+                )
             f = files[n - 1]
-            return {"url": with_authuser(f["webViewLink"], email), "title": f["name"],
-                    "say": f"Opening {f['name']}, Sir."}
+            return target(f["webViewLink"], f["name"])
         wanted = str(arg)
-        files = _files(app, account, wanted, 25, opener)
+        files, incomplete = _files(app, account, wanted, 25, opener)
         if not files:
-            # "name contains" is whole-string; retry on the longest word.
             longest = max(re.split(r"\W+", wanted), key=len, default="")
             if longest and longest.lower() != wanted.lower():
-                files = _files(app, account, longest, 25, opener)
-        ranked = sorted(files, key=lambda f: -score_name(f.get("name", ""), wanted))
-        if ranked and score_name(ranked[0].get("name", ""), wanted) > 0:
-            f = ranked[0]
-            return {"url": with_authuser(f["webViewLink"], email), "title": f["name"],
-                    "say": f"Opening {f['name']}, Sir."}
-    except google_api.GoogleError as exc:
+                files, incomplete = _files(app, account, longest, 25, opener)
+        # A unique exact name is intentional; weak or tied matches are choices.
+        exact = [
+            f
+            for f in files
+            if _filename_key(f.get("name", "")) == _filename_key(wanted)
+        ]
+        if len(exact) == 1 and not incomplete:
+            return target(exact[0]["webViewLink"], exact[0]["name"])
+        matches = exact or sorted(
+            [f for f in files if score_name(f.get("name", ""), wanted) > 0],
+            key=lambda f: -score_name(f.get("name", ""), wanted),
+        )
+        if matches:
+            candidates = [
+                {
+                    "id": f.get("id", ""),
+                    "title": f.get("name", ""),
+                    "url": with_authuser(f["webViewLink"], email),
+                }
+                for f in matches[:10]
+            ]
+            names = "; ".join(
+                f"{i}. {c['title'][:80]}" for i, c in enumerate(candidates[:5], 1)
+            )
+            return {
+                "status": "needs_choice",
+                "account": account,
+                "candidates": candidates,
+                "match_count": len(matches),
+                "incomplete_search": incomplete,
+                "say": f"Which file do you mean{whose}: {names}?",
+            }
+    except google_api.GoogleError:
         if kind == "nth":
-            return {"url": with_authuser(home, email), "title": label,
-                    "say": f"I can't see your recent {noun}s just now ({exc}); "
-                           f"I've opened {label}{whose}."}
+            return target(
+                home,
+                label,
+                "fallback_home",
+                f"Recent {noun}s are unavailable; the fallback is {label}{whose}.",
+            )
     except Exception:
         pass
     if kind == "nth":
-        return {"url": with_authuser(home, email), "title": label,
-                "say": f"I've opened {label}{whose}, Sir."}
-    search = "https://drive.google.com/drive/search?" + urllib.parse.urlencode({"q": str(arg)})
-    return {"url": with_authuser(search, email), "title": f"Search: {arg}",
-            "say": f"I couldn't pin down '{arg}', Sir, so I've opened a Drive search for it{whose}."}
+        return target(
+            home,
+            label,
+            "fallback_home",
+            f"The requested recent file could not be resolved; the fallback is {label}{whose}.",
+        )
+    search = "https://drive.google.com/drive/search?" + urllib.parse.urlencode(
+        {"q": str(arg)}
+    )
+    return target(
+        search,
+        f"Search: {arg}",
+        "fallback_search",
+        f"The file could not be resolved; the fallback is a Drive search{whose}.",
+    )

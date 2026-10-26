@@ -1,0 +1,13 @@
+{
+  "joints": [
+    {"name": "base", "minimum": -30, "maximum": 30, "speed": 15},
+    {"name": "shoulder", "minimum": 10, "maximum": 70, "speed": 15},
+    {"name": "elbow", "minimum": -60, "maximum": 0, "speed": 15}
+  ],
+  "home": [0, 40, -30],
+  "workspace": [[-0.2, 0.2], [-0.2, 0.2], [0, 0.3]],
+  "command_timeout": 0.5,
+  "watchdog_timeout": 2.0,
+  "gripper_speed": 0.5,
+  "maximum_duration": 30
+}

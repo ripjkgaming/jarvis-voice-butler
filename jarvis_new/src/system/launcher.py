@@ -253,7 +253,7 @@ _SINGLE_INSTANCE = frozenset({"Sober", "DaVinci Resolve"})
 # Apps Sir never wants opened (a misheard "Sober" once launched Spotify).
 # Checked at every launch site against the name, target, argv and URL.
 # JARVIS_BLOCKED_APPS (comma list) adds more.
-_BLOCKED_APPS = frozenset({"spotify"})
+_BLOCKED_APPS = frozenset({"spotify", "waydroid"})
 
 
 def blocked_apps() -> frozenset[str]:
@@ -264,7 +264,56 @@ def blocked_apps() -> frozenset[str]:
 def is_blocked(*parts: object) -> str | None:
     """The blocked app any launch part names (app, target, argv, URL), or None."""
     text = " ".join(str(p) for p in parts if p).lower()
+    compact = re.sub(r"[\s_-]+", "", text)
+    if "waydroid" in compact or _norm(text) in {
+        "android",
+        "android apps",
+        "android emulator",
+        "play store",
+        "google play store",
+    }:
+        return "waydroid"
     return next((b for b in sorted(blocked_apps()) if b in text), None)
+
+
+def require_launch_allowed(argv, *, desktop_text="") -> None:
+    """Check actual launch payloads, including desktop aliases and wrappers."""
+    parts = list(argv)
+    blocked = is_blocked(*parts, desktop_text)
+    if blocked:
+        raise ValueError(blocked_say(blocked))
+    for part in parts:
+        value = str(part)
+        if "://" in value or "=" in value:
+            continue
+        candidates = [Path(value)] if "/" in value else []
+        resolved = shutil.which(value)
+        if resolved:
+            candidates.append(Path(resolved))
+        if value.endswith(".desktop") or (
+            parts
+            and Path(str(parts[0])).name
+            in {"gtk-launch", "kstart", "kioclient", "gio", "xdg-open"}
+        ):
+            stem = Path(value).name
+            for directory in _DESKTOP_DIRS:
+                candidates.append(
+                    directory
+                    / (stem if stem.endswith(".desktop") else stem + ".desktop")
+                )
+        for path in candidates:
+            try:
+                real = path.resolve()
+                blocked = is_blocked(str(real))
+                # Inspect small text launch wrappers only; never load binaries.
+                if real.is_file() and real.stat().st_size <= 65536:
+                    raw = real.read_bytes()
+                    if raw.startswith(b"#!") or real.suffix == ".desktop":
+                        blocked = blocked or is_blocked(raw.decode("utf-8", "replace"))
+                if blocked:
+                    raise ValueError(blocked_say(blocked))
+            except OSError:
+                continue
 
 
 def blocked_say(name: str) -> str:
@@ -544,6 +593,8 @@ def resolve_launch(
     All external inputs are injectable so this is fully unit-testable.
     """
     q = strip_filler(query)
+    if blocked := is_blocked(q):
+        return Decision("blocked", q, say=blocked_say(blocked), reason="policy")
     if not q:
         return Decision(
             "url", "https://www.google.com", say="Nothing to open, Sir.", reason="empty"
@@ -554,6 +605,11 @@ def resolve_launch(
     if pri is not None:
         return pri
     app, app_score = best_app(q, apps)
+    if app is not None:
+        try:
+            require_launch_allowed(app.argv)
+        except ValueError as exc:
+            return Decision("blocked", app.name, say=str(exc), reason="policy")
 
     # Layer 0: a well-known site named exactly ("google") beats a partial
     # app hit ("Google Play Store") and stray history rows ("... - Google

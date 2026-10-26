@@ -85,6 +85,10 @@ async def publish(room: Any, payload: str) -> None:
 
 def mirror_to_log(tool: str, kind: str, detail: str = "") -> None:
     """Append to actions.log so the graph has a fallback topology."""
+    from phone_session import private
+
+    if private():
+        return
     try:
         from system import log_action
 
@@ -103,6 +107,10 @@ def jarvis_activity_id(tool: str) -> str:
 def mirror_to_activity(tool: str, kind: str, detail: str = "") -> None:
     """Jarvis tool runs join the HUD EXECUTION feed (src/activity.py): the
     webview has no WebRTC, so the data-channel copy never reached it."""
+    from phone_session import private
+
+    if private():
+        return
     try:
         import activity
 
@@ -150,6 +158,10 @@ def caption(role: str, text: str) -> bool:
 
     Fail-soft, never raises. Roles: "sir" (user) / "jarvis" (assistant).
     """
+    from phone_session import private
+
+    if private():
+        return False  # Private phone speech never enters the shared desktop log.
     try:
         text = " ".join(str(text or "").split())
         if not text:
@@ -174,6 +186,10 @@ LIVE_CAPTION_FILE = "caption_live.json"
 
 def live_caption(uid: str, text: str, done: bool = False) -> bool:
     """Atomically replace the live Jarvis line. Fail-soft, never raises."""
+    from phone_session import private
+
+    if private():
+        return False
     try:
         path = captions_path().with_name(LIVE_CAPTION_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)

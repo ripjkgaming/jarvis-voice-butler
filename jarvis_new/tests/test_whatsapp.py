@@ -1,8 +1,20 @@
+import asyncio
+
 import pytest
 from livekit.agents.llm import ToolError
 
 from system import whatsapp as wa
 from system.daily import DailyTools
+
+
+@pytest.fixture(autouse=True)
+def _mock_metadata_threads(monkeypatch):
+    # Only metadata probes and photo work already mocked below run inline.
+    async def inline(fn, *a, **kw):
+        return fn(*a, **kw)
+
+    monkeypatch.setattr(asyncio, "to_thread", inline)
+    monkeypatch.setattr("system.daily.wa_page_present", lambda: True)
 
 
 def test_clean_strips_icon_bleed() -> None:
@@ -154,3 +166,24 @@ async def test_whatsapp_tools_refuse_when_not_local(
         await DailyTools.whatsapp_chats(DailyTools(), None)  # type: ignore[arg-type]
     with pytest.raises(ToolError, match="only available"):
         await DailyTools.whatsapp_read(DailyTools(), None, chat="Mum")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", ["chats", "read"])
+async def test_existing_offline_client_refuses_before_chat_access(monkeypatch, route):
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr("system.daily.wa_alive", lambda: True)
+    monkeypatch.setattr("system.daily.wa_page_present", lambda: False)
+
+    async def forbidden(*a, **kw):
+        raise AssertionError("must not read or open a chat in missing WhatsApp page")
+
+    monkeypatch.setattr("system.daily._wa_list_chats", forbidden)
+    monkeypatch.setattr("system.daily._wa_read_chat", forbidden)
+    with pytest.raises(ToolError, match=r"running.*not loaded"):
+        if route == "chats":
+            await DailyTools.whatsapp_chats(DailyTools(), None)
+        else:
+            await DailyTools.whatsapp_read(
+                DailyTools(), None, chat="Offline test target"
+            )

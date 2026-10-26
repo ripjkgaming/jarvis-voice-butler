@@ -119,6 +119,39 @@ def validate(data: dict, now: float) -> dict | None:
     }
 
 
+#: Mercury must be at least this sure an email has NO event to skip ChatGPT.
+NO_EVENT_BELOW = 0.05
+
+GATE_QUESTION = {
+    "has_event": {
+        "type": "noul",
+        "instructions": "Does this email name a real, dated event for Sir's calendar?",
+        "criteria": {
+            "true": (
+                "An appointment, meeting, class, exam, trip, or deadline with "
+                "a date or time, or a school event."
+            ),
+            "false": (
+                "Newsletter, receipt, promotion, social notification, chat, "
+                "vague 'sometime next week', or only past events."
+            ),
+        },
+    }
+}
+
+
+def mercury_says_no_event(parsed: dict) -> bool:
+    """True only when Mercury Decide (~0.6s, free) is confident there is no
+    event, so ChatGPT is skipped. Any doubt or failure -> False. Never raises."""
+    import mercury_decide
+
+    answers, warning = mercury_decide.decide(build_prompt(parsed, dt.date.today()), GATE_QUESTION)
+    if warning:
+        return False
+    p = mercury_decide.yes_prob(answers, "has_event")
+    return p is not None and p < NO_EVENT_BELOW
+
+
 def extract(
     parsed: dict, now: float | None = None, runner=None
 ) -> tuple[dict | None, str | None]:
@@ -126,6 +159,8 @@ def extract(
     import chatgpt_cli
 
     now = time.time() if now is None else now
+    if runner is None and mercury_says_no_event(parsed):
+        return None, None
     try:
         reply, warning = chatgpt_cli.chatgpt_reply(
             build_prompt(parsed, dt.date.fromtimestamp(now)),

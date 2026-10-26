@@ -10,6 +10,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from livekit.agents import llm
 
 from agent import Assistant
 
@@ -140,6 +141,7 @@ async def test_watchdog_is_armed_while_reply_is_pending_and_cancelled_on_exit(
 
     monkeypatch.setattr(agent_mod, "_specialist_watchdog", watchdog)
     specialist = agent_mod.SystemAgent.__new__(agent_mod.SystemAgent)
+    specialist._chat_ctx = llm.ChatContext.empty()
     specialist.task = "open spotify"
     session = SlowSession()
     monkeypatch.setattr(agent_mod.SystemAgent, "session", property(lambda _: session))
@@ -156,6 +158,7 @@ async def test_research_handoff_task_is_consumed_once():
     from agent import ResearchAgent
 
     specialist = ResearchAgent.__new__(ResearchAgent)
+    specialist._chat_ctx = llm.ChatContext.empty()
     specialist.task = "compare e-readers"
     assert "compare e-readers" in (await _enter(specialist))[0]
     assert specialist.task == ""

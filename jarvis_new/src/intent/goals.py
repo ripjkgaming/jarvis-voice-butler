@@ -33,26 +33,98 @@ _COMPOUND = re.compile(r"\b(and then|then|also|after that)\b|\band\b(?! (?:the|m
 _ABOUT_JARVIS = re.compile(r"\b(did you|have you|you (?:sent|replied|read|flagged))\b")
 
 _MAIL = re.compile(r"\b(e ?mails?|mails?|inbox|gmail)\b")
-_MAIL_ONE = re.compile(r"\b(read|open|show)\b.*\b(latest|last|newest|most recent|top|first)\b")
+_MAIL_ONE = re.compile(
+    r"\b(read|open|show)\b.*\b(latest|last|newest|most recent|top|first)\b"
+)
 _UNREAD = re.compile(r"\b(unread|new)\b")
 
 _EXAM = re.compile(r"\b(exams?|papers?|mocks?)\b")
-_CALENDAR = re.compile(r"\b(calendar|agenda|events?|plans|schedule|what's on|whats on)\b")
+_CALENDAR = re.compile(
+    r"\b(calendar|agenda|events?|plans|schedule|what's on|whats on)\b"
+)
 _WEATHER = re.compile(
     r"\b(weather|forecast|temperature|raining|rain today|rain tomorrow|umbrella)\b"
 )
 _NEWS = re.compile(r"\b(news|headlines)\b")
 _NEWS_TOPIC = re.compile(r"\b(?:news|headlines) (?:about|on|regarding) (?P<topic>.+)$")
 
-_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_WEEKDAYS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
 _EXAM_STOP = {
-    "my", "the", "next", "exam", "exams", "paper", "papers", "mock", "mocks", "when",
-    "is", "what", "whats", "what's", "how", "long", "until", "till", "do", "i", "have",
-    "today", "tomorrow", "this", "week", "a", "an", "of", "for", "left", "are", "there",
-    "any", "upcoming", "all", "remaining", "time", "times", "start", "starts", "at",
-    "on", "in", "it", "s", "me", "tell", "about", "show", "check", "read", "list", "much",
-    "free", "between", "them", "is", "was", "be", "will", "first", "last", "after",
-    "before", "up", "coming", *_WEEKDAYS,
+    "my",
+    "the",
+    "next",
+    "exam",
+    "exams",
+    "paper",
+    "papers",
+    "mock",
+    "mocks",
+    "when",
+    "is",
+    "what",
+    "whats",
+    "what's",
+    "how",
+    "long",
+    "until",
+    "till",
+    "do",
+    "i",
+    "have",
+    "today",
+    "tomorrow",
+    "this",
+    "week",
+    "a",
+    "an",
+    "of",
+    "for",
+    "left",
+    "are",
+    "there",
+    "any",
+    "upcoming",
+    "all",
+    "remaining",
+    "time",
+    "times",
+    "start",
+    "starts",
+    "at",
+    "on",
+    "in",
+    "it",
+    "s",
+    "me",
+    "tell",
+    "about",
+    "show",
+    "check",
+    "read",
+    "list",
+    "much",
+    "free",
+    "between",
+    "them",
+    "is",
+    "was",
+    "be",
+    "will",
+    "first",
+    "last",
+    "after",
+    "before",
+    "up",
+    "coming",
+    *_WEEKDAYS,
 }
 
 
@@ -143,6 +215,12 @@ def exam_subjects() -> set[str]:
 
 async def execute(owners, tool: str, args: dict) -> tuple[bool, str]:
     """Run `tool` on the first owner that has it -> (ok, spoken line)."""
+    import phone_session
+
+    if phone_session.private() and phone_session.guest_required():
+        return False, "The private phone call has ended."
+    if error := phone_session.private_tool_error(tool):
+        return False, error
     for owner in owners:
         fn = getattr(type(owner), tool, None)
         if fn is None:
@@ -151,5 +229,14 @@ async def execute(owners, tool: str, args: dict) -> tuple[bool, str]:
             out = await fn(owner, None, **args)
         except Exception as exc:  # ToolError carries the spoken reason
             return False, str(exc) or "That didn't work, Sir."
+        if phone_session.private() and phone_session.guest_required():
+            return False, "The private phone call has ended."
+        import claim_guard
+        from action_outcome import parse_outcome
+
+        receipt = parse_outcome(out)
+        if receipt is not None:
+            claim_guard.GUARD.note_result(tool, out)
+            return receipt.verified, receipt.say
         return True, str((out or {}).get("say") or "Done.")
     return False, f"I can't run {tool} here, Sir."

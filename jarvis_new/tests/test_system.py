@@ -82,7 +82,6 @@ def test_system_tools_register_expected_ids() -> None:
         "list_aliases",
         "open_app",
         "play_media",
-        "launch_gods_eye",
         "window_action",
         "confirm_power_action",
         "power_control",
@@ -188,7 +187,10 @@ async def test_file_write_read_delete_roundtrip(
         path=str(target),
         text="hello jarvis",  # type: ignore[arg-type]
     )
-    assert "Wrote" in written["say"]
+    assert written["ok"] is True
+    assert written["outcome"]["state"] == "verified"
+    assert written["outcome"]["evidence"]["bytes"] == 12
+    assert target.read_bytes() == b"hello jarvis"
 
     read = await SystemTools.read_file(tools, None, path=str(target))  # type: ignore[arg-type]
     assert "hello jarvis" in read["text"]
@@ -226,7 +228,8 @@ async def test_power_shutdown_requires_confirmation(
 
     monkeypatch.setattr("system.core.run_cmd", fake_run)
     result = await SystemTools.power_control(tools, None, action="shutdown")  # type: ignore[arg-type]
-    assert "initiated" in result["say"]
+    assert result["outcome"]["state"] == "dispatched_unverified"
+    assert "not verified" in result["say"]
     assert calls and calls[0][:2] == ("systemctl", "poweroff")
 
     # Confirmation is single-use.
@@ -248,7 +251,8 @@ async def test_power_lock_runs_without_confirmation(
 
     monkeypatch.setattr("system.core.run_cmd", fake_run)
     result = await SystemTools.power_control(tools, None, action="lock")  # type: ignore[arg-type]
-    assert "Locked" in result["say"]
+    assert result["outcome"]["state"] == "dispatched_unverified"
+    assert "not verified" in result["say"]
     assert calls and calls[0][:2] == ("loginctl", "lock-session")
 
 
@@ -420,67 +424,36 @@ def test_log_action_spills_overgrown_log_to_backup(
 
 @pytest.mark.asyncio
 async def test_play_media_opens_system_youtube(monkeypatch) -> None:
-    """Play lands in system Brave YouTube, never the agent browser."""
-    import asyncio as _asyncio
+    """Metadata-supported selection launches the exact video in system Brave."""
+    import asyncio
 
-    from system.core import SystemTools
-
+    import media_selection
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr(
-        "shutil.which",
-        lambda n: "/usr/bin/brave-browser" if n in {"brave-browser", "brave"} else None,
-    )
-    launched = {}
-
-    class _Proc:
-        pid = 4242
-
-    async def _fake_exec(*argv, **kwargs):
-        launched["argv"] = list(argv)
-        assert kwargs.get("start_new_session") is True
-        return _Proc()
-
-    monkeypatch.setattr(_asyncio, "create_subprocess_exec", _fake_exec)
-    tools = SystemTools()
-    out = await SystemTools.play_media(tools, None, query="lofi hip hop")  # type: ignore[arg-type]
-    assert "lofi hip hop" in out["say"]
-    assert launched["argv"][0] == "/usr/bin/brave-browser"
-    assert "youtube.com/results?search_query=lofi+hip+hop" in launched["argv"][-1]
-    assert "--new-window" in launched["argv"]
+    monkeypatch.setattr("shutil.which", lambda _: "/fixture/brave")
+    async def resolve(*args, **kwargs):
+        return media_selection.Selection("selected", "metadata_match", "bbbbbbbbbbb", 2)
+    monkeypatch.setattr(media_selection, "resolve_async", resolve)
+    launched = []
+    async def spawn(*argv, **kwargs):
+        launched.append(argv)
+        return type("Process", (), {"pid": 4242})()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    out = await SystemTools().play_media(None, "lofi hip hop", show=True)
+    assert launched == [("/fixture/brave", "--new-window", "https://www.youtube.com/watch?v=bbbbbbbbbbb")]
+    assert out["outcome"]["state"] == "launch_requested"
+    assert "not verified" in out["say"]
 
 
 @pytest.mark.asyncio
-async def test_play_media_autoplays_top_hit(monkeypatch) -> None:
-    """With yt-dlp present, "play X" opens the top video's watch URL."""
-    import asyncio as _asyncio
-
-    from system.core import SystemTools
-
+async def test_play_media_unavailable_does_not_open_results(monkeypatch) -> None:
+    import media_selection
     monkeypatch.setenv("JARVIS_LOCAL", "1")
-    monkeypatch.setattr(
-        "shutil.which",
-        lambda n: f"/usr/bin/{n}" if n in {"brave-browser", "brave", "yt-dlp"} else None,
-    )
-    launched = {}
-
-    class _Search:
-        async def communicate(self):
-            return b"n61ULEU7CO0\n", b""
-
-    class _Proc:
-        pid = 7
-
-    async def _fake_exec(*argv, **kwargs):
-        if argv[0].endswith("yt-dlp"):
-            assert argv[-1] == "ytsearch1:lofi hip hop"
-            return _Search()
-        launched["argv"] = list(argv)
-        return _Proc()
-
-    monkeypatch.setattr(_asyncio, "create_subprocess_exec", _fake_exec)
-    out = await SystemTools.play_media(SystemTools(), None, query="lofi hip hop")  # type: ignore[arg-type]
-    assert launched["argv"][-1] == "https://www.youtube.com/watch?v=n61ULEU7CO0"
-    assert "lofi hip hop" in out["say"]
+    async def resolve(*args, **kwargs):
+        return media_selection.Selection("unavailable", "no_supported_match")
+    monkeypatch.setattr(media_selection, "resolve_async", resolve)
+    out = await SystemTools().play_media(None, "lofi hip hop", show=True)
+    assert out["outcome"]["dispatch"] == "not_started"
+    assert out["selection"]["decision"] == "unavailable"
 
 
 @pytest.mark.asyncio
@@ -506,7 +479,7 @@ async def test_play_media_empty_query_opens_playlist(monkeypatch) -> None:
     monkeypatch.setattr(_asyncio, "create_subprocess_exec", _fake_exec)
     tools = SystemTools()
     out = await SystemTools.play_media(tools, None, query="  ")  # type: ignore[arg-type]
-    assert "playlist" in out["say"].lower()
+    assert out["outcome"]["state"] == "launch_requested".lower()
     assert "list=PLR1n3ezbUDL0" in launched["argv"][-1]
 
 
@@ -520,50 +493,6 @@ async def test_play_media_refuses_when_not_local(monkeypatch) -> None:
     tools = SystemTools()
     with pytest.raises(llm.ToolError, match="only available"):
         await SystemTools.play_media(tools, None, query="x")  # type: ignore[arg-type]
-
-
-@pytest.mark.asyncio
-async def test_launch_gods_eye_toggles_globe(monkeypatch) -> None:
-    """Voice 'launch gods eye view' shells the globe verb, first hit wins."""
-    import asyncio as _asyncio
-
-    from system.core import SystemTools
-
-    monkeypatch.setenv("JARVIS_LOCAL", "1")
-    launched = []
-
-    class _Proc:
-        async def wait(self):
-            return 0
-
-    async def _fake_exec(*argv, **kwargs):
-        launched.append(list(argv))
-        return _Proc()
-
-    monkeypatch.setattr(_asyncio, "create_subprocess_exec", _fake_exec)
-    tools = SystemTools()
-    out = await SystemTools.launch_gods_eye(tools, None)  # type: ignore[arg-type]
-    assert "God's Eye" in out["say"]
-    assert launched and launched[0][-1] == "globeshow"
-
-
-@pytest.mark.asyncio
-async def test_launch_gods_eye_fails_soft_without_shell(monkeypatch) -> None:
-    import asyncio as _asyncio
-
-    from livekit.agents.llm import ToolError
-
-    from system.core import SystemTools
-
-    monkeypatch.setenv("JARVIS_LOCAL", "1")
-
-    async def _boom(*argv, **kwargs):
-        raise FileNotFoundError("nope")
-
-    monkeypatch.setattr(_asyncio, "create_subprocess_exec", _boom)
-    tools = SystemTools()
-    with pytest.raises(ToolError, match="not running"):
-        await SystemTools.launch_gods_eye(tools, None)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

@@ -747,6 +747,11 @@ class MailLink:
         return "".join(parts) + "\n— J.A.R.V.I.S."
 
     def _deliver(self, cfg: dict, msg: EmailMessage) -> None:
+        from system.inbox import automatic_reply_block
+
+        recipients = ",".join(str(msg.get(k, "")) for k in ("To", "Cc", "Bcc"))
+        if automatic_reply_block({"payload": {"headers": []}}, recipients):
+            raise ValueError("Automatic reply blocked: unsafe recipient")
         if self._send_mail_fn is not None:
             self._send_mail_fn(msg)
         else:
@@ -771,6 +776,15 @@ class MailLink:
             return "idle"
         if self.state.get("unavailable"):
             return self._reject("state-unavailable", "?")
+        from system.inbox import automatic_reply_block
+
+        source = {
+            "payload": {
+                "headers": [{"name": k, "value": str(v)} for k, v in msg.items()]
+            }
+        }
+        if automatic_reply_block(source):
+            return self._reject("auto", "?")
         addrs = email.utils.getaddresses(list(msg.get_all("From", [])))
         if len(addrs) != 1 or not (addrs[0][1] or "").strip():
             return self._reject("not-owner", "?")

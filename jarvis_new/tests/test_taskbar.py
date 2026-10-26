@@ -617,8 +617,10 @@ def test_handle_power_rejects_before_running(monkeypatch):
     for bad in ({}, {"action": "halt"}, {"action": ""}, {"action": None}, "junk"):
         code, payload = taskbar.handle_power(bad)
         assert code == 400 and payload["ok"] is False
-    monkeypatch.setattr(taskbar, "run_power", lambda action: True)
-    assert taskbar.handle_power({"action": "lock"}) == (200, {"ok": True})
+    from power_actions import receipt
+    monkeypatch.setattr(taskbar, "dispatch_power", lambda action: receipt("lock", 0, True))
+    code, result = taskbar.handle_power({"action": "lock"})
+    assert code == 200 and result["ok"] and result["outcome"]["state"] == "verified"
 
 
 # --- HTTP routes through the bridge (same auth + JSON rules as /mode) ---
@@ -766,12 +768,13 @@ def test_power_route_valid_action_uses_runner(monkeypatch):
     import bridge
 
     seen = []
-    monkeypatch.setattr(taskbar, "run_power",
-                        lambda action: seen.append(action) or True)
+    from power_actions import receipt
+    monkeypatch.setattr(taskbar, "dispatch_power",
+                        lambda action: seen.append(action) or receipt("lock", 0, True))
     server, _ = bridge._run_in_thread()
     try:
         code, body = _post(server, "/power", {"action": "lock"})
-        assert code == 200 and body == {"ok": True}
+        assert code == 200 and body["ok"] and body["outcome"]["state"] == "verified"
         assert seen == ["lock"]
     finally:
         server.shutdown()

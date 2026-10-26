@@ -36,7 +36,10 @@ def test_consequential_controls_require_confirmation() -> None:
 def test_direct_navigation_is_prioritized_over_fallback_search() -> None:
     tools = BrowserTools(BrowserManager(headless=True)).tools
 
-    assert [tool.id for tool in tools[:2]] == ["open_url", "search_the_web"]
+    ids = [tool.id for tool in tools]
+    assert ids.index("browse_url") < ids.index("search_the_web")
+    assert ids.count("open_url") == 1
+    assert ids.count("browse_url") == 1
 
 
 def test_helper_and_tab_tools_are_registered() -> None:

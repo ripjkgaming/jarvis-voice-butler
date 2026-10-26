@@ -121,3 +121,43 @@ def test_disabled_leaves_model_alone(monkeypatch):
     m = Model()
     original = m.session
     assert g.install(m).session == original
+
+
+def test_single_finished_request_recovers_without_repeating_wake_word():
+    r = _Run()
+    r.talk(3)
+    r.quiet(g.SILENT_S + 2)
+    assert len(r.fired) == 1
+    assert r.fired[0] >= 3 + g.SILENT_S
+
+
+def test_long_speech_is_not_interrupted_before_finishing():
+    r = _Run()
+    r.talk(40)
+    assert r.fired == []
+    r.quiet(2)
+    assert r.fired == []
+
+
+def test_metadata_and_input_transcripts_are_not_answers(monkeypatch):
+    from types import SimpleNamespace
+    import numpy as np
+    now = [0.0]
+    monkeypatch.setattr(g.time, 'monotonic', lambda: now[0])
+    class Session:
+        restarts = 0
+        def push_audio(self, frame): pass
+        def _handle_usage_metadata(self, content): pass
+        def _handle_server_content(self, content): pass
+        def _mark_restart_needed(self, **kw): self.restarts += 1
+    session = Session()
+    g._guard(session)
+    for i in range(2200):
+        now[0] += .01
+        level = 3000 if i < 300 else 0
+        session.push_audio(SimpleNamespace(samples_per_channel=160, sample_rate=16000,
+            data=np.full(160, level, dtype=np.int16).tobytes()))
+        if i % 100 == 0:
+            session._handle_usage_metadata(object())
+            session._handle_server_content(SimpleNamespace(input_transcription='test'))
+    assert session.restarts == 1

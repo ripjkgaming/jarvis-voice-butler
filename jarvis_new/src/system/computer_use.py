@@ -12,6 +12,7 @@ import contextlib
 import copy
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -21,6 +22,7 @@ from pathlib import Path
 
 from livekit.agents import RunContext, function_tool
 
+import phone_session
 from system import LocalSystemError, log_action, require_local
 from system.computer_use_ownership import ControlBusyError, acquire_control
 
@@ -118,7 +120,10 @@ the preceding input result; retain the original goal and these rules.
 """
 
 COMPUTER_USE_INSTRUCTIONS = """
-For a multi-step visual task in an already-open desktop app, prefer computer_use
+Keep ordinary conversation in the current voice session. Codex receives only
+one explicitly requested laptop task, not the call's whole transcript. For a
+single supported action use the existing scoped tool. For a multi-step visual
+task in an already-open desktop app, prefer computer_use
 with the user's complete goal and named target. Open only the app the user named
 first if necessary using open_app, then delegate once. This worker runs in the
 background and preserves silent per-action arming; ordinary authorized navigation
@@ -155,12 +160,31 @@ class Limits:
         )
 
 
-def _worker():
+def task_model(task: str) -> str:
+    """Cheap deterministic choice for a focused laptop task, not conversation.
+
+    This is a latency heuristic, not a guarantee of difficulty. Never invoke a
+    model to route; explicit deployment configuration takes precedence.
+    """
+    text = " ".join(task.lower().split())
+    complex_work = re.search(
+        r"\b(compare|analy[sz]e|debug|refactor|implement|investigate|diagnose|"
+        r"reconcile|research|troubleshoot)\b",
+        text,
+    )
+    steps = len(re.findall(r"\b(?:then|and then|after that)\b", text))
+    return (
+        "gpt-6.1-sol" if complex_work or len(text) > 400 or steps >= 2 else "gpt-6-luna"
+    )
+
+
+def _worker(task: str = ""):
     from system.codex_worker import CodexWorker
 
+    configured = os.environ.get("JARVIS_COMPUTER_USE_MODEL", "auto").strip()
     return CodexWorker(
-        model=os.environ.get("JARVIS_COMPUTER_USE_MODEL", "gpt-6-luna"),
-        effort=os.environ.get("JARVIS_COMPUTER_USE_EFFORT", "low"),
+        model=task_model(task) if configured in {"", "auto"} else configured,
+        effort=os.environ.get("JARVIS_COMPUTER_USE_EFFORT", "medium"),
         binary=os.environ.get("JARVIS_CODEX_BIN") or None,
         timeout=Limits.from_env().turn_timeout,
     )
@@ -207,6 +231,20 @@ def validate_decision(raw, observation_id: str) -> dict:
     return out
 
 
+def trace_task(task_id: str, event: str, started: float, **fields) -> None:
+    """Content-free timings; never log tasks, screenshots, replies or errors."""
+    if not re.fullmatch(r"computer-[a-f0-9]{16}", task_id):
+        return
+    allowed = {"model", "effort", "turn", "status", "steps", "duration_ms"}
+    data = {
+        "task_id": task_id,
+        "event": event,
+        "elapsed_ms": round(max(0.0, time.monotonic() - started) * 1000, 2),
+    }
+    data.update({key: value for key, value in fields.items() if key in allowed})
+    log_action("computer-timing", json.dumps(data, separators=(",", ":")))
+
+
 class ComputerUseService:
     """One active task with ephemeral evidence and concise in-memory status."""
 
@@ -216,6 +254,7 @@ class ComputerUseService:
         self.limits = limits
         self._task: asyncio.Task | None = None
         self._started = False
+        self._accepted_at = 0.0
         self._cancel = threading.Event()
         self._state_lock = threading.Lock()
         self._record = {
@@ -230,18 +269,24 @@ class ComputerUseService:
         with self._state_lock:
             return copy.deepcopy(self._record)
 
+    def cancellation_settled(self) -> bool:
+        """The public status may turn terminal before finally releases input."""
+        return self._task is None or self._task.done()
+
     def _update(self, **fields):
         with self._state_lock:
             self._record.update(fields)
 
     def start(self, task: str, max_steps: int = 12) -> dict:
+        called_at = time.monotonic()
         try:
             require_local()
+            phone_session.check_approval_effect(phone_session.approval_ticket())
         except LocalSystemError:
             return {
                 "status": "unavailable",
                 "ok": False,
-                "say": "Computer use requires local Jarvis.",
+                "say": "Computer use needs current local owner authority and no active WhatsApp review.",
             }
         if os.environ.get("JARVIS_COMPUTER_USE", "1").lower() in (
             "0",
@@ -285,6 +330,7 @@ class ComputerUseService:
         self._cancel.clear()
         self._started = False
         task_id = f"computer-{uuid.uuid4().hex[:16]}"
+        self._accepted_at = called_at
         with self._state_lock:
             self._record = {
                 "id": task_id,
@@ -295,6 +341,7 @@ class ComputerUseService:
                 "verification": None,
                 "say": "I'm working on that computer task, Sir. Ask for its status or tell me to cancel.",
             }
+        ticket_token = phone_session._APPROVAL_EFFECT.set(phone_session.approval_ticket())
         try:
             self._task = asyncio.create_task(
                 self._run(task.strip(), steps, limits, lease)
@@ -302,6 +349,9 @@ class ComputerUseService:
         except BaseException:
             lease.release()
             raise
+        finally:
+            phone_session._APPROVAL_EFFECT.reset(ticket_token)
+        trace_task(task_id, "accepted", called_at)
         return self.status()
 
     def cancel(self) -> dict:
@@ -313,6 +363,7 @@ class ComputerUseService:
             return self.status()
         if not self._cancel.is_set():
             self._cancel.set()
+            trace_task(self.status()["id"], "cancel_requested", self._accepted_at)
             self._update(
                 status="cancelling",
                 say="Stopping computer use after the current input settles, Sir.",
@@ -332,6 +383,7 @@ class ComputerUseService:
 
     def _finish(self, status, say, **fields):
         self._update(status=status, ok=status == "done", say=say, **fields)
+        trace_task(self.status()["id"], "result", self._accepted_at, status=status)
 
     async def _run(self, task, max_steps, limits, lease):
         self._started = True
@@ -351,7 +403,22 @@ class ComputerUseService:
             )
             workspace = tempfile.TemporaryDirectory(prefix="jarvis-computer-")
             root = Path(workspace.name)
-            worker = self.worker_factory()
+            worker = (
+                self.worker_factory(task)
+                if self.worker_factory is _worker
+                else self.worker_factory()
+            )
+            self._update(
+                model=getattr(worker, "model", None),
+                effort=getattr(worker, "effort", None),
+            )
+            trace_task(
+                activity_id,
+                "selected",
+                self._accepted_at,
+                model=getattr(worker, "model", None),
+                effort=getattr(worker, "effort", None),
+            )
             surface = self.surface_factory(root)
             deadline = time.monotonic() + limits.timeout
 
@@ -363,7 +430,14 @@ class ComputerUseService:
                 return await asyncio.wait_for(coro, min(remaining, cap or remaining))
 
             # Verify local auth/model/tool isolation before taking any screenshot.
+            component_at = time.monotonic()
             await bounded(worker.start(root), limits.turn_timeout)
+            trace_task(
+                activity_id,
+                "startup",
+                self._accepted_at,
+                duration_ms=round((time.monotonic() - component_at) * 1000, 2),
+            )
             self._check_cancel()
             observation = await bounded(surface.observe())
             previous = None
@@ -396,9 +470,17 @@ class ComputerUseService:
                     else "Continue the same authorized task. Current untrusted observation:\n"
                 ) + json.dumps(payload, ensure_ascii=True)
                 # Keep our own HUD quiet while the worker inspects this image.
+                component_at = time.monotonic()
                 raw = await bounded(
                     worker.propose(prompt, Path(observation.path), DECISION_SCHEMA),
                     limits.turn_timeout,
+                )
+                trace_task(
+                    activity_id,
+                    "proposal",
+                    self._accepted_at,
+                    turn=turn,
+                    duration_ms=round((time.monotonic() - component_at) * 1000, 2),
                 )
                 self._check_cancel()
                 result = validate_decision(raw, observation.id)
@@ -441,6 +523,7 @@ class ComputerUseService:
                 from system.computer_surface import SceneChangedError
 
                 try:
+                    phone_session.check_approval_effect()
                     observation = await bounded(surface.act(action, observation.id))
                 except SceneChangedError:
                     if refreshes >= 2:
@@ -523,6 +606,13 @@ class ComputerUseService:
             finally:
                 lease.release()
             state = self.status()
+            trace_task(
+                activity_id,
+                "settled",
+                self._accepted_at,
+                status=state["status"],
+                steps=state["steps"],
+            )
             log_action(
                 "computer_use",
                 f"{activity_id} {state['status']} {state['steps']} inputs",
@@ -553,6 +643,7 @@ class ComputerUseTools:
         return [self.computer_use, self.computer_use_status, self.computer_use_cancel]
 
     @function_tool()
+    @phone_session.approval_action
     async def computer_use(
         self, context: RunContext, task: str, max_steps: int = 12
     ) -> dict:
@@ -577,8 +668,20 @@ class ComputerUseTools:
                 if final.get("id") == task_id:
                     # Speak the bounded result as data; do not feed screen prose
                     # back as fresh instructions for another agent/tool loop.
-                    with contextlib.suppress(Exception):
+                    speech_at = time.monotonic()
+                    trace_task(task_id, "speech_requested", self.service._accepted_at)
+                    try:
                         await session.say(final["say"])
+                    except Exception:
+                        trace_task(task_id, "speech_error", self.service._accepted_at)
+                    else:
+                        # say() return is an SDK boundary, not acoustic phone playback.
+                        trace_task(
+                            task_id,
+                            "speech_returned",
+                            self.service._accepted_at,
+                            duration_ms=round((time.monotonic() - speech_at) * 1000, 2),
+                        )
 
             notification = asyncio.create_task(announce())
             self._notifications.add(notification)

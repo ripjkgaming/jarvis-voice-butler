@@ -883,6 +883,7 @@ def numbered(candidates: list[chess.Move]) -> list[chess.Move]:
         key=lambda m: (
             chess.square_file(m.from_square),
             chess.square_rank(m.from_square),
+            m.to_square,
         ),
     )
 

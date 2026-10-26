@@ -72,51 +72,193 @@ def _set_mute(on: bool, run=None, which=shutil.which) -> bool:
     return proc is not None and proc.returncode == 0
 
 
+class VolumeReply(tuple):
+    """Legacy unpacking with the same content-free receipt as modern callers."""
+
+    def __new__(cls, result, say):
+        from action_outcome import parse_outcome
+
+        value = super().__new__(cls, (parse_outcome(result).verified, say))
+        value.result = result
+        return value
+
+
+def _strict_volume(run=None, which=shutil.which):
+    """Unknown mute is None, never a false unmute observation."""
+    import re
+
+    if _have("wpctl", which):
+        proc = _run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], run)
+        if proc is not None and proc.returncode == 0:
+            match = re.search(r"Volume:\s*([0-9]*\.?[0-9]+)", proc.stdout or "")
+            if match:
+                return {
+                    "pct": max(0, min(MAX_PCT, round(float(match[1]) * 100))),
+                    "muted": "muted" in (proc.stdout or "").lower(),
+                }
+    proc = _run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], run)
+    if proc is None or proc.returncode != 0:
+        return None
+    match = re.search(r"(\d{1,3})\s*%", proc.stdout or "")
+    if not match:
+        return None
+    muted = None
+    proc = _run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], run)
+    if proc is not None and proc.returncode == 0:
+        match_mute = re.fullmatch(
+            r"(?:Mute:\s*)?(yes|no)", (proc.stdout or "").strip(), re.I
+        )
+        if match_mute:
+            muted = match_mute[1].lower() == "yes"
+    return {"pct": max(0, min(MAX_PCT, int(match[1]))), "muted": muted}
+
+
+def volume_result(
+    action,
+    level=None,
+    run=None,
+    which=shutil.which,
+    *,
+    step=STEP_PCT,
+    authorize=lambda: None,
+    request_id=None,
+):
+    """Execute once, then read a postcondition. No automatic mutation retry."""
+    from action_outcome import ActionOutcome
+
+    action = (action or "").strip().lower()
+    effect = (
+        "setting.mute"
+        if action in {"mute", "unmute"}
+        else "setting.volume_status"
+        if action == "status"
+        else "setting.volume"
+    )
+    dispatched = False
+
+    def finish(state, check="not_attempted", reason="", evidence=None):
+        return ActionOutcome(
+            effect,
+            state,
+            "started" if dispatched else "not_started",
+            check,
+            "audio_service",
+            reason,
+            evidence or {},
+            request_id=request_id,
+        ).result()
+
+    try:
+        authorize()
+        before = _strict_volume(run, which)
+        if before is None:
+            return finish("failed", reason="audio_unavailable")
+        if action == "status":
+            evidence = {"actual_pct": before["pct"]}
+            if before["muted"] is not None:
+                evidence["actual_muted"] = before["muted"]
+            return finish("verified", "matched", evidence=evidence)
+        if action in {"mute", "unmute"}:
+            want = action == "mute"
+            authorize()
+            dispatched = True
+            acknowledged = _set_mute(want, run, which)
+            expected = {"expected_muted": want}
+        else:
+            if action in {"up", "down"}:
+                target = before["pct"] + (step if action == "up" else -step)
+            elif (
+                action in {"set", "level"} and level is not None and type(level) is int
+            ):
+                target = level
+            else:
+                return finish("blocked", reason="invalid_action")
+            target = max(0, min(MAX_PCT, target))
+            expected = {"before_pct": before["pct"], "expected_pct": target}
+            if action in {"up", "set", "level"}:
+                if before["muted"] is None:
+                    return finish("blocked", reason="mute_unknown")
+                expected["expected_muted"] = False
+                if before["muted"]:
+                    authorize()
+                    dispatched = True
+                    if not _set_mute(False, run, which):
+                        return finish(
+                            "dispatched_unverified",
+                            "unavailable",
+                            "unmute_not_acknowledged",
+                        )
+            authorize()
+            dispatched = True
+            acknowledged = _set_pct(target, run, which)
+        authorize()
+        after = _strict_volume(run, which)
+        if after is None:
+            return finish(
+                "dispatched_unverified", "unavailable", "readback_unavailable"
+            )
+        evidence = (
+            {**expected, "actual_pct": after["pct"]}
+            if effect == "setting.volume"
+            else dict(expected)
+        )
+        if after["muted"] is not None:
+            evidence["actual_muted"] = after["muted"]
+        if "expected_muted" in expected and after["muted"] is None:
+            return finish(
+                "dispatched_unverified", "unavailable", "mute_unknown", evidence
+            )
+        matched = (
+            effect == "setting.mute"
+            or abs(after["pct"] - expected["expected_pct"]) <= 1
+        ) and (
+            "expected_muted" not in expected
+            or after["muted"] is expected["expected_muted"]
+        )
+        if not matched:
+            return finish("failed", "mismatched", "target_mismatch", evidence)
+        # Matching read-back supports present state even if command ack was lost.
+        return finish(
+            "verified", "matched", "" if acknowledged else "ack_unavailable", evidence
+        )
+    except Exception:
+        return finish(
+            "dispatched_unverified" if dispatched else "blocked",
+            "unavailable" if dispatched else "not_attempted",
+            "authority_or_readback_unavailable",
+        )
+
+
 def volume(
     action: str, level: int | None = None, run=None, which=shutil.which
 ) -> tuple[bool, str]:
-    """status / up / down / set / mute / unmute, verified by reading back."""
-    action = (action or "").strip().lower()
-    before = get_volume(run)
-    if before is None:
-        return (
-            False,
-            "I can't reach the audio system, Sir: neither wpctl nor pactl answered.",
-        )
-    if action == "status":
-        return (
-            True,
-            f"Volume is at {before['pct']} percent{', muted' if before['muted'] else ''}.",
-        )
-    if action in ("mute", "unmute"):
-        want = action == "mute"
-        if not _set_mute(want, run, which):
-            return False, f"The {action} command failed, Sir."
-        after = get_volume(run)
-        if after is None or after["muted"] != want:
-            return False, f"I asked for {action}, but the sound didn't change, Sir."
-        return True, "Muted." if want else f"Unmuted, volume {after['pct']} percent."
-    if action in ("up", "down"):
-        target = before["pct"] + (STEP_PCT if action == "up" else -STEP_PCT)
-    elif action in ("set", "level"):
-        if level is None:
-            return False, "What level, Sir?"
-        target = int(level)
+    """Tuple-compatible API; modern tools carry its structured result."""
+    import phone_session
+    from action_outcome import parse_outcome
+
+    def authorize():
+        phone_session.check_approval_effect(current=True)
+        if phone_session.guest_required():
+            raise PermissionError("Guest mode refuses owner actions")
+
+    result = volume_result(action, level, run, which, authorize=authorize)
+    outcome = parse_outcome(result)
+    if outcome.verified:
+        if action == "mute":
+            say = "Muted."
+        elif action == "unmute":
+            say = "Unmuted."
+        elif action == "status":
+            say = f"Volume is at {outcome.evidence['actual_pct']} percent{', muted' if outcome.evidence.get('actual_muted') else ''}."
+        else:
+            say = f"Volume {outcome.evidence['actual_pct']} percent."
+    elif outcome.reason == "audio_unavailable":
+        say = "I can't reach the audio system, Sir: neither wpctl nor pactl answered."
+    elif outcome.reason == "target_mismatch":
+        say = "The volume didn't move to the requested state, Sir."
     else:
-        return False, f"I don't know the volume action {action}."
-    target = max(0, min(MAX_PCT, target))
-    if before["muted"] and action in ("up", "set", "level"):
-        _set_mute(
-            False, run, which
-        )  # raising the volume of a muted sink does nothing audible
-    if not _set_pct(target, run, which):
-        return False, "The volume command failed, Sir."
-    after = get_volume(run)
-    if after is None:
-        return False, "I set the volume but couldn't read it back, Sir."
-    if after["pct"] == before["pct"] and target != before["pct"]:
-        return False, f"The volume didn't move from {before['pct']} percent, Sir."
-    return True, f"Volume {after['pct']} percent."
+        say = outcome.say
+    return VolumeReply(result, say)
 
 
 # --- media keys ---

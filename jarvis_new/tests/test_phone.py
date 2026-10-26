@@ -168,9 +168,15 @@ def test_chat_validation_and_degraded_reply(monkeypatch) -> None:
 
 def test_type_and_tool_routes_with_stubbed_runner(monkeypatch) -> None:
     calls = []
+    level = 50
 
     def fake_run(argv, timeout=10.0):
+        nonlocal level
         calls.append(argv)
+        if argv[1] == "get-volume":
+            return 0, f"Volume: {level / 100:.2f}", ""
+        if argv[1] == "set-volume":
+            level = round(float(argv[-1]) * 100)
         return 0, "", ""
 
     monkeypatch.setattr(bridge, "_run", fake_run)
@@ -184,6 +190,8 @@ def test_type_and_tool_routes_with_stubbed_runner(monkeypatch) -> None:
         assert code == 400
         code, body = _post(server, "/tool", {"tool": "volume_up"})
         assert code == 200 and body["ok"] is True
+        assert body["outcome"]["state"] == "verified"
+        assert body["outcome"]["evidence"]["actual_pct"] == 55
         code, body = _post(server, "/tool", {"tool": "nope"})
         assert code == 400 and body["ok"] is False
     finally:

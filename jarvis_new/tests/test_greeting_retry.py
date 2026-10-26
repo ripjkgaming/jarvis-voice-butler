@@ -236,3 +236,77 @@ async def test_wake_greeting_speaks_after_a_quiet_listen(monkeypatch):
     monkeypatch.setattr(agent, "_input_activity_holds", lambda *a, **k: False)
     await agent._greet_with_retry(session, lambda *a: None, listen_first_s=0.1)
     assert attempts == ["Good day, Sir. What do you require?"]
+
+
+@pytest.mark.asyncio
+async def test_wake_noise_defers_but_does_not_abandon_greeting(monkeypatch):
+    now = [0.0]
+    attempts = []
+    session = SimpleNamespace(
+        say=lambda line: attempts.append(line) or _completed_speech(),
+        user_state="listening",
+        agent_state="listening",
+    )
+    monkeypatch.setattr(agent.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(agent, "_input_activity_holds", lambda *a, **k: now[0] < 0.3)
+
+    async def advance(delay):
+        now[0] += delay
+
+    monkeypatch.setattr(agent.asyncio, "sleep", advance)
+    await agent._greet_with_retry(session, lambda *a: None, listen_first_s=1)
+    assert attempts == ["Good day, Sir. What do you require?"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "utterance,replying", [("Jarvis open Firefox", False), ("hey Jarvis", True)]
+)
+async def test_wake_deferral_does_not_greet_over_request_or_reply(
+    monkeypatch, utterance, replying
+):
+    now = [0.0]
+    attempts = []
+    session = SimpleNamespace(
+        say=lambda line: attempts.append(line) or _completed_speech(),
+        user_state="listening",
+        agent_state="listening",
+    )
+    monkeypatch.setattr(agent.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(agent, "_input_activity_holds", lambda *a, **k: now[0] < 0.3)
+
+    async def advance(delay):
+        now[0] += delay
+        agent._note_wake_greeting_input(session, SimpleNamespace(transcript=utterance))
+        if replying:
+            session.agent_state = "speaking"
+
+    monkeypatch.setattr(agent.asyncio, "sleep", advance)
+    await agent._greet_with_retry(session, lambda *a: None, listen_first_s=1)
+    assert attempts == []
+
+
+def test_only_actual_bare_wake_ignores_request_tracking():
+    session = SimpleNamespace()
+    agent._note_wake_greeting_input(session, SimpleNamespace(transcript="Hey, Jarvis!"))
+    assert not getattr(session, "_jarvis_wake_request_seen", False)
+    agent._note_wake_greeting_input(
+        session, SimpleNamespace(transcript="Jarvis open Firefox")
+    )
+    assert session._jarvis_wake_request_seen
+
+
+@pytest.mark.asyncio
+async def test_stalled_speech_is_interrupted_and_releases_startup(monkeypatch):
+    speech = SpeechHandle.create(allow_interruptions=True)
+    captions = []
+    monkeypatch.setattr(agent, 'ANNOUNCEMENT_TIMEOUT_S', 0.02)
+    try:
+        result = await asyncio.wait_for(agent._say_with_caption(
+            SimpleNamespace(say=lambda line: speech), 'Hello.',
+            lambda *args: captions.append(args)), timeout=0.5)
+        assert result is False
+        assert speech.interrupted
+        assert captions == []
+    finally:
+        speech._mark_done()

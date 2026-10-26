@@ -99,7 +99,7 @@ def test_access_token_refresh_failure_speakable(tmp_path, monkeypatch) -> None:
     err = urllib.error.HTTPError(
         "https://oauth2.googleapis.com/token", 400, "bad", {}, None
     )
-    with pytest.raises(GoogleError, match="expired"):
+    with pytest.raises(GoogleError, match="http=400: Google token refresh failed"):
         access_token(opener=FakeOpener(err))
 
 

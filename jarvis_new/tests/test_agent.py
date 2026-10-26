@@ -383,6 +383,7 @@ def test_desktop_fast_command_executes_or_abstains(
     import agent as agent_mod
     import bridge as bridge_mod
 
+    monkeypatch.setenv("JARVIS_PIPELINE", "local")
     monkeypatch.delenv("JARVIS_DESKTOP_FASTPATH", raising=False)
     monkeypatch.setattr(
         bridge_mod,
@@ -512,6 +513,7 @@ async def test_fast_path_hook_runs_tool_and_stops_gemini(monkeypatch) -> None:
     on_user_turn_completed now catches it, runs the verified tool, speaks
     the result, and raises StopResponse so the model never replies.
     """
+    monkeypatch.setenv("JARVIS_PIPELINE", "local")
     from livekit.agents import llm
     from livekit.agents.llm import StopResponse
 

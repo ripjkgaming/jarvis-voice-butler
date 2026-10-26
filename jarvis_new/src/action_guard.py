@@ -1,27 +1,21 @@
-"""One action per spoken request, whichever path gets there first.
+"""One execution owner per response.
 
-On the realtime pipeline Gemini Live hears Sir's audio itself, so a single
-"play some music" reaches two executors: the desktop fast path (transcript
--> bridge route, milliseconds) and Gemini's own tool call a moment later.
-clear_user_turn() cannot stop a Live turn that the server already took, so
-both used to run: two Brave windows, two volume steps, two launches.
-
-Every executor claims the action before running it. When a different
-source already ran the same action family within WINDOW_S, the claim
-returns that earlier entry and the caller reuses its reply instead of
-acting again. Each other source is absorbed once per entry; repeats from
-the same source (Sir saying "louder" twice) always run.
-
-Thread-safe (the route runs in a worker thread, the model's tools on the
-event loop). In-process only: both executors live in the agent process.
+SDK speech identities bind tool steps and async workers without a timing
+window. A response can launch once: a later app/website reinterpretation
+reuses the earlier outcome. New speech identities permit intentional repeats.
+Legacy callers without identity retain the cross-source echo guard.
 """
 
 from __future__ import annotations
 
+import contextvars
 import re
 import threading
 import time
+from contextlib import contextmanager
 from urllib.parse import urlsplit
+
+from action_outcome import parse_outcome
 
 WINDOW_S = 8.0
 # YouTube resolution alone may take 12s. Protect legacy pending claims longer
@@ -31,6 +25,42 @@ IN_FLIGHT_S = 120.0
 
 _lock = threading.Lock()
 _recent: list[dict] = []
+
+_request = contextvars.ContextVar("jarvis_action_request", default=None)
+
+
+def request_id(context) -> str | None:
+    """SDK speech identity shared by all tool steps of one response."""
+    handle = getattr(context, "speech_handle", None)
+    return getattr(handle, "id", None) or _request.get()
+
+
+@contextmanager
+def request_scope(identity):
+    """Propagate ownership through async tasks and copied worker contexts."""
+    token = _request.set(identity)
+    try:
+        yield
+    finally:
+        _request.reset(token)
+
+
+def launch_for_request(identity=None) -> dict | None:
+    identity = identity or _request.get()
+    if identity is None:
+        return None
+    with _lock:
+        return next(
+            (
+                dict(e)
+                for e in reversed(_recent)
+                if e.get("request_id") == identity
+                and e["family"] == "open"
+                and _holds(e)
+            ),
+            None,
+        )
+
 
 _VOLUME = frozenset(
     {
@@ -78,6 +108,8 @@ _PLAY_NOISE = frozenset(
 def family(tool: str, args: dict | None = None) -> str | None:
     """Action family both executors share, or None when unguarded. Pure."""
     args = args or {}
+    if tool == "write_file":
+        return "file_write"
     if tool == "play_media":
         return "play"
     if tool == "open_app":
@@ -146,6 +178,8 @@ def _action(tool: str, args: dict) -> tuple:
 def _same_request(fam: str, prev: dict, tool: str, args: dict) -> bool:
     """Compare the requested effect, not merely the broad tool family."""
     prev_args = prev["args"]
+    if fam == "file_write":
+        return prev_args == args
     if fam == "suit_diagnostics":
         return bool(prev_args.get("open")) == bool(args.get("open"))
     if fam in ("open", "close"):
@@ -162,7 +196,12 @@ def _same_request(fam: str, prev: dict, tool: str, args: dict) -> bool:
     a, b = _play_words(prev_args), _play_words(args)
     if not a or not b:
         return a == b
-    return a <= b or b <= a
+    return a == b  # Added event/location/live constraints are a different request.
+
+
+def _holds(entry: dict) -> bool:
+    outcome = parse_outcome(entry.get("outcome"))
+    return not outcome.retry_safe if outcome is not None else entry["ok"] is not False
 
 
 def claim(
@@ -172,6 +211,7 @@ def claim(
     now: float | None = None,
     *,
     lease: object | None = None,
+    request_id: str | None = None,
 ) -> dict | None:
     """Claim ``tool`` for ``source``; None means run it.
 
@@ -184,6 +224,7 @@ def claim(
     identical workers can safely finish out of order. Legacy claims retain
     their abandoned-work timeout.
     """
+    identity = request_id or _request.get()
     fam = family(tool, args)
     if fam is None:
         return None
@@ -193,15 +234,18 @@ def claim(
         _recent[:] = [
             entry
             for entry in _recent
-            if (entry["ok"] is None and entry.get("lease") is not None)
+            if entry.get("request_id") is not None
+            or (entry["ok"] is None and entry.get("lease") is not None)
             or now - entry["t"] < (IN_FLIGHT_S if entry["ok"] is None else WINDOW_S)
         ]
         for prev in _recent:
+            scoped = identity is not None and prev.get("request_id") == identity
+            legacy = identity is None and prev.get("request_id") is None
             if (
                 prev["family"] == fam
-                and source not in prev["seen"]
-                and prev["ok"] is not False
-                and _same_request(fam, prev, tool, args)
+                and _holds(prev)
+                and (scoped or (legacy and source not in prev["seen"]))
+                and ((scoped and fam == "open") or _same_request(fam, prev, tool, args))
             ):
                 prev["seen"].add(source)
                 return dict(prev)
@@ -216,6 +260,7 @@ def claim(
                 "ok": None,
                 "say": None,
                 "lease": lease,
+                "request_id": identity,
             }
         )
         # Bound completed history without evicting work still in progress.
@@ -237,8 +282,11 @@ def settle(
     *,
     now: float | None = None,
     lease: object | None = None,
+    request_id: str | None = None,
+    outcome=None,
 ) -> None:
     """Record a claim's outcome; owned claims require their exact lease token."""
+    identity = request_id or _request.get()
     fam = family(tool, args)
     if fam is None:
         return
@@ -251,9 +299,14 @@ def settle(
                 and entry["args"] == dict(args or {})
                 and entry["ok"] is None
                 and entry.get("lease") is lease
+                and entry.get("request_id") == identity
             ):
+                receipt = parse_outcome(outcome)
+                if outcome is not None and receipt is None:
+                    raise ValueError("invalid action outcome")
+                entry["outcome"] = receipt.to_dict() if receipt else None
                 entry["ok"] = bool(ok)
-                entry["say"] = say or None
+                entry["say"] = receipt.say if receipt else (say or None)
                 entry["t"] = time.monotonic() if now is None else now
                 break
 
@@ -264,6 +317,17 @@ def duplicate_reply(entry: dict, fallback: str) -> dict[str, str]:
     Tells Gemini the action is done so it confirms in a word instead of
     retrying or narrating it a second time. Pure.
     """
+    receipt = parse_outcome(entry.get("outcome"))
+    if receipt is not None:
+        return receipt.result(
+            duplicate_of=receipt.action_id,
+            note="Another executor owns this request. Do not repeat it; report only the recorded outcome.",
+        )
+    if entry.get("family") == "open":
+        return {
+            "say": "A launch was requested or is in progress; the visible page is not verified.",
+            "note": "Do not launch again or claim visibility; there is no read-back evidence.",
+        }
     if entry.get("ok") is None:
         return {
             "say": "That action is still in progress, Sir.",
@@ -272,11 +336,16 @@ def duplicate_reply(entry: dict, fallback: str) -> dict[str, str]:
                 "or claim it completed; its outcome is not known yet."
             ),
         }
+    if entry.get("family") == "play":
+        return {
+            "say": "A video launch was requested; playback is not verified.",
+            "note": "Do not repeat the request or claim visible frames, playback or hearing without read-back evidence.",
+        }
     say = entry.get("say") or fallback
     return {
         "say": say,
         "note": (
-            "Already done a moment ago by the instant path, which also "
+            "Already done by another executor for this request, which also "
             "confirmed it aloud. Do not call this again; at most say 'Done, Sir.'"
         ),
     }

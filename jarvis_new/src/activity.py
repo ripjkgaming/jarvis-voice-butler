@@ -108,6 +108,10 @@ def _read_item(item_id: str) -> dict | None:
 
 
 def _write_item(item: dict) -> bool:
+    from phone_session import private
+
+    if private():
+        return False
     # Atomic so concurrent producers never leave half-written JSON.
     try:
         path = activity_dir() / f"{item['id']}.json"

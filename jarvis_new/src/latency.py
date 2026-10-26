@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import math
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
@@ -159,7 +160,8 @@ class VoiceLatencyObserver:
     transcripts, per-turn history, or content-bearing objects are stored.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, sink=None) -> None:
+        self._sink = sink
         self._user_state: str | None = None
         self._agent_state: str | None = None
         self._last_event_at: float | None = None
@@ -167,6 +169,61 @@ class VoiceLatencyObserver:
         self._speech_ended_at: float | None = None
         self._agent_spoke_at: float | None = None
         self._reported = False
+        self._workflow_token = 0
+        self._verified_token: int | None = None
+        self._samples: dict[str, deque[float]] = {
+            "vad_end_to_agent_speaking_s": deque(maxlen=256),
+            "vad_end_to_verified_workflow_s": deque(maxlen=256),
+        }
+
+    @property
+    def workflow_token(self) -> int:
+        """Capture before a workflow starts; new speech invalidates late results."""
+        return self._workflow_token
+
+    def workflow_verified(self, token: int, now: float | None = None) -> str | None:
+        """Record an explicitly validated workflow, once for this utterance.
+
+        Successful tool return, narration and acknowledgements never imply
+        verification. Callers must validate their source results first.
+        This is detected-end to workflow result, not final spoken completion.
+        """
+        if token != self._workflow_token or self._verified_token == token:
+            return None
+        end = self._speech_ended_at
+        at = self._event_time(now)
+        if end is None or at is None or at < end:
+            return None
+        self._verified_token = token
+        self._samples["vad_end_to_verified_workflow_s"].append(at - end)
+        self._emit_numeric(
+            "vad_end_to_verified_workflow_s",
+            at - end,
+            "validated_read_workflow_not_spoken_completion",
+        )
+        return (
+            f"workflow_observed vad_end_to_verified_workflow_s={at - end:.6f} "
+            "scope=validated_read_workflow_not_spoken_completion"
+        )
+
+    def summary(self) -> dict[str, dict[str, float | int]]:
+        """Nearest-rank empirical percentiles over at most 256 samples each.
+
+        Called on demand/close only, never sorts in the voice event hot path.
+        Empty series stay absent. No transcripts or tool result bodies kept.
+        """
+        result = {}
+        for name, samples in self._samples.items():
+            if not samples:
+                continue
+            ordered = sorted(samples)
+            n = len(ordered)
+            result[name] = {
+                "n": n,
+                "p50": ordered[math.ceil(n * 0.5) - 1],
+                "p95": ordered[math.ceil(n * 0.95) - 1],
+            }
+        return result
 
     def _event_time(self, now: float | None) -> float | None:
         value = _finite_nonnegative(time.monotonic() if now is None else now)
@@ -186,6 +243,7 @@ class VoiceLatencyObserver:
         previous = self._user_state
         self._user_state = state
         if state in ("speaking", "away"):
+            self._workflow_token += 1
             self._speech_started_at = at if state == "speaking" else None
             self._speech_ended_at = None
             self._agent_spoke_at = None
@@ -209,6 +267,11 @@ class VoiceLatencyObserver:
             self._agent_spoke_at = at
         return self._report()
 
+    def _emit_numeric(self, metric, value, scope):
+        if self._sink is not None:
+            with contextlib.suppress(Exception):
+                self._sink(metric, value, scope)
+
     def _report(self) -> str | None:
         start, end, reply = (
             self._speech_started_at,
@@ -218,6 +281,13 @@ class VoiceLatencyObserver:
         if self._reported or start is None or end is None or reply is None:
             return None
         self._reported = True
+        if reply >= end:
+            self._samples["vad_end_to_agent_speaking_s"].append(reply - end)
+            self._emit_numeric(
+                "vad_end_to_agent_speaking_s",
+                reply - end,
+                "state_events_not_acoustic_e2e",
+            )
         gap = (
             f"vad_end_to_agent_speaking_s={reply - end:.6f}"
             if reply >= end
@@ -230,7 +300,7 @@ class VoiceLatencyObserver:
 
 
 def install_session_timing(
-    session, log: Callable[[str, str], object]
+    session, log: Callable[[str, str], object], *, sink=None
 ) -> VoiceLatencyObserver:
     """Install once per session; log(action, message) receives safe timing lines.
 
@@ -238,7 +308,11 @@ def install_session_timing(
     TRACKER, or its transcript boundary. SDK event/field drift and logging
     errors are contained so telemetry cannot break a spoken exchange.
     """
-    observer = VoiceLatencyObserver()
+    previous = getattr(session, "_jarvis_timing", None)
+    if previous is not None:
+        return previous[0]
+    observer = VoiceLatencyObserver(sink=sink)
+    session._jarvis_timing = (observer, log)
 
     def emit(line: str | None) -> None:
         if line is not None:
@@ -246,7 +320,25 @@ def install_session_timing(
 
     def on_metrics(event) -> None:
         with contextlib.suppress(Exception):
-            emit(format_sdk_metrics(getattr(event, "metrics", None)))
+            metric = getattr(event, "metrics", None)
+            emit(format_sdk_metrics(metric))
+            if observer._sink is None:
+                return
+            kind = getattr(metric, "type", None)
+            if kind == "realtime_model_metrics":
+                value = _finite_nonnegative(getattr(metric, "ttft", None))
+                if value is not None:
+                    observer._emit_numeric(
+                        "provider_generation_to_first_audio_s",
+                        value,
+                        "provider_generation_not_user_e2e",
+                    )
+            elif kind == "tts_metrics":
+                value = _finite_nonnegative(getattr(metric, "ttfb", None))
+                if value is not None:
+                    observer._emit_numeric(
+                        "tts_first_audio_s", value, "request_to_first_audio"
+                    )
 
     def on_item(event) -> None:
         with contextlib.suppress(Exception):
@@ -265,15 +357,48 @@ def install_session_timing(
         with contextlib.suppress(Exception):
             emit(observer.agent_state_changed(getattr(event, "new_state", "")))
 
+    def on_close(_event) -> None:
+        with contextlib.suppress(Exception):
+            for name, values in observer.summary().items():
+                scope = (
+                    "state_events_not_acoustic_e2e"
+                    if name == "vad_end_to_agent_speaking_s"
+                    else "validated_read_workflow_not_spoken_completion"
+                )
+                emit(
+                    f"summary metric={name} n={values['n']} "
+                    f"p50_s={values['p50']:.6f} p95_s={values['p95']:.6f} "
+                    f"window=last_256 scope={scope}"
+                )
+
     for name, callback in (
         ("metrics_collected", on_metrics),
         ("conversation_item_added", on_item),
         ("user_state_changed", on_user_state),
         ("agent_state_changed", on_agent_state),
+        ("close", on_close),
     ):
         with contextlib.suppress(Exception):
             session.on(name, callback)
     return observer
+
+
+def workflow_start(context) -> int | None:
+    """Passive timing token, unavailable outside an instrumented voice session."""
+    with contextlib.suppress(Exception):
+        return context.session._jarvis_timing[0].workflow_token
+    return None
+
+
+def workflow_verified(context, token: int | None) -> None:
+    """Explicit opt-in after source validation; telemetry never breaks the tool."""
+    if token is None:
+        return
+    with contextlib.suppress(Exception):
+        observer, log = context.session._jarvis_timing
+        line = observer.workflow_verified(token)
+        if line is not None:
+            log("latency", line)
 
 
 @dataclass

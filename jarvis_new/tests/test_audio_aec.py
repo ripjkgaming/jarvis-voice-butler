@@ -1,5 +1,7 @@
 """Echo-cancel decision logic and command building (no real pactl)."""
 
+import pytest
+
 import audio_aec
 
 SPK = "alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink"
@@ -63,9 +65,7 @@ def test_engage_loads_then_sets_defaults(monkeypatch) -> None:
 def test_engage_noop_on_headset_and_never_raises(monkeypatch) -> None:
     calls: list[tuple] = []
     monkeypatch.delenv("JARVIS_AEC", raising=False)
-    monkeypatch.setattr(
-        audio_aec, "_pactl", lambda *a: calls.append(a) or JBL
-    )
+    monkeypatch.setattr(audio_aec, "_pactl", lambda *a: calls.append(a) or JBL)
     assert audio_aec.engage().startswith("skipped")
     assert not any(c[:1] in (("load-module",), ("set-default-sink",)) for c in calls)
 
@@ -116,5 +116,153 @@ def test_headroom_lowers_but_never_raises(monkeypatch) -> None:
 
 
 def test_headroom_never_raises(monkeypatch) -> None:
-    monkeypatch.setattr(audio_aec, "_dmic_card", lambda: (_ for _ in ()).throw(OSError("x")))
+    monkeypatch.setattr(
+        audio_aec, "_dmic_card", lambda: (_ for _ in ()).throw(OSError("x"))
+    )
     assert audio_aec.set_mic_headroom().startswith("error")
+
+
+HDMI = "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+MIC = "alsa_input.pci-built-in.HiFi__Mic1__source"
+OWNED_MODULE = (
+    "42\tmodule-echo-cancel\t"
+    f"source_name={audio_aec.AEC_MIC} sink_name={audio_aec.AEC_SPEAKER} "
+    f"source_master={MIC} sink_master={SPK}\t"
+)
+
+
+def _stale_aec_server(monkeypatch, *, sink=HDMI, source=None, modules=None):
+    state = {"sink": sink, "source": source or audio_aec.AEC_MIC}
+    calls = []
+
+    def fake(*args):
+        calls.append(args)
+        if args == ("get-default-sink",):
+            return state["sink"]
+        if args == ("get-default-source",):
+            return state["source"]
+        if args == ("list", "short", "modules"):
+            return OWNED_MODULE if modules is None else modules
+        if args == ("list", "short", "sources"):
+            return f"1\t{MIC}\tpw\n2\t{audio_aec.AEC_MIC}\tpw"
+        if args == ("list", "short", "sinks"):
+            return f"3\t{SPK}\tpw\n4\t{HDMI}\tpw"
+        if args[0] == "set-default-source":
+            state["source"] = args[1]
+        if args[0] == "set-default-sink":
+            state["sink"] = args[1]
+        return ""
+
+    monkeypatch.delenv("JARVIS_AEC", raising=False)
+    monkeypatch.setattr(audio_aec, "_pactl", fake)
+    return state, calls
+
+
+@pytest.mark.parametrize("cfg", ["auto", "off"])
+def test_skipped_startup_releases_owned_aec_preserving_hdmi(monkeypatch, cfg):
+    state, calls = _stale_aec_server(monkeypatch)
+    monkeypatch.setenv("JARVIS_AEC", cfg)
+    assert audio_aec.engage().startswith("skipped")
+    assert state == {"sink": HDMI, "source": MIC}
+    assert ("unload-module", "42") in calls
+    assert calls.index(("set-default-source", MIC)) < calls.index(
+        ("unload-module", "42")
+    )
+    assert not any(c[0] in ("load-module", "set-default-sink") for c in calls)
+
+
+def test_off_restores_owned_defaults_before_unload(monkeypatch):
+    state, calls = _stale_aec_server(monkeypatch, sink=audio_aec.AEC_SPEAKER)
+    monkeypatch.setenv("JARVIS_AEC", "off")
+    assert audio_aec.engage() == "skipped (off)"
+    assert state == {"sink": SPK, "source": MIC}
+    assert calls.index(("set-default-sink", SPK)) < calls.index(("unload-module", "42"))
+
+
+def test_skip_preserves_user_selected_microphone(monkeypatch):
+    state, calls = _stale_aec_server(monkeypatch, source="usb_mic")
+    assert audio_aec.engage().startswith("skipped")
+    assert state == {"sink": HDMI, "source": "usb_mic"}
+    assert ("unload-module", "42") in calls
+    assert not any(c[0].startswith("set-default-") for c in calls)
+
+
+@pytest.mark.parametrize(
+    "modules",
+    [
+        "",
+        "7\tmodule-null-sink\t"
+        + f"source_name={audio_aec.AEC_MIC} sink_name={audio_aec.AEC_SPEAKER}",
+        OWNED_MODULE.replace("jarvis_aec_mic", "jarvis_aec_mic_other"),
+        OWNED_MODULE.replace("jarvis_aec_speaker", "other_speaker"),
+    ],
+)
+def test_skip_does_not_touch_unrelated_or_absent_modules(monkeypatch, modules):
+    _state, calls = _stale_aec_server(monkeypatch, modules=modules)
+    assert audio_aec.engage().startswith("skipped")
+    assert not any(
+        c[0] in ("unload-module", "set-default-source", "set-default-sink")
+        for c in calls
+    )
+
+
+def test_forced_on_keeps_existing_aec(monkeypatch):
+    state, calls = _stale_aec_server(monkeypatch)
+    monkeypatch.setenv("JARVIS_AEC", "on")
+    assert audio_aec.engage() == "engaged"
+    assert state == {"sink": audio_aec.AEC_SPEAKER, "source": audio_aec.AEC_MIC}
+    assert not any(c[0] == "unload-module" for c in calls)
+
+
+def test_missing_master_keeps_aec_and_reports_failure(monkeypatch):
+    _state, calls = _stale_aec_server(
+        monkeypatch,
+        modules=OWNED_MODULE.replace(f"source_master={MIC}", "source_master=missing"),
+    )
+    assert audio_aec.engage().startswith("error")
+    assert not any(
+        c[0] in ("unload-module", "set-default-source", "set-default-sink")
+        for c in calls
+    )
+
+
+def test_missing_sink_master_validates_before_any_restore(monkeypatch):
+    _state, calls = _stale_aec_server(
+        monkeypatch,
+        sink=audio_aec.AEC_SPEAKER,
+        modules=OWNED_MODULE.replace(f"sink_master={SPK}", "sink_master=missing"),
+    )
+    monkeypatch.setenv("JARVIS_AEC", "off")
+    assert audio_aec.engage().startswith("error")
+    assert not any(
+        c[0] in ("unload-module", "set-default-source", "set-default-sink")
+        for c in calls
+    )
+
+
+def test_failed_source_restore_does_not_unload(monkeypatch):
+    _state, calls = _stale_aec_server(monkeypatch)
+    fake = audio_aec._pactl
+
+    def fail_restore(*args):
+        if args[0] == "set-default-source":
+            raise OSError("source restore failed")
+        return fake(*args)
+
+    monkeypatch.setattr(audio_aec, "_pactl", fail_restore)
+    assert audio_aec.engage().startswith("error")
+    assert not any(c[0] == "unload-module" for c in calls)
+
+
+def test_cleanup_failure_is_reported_without_raising(monkeypatch):
+    _state, calls = _stale_aec_server(monkeypatch)
+    fake = audio_aec._pactl
+
+    def fail_unload(*args):
+        if args[0] == "unload-module":
+            raise OSError("unload failed")
+        return fake(*args)
+
+    monkeypatch.setattr(audio_aec, "_pactl", fail_unload)
+    assert "unload failed" in audio_aec.engage()
+    assert ("set-default-source", MIC) in calls

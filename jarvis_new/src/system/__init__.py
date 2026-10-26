@@ -39,6 +39,14 @@ async def run_cmd(
     *argv: str, timeout: float = 10.0, env: dict[str, str] | None = None
 ) -> tuple[int, str, str]:
     """Run a command with argv (no shell). Returns (rc, stdout, stderr)."""
+    from system.launcher import require_launch_allowed
+    import phone_session
+    phone_session.check_approval_effect()
+
+    try:
+        require_launch_allowed(argv)
+    except ValueError as exc:
+        return 126, "", str(exc)
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -82,6 +90,10 @@ def log_action(category: str, detail: str) -> None:
     (a stale backup is replaced, never appended to), bounding the pair
     at ~10MB no matter how chatty the tools get.
     """
+    from phone_session import private
+
+    if private():
+        return  # Private call queries, paths and results never enter shared feeds.
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         if LOG_PATH.is_file() and LOG_PATH.stat().st_size > LOG_MAX_BYTES:

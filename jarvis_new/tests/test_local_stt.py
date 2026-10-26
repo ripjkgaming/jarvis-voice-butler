@@ -1,11 +1,12 @@
 """Tests for the cloud-free direct pipeline (local whisper STT)."""
 
 import numpy as np
+
+import audio_shared
 import pytest
 from livekit import rtc
 
 import agent as agent_mod
-import audio_shared
 from agent import _pipeline_name
 from local_stt import FasterWhisperSTT, frames_to_mono16k, whisper_model_name
 
@@ -21,9 +22,9 @@ def _frame(data: np.ndarray, rate: int, channels: int = 1) -> rtc.AudioFrame:
 
 def test_whisper_model_name_default_and_override(monkeypatch) -> None:
     monkeypatch.delenv("JARVIS_WHISPER_MODEL", raising=False)
-    assert whisper_model_name() == "base"
+    assert whisper_model_name() == "base.en"
     monkeypatch.setenv("JARVIS_WHISPER_MODEL", "tiny")
-    assert whisper_model_name() == "tiny"
+    assert whisper_model_name() == "tiny.en"
 
 
 def test_frames_to_mono16k_downmix_and_decimate() -> None:
@@ -48,7 +49,7 @@ def test_frames_to_mono16k_passthrough_and_empty() -> None:
 def test_stt_is_lazy_and_labeled() -> None:
     stt = FasterWhisperSTT(model_size="tiny")
     assert stt._model is None  # no weights at construct time
-    assert stt.model == "faster-whisper-tiny"
+    assert stt.model == "faster-whisper-tiny.en"
     assert stt.provider == "faster-whisper-local"
     assert stt.capabilities.streaming is False
 
@@ -144,10 +145,9 @@ async def test_lazy_decode_stays_off_event_loop_and_preserves_recognition(monkey
     assert calls[0][0] != main_thread
     assert calls[0][2] == {
         "language": "en",
+        "task": "transcribe",
         "beam_size": 1,
         "vad_filter": False,
-        "initial_prompt": audio_shared.VOCAB_PROMPTS["general"],
-        "hotwords": audio_shared.VOCAB_HOTWORDS["general"],
     }
     assert np.array_equal(calls[0][1], pcm.astype(np.float32) / 32768.0)
 
@@ -244,3 +244,41 @@ async def test_cancelled_queued_decode_is_skipped_before_next_turn(monkeypatch):
     finally:
         release.set()
         await asyncio.gather(first, *pending, return_exceptions=True)
+
+
+@pytest.mark.parametrize("model,beam", [("tiny", 1), ("base", 1), ("small", 5)])
+async def test_model_decode_search_preserves_small_accuracy(monkeypatch, model, beam):
+    from types import SimpleNamespace
+
+    seen = []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            seen.append(kwargs)
+            return iter([SimpleNamespace(text="Twelve percent", avg_logprob=0)]), None
+
+    decoder = FasterWhisperSTT(model_size=model)
+    monkeypatch.setattr(decoder, "_load", lambda: Model())
+    await decoder.recognize([_frame(np.zeros(8000, np.int16), 16000)])
+    assert seen[0]["beam_size"] == beam
+
+
+@pytest.mark.parametrize("language", [None, "auto", "fr", "en-GB"])
+async def test_local_stt_never_autodetects_or_switches_language(monkeypatch, language):
+    from types import SimpleNamespace
+
+    seen = []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            seen.append(kwargs)
+            return iter([SimpleNamespace(text="English", avg_logprob=0)]), None
+
+    decoder = FasterWhisperSTT()
+    monkeypatch.setattr(decoder, "_load", lambda: Model())
+    event = await decoder.recognize(
+        [_frame(np.zeros(8000, np.int16), 16000)], language=language
+    )
+    assert seen[0]["language"] == "en"
+    assert seen[0]["task"] == "transcribe"
+    assert event.alternatives[0].language == "en"

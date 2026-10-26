@@ -6614,5 +6614,2965 @@
       "params": {},
       "tier": "act"
     }
+  ],
+  "chess_moves": [
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e 4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "E four",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "echo four",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "play e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to e four",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e2 to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e2 e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "from e2 to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e two goes to e four",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "move e2 to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "push e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "push the pawn to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e pawn up two",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "push the e pawn two",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "advance the e pawn two",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn e2 to e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e-4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "please play e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "could you play e4 for me",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "okay e4 thanks",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "um e4 sir",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "eat for",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "each four",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to eat for",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "d4",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "delta four",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "d for",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "deep four",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the four",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to d four",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "d pawn up two",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "push the d pawn two",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "c4",
+      "expect": "c2c4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "charlie four",
+      "expect": "c2c4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "see four",
+      "expect": "c2c4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "sea for",
+      "expect": "c2c4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to c4",
+      "expect": "c2c4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "b4",
+      "expect": "b2b4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "before",
+      "expect": "b2b4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "be for",
+      "expect": "b2b4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "bravo four",
+      "expect": "b2b4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "bee four",
+      "expect": "b2b4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "c3",
+      "expect": "c2c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "see three",
+      "expect": "c2c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "sea tree",
+      "expect": "c2c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "charlie three",
+      "expect": "c2c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "a3",
+      "expect": "a2a3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "a tree",
+      "expect": "a2a3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "alpha three",
+      "expect": "a2a3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "ay three",
+      "expect": "a2a3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "g4",
+      "expect": "g2g4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "gee four",
+      "expect": "g2g4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "golf four",
+      "expect": "g2g4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to g4",
+      "expect": "g2g4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "h3",
+      "expect": "h2h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "age three",
+      "expect": "h2h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "hotel three",
+      "expect": "h2h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "aitch three",
+      "expect": "h2h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "f4",
+      "expect": "f2f4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "f three",
+      "expect": "f2f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "eff four",
+      "expect": "f2f4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "foxtrot four",
+      "expect": "f2f4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "Nf3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "N f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "horse f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "horse to f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "horsey to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "night to f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight goes to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight moves to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the g1 knight f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight from g1 to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight g1 f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "my king's knight to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "develop the knight to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "bring the knight to f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "send the horse to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "put my knight on f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the knight on g1 to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the right knight to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to h3",
+      "expect": "g1h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight h three",
+      "expect": "g1h3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "Nc3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "horse c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "my queen's knight to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the left knight to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to a3",
+      "expect": "b1a3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight from b1 to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "Would you be so kind as to play knight f3 for me, Jarvis, thanks",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "let's play knight to f three",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "I'll play e4",
+      "expect": "e2e4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "I want to play d4",
+      "expect": "d2d4"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "alright, knight to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "so knight f3 then",
+      "expect": "g1f3"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "bishop to c4",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "bishop takes e5",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "rook to a4",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "queen to h5",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "knight to e4",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to e5",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "king to e2",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn to a5",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "castle",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "castle kingside",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "O-O",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "takes c6",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "pawn forward",
+      "expect": "ambiguous:*"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "e takes d5",
+      "expect": "illegal"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "what is the weather",
+      "expect": "none"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "hello there",
+      "expect": "none"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "analyse",
+      "expect": "none"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "the quick brown fox",
+      "expect": "none"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "f-ing hell",
+      "expect": "none"
+    },
+    {
+      "position": "start",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "text": "undo",
+      "expect": "none"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "e5",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "pawn to e5",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "echo five",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "e7 to e5",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "pawn e5",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "e pawn up two",
+      "expect": "e7e5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "c5",
+      "expect": "c7c5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "see five",
+      "expect": "c7c5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "sicilian c5",
+      "expect": "c7c5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "knight to f6",
+      "expect": "g8f6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "Nf6",
+      "expect": "g8f6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "knight to c6",
+      "expect": "b8c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "horse c6",
+      "expect": "b8c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "Nc6",
+      "expect": "b8c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "e6",
+      "expect": "e7e6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "d5",
+      "expect": "d7d5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "d six",
+      "expect": "d7d6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "g6",
+      "expect": "g7g6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "gee six",
+      "expect": "g7g6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "the left knight to f6",
+      "expect": "g8f6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "the right knight to c6",
+      "expect": "b8c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "my king's knight to f6",
+      "expect": "g8f6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "c6",
+      "expect": "c7c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "see six",
+      "expect": "c7c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "sea sicks",
+      "expect": "c7c6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "b6",
+      "expect": "b7b6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "be six",
+      "expect": "b7b6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "a6",
+      "expect": "a7a6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "a5",
+      "expect": "a7a5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "h6",
+      "expect": "h7h6"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "h5",
+      "expect": "h7h5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "pawn to d5",
+      "expect": "d7d5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "d pawn up two",
+      "expect": "d7d5"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "pawn to e4",
+      "expect": "illegal"
+    },
+    {
+      "position": "start_black",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+      "text": "knight to f3",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle kingside",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle king side",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle short",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "short castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castles",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "king castles",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle on the king side",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "O-O",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "oh oh",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "zero zero",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "kingside castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "tuck the king in",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "king to g1",
+      "expect": "e1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "king to f1",
+      "expect": "e1f1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "O-O-O",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle queenside",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "castle long",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "zero zero zero",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "d3",
+      "expect": "d2d3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "d4",
+      "expect": "d2d4"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "c3",
+      "expect": "c2c3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "b4",
+      "expect": "b2b4"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "a4",
+      "expect": "a2a4"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "h3",
+      "expect": "h2h3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Nxe5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight takes the pawn on e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "horse takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight captures on e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight eats e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight x e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "take e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "capture e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight f3 takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "the f3 knight takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight takes pawn",
+      "expect": "f3e5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight to g5",
+      "expect": "f3g5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight to h4",
+      "expect": "f3h4"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Ng5",
+      "expect": "f3g5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight to d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight to c3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Nc3",
+      "expect": "b1c3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop takes f7",
+      "expect": "c4f7"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Bxf7",
+      "expect": "c4f7"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop captures f7",
+      "expect": "c4f7"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop takes the pawn on f7",
+      "expect": "c4f7"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to b5",
+      "expect": "c4b5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to d5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to e2",
+      "expect": "c4e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to b3",
+      "expect": "c4b3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to a6",
+      "expect": "c4a6"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Bb3",
+      "expect": "c4b3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop back to b3",
+      "expect": "c4b3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop goes to e2",
+      "expect": "c4e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "the light-squared bishop to b3",
+      "expect": "c4b3"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop c4 to d5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "queen to e2",
+      "expect": "d1e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "queen e2",
+      "expect": "d1e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "Qe2",
+      "expect": "d1e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "queen takes nothing",
+      "expect": "none"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "rook to g1",
+      "expect": "h1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "rook to f1",
+      "expect": "h1f1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "rook g1",
+      "expect": "h1g1"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "king to e2",
+      "expect": "e1e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "king e2",
+      "expect": "e1e2"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop takes e5",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "queen to h5",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "knight to e4",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "rook to a3",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "pawn to e5",
+      "expect": "illegal"
+    },
+    {
+      "position": "italian",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "text": "bishop to c6",
+      "expect": "illegal"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight takes d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "Nxd4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight takes the pawn on d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight captures d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "take d4",
+      "expect": "ambiguous:d1d4,f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "capture d4",
+      "expect": "ambiguous:d1d4,f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight eats d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "horse takes d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight x d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "recapture",
+      "expect": "none"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "queen takes d4",
+      "expect": "d1d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "Qxd4",
+      "expect": "d1d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "queen captures d4",
+      "expect": "d1d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight takes d4",
+      "expect": "f3d4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "bishop takes d4",
+      "expect": "illegal"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "pawn takes d4",
+      "expect": "illegal"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight to d2",
+      "expect": "ambiguous:b1d2,f3d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight b1 to d2",
+      "expect": "b1d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "Nbd2",
+      "expect": "b1d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "Nfd2",
+      "expect": "f3d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "the knight on b1 to d2",
+      "expect": "b1d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "the knight on f3 to d2",
+      "expect": "f3d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "b one d two",
+      "expect": "b1d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight to d2 from f3",
+      "expect": "f3d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "knight f3 d2",
+      "expect": "f3d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "bishop to d2",
+      "expect": "c1d2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "bishop to e2",
+      "expect": "f1e2"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "bishop to c4",
+      "expect": "f1c4"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "bishop to b5",
+      "expect": "f1b5"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "c3",
+      "expect": "c2c3"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "c2 takes d4",
+      "expect": "illegal"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "pawn to e5",
+      "expect": "e4e5"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "e5",
+      "expect": "e4e5"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "e four e five",
+      "expect": "e4e5"
+    },
+    {
+      "position": "open_centre",
+      "fen": "r1bqkbnr/pppp1ppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4",
+      "text": "pawn to d5",
+      "expect": "illegal"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "castle kingside",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "O-O",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "oh oh",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "zero zero",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "king to g1",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "castle short",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "short castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "castle queenside",
+      "expect": "illegal"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "castle long",
+      "expect": "illegal"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "O-O-O",
+      "expect": "illegal"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop g5",
+      "expect": "c1g5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop to g5",
+      "expect": "c1g5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "Bg5",
+      "expect": "c1g5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop to e3",
+      "expect": "c1e3"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop takes f7",
+      "expect": "c4f7"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "knight to g5",
+      "expect": "f3g5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "knight to e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "Nxe5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "pawn to d4",
+      "expect": "d3d4"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "d4",
+      "expect": "d3d4"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "c3",
+      "expect": "c2c3"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "b4",
+      "expect": "b2b4"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "h3",
+      "expect": "h2h3"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop to b3",
+      "expect": "c4b3"
+    },
+    {
+      "position": "castle_ready",
+      "fen": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5",
+      "text": "bishop takes c5",
+      "expect": "illegal"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle",
+      "expect": "ambiguous:e1c1,e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle kingside",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle queenside",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle long",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle short",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "long castle",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "short castle",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "O-O",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "O-O-O",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "oh oh oh",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "oh oh",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "zero zero zero",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "zero zero",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle king side",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle queen side",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "king to c1",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "king to g1",
+      "expect": "e1g1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle on the queen side",
+      "expect": "e1c1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "rook to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "rook to f1",
+      "expect": "h1f1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "rook a1 to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "rook h1 to f1",
+      "expect": "h1f1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "castle_both",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R3K2R w KQkq - 0 8",
+      "text": "castle f1",
+      "expect": "h1f1"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "castle",
+      "expect": "ambiguous:e8c8,e8g8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "castle kingside",
+      "expect": "e8g8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "king to g8",
+      "expect": "e8g8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "O-O",
+      "expect": "e8g8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "castle queenside",
+      "expect": "e8c8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "castle long",
+      "expect": "e8c8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "O-O-O",
+      "expect": "e8c8"
+    },
+    {
+      "position": "black_castle",
+      "fen": "r3k2r/pppqbppp/2npbn2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 b kq - 1 8",
+      "text": "king to c8",
+      "expect": "e8c8"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "en passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "take en passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "pawn takes en passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e takes f6 en passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e takes f6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "exf6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e x f six",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "take it en passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "on passant",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "pawn takes f6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e5 takes f6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e pawn takes f pawn",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e5 f6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "pawn e5 to f6",
+      "expect": "e5f6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e6",
+      "expect": "e5e6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "pawn to e6",
+      "expect": "e5e6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "e pawn forward",
+      "expect": "e5e6"
+    },
+    {
+      "position": "en_passant",
+      "fen": "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+      "text": "knight to f3",
+      "expect": "g1f3"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 equals queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn to a8 queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn to a8, promote to queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "push to a8 and make it a queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 rook",
+      "expect": "a7a8r"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 knight",
+      "expect": "a7a8n"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 bishop",
+      "expect": "a7a8b"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "under-promote to rook a8",
+      "expect": "a7a8r"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn to a8 promote to a horse",
+      "expect": "a7a8n"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 horse",
+      "expect": "a7a8n"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "promote",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn to a8",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "queen it",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "promote to a horse",
+      "expect": "a7a8n"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "promote to a rook",
+      "expect": "a7a8r"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "make it a bishop",
+      "expect": "a7a8b"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a7 a8 queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a7 to a8 equals rook",
+      "expect": "a7a8r"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8=Q",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 turn it into a knight",
+      "expect": "a7a8n"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "under-promote to bishop",
+      "expect": "a7a8b"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "king to g1",
+      "expect": "h2g1"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "king to g2",
+      "expect": "h2g2"
+    },
+    {
+      "position": "promotion",
+      "fen": "8/P6k/8/8/8/8/7K/8 w - - 0 1",
+      "text": "king takes",
+      "expect": "none"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a takes b8 queen",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a7 takes b8 queen",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a x b eight queen",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "axb8 knight",
+      "expect": "a7b8n"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn takes b8 rook",
+      "expect": "a7b8r"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a takes b8 and make it a bishop",
+      "expect": "a7b8b"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 queen",
+      "expect": "a7a8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "pawn takes b8",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "take b8",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "capture b8",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "take the knight",
+      "expect": "a7b8q"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a7 b8 knight",
+      "expect": "a7b8n"
+    },
+    {
+      "position": "promo_capture",
+      "fen": "1n5k/P7/8/8/8/8/7K/8 w - - 0 1",
+      "text": "a8 rook",
+      "expect": "a7a8r"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "a1 queen",
+      "expect": "a2a1q"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "pawn to a1 queen",
+      "expect": "a2a1q"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "a1 equals knight",
+      "expect": "a2a1n"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "a1 horse",
+      "expect": "a2a1n"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "promote",
+      "expect": "a2a1q"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "queen it",
+      "expect": "a2a1q"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "a1 rook",
+      "expect": "a2a1r"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "push to a1 and make it a bishop",
+      "expect": "a2a1b"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "king to g8",
+      "expect": "h7g8"
+    },
+    {
+      "position": "black_promotion",
+      "fen": "8/7k/8/8/8/8/p6K/8 b - - 0 1",
+      "text": "king g7",
+      "expect": "h7g7"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to e4",
+      "expect": "ambiguous:c3e4,g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "Ne4",
+      "expect": "ambiguous:c3e4,g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "horse to e four",
+      "expect": "ambiguous:c3e4,g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight from c3 to e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight from g3 to e4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight c3 e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "Nce4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "Nge4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "the knight on c3 to e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "the knight on g3 to e4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "c3 to e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "g3 e4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "the left knight to e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "the right knight to e4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "my queen's knight to e4",
+      "expect": "c3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "my king's knight to e4",
+      "expect": "g3e4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to d5",
+      "expect": "c3d5"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to b5",
+      "expect": "c3b5"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to f5",
+      "expect": "g3f5"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to h5",
+      "expect": "g3h5"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to f1",
+      "expect": "g3f1"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to e2",
+      "expect": "ambiguous:c3e2,g3e2"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to d1",
+      "expect": "c3d1"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to a4",
+      "expect": "c3a4"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to h1",
+      "expect": "g3h1"
+    },
+    {
+      "position": "two_knights",
+      "fen": "4k3/8/8/8/8/2N3N1/8/4K3 w - - 0 1",
+      "text": "knight to a2",
+      "expect": "c3a2"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to b1",
+      "expect": "a1b1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to g1",
+      "expect": "h1g1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "Rd1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook a1 to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook h1 to d1",
+      "expect": "illegal"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "the left rook to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "the right rook to d1",
+      "expect": "illegal"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "my queen's rook to d1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "my king's rook to d1",
+      "expect": "illegal"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "Rad1",
+      "expect": "a1d1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "Rhd1",
+      "expect": "illegal"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "castle",
+      "expect": "ambiguous:e1c1,e1g1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "castle kingside",
+      "expect": "e1g1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "castle queenside",
+      "expect": "e1c1"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook a1 a5",
+      "expect": "a1a5"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to a5",
+      "expect": "a1a5"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to h5",
+      "expect": "h1h5"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook h1 h8",
+      "expect": "h1h8"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to a8",
+      "expect": "a1a8"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook takes a8",
+      "expect": "illegal"
+    },
+    {
+      "position": "two_rooks",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1",
+      "text": "rook to a2",
+      "expect": "a1a2"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "bishop takes c3",
+      "expect": "illegal"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "pawn takes d5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "c takes d5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "cxd5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "c x d five",
+      "expect": "c4d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "knight takes e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "Nxe5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "knight to e5",
+      "expect": "f3e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "knight to d5",
+      "expect": "c3d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "pawn to d5",
+      "expect": "c4d5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "d takes e5",
+      "expect": "d4e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "dxe5",
+      "expect": "d4e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "pawn takes e5",
+      "expect": "d4e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "d4 takes e5",
+      "expect": "d4e5"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "a3",
+      "expect": "a2a3"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "h3",
+      "expect": "h2h3"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "knight takes e5 with the c3 knight",
+      "expect": "illegal"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "bishop takes b4",
+      "expect": "illegal"
+    },
+    {
+      "position": "middlegame",
+      "fen": "r2q1rk1/ppp2ppp/2n1bn2/3pp3/1bPP4/2N1PN2/PP2BPPP/R1BQ1RK1 w - - 0 9",
+      "text": "pawn takes b4",
+      "expect": "illegal"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen to d3",
+      "expect": "ambiguous:d1d3,d5d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen d1 to d3",
+      "expect": "d1d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen from d5 to d3",
+      "expect": "d5d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "the queen on d1 to d3",
+      "expect": "d1d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "d1 d3",
+      "expect": "d1d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "d5 d3",
+      "expect": "d5d3"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen to h5",
+      "expect": "ambiguous:d1h5,d5h5"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen takes d8",
+      "expect": "d5d8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "Qxd8",
+      "expect": "d5d8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen takes the queen",
+      "expect": "d5d8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen d5 takes d8",
+      "expect": "d5d8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen from d5 to d8",
+      "expect": "d5d8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen to a5",
+      "expect": "d5a5"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen to g8",
+      "expect": "d5g8"
+    },
+    {
+      "position": "queens",
+      "fen": "3qk3/8/8/3Q4/8/8/8/3QK3 w - - 0 1",
+      "text": "queen to a2",
+      "expect": "d5a2"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "rook to d7",
+      "expect": "d1d7"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "rook takes f7",
+      "expect": "illegal"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "rook to a1",
+      "expect": "d1a1"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "Rd7",
+      "expect": "d1d7"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "rook to d8",
+      "expect": "d1d8"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "king to f1",
+      "expect": "g2f1"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "king to h3",
+      "expect": "g2h3"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "king to h2",
+      "expect": "g2h2"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "pawn to g4",
+      "expect": "g3g4"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "g4",
+      "expect": "g3g4"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "pawn to f4",
+      "expect": "f2f4"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "f4",
+      "expect": "f2f4"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "f three",
+      "expect": "f2f3"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "push the g pawn",
+      "expect": "g3g4"
+    },
+    {
+      "position": "endgame",
+      "fen": "8/5pk1/6p1/8/8/6P1/5PK1/3R4 w - - 0 1",
+      "text": "pawn to f three",
+      "expect": "f2f3"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "king to e2",
+      "expect": "e1e2"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "king to d2",
+      "expect": "illegal"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "king to f1",
+      "expect": "e1f1"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "king takes b4",
+      "expect": "illegal"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "Ke2",
+      "expect": "e1e2"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "king e2",
+      "expect": "e1e2"
+    },
+    {
+      "position": "check",
+      "fen": "4k3/8/8/8/1b6/8/8/4K3 w - - 0 1",
+      "text": "pawn to e4",
+      "expect": "illegal"
+    }
   ]
 }

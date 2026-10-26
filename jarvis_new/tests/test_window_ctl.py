@@ -140,7 +140,10 @@ async def test_play_media_returns_focus_to_previous_window(monkeypatch) -> None:
     out = await core.SystemTools.play_media(tools, None, "")  # type: ignore[arg-type]
     for t in list(tools._tasks):
         await t
-    assert "Playing" in out["say"]
+    # A launched process is not proof that media is playing. This fixture
+    # verifies launch evidence and focus restoration, not visual playback.
+    assert out["outcome"]["state"] == "launch_requested"
+    assert "not visually verified" in out["say"]
     assert restored and restored[0] == "Chemistry notes - Kate"
 
 
