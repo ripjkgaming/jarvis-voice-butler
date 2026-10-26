@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 
 from local_voice import (
@@ -162,3 +163,50 @@ async def _drain(stream) -> None:
             pass
     except Exception:
         pass
+
+
+class _Chunk:
+    def __init__(self, n: int) -> None:
+        self.audio_int16_bytes = b"\x01\x00" * n
+
+
+class _FakeVoice:
+    def __init__(self) -> None:
+        self.config = type("C", (), {"sample_rate": 22050})()
+
+    def synthesize(self, text, syn_config=None):
+        for _ in range(4):
+            yield _Chunk(2205)
+
+
+@pytest.mark.asyncio
+async def test_tts_streams_chunks_to_sink_and_caches() -> None:
+    from games.voice.tts import MemorySink, PiperSpeaker
+
+    sink = MemorySink()
+    sp = PiperSpeaker(voice=_FakeVoice(), sink=sink)
+    assert await sp.speak("Opening the browser, Sir.") is True
+    assert len(sink.chunks) >= 4
+    assert "1.0|Opening the browser, Sir." in sp._cache
+
+
+@pytest.mark.asyncio
+async def test_tts_barge_in_stops_mid_sentence() -> None:
+    from games.voice.tts import MemorySink, PiperSpeaker
+
+    sink = MemorySink(realtime=True)
+    sp = PiperSpeaker(voice=_FakeVoice(), sink=sink)
+    task = asyncio.create_task(sp.speak("A long enough sentence to play."))
+    await asyncio.sleep(0.15)
+    sp.stop()
+    assert await task is False
+    assert sink.seconds < 0.4
+
+
+def test_first_segments_splits_long_opening_sentence_only() -> None:
+    from games.voice.tts import COMMON_LINES, first_segments
+
+    assert len(COMMON_LINES) >= 25
+    assert first_segments("Opening it, Sir.") == ["Opening it, Sir."]
+    long = "Tomorrow you have two meetings, the first at nine and the second at two."
+    assert len(first_segments(long)) == 2

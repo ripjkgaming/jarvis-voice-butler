@@ -7,6 +7,7 @@ Common lines are pre-synthesised and cached. Never touches Jarvis's session.
 from __future__ import annotations
 
 import asyncio
+import queue
 import threading
 import time
 from collections import OrderedDict
@@ -30,7 +31,36 @@ COMMON_LINES = [
     "Undone, Sir.",
     "A new game, Sir.",
     "Shall I review the game, Sir?",
+    "Opening it, Sir.",
+    "Done, Sir.",
+    "Right away, Sir.",
+    "Certainly, Sir.",
+    "Of course, Sir.",
+    "One moment, Sir.",
+    "Understood, Sir.",
+    "Yes, Sir.",
+    "At once, Sir.",
+    "Very good.",
+    "On it, Sir.",
+    "Closing it, Sir.",
+    "Pulling it up, Sir.",
+    "Sorry, Sir, I didn't catch that.",
+    "I'm afraid that didn't work, Sir.",
+    "Is there anything else, Sir?",
 ]
+
+_CLAUSE_MIN = 28  # chars before a comma may end the first (fast-start) segment
+_CLAUSE_LONG = 60  # only split a first sentence at least this long
+
+
+def first_segments(sentence: str) -> list[str]:
+    """Split a long opening sentence at its first comma so audio starts sooner."""
+    if len(sentence) < _CLAUSE_LONG:
+        return [sentence]
+    cut = sentence.find(", ", _CLAUSE_MIN)
+    if cut < 0 or len(sentence) - cut < 20:
+        return [sentence]
+    return [sentence[: cut + 1], sentence[cut + 2 :]]
 
 
 class AudioSink(Protocol):
@@ -156,6 +186,44 @@ class PiperSpeaker:
                 self._cache.popitem(last=False)
         return pcm
 
+    def render_stream(self, sentence: str):
+        """Yield PCM chunks as Piper produces them (cache hit: one chunk).
+
+        Blocking generator (run in a thread). Stops promptly on ``stop``.
+        """
+        key = f"{self.length_scale}|{sentence}"
+        hit = self._cache.get(key)
+        if hit is not None:
+            yield hit
+            return
+        if self._voice is None:
+            self.load()
+        if self._stop.is_set():
+            return
+        from piper import SynthesisConfig
+
+        config = SynthesisConfig(length_scale=self.length_scale)
+        chunks = self._voice.synthesize(sentence, syn_config=config)
+        parts: list[bytes] = []
+        complete = True
+        try:
+            for chunk in chunks:
+                if self._stop.is_set():
+                    complete = False
+                    break
+                data = chunk.audio_int16_bytes
+                if data:
+                    parts.append(data)
+                    yield data
+        finally:
+            close = getattr(chunks, "close", None)
+            if close is not None:
+                close()
+        if complete and parts and not self._stop.is_set():
+            self._cache[key] = b"".join(parts)
+            while len(self._cache) > 256:
+                self._cache.popitem(last=False)
+
     def warm_cache(self, lines: list[str] | None = None) -> None:
         for line in lines or COMMON_LINES:
             for s in audio_shared.sentence_split(line):
@@ -187,24 +255,42 @@ class PiperSpeaker:
 
     # ------------------------------------------------------------ speaking
     async def speak(self, text: str) -> bool:
-        """Speak ``text``; returns False if interrupted by ``stop``."""
+        """Speak ``text``; returns False if interrupted by ``stop``.
+
+        Rendering runs in a worker thread and each PCM chunk is queued to the
+        sink as produced, so audio starts at the first chunk, not the first
+        full sentence. ``_play`` still checks the stop flag every 100 ms.
+        """
         sentences = audio_shared.sentence_split(text)
         if not sentences:
             return True
+        sentences = first_segments(sentences[0]) + sentences[1:]
         self._stop.clear()
         loop = asyncio.get_running_loop()
-        nxt = loop.run_in_executor(None, self.render, sentences[0])
+        q: queue.Queue[bytes | None] = queue.Queue()
+
+        def produce() -> None:
+            try:
+                for sent in sentences:
+                    for pcm in self.render_stream(sent):
+                        if self._stop.is_set():
+                            return
+                        q.put(pcm)
+            except Exception:
+                pass
+            finally:
+                q.put(None)
+
+        worker = loop.run_in_executor(None, produce)
         completed = True
         started = False
-        for i in range(len(sentences)):
-            pcm = await nxt
+        while True:
+            pcm = await loop.run_in_executor(None, q.get)
+            if pcm is None:
+                break
             if self._stop.is_set():
                 completed = False
                 break
-            if i + 1 < len(sentences):
-                nxt = loop.run_in_executor(None, self.render, sentences[i + 1])
-            if not pcm:
-                continue
             if not started:
                 started = True
                 self.speaking = True
@@ -213,6 +299,11 @@ class PiperSpeaker:
             if not ok:
                 completed = False
                 break
+        if self._stop.is_set():
+            completed = False
+        if not completed:
+            self._stop.set()  # make the producer bail out
+        await worker
         if started:
             self.intervals.append((self._current_start, time.monotonic()))
             self.intervals = self.intervals[-20:]
