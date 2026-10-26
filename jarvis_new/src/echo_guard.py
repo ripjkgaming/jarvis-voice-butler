@@ -13,8 +13,14 @@ import time
 from collections import deque
 
 WINDOW_S = 15.0
-MIN_WORDS = 3
+MIN_WORDS = 4
 MIN_COVERAGE = 0.8
+# A reply that opens with one of these is the user answering Jarvis ("yes open
+# Spotify" after "shall I open Spotify"), not Jarvis's own words bleeding back.
+_AFFIRM = frozenset(
+    "yes yeah yep yup sure ok okay please no nope go do confirm cancel stop".split()
+)
+_AFFIRM_MAX_WORDS = 8
 
 _WORD = re.compile(r"[a-z0-9']+")
 
@@ -34,9 +40,11 @@ class EchoGuard:
             self._said.append((time.monotonic() if now is None else now, words))
 
     def is_echo(self, transcript: str, now: float | None = None) -> bool:
-        """True when 80%+ of a 3+ word transcript is vocabulary Jarvis just used."""
+        """True when 80%+ of a 4+ word transcript is vocabulary Jarvis just used."""
         heard = _words(transcript)
         if len(heard) < MIN_WORDS:
+            return False
+        if heard[0] in _AFFIRM and len(heard) <= _AFFIRM_MAX_WORDS:
             return False
         t = time.monotonic() if now is None else now
         recent: set[str] = set()
