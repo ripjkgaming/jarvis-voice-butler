@@ -304,6 +304,9 @@ class FakeGame:
     async def _changed(self):
         pass
 
+    async def new_game(self, **kw):  # branch loads the new record inline
+        self.new_game_kw = kw
+
 
 @pytest.fixture
 def game(tmp_path):
