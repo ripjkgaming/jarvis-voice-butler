@@ -110,6 +110,7 @@ class ChessSettings:
     # AI
     models: list[str] = field(default_factory=lambda: list(DEFAULT_MODELS))
     online_explanations: bool = True
+    smart_routing: bool = True  # fuzzy + LLM intent router for unparsed speech
     speak_explanations: bool = False
     # Voice engine
     whisper_model: str = "base.en"

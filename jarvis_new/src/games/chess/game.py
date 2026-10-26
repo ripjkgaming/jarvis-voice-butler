@@ -17,6 +17,7 @@ from typing import Any
 import chess
 
 from games.chess import commands, saves, templates, text_norm, voice_moves
+from games.chess import router as chess_router
 from games.chess.analysis import AnalysisMixin
 from games.chess.chat import Chat
 from games.chess.commentary import (
@@ -27,10 +28,10 @@ from games.chess.commentary import (
 from games.chess.engine import BaseEngine, make_engine
 from games.chess.intents import IntentsMixin
 from games.chess.reply import Reply
+from games.chess.session import SessionMixin
 from games.chess.settings import ChessSettings
 from games.chess.settings import load as load_settings
 from games.chess.settings import save as save_settings
-from games.chess.session import SessionMixin
 from games.chess.state import Clock, GameState
 
 
@@ -101,6 +102,7 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
         self.banner: str | None = None
         self.paused = False
         self.pending: dict | None = None
+        self._router: chess_router.IntentRouter | None = None
         self.thinking = False
         self.arrow: dict | None = None
         self.highlights: list[str] = []
@@ -364,7 +366,7 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
                 "paused": self.paused,
                 "pending": None
                 if not self.pending
-                else {k: v for k, v in self.pending.items() if k != "moves"},
+                else {k: v for k, v in self.pending.items() if k not in ("moves", "intent")},
                 "disambiguation": disamb,
                 "thinking": self.thinking,
                 "arrow": self.arrow,
@@ -394,6 +396,8 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
         if self.on_stop_speech:
             self.on_stop_speech()
         self.commentary.cancel()
+        if self._router is not None:
+            self._router.cancel()
         if self.engine:
             self.engine.cancel()
         for t in list(self._bg):
@@ -667,10 +671,48 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
             return await self.run_intent(
                 commands.Intent("undo", {"n": 1, "via": "take back"})
             )
+        # 6b. smart routing: fuzzy / paraphrase / guarded LLM tool-call
+        if not st.is_over():
+            rr = await self.router.route(raw, self._route_ctx())
+            if rr and rr.intent:
+                from games.chess import intents_series
+
+                if (sr := await intents_series.handle(self, rr.intent, raw)) is not None:
+                    return sr
+                return await self.run_intent(rr.intent)
+            if rr and rr.clarify:
+                self.pending = {
+                    "type": "route_confirm",
+                    "intent": rr.candidate,
+                    "raw": raw,
+                }
+                return Reply(rr.clarify, kind="offer")
         # 7. unparsed: a question goes to chat, otherwise one short miss line
         if commands.looks_like_question(raw) or len(raw.split()) >= 5:
             return await self._chat(raw)
         return await self._miss()
+
+    @property
+    def router(self) -> chess_router.IntentRouter:
+        if self._router is None:
+            self._router = chess_router.IntentRouter(
+                getattr(self.chat, "router", None),
+                enabled=bool(getattr(self.settings, "smart_routing", True)),
+            )
+        self._router.enabled = bool(getattr(self.settings, "smart_routing", True))
+        return self._router
+
+    def _route_ctx(self) -> chess_router.RouteCtx:
+        st = self.state
+        s = self.series.state if self.series is not None else None
+        status = s.status if s is not None and s.status in ("running", "paused") else None
+        return chess_router.RouteCtx(
+            series=status,
+            history=bool(self.hist_view),
+            takeover=st.mode == "takeover",
+            is_move=lambda t: voice_moves.parse_move(t, st.board, self._ctx).kind
+            != "none",
+        )
 
     async def _miss(self) -> Reply:
         self.misses += 1
@@ -756,6 +798,24 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
         p = self.pending
         assert p
         typ = p["type"]
+        if typ == "route_confirm":
+            hit = commands.classify(raw, {"answer"})
+            if hit and hit.name == "yes":
+                self.pending = None
+                it = p.get("intent")
+                if it is None:
+                    return Reply(ok=False, kind="empty")
+                from games.chess import intents_series
+
+                if (sr := await intents_series.handle(self, it, p.get("raw", raw))) is not None:
+                    return sr
+                return await self.run_intent(it)
+            if hit and hit.name == "no":
+                self.pending = None
+                await self._changed()
+                return Reply("Very well, Sir.", kind="decline")
+            self.pending = None  # anything else drops the offer and is heard fresh
+            return None
         if typ == "series_resume":
             hit = commands.classify(raw, {"answer"})
             if hit and hit.name == "yes":

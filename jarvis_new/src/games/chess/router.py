@@ -21,12 +21,12 @@ import asyncio
 import difflib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from games.chess import commands, text_norm
-from games.chess.commentary import Cancelled
 from games.chess.commands import Intent
+from games.chess.commentary import Cancelled
 
 TIMEOUT_S = 3.0
 MIN_CONFIDENCE = 0.7
@@ -69,7 +69,7 @@ def looks_like_move(text: str, ctx: RouteCtx | None = None) -> bool:
         try:
             if ctx.is_move(text):
                 return True
-        except Exception:  # noqa: BLE001 - a broken probe must not break routing
+        except Exception:
             pass
     t = text_norm.clean(text)
     words = t.split()
@@ -85,7 +85,7 @@ def looks_like_move(text: str, ctx: RouteCtx | None = None) -> bool:
 
             if voice_moves.find_squares(t):
                 return True
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     return False
 
@@ -449,7 +449,7 @@ class IntentRouter:
     def llm_ready(self) -> bool:
         try:
             return bool(self.enabled and self.client is not None and self.client.available())
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
 
     def cancel(self) -> None:
@@ -503,7 +503,7 @@ class IntentRouter:
             raise
         except (asyncio.TimeoutError, Cancelled, RuntimeError, ValueError, TypeError, OSError):
             return None
-        except Exception:  # noqa: BLE001 - routing must never take the game down
+        except Exception:
             return None
         finally:
             self._inflight.discard(task)

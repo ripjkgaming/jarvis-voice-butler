@@ -6,6 +6,7 @@ import socket
 import time
 
 import pytest
+
 from games.chess import commands, router
 from games.chess.commentary import Cancelled, OpenRouter, Quota
 from games.chess.router import IntentRouter, RouteCtx
@@ -311,7 +312,7 @@ def test_confidence_boundary():
 
 
 def test_timeout_never_blocks_past_budget():
-    rt, f = llm_router(tool("set_level", n=3), delay=5, timeout=0.05)
+    rt, _f = llm_router(tool("set_level", n=3), delay=5, timeout=0.05)
     t = time.perf_counter()
     assert run(rt.route(MISS, RouteCtx())) is None
     assert time.perf_counter() - t < 1.0
@@ -358,7 +359,7 @@ class FakeHTTP:
         class R:
             status_code = 200
 
-            def json(_s):
+            def json(_s):  # noqa: N805
                 return {"model": "m", "choices": [{"message": {"content": self.content}}]}
 
         return R()
