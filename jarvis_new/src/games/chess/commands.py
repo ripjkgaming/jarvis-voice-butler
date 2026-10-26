@@ -267,6 +267,259 @@ def add(*rules: Rule) -> None:
     RULES.extend(rules)
 
 
+# ------------------------------------------- series / history / board analysis
+# Placed before every other catalogue rule so "play five games" never reaches
+# `start`, "series score" never reaches `analyse`, etc. All anchored, so they
+# cannot swallow moves ("night f three", "e four", "go e five" ...).
+_COUNT_FIX = {"ate": "eight", "tin": "ten"}
+_SERIES_MAX = 100
+
+
+def parse_count(text: str) -> int | None:
+    """Number of games: digits or words, 'a hundred' = 100. No range check."""
+    words = [_COUNT_FIX.get(w, w) for w in (text or "").lower().replace("-", " ").split()]
+    if len(words) > 1 and words[0] in ("a", "an"):
+        words = words[1:]
+    return parse_number(" ".join(words)) if words else None
+
+
+def _num_any(text: str) -> int | None:
+    v = parse_count(text)
+    return v if v is not None and v >= 0 else None
+
+
+_NW = "(?:" + "|".join([*_UNITS, "hundred", "thousand", "ate", "tin", "and"]) + ")"
+_CNT = r"(?P<n>(?:an? )?(?:\d+|" + _NW + r"(?:[ -]" + _NW + r"){0,3}))"
+_COLOUR_WORD = {"white": "white", "black": "black", "alternate": "alternate", "alternating": "alternate"}
+_REST_COLOUR = re.compile(
+    r"^(?: as (?P<c1>white|black|alternating|alternate)(?: colou?rs?)?"
+    r"| (?P<c2>alternating|alternate)(?: colou?rs?)?)"
+)
+_REST_LEVEL = re.compile(r"^ at level (?P<lv>\d+|[a-z]+)")
+_REST_TIME = re.compile(r"^ (?:with |at )?(?P<t>\d+|[a-z]+) seconds?(?: (?:per|a|each) move)?")
+
+
+def _series_rest(rest: str, args: dict) -> bool:
+    """Consume ' as white at level 3 ...' modifiers; False if anything is left."""
+    rest = rest.rstrip()
+    guard = 0
+    while rest and guard < 4:
+        guard += 1
+        for rx, kind in ((_REST_COLOUR, "c"), (_REST_LEVEL, "l"), (_REST_TIME, "t")):
+            m = rx.match(rest)
+            if not m:
+                continue
+            if kind == "c":
+                args["colour"] = _COLOUR_WORD[m.group("c1") or m.group("c2")]
+            elif kind == "l":
+                lv = _num_any(m.group("lv"))
+                if lv is None or not 1 <= lv <= 20:
+                    return False
+                args["level"] = lv
+            else:
+                t = _num_any(m.group("t"))
+                if t is None or t <= 0:
+                    return False
+                args["move_time"] = float(t)
+            rest = rest[m.end() :]
+            break
+        else:
+            return False
+    return not rest
+
+
+def _series_post(want_valid: bool) -> Callable[[dict, str], dict | None]:
+    def fn(args: dict, _t: str) -> dict | None:
+        n = _num_any(args.get("n", ""))
+        if n is None:
+            return None
+        out: dict[str, Any] = {"colour": "alternate", "total": n}
+        if not _series_rest(args.get("rest", ""), out):
+            return None
+        if (1 <= n <= _SERIES_MAX) != want_valid:
+            return None
+        if not want_valid:
+            return {"total": n}
+        return out
+
+    return fn
+
+
+_SERIES_RX = r"play (?:a series of )?" + _CNT + r" games?(?P<rest>(?: .+)?)"
+
+
+def _opt(key: str, conv: Callable[[str], Any]) -> Callable[[dict, str], dict | None]:
+    def fn(args: dict, _t: str) -> dict | None:
+        v = conv(args.get("v", ""))
+        return None if v is None else {key: v}
+
+    return fn
+
+
+def _lvl_conv(v: str) -> int | None:
+    n = _num_any(v)
+    return n if n is not None and 1 <= n <= 20 else None
+
+
+def _time_conv(v: str) -> float | None:
+    n = _num_any(v)
+    return float(n) if n is not None and 0 < n <= 600 else None
+
+
+def _open_ref(args: dict, _t: str) -> dict | None:
+    ref = (args.get("ref") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", ref):
+        return {"ref": ref}
+    if ref in ("latest", "last", "newest", "most recent"):
+        return {"ref": "1"}
+    n = _num_any(ref)
+    if n is None or n < 1:
+        return None
+    return {"ref": str(n)}
+
+
+def _goto_n(args: dict, _t: str) -> dict | None:
+    n = _num_any(args.get("n", ""))
+    return None if n is None or n < 1 else {"n": n}
+
+
+def _rewind(args: dict, _t: str) -> dict | None:
+    if not args.get("n"):
+        return {}
+    return _goto_n(args, _t)
+
+
+add(
+    R("series_start", "series", rx=_SERIES_RX, post=_series_post(True)),
+    R("series_bad_count", "series", rx=_SERIES_RX, post=_series_post(False)),
+    R(
+        "series_start",
+        "series",
+        "play until i say stop|keep playing until i say stop|play games until i say stop|"
+        "play until stop|play until i tell you to stop|play until i say stop playing|"
+        "keep playing games until i say stop",
+        total=None,
+        colour="alternate",
+    ),
+    R(
+        "series_option",
+        "series",
+        rx=r"(?:set )?series colou?rs?(?: to)? (?P<v>white|black|alternate|alternating)",
+        post=_opt("colour", lambda v: _COLOUR_WORD.get(v)),
+    ),
+    R(
+        "series_option",
+        "series",
+        rx=r"(?:set )?series level(?: to)? (?P<v>\d+|[a-z]+)",
+        post=_opt("level", _lvl_conv),
+    ),
+    R(
+        "series_option",
+        "series",
+        rx=r"(?:set )?series (?:time per move|move time)(?: to)? (?P<v>\d+|[a-z]+)(?: seconds?)?",
+        post=_opt("move_time", _time_conv),
+    ),
+    R(
+        "series_option",
+        "series",
+        "series speak every move|speak every move|speak every move in the series|"
+        "series speak all moves|speak all moves",
+        speak="moves",
+    ),
+    R(
+        "series_option",
+        "series",
+        "series speak only results|speak only results|speak results only|only speak results|"
+        "series speak results only|speak the results only|speak only the results|only results",
+        speak="results",
+    ),
+    R(
+        "series_left",
+        "series",
+        "how many games left|how many games are left|games left|games remaining|how many games remain|"
+        "how many more games|how many games remaining|how many games to go|how many games are remaining|"
+        "how many games do we have left",
+    ),
+    R(
+        "series_score",
+        "series",
+        "series score|what's the series score|what is the series score|series status|"
+        "what's the score in the series|score of the series|how is the series going|how's the series going",
+    ),
+    R("series_pause", "series", "pause the series|pause series|hold the series"),
+    R(
+        "series_resume",
+        "series",
+        "continue the series|resume the series|resume series|continue series|carry on with the series|"
+        "restart the series",
+    ),
+    R("series_cancel", "series", "cancel the series|stop the series|end the series|cancel series|abort the series"),
+    R(
+        "series_resume_offer",
+        "series",
+        "resume the old series|continue the old series|resume my last series|continue the last series|"
+        "resume my series|pick up the series",
+    ),
+    R(
+        "handback",
+        "takeover",
+        "release control|revert control|release the control|revert the control|release control to me|"
+        "revert control to me|give me control|give me back control",
+    ),
+    R(
+        "list_games",
+        "history",
+        "list games|list my games|show my games|show games|list the games|game history|show game history|"
+        "show my game history|my game history|list all games|list all my games",
+    ),
+    R(
+        "open_game",
+        "history",
+        rx=r"open (?:the )?game (?P<ref>\d{4}-\d{2}-\d{2}|\d+|latest|last|newest|most recent|[a-z]+(?:[ -][a-z]+)?)",
+        post=_open_ref,
+    ),
+    R("open_game", "history", "open the last game|open the latest game|open the newest game", ref="1"),
+    R(
+        "review_goto",
+        "review",
+        rx=r"(?:go (?:to|two|too)|goto|jump (?:to|two|too)) move " + _CNT,
+        post=_goto_n,
+    ),
+    R(
+        "hist_branch",
+        "history",
+        rx=r"(?:rewind|go back|roll back|take it back) (?:to|two|too) move " + _CNT
+        + r"(?: and (?:continue|carry on|keep going|play|play on)(?: from here| on)?)?",
+        post=_rewind,
+    ),
+    R(
+        "hist_branch",
+        "history",
+        "continue from here|branch from here|play from here|rewind and continue from here|"
+        "rewind and continue|play on from here|carry on from here",
+    ),
+    R(
+        "hist_close",
+        "history",
+        "close history|exit history|leave history|close the history|back to the live game|"
+        "back to the live board|close the game view|exit the history",
+    ),
+    R("undo", "game", "undo last move|undo the last move|undo my last move", n=1),
+    R(
+        "analyse_board",
+        "analysis",
+        "analyse the board|analyze the board|analyse board|analyze board|evaluate the board|"
+        "assess the board|what's on the board|what is on the board|analyse the board please",
+    ),
+    R(
+        "explain",
+        "analysis",
+        "what was my mistake|what was my blunder|what was my worst move|what did i do wrong|"
+        "where did i go wrong|what was my biggest mistake",
+        which="mistake",
+    ),
+)
+
 # A.10 take-over and spectator (before game management, after moves)
 add(
     R(

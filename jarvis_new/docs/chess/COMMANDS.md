@@ -35,7 +35,7 @@ Narrow: “eval off” · “hide the eval” · “hide the evaluation” · �
 
 ## Take-over and spectator
 
-- **handback** — “back to me” · “give it back” · “hands off” · “i have got it” · “i will take over” · “i'll drive” · “i'll play” · “i'll take it from here” · “i'll take over” … (+7)
+- **handback** — “give me back control” · “give me control” · “release control” · “release control to me” · “release the control” · “revert control” · “revert control to me” · “revert the control” · “back to me” … (+15)
 - **takeover** — “auto” · “autopilot” · “i'm done you play” · “play for me” · “play my side” · “play this for me” · “take control” · “take it over” · “take over” … (+9)
 - **takeover finish** — “finish for me” · “finish it” · “finish it for me” · “finish the game” · “finish this” · “play it out” · “play the rest”
 - **spectate** — “demo game” · “jarvis versus jarvis” · “jarvis vs jarvis” · “play against yourself” · “play yourself” · “self play” · “self-play” · “show me a game” · “spectate” … (+2)
@@ -53,6 +53,7 @@ Narrow: “eval off” · “hide the eval” · “hide the evaluation” · �
 
 ## Game management
 
+- **undo** — “undo last move” · “undo my last move” · “undo the last move” · “back” · “go back” · “take back my move” · “take that back” · “takeback” · “undo” … (+3)
 - **start** — “a game of chess” · “chess” · “fancy a game” · “game of chess” · “let's play” · “let's play chess” · “lets play chess” · “play a game” · “play chess”
 - **new game** — “again” · “another game” · “go again” · “new” · “new game” · “one more” · “one more game” · “play again” · “rematch” … (+4)
 - **colour** — “give me white” · “i am white” · “i'll be white” · “play as white” · “you be black” · “give me black” · “i am black” · “i'll be black” · “play as black” … (+6)
@@ -63,7 +64,6 @@ Narrow: “eval off” · “hide the eval” · “hide the evaluation” · �
 - **add time** — “add a minute” · “add time” · “give me more time” · “more time”
 - **pause clock** — “freeze the clock” · “pause the clock” · “stop the clock”
 - **resume clock** — “resume the clock” · “start the clock” · “unpause the clock”
-- **undo** — “back” · “go back” · “take back my move” · “take that back” · “takeback” · “undo” · “undo it” · “undo my move” · “undo that”
 - **redo** — “put it back” · “redo” · “redo it” · “redo that”
 - **flip** — “flip” · “flip it” · “flip the board” · “rotate” · “rotate the board” · “show it from black's side” · “show it from white's side” · “turn it around” · “turn the board”
 - **zoom** — “bigger” · “bigger board” · “bigger pieces” · “make it bigger” · “zoom in” · “make it smaller” · “smaller” · “smaller board” · “zoom out”
@@ -100,10 +100,11 @@ Narrow: “eval off” · “hide the eval” · “hide the evaluation” · �
 
 ## Ask for analysis (once, unless you say “keep …”)
 
+- **analyse board** — “analyse board” · “analyse the board” · “analyse the board please” · “analyze board” · “analyze the board” · “assess the board” · “evaluate the board” · “what is on the board” · “what's on the board”
+- **explain** — “what did i do wrong” · “what was my biggest mistake” · “what was my blunder” · “what was my mistake” · “what was my worst move” · “where did i go wrong” · “best move there” · “did i blunder” · “explain” … (+26)
 - **analyse** — “am i losing” · “am i winning” · “analyse” · “analyse the position” · “analyse this” · “analyze” · “analyze the position” · “analyze this” · “assess the position” … (+24)
 - **threats** — “am i in danger” · “any tactics” · “any threats” · “anything i should know” · “danger” · “is my king safe” · “is there a fork” · “is there a pin” · “is there a tactic” … (+7)
 - **plans** — “any plans” · “plans” · “what is the plan” · “what should my plan be” · “what's my plan” · “what's the plan”
-- **explain** — “best move there” · “did i blunder” · “explain” · “explain my move” · “explain that” · “explain that move” · “explain the last move” · “explain your move” · “grade that” … (+20)
 - **hint** — “a hint” · “any hints” · “any suggestions” · “clue” · “give me a clue” · “give me a hint” · “got a hint” · “help” · “help me” … (+10)
 - **hint more** — “a bigger hint” · “another hint” · “another one” · “bigger hint” · “give me more” · “more” · “more hint” · “tell me more”
 - **hint full** — “best move” · “just tell me” · “just tell me the move” · “show me” · “show me the move” · “tell me the move” · “the best move” · “what is the best move” · “what's the best move”

@@ -620,6 +620,10 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         # 5. everything else in catalogue order
         hit = commands.classify(raw)
         if hit:
+            from games.chess import intents_series  # series / history intents
+
+            if (sr := await intents_series.handle(self, hit, raw)) is not None:
+                return sr
             if hit.name == "undo" and raw_is_take_back(raw) and not st.is_over():
                 pass
             return await self.run_intent(hit)

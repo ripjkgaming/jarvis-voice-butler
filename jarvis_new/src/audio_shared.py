@@ -124,12 +124,12 @@ VOCAB_PROMPTS = {
     "chess": (
         "Chess commands: pawn, knight, bishop, rook, queen, king, castle, takes, "
         "en passant, alpha, bravo, charlie, delta, echo, foxtrot, golf, hotel, "
-        "undo, hint, stop."
+        "undo, hint, stop, series, games, rewind, release, takeover."
     ),
 }
 VOCAB_HOTWORDS = {
     "general": "Jarvis",
-    "chess": "pawn knight bishop rook queen king castle takes",
+    "chess": "pawn knight bishop rook queen king castle takes series games rewind release",
 }
 
 
