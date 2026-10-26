@@ -104,7 +104,17 @@ def _words(text: str) -> list[str]:
 def clean_query(text: str) -> str:
     raw = " ".join(str(text or "").split())
     cleaned = _COMMAND.sub(" ", raw)
+    cleaned = re.sub(
+        r"\btesla\s+(?:roaster|road star)\b", "Tesla Roadster", cleaned, flags=re.I
+    )
+    cleaned = re.sub(r"\bkick flip\b", "kickflip", cleaned, flags=re.I)
     cleaned = re.sub(r"^\s*(?:the|a|an)\s+", "", cleaned.strip(), flags=re.I)
+    cleaned = re.sub(
+        r"^(?:song|audio|video)\s+|\s+(?:audio|video|best|\d{3,4}p|4k)$",
+        " ",
+        cleaned.strip(),
+        flags=re.I,
+    )
     cleaned = " ".join(cleaned.replace(" ,", ",").split()).strip(" ,.?!")
     return cleaned or raw
 
@@ -125,11 +135,15 @@ def parse_request(text: str, *, kind: str | None = None) -> Request:
     else:
         for token in raw.split():
             if VIDEO_ID.fullmatch(token) and (
-                any(c.isdigit() or c in "-_" for c in token) or token != token.lower()
+                len(raw.split()) == 1
+                or any(c.isdigit() or c in "-_" for c in token)
+                or token != token.lower()
             ):
                 url = f"https://www.youtube.com/watch?v={token}"
                 stripped = raw.replace(token, " ")
                 break
+    if url is None and VIDEO_ID.fullmatch(clean_query(stripped)):
+        url = f"https://www.youtube.com/watch?v={clean_query(stripped)}"
     lower = raw.casefold()
     if kind not in {"video", "audio"}:
         kind = "audio" if _AUDIO.search(stripped) else "video"
@@ -165,7 +179,7 @@ def rank_results(query: str, results: list, *, allow_long: bool = False) -> list
             continue
         duration = result.get("duration")
         if isinstance(duration, (int, float)) and (
-            duration < MIN_SECONDS or (duration > MAX_SECONDS and not allow_long)
+            duration < MIN_SECONDS or (duration >= MAX_SECONDS and not allow_long)
         ):
             continue
         title = str(result.get("title") or "")
@@ -242,6 +256,44 @@ def _default_runner(args: list, timeout: float) -> bytes:
 def search(
     query: str, n: int = SEARCH_N, *, runner=None, binary=None, timeout: float = 30.0
 ) -> list:
+    return _flat_target(
+        f"ytsearch{int(n)}:{query}", runner=runner, binary=binary, timeout=timeout
+    )
+
+
+def playlist_url(text):
+    from urllib.parse import parse_qs, urlparse
+
+    match = _URL.search(text)
+    if not match:
+        return None
+    parts = urlparse(match.group().rstrip(".,)"))
+    if (
+        parts.scheme not in {"https", "http"}
+        or parts.hostname
+        not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+        or parts.username
+        or parts.password
+    ):
+        return None
+    value = parse_qs(parts.query).get("list", [""])[0]
+    return (
+        f"https://www.youtube.com/playlist?list={value}"
+        if re.fullmatch(r"[A-Za-z0-9_-]+", value)
+        else None
+    )
+
+
+def video_details(url, *, runner=None):
+    entries = _flat_target(url, runner=runner, timeout=60)
+    return entries[0] if entries else {}
+
+
+def playlist_entries(url, *, runner=None):
+    return _flat_target(url, runner=runner, timeout=60)
+
+
+def _flat_target(target, *, runner=None, binary=None, timeout=30):
     binary = binary or shutil.which("yt-dlp")
     if not binary:
         raise YouTubeSearchError("yt-dlp isn't installed, Sir.")
@@ -257,14 +309,18 @@ def search(
         args += ["--cookies-from-browser", browser]
     if node := shutil.which("node"):
         args += ["--js-runtimes", f"node:{node}"]
-    args.append(f"ytsearch{int(n)}:{query}")
+    args.append(target)
     try:
         data = json.loads((runner or _default_runner)(args, timeout))
     except subprocess.TimeoutExpired as exc:
         raise YouTubeSearchError(ERROR_SAY["network"]) from exc
     except (ValueError, OSError) as exc:
         raise YouTubeSearchError(ERROR_SAY["failed"]) from exc
-    entries = data.get("entries") if isinstance(data, dict) else None
+    entries = (
+        data.get("entries", [data] if data.get("id") else [])
+        if isinstance(data, dict)
+        else None
+    )
     return [e for e in entries or [] if isinstance(e, dict)]
 
 
@@ -274,7 +330,15 @@ def resolve_query(request: Request, *, runner=None) -> Decision:
         if not query or query in tried:
             continue
         tried.append(query)
-        ranked = rank_results(query, search(query, runner=runner))
+        ranked = rank_results(
+            query,
+            search(query, runner=runner),
+            allow_long=bool(
+                re.search(
+                    r"\b(?:long|stream|hours?|marathon)\b", request.raw_query, re.I
+                )
+            ),
+        )
         if ranked:
             return decide(ranked)
     return Decision("none", [])

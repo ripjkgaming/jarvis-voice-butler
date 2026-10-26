@@ -167,3 +167,16 @@ def test_map_error(msg, code):
     assert yr.map_error(msg) == code
     assert yr.explain_error(msg) == yr.ERROR_SAY[code]
     assert "metadata" not in yr.ERROR_SAY[code]
+
+
+def test_stt_cleanup_keeps_original_words_for_search_fallback():
+    text = "download Tesla roaster kick flip as mp3"
+    request = yr.parse_request(text)
+    assert request.query == "Tesla Roadster kickflip"
+    assert request.raw_query == text
+
+
+def test_ten_hour_stream_is_filtered_unless_requested():
+    result = entry(ID1, "Long stream", duration=36000)
+    assert yr.rank_results("Long stream", [result]) == []
+    assert yr.rank_results("Long stream", [result], allow_long=True)
