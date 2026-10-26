@@ -31,7 +31,7 @@ const commitMono = localFont({
   ],
 });
 
-// STARK OS type (design/STARK_OS.md): Rajdhani labels, Orbitron wordmark,
+// LOCKE OS type (design/LOCKE_OS.md): Rajdhani labels, Orbitron wordmark,
 // Share Tech Mono read-outs. Vendored, so the offline shell never fetches.
 const rajdhani = localFont({
   display: 'swap',

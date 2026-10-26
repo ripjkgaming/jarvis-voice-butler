@@ -26,16 +26,9 @@ function detectNarrow(): boolean {
 /** Dual/solo mode. Auto-detect is viewport-only; only an explicit toggle
  *  touch persists (a manual choice always wins over re-detect). */
 export function useDisplayMode() {
-  const [mode, setMode] = useState<DisplayMode>(() => {
-    if (typeof window === 'undefined') return 'dual';
-    try {
-      const saved = window.localStorage.getItem(KEY) as DisplayMode | null;
-      if (saved === 'solo' || saved === 'dual') return saved;
-    } catch {
-      /* ignore */
-    }
-    return detectNarrow() ? 'solo' : 'dual';
-  });
+  // SSR and the first client render must agree; otherwise narrow windows
+  // force a hydration recovery and remount the animated reactor.
+  const [mode, setMode] = useState<DisplayMode>('dual');
 
   useEffect(() => {
     const onResize = () => {
@@ -46,6 +39,13 @@ export function useDisplayMode() {
       }
       setMode(detectNarrow() ? 'solo' : 'dual');
     };
+    try {
+      const saved = window.localStorage.getItem(KEY);
+      if (saved === 'solo' || saved === 'dual') setMode(saved);
+      else onResize();
+    } catch {
+      onResize();
+    }
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);

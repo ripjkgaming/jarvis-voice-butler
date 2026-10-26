@@ -81,6 +81,8 @@ export type PaperMarketSnapshot = {
     realized_pnl_usd: string;
   }[];
   runtime: {
+    autotrading_enabled?: boolean;
+    risk_interval_seconds?: number;
     last_cycle_at: string | null;
     last_cycle_status: string | null;
     last_error: string | null;

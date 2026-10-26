@@ -2,7 +2,7 @@
 
 ## Product intent
 
-Make the desktop overlay feel like a calm, capable Stark Industries command surface while keeping voice as the only way to issue commands. The screen should make three things obvious at a glance: whether JARVIS is available, whether a conversation is active, and what the system is doing.
+Make the desktop overlay feel like a calm, capable Locke OS command surface while keeping voice as the only way to issue commands. The screen should make three things obvious at a glance: whether JARVIS is available, whether a conversation is active, and what the system is doing.
 
 ## Visual system
 

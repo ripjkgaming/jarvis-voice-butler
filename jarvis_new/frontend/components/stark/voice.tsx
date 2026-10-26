@@ -1,6 +1,8 @@
 'use client';
 
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { GlyphBar } from '@/components/ascii/glyphs';
+import { useDecode } from '@/components/ascii/use-decode';
 import { useBootLog } from '@/hooks/hud/use-boot-log';
 import { type JarvisState } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
@@ -30,9 +32,20 @@ export function StateReadout({
 }) {
   const word = muted === true ? 'MUTED' : link.phase !== 'idle' ? link.word : STATE_WORD[jarvis];
   const detail = muted !== true && link.phase !== 'idle' ? link.detail : '';
+  const shown = useDecode(word, 360);
   return (
     <div className={s.readout} role="status" aria-live="polite">
-      <span className={s.readoutWord}>{word}</span>
+      <span key={word} className={s.readoutWord} data-voice-readout={word}>
+        {/* the real word for assistive tech and text queries; the glyph
+            decode is presentation only */}
+        <span className="sr-only">{word}</span>
+        <span aria-hidden="true">{shown}</span>
+        <span className={s.readoutSignal} aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      </span>
       {detail ? <span className={s.readoutHint}>{detail}</span> : null}
     </div>
   );
@@ -122,13 +135,11 @@ export function Research({ sys }: { sys: BridgeSys | null }) {
         const pct = Math.max(0, Math.min(100, Math.round(j.progress)));
         return (
           <li key={j.id} className={s.researchJob}>
-            <span className={s.researchTag}>RESEARCH</span>
+            <span className={s.researchTag}>[RSCH]</span>
             <span className={s.researchTitle}>{j.title}</span>
             <span className={s.researchStage}>{j.stage}</span>
             <span className={s.researchPct}>{pct}%</span>
-            <span className={s.researchBar} aria-hidden="true">
-              <i style={{ width: `${pct}%` }} />
-            </span>
+            <GlyphBar pct={pct} width={36} className={s.researchBar} />
           </li>
         );
       })}

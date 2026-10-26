@@ -18,6 +18,7 @@ import type { InsightsTab } from '@/hooks/hud/use-insights';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
 import { refreshWindowGeometry, useWindowGeometry } from '@/hooks/hud/use-window-geometry';
+import { type GlyphAtlas, NOISE, RAMP, glyphAtlas } from '@/lib/ascii';
 import {
   type BridgeActivity,
   type BridgeSys,
@@ -196,11 +197,17 @@ type Ripple = { x: number; w: number; amp: number; freq: number; born: number; l
 /** Idle stream: a live signal line. Quasi-periodic waves (irrational
  *  ratios, random phases) plus ripples that bloom at random spots and fade,
  *  so it never visibly repeats. Eases between states instead of jumping. */
-const traceColor = (state: string): number[] => {
-  const hex =
-    state === 'muted' ? MUTED_COLOR : (JARVIS_COLORS[state as JarvisState] ?? JARVIS_COLORS.idle);
-  return [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
-};
+const traceColor = (state: string): string =>
+  state === 'muted' ? MUTED_COLOR : (JARVIS_COLORS[state as JarvisState] ?? JARVIS_COLORS.idle);
+
+/** Glyph cell of the ASCII trace, and the glyphs it is drawn from:
+ *  `-` level, `/` `\\` slopes (main line), `·` (ghost line). */
+const TRACE_CW = 6;
+const TRACE_CH = 10;
+const G_FLAT = RAMP.indexOf('-');
+const G_UP = RAMP.length + NOISE.indexOf('/');
+const G_DOWN = RAMP.length + NOISE.indexOf('\\');
+const G_DOT = RAMP.indexOf('·');
 
 const LiveTrace = memo(function LiveTrace({ state }: { state: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -220,7 +227,8 @@ const LiveTrace = memo(function LiveTrace({ state }: { state: string }) {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const phase = [0, 0, 0, 0].map(() => Math.random() * Math.PI * 2);
     const ripples: Ripple[] = [];
-    const color = [...targetColor.current];
+    let atlas: GlyphAtlas | null = null;
+    let atlasKey = '';
     let amp = tune.current.amp;
     let speed = tune.current.speed;
     let t = Math.random() * 1000;
@@ -255,8 +263,6 @@ const LiveTrace = memo(function LiveTrace({ state }: { state: string }) {
       amp += (goal.amp - amp) * ease;
       speed += (goal.speed - speed) * ease;
       t += dt * speed;
-      for (let i = 0; i < 3; i++) color[i] += (targetColor.current[i] - color[i]) * ease;
-      const ink = `rgb(${color.map(Math.round).join(',')})`;
 
       for (let i = ripples.length - 1; i >= 0; i--) {
         if (elapsed - ripples[i].born > ripples[i].life) ripples.splice(i, 1);
@@ -274,30 +280,29 @@ const LiveTrace = memo(function LiveTrace({ state }: { state: string }) {
 
       // Dimensions are observer-driven: no layout/style reads in the hot loop.
       if (!width || !height) return;
+      // One pre-tinted glyph atlas per state colour (rebuilt on change).
+      const key = `${targetColor.current}@${dpr}`;
+      if (!atlas || key !== atlasKey) {
+        atlas = glyphAtlas(TRACE_CW, TRACE_CH, dpr, targetColor.current);
+        atlasKey = key;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      const mid = height / 2;
-      const reach = mid - 2;
-      const trace = (offset: number) => {
-        ctx.beginPath();
-        for (let px = 0; px <= width; px += 2) {
-          const y = mid + signal(px / width + offset) * reach;
-          if (px === 0) ctx.moveTo(px, y);
-          else ctx.lineTo(px, y);
-        }
-        ctx.stroke();
-      };
-      ctx.strokeStyle = ink;
-      ctx.lineJoin = 'round';
-      ctx.globalAlpha = 0.22;
-      ctx.lineWidth = 1;
-      ctx.shadowBlur = 0;
-      trace(0.013);
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1.4;
-      ctx.shadowColor = ink;
-      ctx.shadowBlur = 6;
-      trace(0);
+      const mid = height / 2 - TRACE_CH / 2;
+      const reach = Math.max(0, height / 2 - TRACE_CH / 2);
+      const cols = Math.ceil(width / TRACE_CW);
+      // ASCII oscilloscope: one glyph per column, slope-aware (- / \\),
+      // plus a dim dotted ghost trace offset behind it.
+      for (let c = 0; c <= cols; c++) {
+        const x = c * TRACE_CW;
+        const u = (x + TRACE_CW / 2) / width;
+        const ghost = signal(u + 0.013);
+        atlas.draw(ctx, G_DOT, 0.32, x, mid + ghost * reach);
+        const v = signal(u);
+        const dv = (signal(u + TRACE_CW / width) - signal(u - TRACE_CW / width)) * reach;
+        const g = Math.abs(dv) < TRACE_CW * 0.7 ? G_FLAT : dv < 0 ? G_UP : G_DOWN;
+        atlas.draw(ctx, g, 0.8, x, mid + v * reach);
+      }
     };
     const frame = (now: number) => {
       draw(now);
@@ -752,7 +757,7 @@ export function SchoolStrip({
           </button>
           <span className="sbar-id">
             <b className="sbar-id__name">J.A.R.V.I.S.</b>
-            <span className="sbar-id__mode">STARK OS / SCHOOL</span>
+            <span className="sbar-id__mode">LOCKE OS / SCHOOL</span>
             <span key={state} className="sbar-id__state">
               {muted ? 'MUTED' : link.joining ? 'LINKING' : STATE_LABEL[jarvis]}
             </span>

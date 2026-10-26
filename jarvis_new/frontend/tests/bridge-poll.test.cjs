@@ -77,6 +77,57 @@ function bridgeFixture({ tauri = false, bridgeInfo, fetch } = {}) {
 
 const response = (value) => ({ ok: true, json: async () => value });
 
+test('an unauthorized cached endpoint is rediscovered on the next poll', async () => {
+  let discoveries = 0;
+  const sent = [];
+  const f = bridgeFixture({
+    tauri: true,
+    bridgeInfo: async () => ({
+      url: 'http://bridge.test',
+      token: ++discoveries === 1 ? null : 'recovered-test-token',
+    }),
+    fetch: async (_url, options) => {
+      sent.push(options.headers?.Authorization);
+      return options.headers?.Authorization === 'Bearer recovered-test-token'
+        ? response({ room: 'a', call_live: true, agent_state: 'listening' })
+        : { ok: false, status: 401 };
+    },
+  });
+  assert.equal(await f.bridgeGet('/room'), null);
+  assert.equal((await f.bridgeGet('/room'))?.call_live, true);
+  assert.equal(discoveries, 2);
+  assert.deepEqual(sent, [undefined, 'Bearer recovered-test-token']);
+  assert.equal(f.timers.size, 0);
+});
+
+test('a late unauthorized response cannot evict a newer valid endpoint', async () => {
+  let discoveries = 0;
+  let finishSlow;
+  const f = bridgeFixture({
+    tauri: true,
+    bridgeInfo: async () => ({
+      url: 'http://bridge.test',
+      token: ++discoveries === 1 ? 'old-test-token' : 'recovered-test-token',
+    }),
+    fetch: async (url, options) => {
+      if (url.endsWith('/slow')) return new Promise((resolve) => { finishSlow = resolve; });
+      if (options.headers?.Authorization === 'Bearer old-test-token') {
+        return { ok: false, status: 401 };
+      }
+      return response({ call_live: true });
+    },
+  });
+  const slow = f.bridgeGet('/slow');
+  await flush();
+  assert.equal(await f.bridgeGet('/room'), null);
+  assert.equal((await f.bridgeGet('/room')).call_live, true);
+  finishSlow({ ok: false, status: 401 });
+  assert.equal(await slow, null);
+  assert.equal((await f.bridgeGet('/room')).call_live, true);
+  assert.equal(discoveries, 2);
+  assert.equal(f.timers.size, 0);
+});
+
 function pendingUntilAbort(signal) {
   return new Promise((_, reject) => {
     if (signal.aborted) reject(new Error('Aborted'));

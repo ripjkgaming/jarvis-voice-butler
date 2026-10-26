@@ -433,6 +433,8 @@ function useStill(
     bakeKey: color,
     layoutBox: true,
     cacheId: `rx-${id}`,
+    incremental: true,
+    bakeDelay: Math.max(0, ['dust', 'orbits', 'spiral', 'flow-a', 'flow-b'].indexOf(id)) * 32,
     render: (ctx, w, h) => draw(ctx, w, h, rgbOf(color)),
   });
 }
@@ -459,6 +461,7 @@ export function useReactorPlasma(color: string, jarvis: JarvisState, muted: bool
     bakeKey: `${color}|${mode}`,
     layoutBox: true,
     cacheId: 'rx-plasma',
+    incremental: true,
     render: (ctx, w, h, i, n) => drawPlasma(ctx, w, h, i, n, rgbOf(color), mode),
   });
 

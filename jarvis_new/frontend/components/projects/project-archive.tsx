@@ -10,8 +10,11 @@
  *  bus ("navigate to the solar project, open the second document, start
  *  scrolling slowly") and the screen reflects voice state back. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AsciiBox, GlyphBar, SayHint } from '@/components/ascii/glyphs';
+import { Decode } from '@/components/ascii/use-decode';
 import { Markdown } from '@/components/projects/markdown';
 import { useSurfaceVisibility } from '@/hooks/hud/use-surface-visibility';
+import { reticleArt } from '@/lib/ascii';
 import {
   type ProjectDetail,
   type ProjectMeta,
@@ -63,21 +66,21 @@ const STATUS_LABEL: Record<ProjectMeta['status'], string> = {
   cancelled: 'CANCELLED',
 };
 
-function Reticle({ spinning }: { spinning?: boolean }) {
+/** Glyph emblem for the masthead; the sweep glyph turns while a job runs. */
+function Emblem({ spinning }: { spinning?: boolean }) {
   return (
-    <svg
-      viewBox="0 0 120 120"
-      className={spinning ? styles.reticleSpin : styles.reticle}
-      aria-hidden
-    >
-      <circle cx="60" cy="60" r="54" />
-      <circle cx="60" cy="60" r="38" strokeDasharray="4 6" />
-      <circle cx="60" cy="60" r="20" />
-      <path d="M60 0v22M60 98v22M0 60h22M98 60h22" />
-      <path d="M60 60 L98 34" className={styles.reticleArm} />
-    </svg>
+    <span className={styles.emblem} aria-hidden>
+      <span>╭───╮</span>
+      <span>
+        │<b className={spinning ? styles.emblemSpin : undefined}>◢◣</b>│
+      </span>
+      <span>╰───╯</span>
+    </span>
   );
 }
+
+/** Standby reticle: static box-drawn art (lib/ascii reticleArt). */
+const RETICLE = reticleArt(45, 19, 1.7).join('\n');
 
 type Heard = { at: number; text: string };
 
@@ -362,14 +365,14 @@ export function ProjectArchive() {
 
       <header className={styles.header}>
         <div className={styles.brand}>
-          <Reticle spinning={running > 0} />
+          <Emblem spinning={running > 0} />
           <div>
             <strong>J.A.R.V.I.S.</strong>
             <small>PROJECT ARCHIVE</small>
           </div>
         </div>
         <div className={styles.stats}>
-          <span>
+          <span data-hot={running > 0 ? 'true' : undefined}>
             <b>{pad(running)}</b> ACTIVE
           </span>
           <span>
@@ -380,7 +383,7 @@ export function ProjectArchive() {
           </span>
         </div>
         <div className={styles.clock}>
-          {offline ? <em className={styles.offline}>BRIDGE OFFLINE</em> : null}
+          {offline ? <em className={styles.offline}>▲ BRIDGE OFFLINE</em> : null}
           <span>
             {now
               ? `${pad(clock.getHours())}:${pad(clock.getMinutes())}:${pad(clock.getSeconds())}`
@@ -391,11 +394,18 @@ export function ProjectArchive() {
 
       <main className={styles.monitors}>
         {/* ---------- MONITOR A: index + voice console ---------- */}
-        <section className={styles.monitor} aria-label="Project index">
-          <div className={styles.monTag}>MON-A // INDEX</div>
+        <AsciiBox
+          label="MON-A // INDEX"
+          index={1}
+          heavy
+          aside={`${pad(visible.length)} SHOWN`}
+          className={styles.monitor}
+          bodyClassName={styles.monBody}
+        >
           <div className={styles.tabs}>
             {(['all', 'research', 'code'] as Filter[]).map((f) => (
               <span key={f} className={filter === f ? styles.tabOn : styles.tab}>
+                {filter === f ? '▶ ' : '  '}
                 {f.toUpperCase()}
               </span>
             ))}
@@ -423,15 +433,18 @@ export function ProjectArchive() {
                     <ResearchBar pct={p.progress ?? 0} stage={p.stage} compact />
                   ) : null}
                 </span>
-                <span className={styles[`st_${p.status}`]}>{STATUS_LABEL[p.status]}</span>
+                <span className={styles[`st_${p.status}`]}>[{STATUS_LABEL[p.status]}]</span>
               </li>
             ))}
           </ol>
 
           <div className={styles.console} aria-live="polite">
             <div className={styles.consoleHead}>
-              <span className={latest ? styles.micHot : styles.mic} aria-hidden />
+              <span className={latest ? styles.micHot : styles.mic} aria-hidden>
+                {latest ? '◉' : '○'}
+              </span>
               VOICE CONSOLE
+              <span className={styles.consoleRule} aria-hidden />
             </div>
             <ul className={styles.heard}>
               {heard.length === 0 ? (
@@ -439,39 +452,51 @@ export function ProjectArchive() {
               ) : (
                 heard.map((h, i) => (
                   <li key={h.at + h.text} className={i === 0 ? styles.heardNew : undefined}>
-                    “{h.text}”
+                    <span aria-hidden>{i === 0 ? '> ' : '  '}</span>“{h.text}”
                   </li>
                 ))
               )}
             </ul>
             <div className={styles.phrases}>
               {PHRASES.map((ph) => (
-                <span key={ph}>{ph}</span>
+                <SayHint key={ph}>{ph}</SayHint>
               ))}
             </div>
           </div>
-        </section>
+        </AsciiBox>
 
         {/* ---------- MONITOR B: sheet ---------- */}
-        <section className={styles.monitor} aria-label="Project sheet">
-          <div className={styles.monTag}>
-            MON-B // {openDoc ? 'DOCUMENT' : meta ? 'DOSSIER' : 'STANDBY'}
-          </div>
+        <AsciiBox
+          label={`MON-B // ${openDoc ? 'DOCUMENT' : meta ? 'DOSSIER' : 'STANDBY'}`}
+          index={2}
+          heavy
+          aside={meta ? meta.kind.toUpperCase() : undefined}
+          className={styles.monitor}
+          bodyClassName={styles.monBody}
+        >
           {latest ? <div className={styles.voiceNote}>◉ HEARD · {latest.text}</div> : null}
 
           {!meta ? (
             <div className={styles.empty}>
-              <Reticle />
+              <pre className={styles.emptyArt} aria-hidden>
+                {RETICLE}
+              </pre>
+              <p>
+                <Decode text="NO PROJECT SELECTED" />
+              </p>
+              <SayHint>open project two</SayHint>
             </div>
           ) : (
             <div className={styles.sheetWrap}>
               <div className={styles.dossier}>
                 <div className={styles.dossierHead}>
                   <div>
-                    <span className={styles.idTag}>{meta.id}</span>
-                    <h1>{meta.title}</h1>
+                    <span className={styles.idTag}>#{meta.id}</span>
+                    <h1>
+                      <Decode text={meta.title} ms={520} />
+                    </h1>
                   </div>
-                  <span className={styles[`st_${meta.status}`]}>{STATUS_LABEL[meta.status]}</span>
+                  <span className={styles[`st_${meta.status}`]}>[{STATUS_LABEL[meta.status]}]</span>
                 </div>
                 <dl className={styles.specs}>
                   <div>
@@ -498,7 +523,7 @@ export function ProjectArchive() {
                 </dl>
                 {pendingDelete && pendingDelete.id === meta.id && now - pendingDelete.at < 30000 ? (
                   <div className={styles.deleteBanner} role="alert">
-                    <b>CONFIRM ERASURE</b>
+                    <b>▲ CONFIRM ERASURE ▲</b>
                     <span>
                       SAY “CONFIRM DELETE” ·{' '}
                       {Math.max(0, Math.ceil((30000 - (now - pendingDelete.at)) / 1000))}S
@@ -510,12 +535,14 @@ export function ProjectArchive() {
                 ) : null}
                 {meta.summary && !openDoc ? (
                   <div className={styles.summary}>
-                    <span>SUMMARY</span>
+                    <span>── SUMMARY ──</span>
                     <p>{meta.summary}</p>
                   </div>
                 ) : null}
                 {meta.status === 'failed' && meta.error ? (
-                  <div className={styles.failure}>{meta.error}</div>
+                  <div className={styles.failure}>
+                    <b>[✕] FAILED</b> {meta.error}
+                  </div>
                 ) : null}
 
                 <div className={styles.docStrip}>
@@ -528,13 +555,17 @@ export function ProjectArchive() {
                   ) : (
                     docs.map((d, i) => (
                       <span key={d.name} className={i === docIndex ? styles.docOn : styles.doc}>
-                        <b>DOC {pad(i + 1)}</b>
+                        <b>
+                          {i === docIndex ? '▶ ' : ''}DOC {pad(i + 1)}
+                        </b>
                         <span>{d.title ?? d.name}</span>
                       </span>
                     ))
                   )}
                   {meta.status === 'running' ? (
-                    <span className={styles.abort}>SAY “ABORT” TO CANCEL</span>
+                    <span className={styles.abort}>
+                      <SayHint>abort</SayHint> TO CANCEL
+                    </span>
                   ) : null}
                 </div>
               </div>
@@ -546,7 +577,7 @@ export function ProjectArchive() {
                       DOC {pad((docIndex ?? 0) + 1)} / {pad(docs.length)} · {openDoc.name}
                     </span>
                     <span className={scrolling ? styles.scrollOn : styles.scrollBtn}>
-                      {scrolling ? `AUTO-SCROLL ▸ ${speed.toUpperCase()}` : 'AUTO-SCROLL ‖'}
+                      {scrolling ? `AUTO-SCROLL ▶ ${speed.toUpperCase()}` : 'AUTO-SCROLL ‖'}
                     </span>
                   </div>
                   <div className={styles.viewerBody}>
@@ -558,7 +589,9 @@ export function ProjectArchive() {
                       )}
                     </div>
                     <div className={styles.ruler} aria-hidden>
-                      <div className={styles.rulerThumb} style={{ top: `${progress * 100}%` }} />
+                      <div className={styles.rulerThumb} style={{ top: `${progress * 100}%` }}>
+                        ◀{String(Math.round(progress * 100)).padStart(3, ' ')}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -567,13 +600,8 @@ export function ProjectArchive() {
               ) : null}
             </div>
           )}
-        </section>
+        </AsciiBox>
       </main>
-
-      <footer className={styles.footer}>
-        <span>VOICE CONTROLLED · say “Jarvis” then any command on the left console</span>
-        <span>{scrolling ? `AUTO-SCROLL ${speed.toUpperCase()}` : 'STANDING BY'}</span>
-      </footer>
     </div>
   );
 }
@@ -610,9 +638,7 @@ function ResearchBar({
           </span>
         </span>
       ) : null}
-      <span className={styles.barTrack}>
-        <span className={styles.barFill} style={{ width: `${clamped}%` }} />
-      </span>
+      <GlyphBar pct={clamped} width={compact ? 28 : 48} tone="amber" className={styles.barTrack} />
       <span className={styles.barStage}>
         {compact ? `${clamped}% · ` : ''}
         {stage ?? 'Starting'}

@@ -10,6 +10,7 @@
  *  tool open_insights -> GET /panels -> useInsights); "open my drafts"
  *  opens the Drafts window. */
 import { useEffect, useMemo, useState } from 'react';
+import { GlyphChart } from '@/components/ascii/glyphs';
 import { usePaperMarket } from '@/components/markets/PaperTradingPanel';
 import { type UsageSnapshot, estimatedCost, subscribeUsage, tokenCount } from '@/lib/ai-usage';
 import { type ReplyDraft } from '@/lib/drafts';
@@ -35,11 +36,11 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: Ton
 }
 
 /** AI USAGE: today's tokens and spend, this week's spend, top model. */
-function UsageCard({ index }: { index: number }) {
+function UsageCard({ index, live }: { index: number; live: boolean }) {
   const [today, setToday] = useState<UsageSnapshot | null>(null);
   const [week, setWeek] = useState<UsageSnapshot | null>(null);
-  useEffect(() => subscribeUsage('today', setToday), []);
-  useEffect(() => subscribeUsage('week', setWeek), []);
+  useEffect(() => (live ? subscribeUsage('today', setToday) : undefined), [live]);
+  useEffect(() => (live ? subscribeUsage('week', setWeek) : undefined), [live]);
   const data = today?.data ?? null;
   const top = useMemo(
     () =>
@@ -66,15 +67,22 @@ function UsageCard({ index }: { index: number }) {
 }
 
 /** PAPER MARKET: equity, return, P&L, market state and an equity line. */
-function MarketCard({ index }: { index: number }) {
-  const { snapshot, error } = usePaperMarket(undefined, 0);
+function MarketCard({ index, live }: { index: number; live: boolean }) {
+  const { snapshot, error } = usePaperMarket(undefined, 0, live);
   const chart = useMemo(
     () => (snapshot ? equityChart(snapshot.equity_history, 'equity_usd') : null),
     [snapshot]
   );
   const acct = snapshot?.account;
   const ret = acct ? percentage(acct.total_return_pct) : '—';
-  const failed = snapshot?.runtime.last_cycle_status === 'error' || !!snapshot?.runtime.last_error;
+  const cycleStatus = snapshot?.runtime.last_cycle_status;
+  const cycleError = snapshot?.runtime.last_error;
+  // Only the known warm-up explanation is informational; unexpected errors remain visible.
+  const warmingUp =
+    cycleStatus === 'warming_up' &&
+    (!cycleError ||
+      cycleError === 'At least 16 consecutive completed minute bars are required for an entry.');
+  const failed = !warmingUp && (cycleStatus === 'error' || !!cycleError);
   return (
     <Frame
       label="PAPER MARKET"
@@ -101,22 +109,22 @@ function MarketCard({ index }: { index: number }) {
             />
           </div>
           {chart && chart.count > 1 ? (
-            <svg
+            <GlyphChart
+              values={chart.segments.flat().map((p) => p.value)}
+              width={30}
+              rows={2}
+              lo={chart.low}
+              hi={chart.high}
+              tone={toneOf(acct.total_pnl_usd)}
               className={s.deskSpark}
-              viewBox="0 0 720 180"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-              data-tone={toneOf(acct.total_pnl_usd)}
-            >
-              {chart.segments.map((seg, i) => (
-                <polyline key={i} points={seg.map((p) => `${p.x},${p.y}`).join(' ')} />
-              ))}
-            </svg>
+            />
           ) : null}
           <span className={s.deskSub} data-tone={failed ? 'warn' : undefined}>
             {failed
               ? 'LAST CYCLE FAILED'
-              : `${snapshot.holdings.length} HOLDINGS · CASH ${money(acct.cash_usd)}`}
+              : warmingUp
+                ? 'Warming up: waiting for 16 completed minute bars'
+                : `${snapshot.holdings.length} HOLDINGS · CASH ${money(acct.cash_usd)}`}
           </span>
         </>
       )}
@@ -161,11 +169,20 @@ function DraftsCard({ index }: { index: number }) {
   );
 }
 
+/** The HUD can mount for a frame at launch before school mode takes over;
+ *  the tracker and market feeds only start once it has stayed on screen. */
+const SETTLE_MS = 400;
+
 export function Desk({ index }: { index: number }) {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setLive(true), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <div className={s.desk}>
-      <UsageCard index={index} />
-      <MarketCard index={index + 1} />
+      <UsageCard index={index} live={live} />
+      <MarketCard index={index + 1} live={live} />
       <DraftsCard index={index + 2} />
     </div>
   );

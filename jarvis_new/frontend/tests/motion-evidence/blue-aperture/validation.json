@@ -1,0 +1,53 @@
+{
+  "design": "Blue aperture assembly; continuous 5-second CSS/SVG cycle; actual online immediately stops acquisition; reduced motion static",
+  "files": [
+    "frontend/components/hud/voice-link.tsx",
+    "frontend/components/hud/voice-link.css",
+    "frontend/components/stark/stark.module.css",
+    "frontend/hooks/hud/use-voice-link.ts",
+    "frontend/lib/voice-link.ts",
+    "frontend/tests/voice-link.test.cjs",
+    "frontend/tests/voice-link-smoke.py",
+    "frontend/tests/voice-aperture-smoke.py"
+  ],
+  "unit_tests": {
+    "passed": 19,
+    "suites": [
+      "voice-link.test.cjs",
+      "baked-playback.test.cjs"
+    ]
+  },
+  "visual_checks": [
+    "1280x720",
+    "960x540",
+    "5-second cycle continuous across backend stages",
+    "no time-based readiness",
+    "no whole-reactor filter",
+    "hidden/modal/transition pause",
+    "dynamic reduced motion",
+    "immediate actual ready",
+    "interrupted join status",
+    "click retry",
+    "duplicate prevention",
+    "local failure",
+    "compact school retry"
+  ],
+  "build": "production export succeeded; type check passed; initial lint passed with two existing unrelated visualizer warnings",
+  "performance": "build single worker, nice 19, CPUQuota 35%; isolated Chromium check CPUQuota 75%, no video",
+  "deployment": {
+    "backup": "/home/ripjk/.local/share/jarvis-ui-backups/blue-aperture-20261003-230334",
+    "build_id": "ggIGL5eku8J9g6v2-tBFJ",
+    "served_sha256": "4c54cf450778e9657f407eac6fde9468cb3b6482f2c913aa7d40c4bb2fe59760",
+    "verified_assets": 13,
+    "native_window_reloaded": false
+  },
+  "untouched": [
+    "optimizer source files",
+    "backend audio",
+    "watch security",
+    "trading",
+    "suit behavior",
+    "running native Jarvis process"
+  ],
+  "kwin_signal_aperture_loaded": true
+}

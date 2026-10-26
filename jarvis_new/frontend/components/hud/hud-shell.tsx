@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
 import { SchoolStrip } from '@/components/hud/school-strip';
 import { SchoolTransition, useSchoolTransition } from '@/components/hud/school-transition';
+import { ProtocolLayer } from '@/components/protocol/protocol-layer';
 import { StarkHud } from '@/components/stark/stark-hud';
 import { useBridgeSysSnapshot } from '@/hooks/hud/use-bridge-sys';
 import { useDisplayMode } from '@/hooks/hud/use-display-mode';
@@ -204,7 +205,7 @@ export function HudShell({ children }: Props) {
 
   const returning = ret !== null;
   const pooling = tx !== null && barH !== null;
-  // STARK OS HUD (components/stark): one layout for dual and solo.
+  // LOCKE OS HUD (components/stark): one layout for dual and solo.
   const hudView = (
     <StarkHud sys={sys} solo={isSolo} jarvis={jarvis} muted={muted} link={link}>
       {children}
@@ -284,6 +285,9 @@ export function HudShell({ children }: Props) {
           returnFocus={insights.returnFocus.current}
         />
       )}
+      {/* Protocol 12 network map: takes over the full HUD face only (not the
+          school bar or its transitions). */}
+      <ProtocolLayer enabled={hudOn && !tx && !returning} />
     </>
   );
 }

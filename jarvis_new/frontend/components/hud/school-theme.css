@@ -1,4 +1,4 @@
-/* STARK OS school console. Shared geometry remains in globals.css; this
+/* LOCKE OS school console. Shared geometry remains in globals.css; this
    scoped skin carries the same blueprint glass, type and cuts as the HUD. */
 .sbar-stark {
   --school-cyan: #5fe3ff;

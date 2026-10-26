@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import { GlyphBar } from '@/components/ascii/glyphs';
 import {
   USAGE_RANGES,
   USAGE_TIMEZONE,
@@ -77,18 +78,15 @@ function UsageChart({ days }: { days: UsageDay[] }) {
               aria-label={`Daily ${metric === 'total_tokens' ? 'reported tokens' : 'estimated cost in USD'}; exact values in the daily data table below`}
             >
               <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="0%"
-                    stopColor={metric === 'total_tokens' ? '#63e6ff' : '#ffbc65'}
-                    stopOpacity="0.86"
+                {/* ASCII block columns: stacked glyph cells, not a smooth fill */}
+                <pattern id={gradientId} width="8" height="7" patternUnits="userSpaceOnUse">
+                  <rect
+                    width="8"
+                    height="5"
+                    fill={metric === 'total_tokens' ? '#63e6ff' : '#ffbc65'}
+                    opacity="0.85"
                   />
-                  <stop
-                    offset="100%"
-                    stopColor={metric === 'total_tokens' ? '#208ca8' : '#b77831'}
-                    stopOpacity="0.15"
-                  />
-                </linearGradient>
+                </pattern>
               </defs>
               {ticks.map((tick) => (
                 <g key={tick}>
@@ -250,10 +248,13 @@ function AppBreakdown({ apps, total }: { apps: UsageBreakdown[]; total: number |
                 </span>
               </div>
               <div className={styles.appBar} aria-hidden="true">
-                <span
-                  style={{
-                    width: `${total && app.total_tokens !== null ? Math.min(100, Math.max(0, (app.total_tokens / total) * 100)) : 0}%`,
-                  }}
+                <GlyphBar
+                  width={40}
+                  pct={
+                    total && app.total_tokens !== null
+                      ? Math.min(100, Math.max(0, (app.total_tokens / total) * 100))
+                      : 0
+                  }
                 />
               </div>
               <div className={styles.appDetail}>
@@ -522,14 +523,6 @@ export default function AiUsagePanel() {
           <span>Automatic refresh every 60 seconds while visible.</span>
         </div>
       )}
-      <footer className={styles.footer}>
-        <span>
-          {data
-            ? `Snapshot · ${snapshotLabel(data.source_info.snapshot_at)} SGT`
-            : 'No usage values loaded'}
-        </span>
-        <span>Read-only · refreshes every 60s while visible</span>
-      </footer>
     </div>
   );
 }

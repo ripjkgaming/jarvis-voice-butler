@@ -54,14 +54,16 @@ function Clock() {
   );
 }
 
+/** Glyph emblem: the reactor triangle in a box-drawn cell. */
 function Emblem() {
   return (
-    <svg className={s.emblem} viewBox="-20 -20 40 40" aria-hidden="true">
-      <circle r="18" className={s.emblemRing} />
-      <circle r="12.5" className={s.emblemRing} strokeDasharray="5 2.85" />
-      <path d="M0 -7.5 6.5 3.75 -6.5 3.75Z" className={s.emblemCore} />
-      <circle r="2.4" className={s.emblemHeart} />
-    </svg>
+    <span className={s.emblem} aria-hidden="true">
+      <span>╭───╮</span>
+      <span>
+        │<b>◢◣</b>│
+      </span>
+      <span>╰───╯</span>
+    </span>
   );
 }
 
@@ -89,12 +91,14 @@ function TopBar({
         <Emblem />
         <div className={s.brandCopy} data-tauri-drag-region>
           <strong className={s.wordmark}>J.A.R.V.I.S.</strong>
-          <small className={s.brandSub}>STARK OS · PERSONAL INTELLIGENCE</small>
+          <small className={s.brandSub}>LOCKE OS · PERSONAL INTELLIGENCE</small>
         </div>
       </div>
       <div className={s.chips} data-tauri-drag-region>
         <span className={s.chip} data-tone="state">
-          <i className={s.chipDot} aria-hidden="true" />
+          <i className={s.chipDot} aria-hidden="true">
+            ■
+          </i>
           {muted === true ? 'MUTED' : link.joining ? 'LINKING' : STATE_CHIP[jarvis]}
         </span>
         <span className={s.chip} data-tone={muted === true ? 'warn' : 'ok'}>
@@ -107,15 +111,14 @@ function TopBar({
   );
 }
 
-function Footer({ m, children }: { m: ReturnType<typeof metricsFrom>; children?: ReactNode }) {
+function Footer({ m }: { m: ReturnType<typeof metricsFrom> }) {
   const health = healthLine(m);
+  if (health.text !== 'ALL SYSTEMS NOMINAL') return null;
   return (
     <footer className={s.foot}>
-      <span className={s.footBrand}>CODENAME // LOCKE</span>
-      <span className={s.footMid}>{children}</span>
       <span className={s.footHealth} data-warn={health.warn ? 'true' : undefined}>
-        <i aria-hidden="true" />
-        {health.text}
+        <i aria-hidden="true">■</i>
+        ALL SYSTEMS NOMINAL
       </span>
     </footer>
   );
@@ -159,7 +162,7 @@ function useDoneFlash(items: ReturnType<typeof useActivity>): boolean {
 }
 
 /**
- * STARK OS HUD (design/STARK_OS.md). Three columns around the arc
+ * LOCKE OS HUD (design/LOCKE_OS.md). Three columns around the arc
  * reactor: vitals and links on the left, execution, voice panels, the
  * comms log and the desk (AI usage, paper market, drafts) on the right. Solo mode keeps only the reactor column.
  *
@@ -213,6 +216,7 @@ export function StarkHud({
       <div className={s.backdrop} aria-hidden="true" />
       <AmbientParticles
         variant="hud"
+        active={!link.joining}
         state={muted === true ? 'muted' : jarvis}
         className={s.ambient}
         anchorSelector={`.${s.reactor}`}
@@ -245,7 +249,7 @@ export function StarkHud({
           </aside>
         </main>
       )}
-      <Footer m={m}>DESKTOP COMMAND · LOCAL GRID</Footer>
+      <Footer m={m} />
       <i className={s.flashEdge} aria-hidden="true" />
       {children}
     </div>

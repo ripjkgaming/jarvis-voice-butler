@@ -1,0 +1,278 @@
+/* Shared ASCII glyph primitives (components/ascii/glyphs.tsx).
+ * One monospace face (Commit Mono carries every box/block glyph), glyph
+ * runs for rules and meters, hairline sides on the glyph centre line. */
+
+.box,
+.bar,
+.spark,
+.chart,
+.lamp,
+.say,
+.cell {
+  --ab-font: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
+  --ab-cyan: #5fe3ff;
+  --ab-ice: #d8f8ff;
+  --ab-amber: #ffb347;
+  --ab-red: #ff4d5e;
+  --ab-green: #6dffb3;
+  --ab-dim: rgba(95, 227, 255, 0.3);
+}
+
+.box {
+  --ab-fs: 11px;
+  --ab-lh: 18px;
+  --ab-line: rgba(95, 227, 255, 0.34);
+  --ab-title: var(--ab-cyan);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  font-family: var(--ab-font);
+  font-size: var(--ab-fs);
+  letter-spacing: 0;
+  background: linear-gradient(180deg, rgba(4, 18, 30, 0.72), rgba(2, 10, 18, 0.6));
+}
+.box[data-live] {
+  --ab-line: rgba(95, 227, 255, 0.62);
+}
+.box[data-tone='warn'],
+.box[data-tone='amber'] {
+  --ab-line: rgba(255, 179, 71, 0.55);
+  --ab-title: var(--ab-amber);
+}
+.box[data-tone='bad'] {
+  --ab-line: rgba(255, 77, 94, 0.6);
+  --ab-title: var(--ab-red);
+}
+/* hairline sides, centred on the corner glyphs' stroke */
+.box::before,
+.box::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--ab-lh) * 0.5);
+  bottom: calc(var(--ab-lh) * 0.5);
+  width: 1px;
+  background: var(--ab-line);
+  pointer-events: none;
+}
+.box::before {
+  left: calc(0.5ch - 0.5px);
+}
+.box::after {
+  right: calc(0.5ch - 0.5px);
+}
+.box[data-heavy]::before,
+.box[data-heavy]::after {
+  width: 2px;
+}
+
+.head,
+.foot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: var(--ab-lh);
+  line-height: var(--ab-lh);
+  white-space: pre;
+  color: var(--ab-line);
+  overflow: hidden;
+}
+.edge {
+  flex: 0 0 auto;
+}
+.fill,
+.fillShort {
+  flex: 1 1 0;
+  min-width: 1ch;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.fill::before {
+  content: '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────' /
+    '';
+}
+.fillShort {
+  flex: 0 0 auto;
+}
+.title {
+  flex: 0 1 auto;
+  min-width: 6ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ab-title);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 8px rgba(95, 227, 255, 0.35);
+}
+.title > span {
+  color: var(--ab-line);
+  letter-spacing: 0;
+}
+.aside,
+.index {
+  flex: 0 0 auto;
+  padding: 0 1ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(217, 244, 255, 0.62);
+  letter-spacing: 0.06em;
+}
+.aside {
+  flex: 0 100 auto;
+  min-width: 0;
+}
+.index {
+  color: var(--ab-title);
+  opacity: 0.75;
+}
+/* zero specificity: a consumer's bodyClassName always wins */
+:where(.body) {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 2px 2ch 4px;
+}
+
+/* glyph meter: block cells, a hair apart so they read as segments */
+.bar {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: middle;
+  font-family: var(--ab-font);
+  letter-spacing: 0.14em;
+  line-height: 1;
+  white-space: pre;
+}
+.barOn {
+  color: var(--ab-cyan);
+  text-shadow: 0 0 6px rgba(95, 227, 255, 0.45);
+}
+.barOff {
+  color: var(--ab-dim);
+}
+.bar[data-tone='warn'] .barOn,
+.bar[data-tone='amber'] .barOn {
+  color: var(--ab-amber);
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.45);
+}
+.bar[data-tone='bad'] .barOn,
+.bar[data-tone='down'] .barOn {
+  color: var(--ab-red);
+  text-shadow: 0 0 6px rgba(255, 77, 94, 0.4);
+}
+.bar[data-tone='up'] .barOn,
+.bar[data-tone='ok'] .barOn {
+  color: var(--ab-green);
+}
+.bar[data-tone='ice'] .barOn {
+  color: var(--ab-ice);
+}
+.bar[data-tone='off'] .barOn {
+  color: var(--ab-dim);
+  text-shadow: none;
+}
+.barScan {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--ab-cyan);
+  text-shadow: 0 0 6px rgba(95, 227, 255, 0.6);
+  animation: ab-scan 1.6s steps(26) infinite;
+}
+@keyframes ab-scan {
+  from {
+    transform: translateX(-5ch);
+  }
+  to {
+    transform: translateX(calc(var(--cells, 20) * 1.14ch));
+  }
+}
+
+/* sparkline */
+.spark {
+  display: inline-block;
+  font-family: var(--ab-font);
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: pre;
+  color: var(--ab-cyan);
+  text-shadow: 0 0 6px rgba(95, 227, 255, 0.35);
+}
+.spark[data-tone='warn'],
+.spark[data-tone='amber'] {
+  color: var(--ab-amber);
+}
+.spark[data-tone='bad'],
+.spark[data-tone='down'] {
+  color: var(--ab-red);
+}
+.spark[data-tone='up'] {
+  color: var(--ab-green);
+}
+
+.chart {
+  display: inline-flex;
+  flex-direction: column;
+  font-family: var(--ab-font);
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: pre;
+  color: var(--ab-cyan);
+  text-shadow: 0 0 6px rgba(95, 227, 255, 0.3);
+}
+.chartBase {
+  color: var(--ab-dim);
+  text-shadow: none;
+}
+.chart[data-tone='warn'],
+.chart[data-tone='amber'] {
+  color: var(--ab-amber);
+}
+.chart[data-tone='down'],
+.chart[data-tone='bad'] {
+  color: var(--ab-red);
+}
+.chart[data-tone='up'] {
+  color: var(--ab-green);
+}
+
+.lamp {
+  font-family: var(--ab-font);
+  white-space: pre;
+  color: var(--ab-dim);
+}
+.lamp[data-state='on'] {
+  color: var(--ab-cyan);
+  text-shadow: 0 0 6px rgba(95, 227, 255, 0.5);
+}
+.lamp[data-state='warn'] {
+  color: var(--ab-amber);
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.5);
+}
+
+.say {
+  font-family: var(--ab-font);
+  color: rgba(217, 244, 255, 0.55);
+  white-space: nowrap;
+}
+.say > span {
+  color: var(--ab-amber);
+}
+
+.cell {
+  font-family: var(--ab-font);
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barScan {
+    animation: none;
+    transform: translateX(calc(var(--cells, 20) * 0.5ch - 2.5ch));
+  }
+}
+:global(.hud-hidden) .barScan {
+  animation-play-state: paused;
+}

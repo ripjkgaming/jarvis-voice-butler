@@ -1,40 +1,8 @@
 'use client';
 
+import { GlyphBar, GlyphChart, GlyphLamp } from '@/components/ascii/glyphs';
 import { type Metrics, type Sample, fmtBytes, metricWarnings } from './metrics';
 import s from './stark.module.css';
-
-/** Polyline points for 0-100 values over a 0..100 x 0..30 box. Pure. */
-function sparkPoints(values: number[]): string {
-  if (values.length < 2) return '';
-  const step = 100 / (values.length - 1);
-  return values
-    .map((v, i) => {
-      const y = 29 - (Math.max(0, Math.min(100, v)) / 100) * 27;
-      return `${(i * step).toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
-}
-
-function Spark({ values, warn }: { values: number[]; warn?: boolean }) {
-  const pts = sparkPoints(values);
-  return (
-    <svg
-      className={s.spark}
-      data-warn={warn ? 'true' : undefined}
-      viewBox="0 0 100 30"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <path d="M0 29.5H100M0 15H100M0 1H100" className={s.sparkGrid} />
-      {pts ? (
-        <>
-          <polygon points={`0,30 ${pts} 100,30`} className={s.sparkArea} />
-          <polyline points={pts} className={s.sparkLine} />
-        </>
-      ) : null}
-    </svg>
-  );
-}
 
 function Trend({
   label,
@@ -57,7 +25,15 @@ function Trend({
       </div>
       <div className={s.trendRow}>
         <span className={s.trendValue}>{value}</span>
-        <Spark values={values} warn={warn} />
+        <GlyphChart
+          values={values}
+          width={26}
+          rows={2}
+          lo={0}
+          hi={100}
+          tone={warn ? 'warn' : undefined}
+          className={s.spark}
+        />
       </div>
     </div>
   );
@@ -95,16 +71,9 @@ export function Trends({ m, history }: { m: Metrics; history: Sample[] }) {
   );
 }
 
-/** Segmented cell bar: 20 cells, lit up to pct. */
+/** Glyph cell bar: 20 cells, lit up to pct. */
 function Cells({ pct, warn }: { pct: number; warn?: boolean }) {
-  const lit = Math.round((Math.max(0, Math.min(100, pct)) / 100) * 20);
-  return (
-    <span className={s.cells} data-warn={warn ? 'true' : undefined} aria-hidden="true">
-      {Array.from({ length: 20 }, (_, i) => (
-        <i key={i} data-on={i < lit ? 'true' : undefined} />
-      ))}
-    </span>
-  );
+  return <GlyphBar pct={pct} width={24} tone={warn ? 'warn' : undefined} className={s.cells} />;
 }
 
 /** ARC REACTOR (laptop battery) and SUIT POWER (phone battery). */
@@ -205,7 +174,7 @@ export function Links({ m }: { m: Metrics }) {
     <ul className={s.links}>
       {links(m).map((l) => (
         <li key={l.label} className={s.link} data-state={l.state}>
-          <span className={s.linkLamp} aria-hidden="true" />
+          <GlyphLamp state={l.state} />
           <span className={s.linkLabel}>{l.label}</span>
           <span className={s.linkValue}>{l.value}</span>
         </li>

@@ -4,9 +4,9 @@ import { memo, useEffect, useRef } from 'react';
 import {
   type AmbientState,
   type AmbientVariant,
-  createAmbientScene,
   subscribeAmbientFrame,
 } from '@/lib/ambient-particles';
+import { createAsciiAmbientScene } from '@/lib/ascii-ambient';
 
 /** Decorative light field. Resizing is observer-driven; animation never
  * updates React state or reads layout. Hidden, offscreen, transition-owned,
@@ -32,7 +32,7 @@ export const AmbientParticles = memo(function AmbientParticles({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scene = createAmbientScene(canvas, variant, settings.current.state);
+    const scene = createAsciiAmbientScene(canvas, variant, settings.current.state);
     if (!scene) return;
     const root = document.documentElement;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');

@@ -58,14 +58,21 @@ async function getJson<T>(
   options?.signal?.addEventListener('abort', abort, { once: true });
   if (options?.signal?.aborted) controller.abort();
   try {
-    const { url, token } = await getEndpoint();
+    const discovery = getEndpoint();
+    const { url, token } = await discovery;
     if (controller.signal.aborted) return null;
     const res = await fetch(`${url}${path}`, {
       signal: controller.signal,
       cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // A credential unavailable at startup or changed between sidecar
+      // launches must not pin every later poll to an unauthorized endpoint.
+      // Retry discovery on the next scheduled poll, sharing it as usual.
+      if (res.status === 401 && isTauri() && endpoint === discovery) endpoint = null;
+      return null;
+    }
     const json = (await res.json()) as T;
     return controller.signal.aborted ? null : json;
   } catch {
@@ -165,20 +172,27 @@ export type BootStep = [string, number];
 /** Call presence for the HUD colour: a live room with the agent in it,
  *  plus the wake's setup log (`boot`) while it is fresh. null = bridge
  *  down. */
-export type BridgeRoomState = BridgeRoom & { waking?: boolean; boot?: BootStep[] | null };
+export type BridgeRoomState = BridgeRoom & {
+  waking?: boolean;
+  boot?: BootStep[] | null;
+  agent_state?: string | null;
+  /** Fresh, same-room AgentSession lease; room files alone are not liveness. */
+  call_live?: boolean;
+  voice_owner?: string | null;
+  /** Local guest audience from watch_mode.guest_required(), independent of calls. */
+  guest_mode?: boolean;
+};
 export type CallState = { live: boolean; boot: BootStep[] | null };
 
 /** Raw /room JSON -> call state. Pure; null in, null out. */
 export function callStateFrom(j: BridgeRoomState | null): CallState | null {
   if (!j) return null;
   const boot = Array.isArray(j.boot) ? j.boot : null;
-  // Live only once the agent is actually there: while a wake is still
-  // setting up (boot log not yet "online") the HUD stays idle and shows
-  // the link log instead of glowing purple at an empty room.
-  const settingUp =
-    (j.waking === true || (boot !== null && boot.length > 0)) && boot?.at(-1)?.[0] !== 'online';
+  // The fresh same-room AgentSession lease is authoritative. Wake progress
+  // can lag session startup or belong to an earlier attempt; it must never
+  // hide an established call. A room or "online" log alone is insufficient.
   const room = typeof j.room === 'string' && j.room.length > 0;
-  return { live: room && !settingUp, boot };
+  return { live: room && j.call_live === true, boot };
 }
 
 /** Raw /room JSON -> the room name, or null when no call. Pure. */

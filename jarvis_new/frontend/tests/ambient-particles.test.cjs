@@ -54,8 +54,19 @@ function fixture() {
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
+  const paletteScope = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(fs.readFileSync(path.join(__dirname, '../lib/jarvis-palette.ts'), 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS },
+    }).outputText,
+    paletteScope
+  );
   const scope = {
     exports: {},
+    require: (name) => {
+      assert.equal(name, './jarvis-palette');
+      return paletteScope.exports;
+    },
     document: {
       createElement(tag) {
         assert.equal(tag, 'canvas');
@@ -249,4 +260,29 @@ test('disposed and zero-size scenes draw nothing and release their backing pixel
   canvas.calls.length = 0;
   scene.draw(16);
   assert.equal(canvas.calls.length, 0);
+});
+
+test('active reactor is fluid at 60fps while idle and small surfaces retain their low raster budget', () => {
+  for (const [variant, state, expected] of [
+    ['hud', 'listening', 60],
+    ['hud', 'speaking', 60],
+    ['hud', 'thinking', 60],
+    ['hud', 'idle', 30],
+    ['hud', 'muted', 30],
+    ['bar', 'speaking', 30],
+    ['menu', 'listening', 30],
+  ]) {
+    const f = fixture();
+    const canvas = f.canvas();
+    const scene = f.createAmbientScene(canvas, variant, state);
+    scene.resize(1280, variant === 'bar' ? 64 : 720, 1);
+    canvas.calls.length = 0;
+    const allocations = { ...f.counts };
+    for (let i = 0; i < 120; i++) scene.draw(1000 / 120);
+    const paints = canvas.calls.filter((c) => c[0] === 'clear').length;
+    assert.ok(Math.abs(paints - expected) <= 1, `${variant}/${state}: ${paints}`);
+    assert.equal(f.counts.gradients, allocations.gradients);
+    assert.equal(f.counts.arrays, allocations.arrays);
+    scene.dispose();
+  }
 });

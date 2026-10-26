@@ -1,0 +1,418 @@
+{
+  "pid": 2724150,
+  "ui_only_event": "jarvis-talk",
+  "native_snapshots": [
+    {
+      "url": "tauri://localhost/",
+      "title": "Jarvis",
+      "voice": {
+        "phase": "idle",
+        "activation": "1791087514542",
+        "wakeRing": {
+          "transform": "matrix(0.798811, 0, 0, 0.798811, 0, 0)",
+          "opacity": "0.936109",
+          "play": "running"
+        },
+        "reticle": {
+          "opacity": "0",
+          "width": 979.203125
+        },
+        "reduced": false,
+        "classes": "__variable_b9b7d3 __variable_bbddf1 __variable_47c032 __variable_0cfa0a scroll-smooth font-sans antialiased dark"
+      },
+      "scripts": [
+        "/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+        "/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+        "/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+        "/_next/static/chunks/app/layout-0fa2820b8c05452a.js",
+        "/_next/static/chunks/app/error-37c1c0f36fc15d2a.js",
+        "/_next/static/chunks/161-7f127bf97b80e007.js",
+        "/_next/static/chunks/app/page-b365dcdb96b8d1d4.js",
+        "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+        "/_next/static/chunks/webpack-162044e290f6babf.js"
+      ],
+      "header": null,
+      "pill": "",
+      "vw": 1920,
+      "vh": 983,
+      "dpr": 1,
+      "orb": false,
+      "hidden": false,
+      "scrollY": 0,
+      "svh": 983,
+      "stark": {
+        "root": [
+          "DIV",
+          "hud stark_root__0Iskm",
+          0,
+          983,
+          "relative"
+        ],
+        "rows": "64px 889px 30px",
+        "kids": [
+          [
+            "DIV",
+            "stark_backdrop__nuihh",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "CANVAS",
+            "stark_ambient__QrsiR",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "HEADER",
+            "stark_top__Qla6g",
+            0,
+            64,
+            "relative"
+          ],
+          [
+            "MAIN",
+            "stark_grid__S_oJX",
+            64,
+            889,
+            "relative"
+          ],
+          [
+            "FOOTER",
+            "stark_foot__XJKxE",
+            953,
+            30,
+            "relative"
+          ],
+          [
+            "I",
+            "stark_flashEdge__i0nBJ",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "MAIN",
+            "contents",
+            0,
+            0,
+            "static"
+          ]
+        ],
+        "body": [
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "hud stark_root__0Iskm",
+            0,
+            983,
+            "relative"
+          ],
+          [
+            "SECTION",
+            "",
+            983,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "NEXT-ROUTE-ANNOUNCER",
+            "",
+            983,
+            0,
+            "absolute"
+          ]
+        ]
+      },
+      "sbar": null
+    },
+    {
+      "url": "tauri://localhost/",
+      "title": "Jarvis",
+      "voice": {
+        "phase": "idle",
+        "activation": "1791087514542",
+        "wakeRing": {
+          "transform": "matrix(1.104833, 0, 0, 1.104833, 0, 0)",
+          "opacity": "0.404864",
+          "play": "running"
+        },
+        "reticle": {
+          "opacity": "0",
+          "width": 979.203125
+        },
+        "reduced": false,
+        "classes": "__variable_b9b7d3 __variable_bbddf1 __variable_47c032 __variable_0cfa0a scroll-smooth font-sans antialiased dark"
+      },
+      "scripts": [
+        "/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+        "/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+        "/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+        "/_next/static/chunks/app/layout-0fa2820b8c05452a.js",
+        "/_next/static/chunks/app/error-37c1c0f36fc15d2a.js",
+        "/_next/static/chunks/161-7f127bf97b80e007.js",
+        "/_next/static/chunks/app/page-b365dcdb96b8d1d4.js",
+        "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+        "/_next/static/chunks/webpack-162044e290f6babf.js"
+      ],
+      "header": null,
+      "pill": "",
+      "vw": 1920,
+      "vh": 983,
+      "dpr": 1,
+      "orb": false,
+      "hidden": false,
+      "scrollY": 0,
+      "svh": 983,
+      "stark": {
+        "root": [
+          "DIV",
+          "hud stark_root__0Iskm",
+          0,
+          983,
+          "relative"
+        ],
+        "rows": "64px 889px 30px",
+        "kids": [
+          [
+            "DIV",
+            "stark_backdrop__nuihh",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "CANVAS",
+            "stark_ambient__QrsiR",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "HEADER",
+            "stark_top__Qla6g",
+            0,
+            64,
+            "relative"
+          ],
+          [
+            "MAIN",
+            "stark_grid__S_oJX",
+            64,
+            889,
+            "relative"
+          ],
+          [
+            "FOOTER",
+            "stark_foot__XJKxE",
+            953,
+            30,
+            "relative"
+          ],
+          [
+            "I",
+            "stark_flashEdge__i0nBJ",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "MAIN",
+            "contents",
+            0,
+            0,
+            "static"
+          ]
+        ],
+        "body": [
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "hud stark_root__0Iskm",
+            0,
+            983,
+            "relative"
+          ],
+          [
+            "SECTION",
+            "",
+            983,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "NEXT-ROUTE-ANNOUNCER",
+            "",
+            983,
+            0,
+            "absolute"
+          ]
+        ]
+      },
+      "sbar": null
+    },
+    {
+      "url": "tauri://localhost/",
+      "title": "Jarvis",
+      "voice": {
+        "phase": "idle",
+        "wakeRing": null,
+        "reticle": {
+          "opacity": "0",
+          "width": 979.203125
+        },
+        "reduced": false,
+        "classes": "__variable_b9b7d3 __variable_bbddf1 __variable_47c032 __variable_0cfa0a scroll-smooth font-sans antialiased dark"
+      },
+      "scripts": [
+        "/_next/static/chunks/e1749d0d-0e6be9f6f7fa45f8.js",
+        "/_next/static/chunks/821-3ef8b9d5f4c835a5.js",
+        "/_next/static/chunks/main-app-c218ff09bc771fb0.js",
+        "/_next/static/chunks/app/layout-0fa2820b8c05452a.js",
+        "/_next/static/chunks/app/error-37c1c0f36fc15d2a.js",
+        "/_next/static/chunks/161-7f127bf97b80e007.js",
+        "/_next/static/chunks/app/page-b365dcdb96b8d1d4.js",
+        "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+        "/_next/static/chunks/webpack-162044e290f6babf.js"
+      ],
+      "header": null,
+      "pill": "",
+      "vw": 1920,
+      "vh": 983,
+      "dpr": 1,
+      "orb": false,
+      "hidden": false,
+      "scrollY": 0,
+      "svh": 983,
+      "stark": {
+        "root": [
+          "DIV",
+          "hud stark_root__0Iskm",
+          0,
+          983,
+          "relative"
+        ],
+        "rows": "64px 889px 30px",
+        "kids": [
+          [
+            "DIV",
+            "stark_backdrop__nuihh",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "CANVAS",
+            "stark_ambient__QrsiR",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "HEADER",
+            "stark_top__Qla6g",
+            0,
+            64,
+            "relative"
+          ],
+          [
+            "MAIN",
+            "stark_grid__S_oJX",
+            64,
+            889,
+            "relative"
+          ],
+          [
+            "FOOTER",
+            "stark_foot__XJKxE",
+            953,
+            30,
+            "relative"
+          ],
+          [
+            "I",
+            "stark_flashEdge__i0nBJ",
+            0,
+            983,
+            "absolute"
+          ],
+          [
+            "MAIN",
+            "contents",
+            0,
+            0,
+            "static"
+          ]
+        ],
+        "body": [
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "hud stark_root__0Iskm",
+            0,
+            983,
+            "relative"
+          ],
+          [
+            "SECTION",
+            "",
+            983,
+            0,
+            "static"
+          ],
+          [
+            "DIV",
+            "",
+            0,
+            0,
+            "static"
+          ],
+          [
+            "NEXT-ROUTE-ANNOUNCER",
+            "",
+            983,
+            0,
+            "absolute"
+          ]
+        ]
+      },
+      "sbar": null
+    }
+  ],
+  "spoken_wake_test": false,
+  "pipeline": "realtime default; no direct-mode override",
+  "paper_market_pid": 1362866
+}

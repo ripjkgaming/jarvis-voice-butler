@@ -4,10 +4,11 @@
   --muted: #7fa6b8;
   --line: rgb(95 227 255 / 18%);
   --line-strong: rgb(95 227 255 / 44%);
-  --gold: #ffc074;
-  --danger: #ff766c;
-  --label: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
-  --mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  --gold: #42aaff;
+  --danger: #72caff;
+  /* ASCII skin: one box-glyph monospace for labels and read-outs. */
+  --label: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
+  --mono: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
   position: fixed;
   inset: 0 0 var(--suit-bar-height, 0px);
   z-index: 1800;
@@ -85,23 +86,23 @@
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-.simulation {
+.telemetryBadge {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 7px 11px;
-  border: 1px solid rgb(255 192 116 / 52%);
+  border: 1px solid rgb(66 170 255 / 52%);
   color: var(--gold);
-  background: rgb(100 59 19 / 18%);
+  background: rgb(9 49 89 / 18%);
   font: 11px var(--mono);
   letter-spacing: 0.15em;
   white-space: nowrap;
 }
-.simulation > span {
+.telemetryBadge > span {
   width: 6px;
   height: 6px;
   background: var(--gold);
-  box-shadow: 0 0 10px rgb(255 192 116 / 30%);
+  box-shadow: 0 0 10px rgb(66 170 255 / 30%);
 }
 .close {
   display: flex;
@@ -322,9 +323,9 @@
   overflow: hidden;
   border: 1px solid rgb(95 227 255 / 10%);
   background:
-    radial-gradient(ellipse 75% 55% at 50% 40%, rgb(21 51 63 / 54%), transparent 80%),
-    repeating-linear-gradient(0deg, transparent 0 39px, rgb(95 227 255 / 3%) 39px 40px),
-    repeating-linear-gradient(90deg, transparent 0 39px, rgb(95 227 255 / 3%) 39px 40px), #030c13;
+    radial-gradient(ellipse 44% 68% at 50% 43%, rgb(5 35 65 / 8%), transparent 80%),
+    repeating-linear-gradient(0deg, transparent 0 39px, rgb(95 227 255 / 2%) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgb(95 227 255 / 2%) 39px 40px), #000308;
 }
 .modelHeader {
   display: flex;
@@ -337,6 +338,28 @@
 }
 .modelHeader > span:last-child {
   color: #5e8295;
+}
+.modelPanel::after {
+  position: absolute;
+  inset: 45px 12px 84px;
+  border-inline: 1px solid rgb(95 227 255 / 8%);
+  background:
+    linear-gradient(
+        90deg,
+        rgb(95 227 255 / 35%) 0 18px,
+        transparent 18px calc(100% - 18px),
+        rgb(95 227 255 / 35%) calc(100% - 18px)
+      )
+      top / 100% 1px no-repeat,
+    linear-gradient(
+        90deg,
+        rgb(95 227 255 / 35%) 0 18px,
+        transparent 18px calc(100% - 18px),
+        rgb(95 227 255 / 35%) calc(100% - 18px)
+      )
+      bottom / 100% 1px no-repeat;
+  pointer-events: none;
+  content: '';
 }
 .scene {
   position: relative;
@@ -354,7 +377,7 @@
   font: 10px var(--mono);
 }
 .modelName {
-  color: var(--gold);
+  color: var(--cyan);
   font-family: var(--font-orbitron), var(--label);
   font-size: 13px;
   letter-spacing: 0.17em;
@@ -410,7 +433,7 @@
   --meter-color: var(--gold);
 }
 .meter[data-accent='mint'] {
-  --meter-color: #78e7c3;
+  --meter-color: #48b8ff;
 }
 .meter[data-low='true'] {
   --meter-color: var(--danger);
@@ -675,7 +698,7 @@
   .close {
     padding: 8px 10px;
   }
-  .simulation {
+  .telemetryBadge {
     font-size: 9px;
     padding: 6px 8px;
   }
@@ -734,12 +757,12 @@
     gap: 9px;
     padding-inline: 11px;
   }
-  .simulation {
+  .telemetryBadge {
     font-size: 8px;
     letter-spacing: 0.04em;
     gap: 5px;
   }
-  .simulation > span {
+  .telemetryBadge > span {
     width: 4px;
     height: 4px;
   }
@@ -785,4 +808,56 @@
   .regionTrack > span {
     transition: none;
   }
+}
+
+/* ------------------------------------------------------------ ASCII skin */
+/* Glyph meters (█ lit / ░ unlit cells) and box-drawn corners; markup,
+   roles and values are unchanged. */
+.segments {
+  gap: 0;
+  height: auto;
+  overflow: hidden;
+  font: 12px/1 var(--mono);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.segments > span,
+.segments > span[data-on='true'] {
+  flex: 0 0 auto;
+  background: none;
+  box-shadow: none;
+}
+.segments > span::before {
+  content: '░';
+  color: rgb(95 227 255 / 28%);
+}
+.segments > span[data-on='true']::before {
+  content: '█';
+  color: var(--meter-color);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--meter-color) 45%, transparent);
+}
+.dialog {
+  position: relative;
+}
+.dialog::before,
+.dialog::after {
+  position: absolute;
+  z-index: 3;
+  font: 16px/1 var(--mono);
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgb(95 227 255 / 60%);
+  pointer-events: none;
+}
+.dialog::before {
+  content: '┏';
+  top: -3px;
+  left: -2px;
+}
+.dialog::after {
+  content: '┛';
+  right: -2px;
+  bottom: -3px;
+}
+.panel {
+  border-style: dashed;
 }

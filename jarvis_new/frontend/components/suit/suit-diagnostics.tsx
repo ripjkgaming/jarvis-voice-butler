@@ -25,13 +25,7 @@ const REGION_NOTES: Record<SuitRegion, string> = {
 };
 const bounded = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 const condition = (damage: number) =>
-  damage >= 70
-    ? 'Critical'
-    : damage >= 35
-      ? 'Compromised'
-      : damage >= 15
-        ? 'Wear detected'
-        : 'Nominal';
+  damage >= 70 ? 'Severe damage' : damage >= 35 ? 'Damage' : damage >= 15 ? 'Wear' : 'Nominal';
 const tone = (damage: number) => (damage >= 70 ? 'critical' : damage >= 35 ? 'warn' : 'normal');
 
 function Meter({
@@ -58,7 +52,7 @@ function Meter({
       <div
         className={s.segments}
         role="meter"
-        aria-label={`Simulated ${label.toLowerCase()}`}
+        aria-label={label.toLowerCase()}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={level}
@@ -72,7 +66,7 @@ function Meter({
   );
 }
 
-/** A self-contained simulation. Mounting owns every listener and local state;
+/** A self-contained diagnostics viewer. Mounting owns every listener and local state;
  * closing restores keyboard focus and leaves no diagnostics work behind. */
 export default function SuitDiagnostics({
   onClose,
@@ -144,7 +138,7 @@ export default function SuitDiagnostics({
     SUIT_REGIONS.reduce((sum, region) => sum + 100 - bounded(snapshot.damage[region.id]), 0) /
       SUIT_REGIONS.length
   );
-  const affected = SUIT_REGIONS.filter((region) => snapshot.damage[region.id] >= 35).length;
+  const affected = SUIT_REGIONS.some((region) => snapshot.damage[region.id] >= 35);
 
   const regionKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     let next = SUIT_REGIONS.findIndex((region) => region.id === selected);
@@ -175,18 +169,18 @@ export default function SuitDiagnostics({
         role="dialog"
         aria-modal="true"
         aria-labelledby="suit-diagnostics-title"
-        aria-describedby="suit-simulation-description"
+        aria-describedby="suit-diagnostics-description"
         tabIndex={-1}
         onKeyDown={(event) => event.stopPropagation()}
       >
         <header className={s.header}>
           <div className={s.identity}>
-            <span className={s.brand}>STARK / SYSTEMS</span>
+            <span className={s.brand}>LOCKE / SYSTEMS</span>
             <h1 id="suit-diagnostics-title">Suit diagnostics</h1>
           </div>
-          <div className={s.simulation} aria-label="Simulation, fictional suit telemetry">
+          <div className={s.telemetryBadge} aria-label="Suit telemetry">
             <span />
-            SIMULATION
+            TELEMETRY
           </div>
           <button
             type="button"
@@ -202,10 +196,10 @@ export default function SuitDiagnostics({
         </header>
 
         <div className={s.toolbar}>
-          <p id="suit-simulation-description">
-            Fictional armor telemetry. Select a scenario to inspect simulated damage and reserves.
+          <p id="suit-diagnostics-description">
+            Select a service profile to inspect armor condition and system reserves.
           </p>
-          <div className={s.presets} role="group" aria-label="Simulation scenario">
+          <div className={s.presets} role="group" aria-label="Service profile">
             {PRESETS.map((id) => (
               <button
                 type="button"
@@ -277,7 +271,7 @@ export default function SuitDiagnostics({
           <section className={s.modelPanel} aria-label="Interactive suit inspection">
             <div className={s.modelHeader}>
               <span>ARMOR // 3D INSPECTION</span>
-              <span>SIM · {String(SUIT_REGIONS.length).padStart(2, '0')} REGIONS</span>
+              <span>{String(SUIT_REGIONS.length).padStart(2, '0')} REGIONS</span>
             </div>
             <div className={s.scene}>
               <SuitScene
@@ -318,7 +312,7 @@ export default function SuitDiagnostics({
             </div>
           </section>
 
-          <aside className={s.telemetry} aria-label="Simulated systems and selected region">
+          <aside className={s.telemetry} aria-label="Systems and selected region">
             <section className={s.panel} aria-labelledby="suit-reserves-title">
               <div className={s.panelHeading}>
                 <h2 id="suit-reserves-title">Core systems</h2>
@@ -327,19 +321,19 @@ export default function SuitDiagnostics({
               <Meter
                 label="Reactor charge"
                 value={snapshot.reactor}
-                note="Simulated energy available"
+                note="Energy available"
                 accent="cyan"
               />
               <Meter
                 label="Fuel reserve"
                 value={snapshot.fuel}
-                note="Simulated propulsion reserve"
+                note="Propulsion reserve"
                 accent="gold"
               />
               <Meter
                 label="Coolant level"
                 value={snapshot.coolant}
-                note="Simulated cooling capacity"
+                note="Cooling capacity"
                 accent="mint"
               />
             </section>
@@ -375,27 +369,24 @@ export default function SuitDiagnostics({
               </div>
               <p className={s.damageNote} aria-live="polite">
                 {damage >= 70
-                  ? 'Critical simulated damage. Restore this assembly before the next test flight.'
+                  ? 'Severe impact damage. Repair this assembly before the next flight.'
                   : damage >= 35
-                    ? 'Simulated impact damage detected. This assembly is flagged for service.'
+                    ? 'Impact damage. This assembly requires service.'
                     : damage >= 15
-                      ? 'Minor simulated wear. This assembly remains within operational tolerance.'
-                      : 'No significant simulated damage. This assembly is within nominal tolerance.'}
+                      ? 'Minor wear. This assembly remains within operational tolerance.'
+                      : 'No significant damage. This assembly is within nominal tolerance.'}
               </p>
             </section>
           </aside>
         </main>
 
         <footer className={s.footer}>
-          <span>
-            <i />
-            LOCAL SIMULATION · NO LIVE SUIT CONNECTED
-          </span>
-          <span>
-            {affected
-              ? `${affected} ${affected === 1 ? 'REGION' : 'REGIONS'} FLAGGED FOR REVIEW`
-              : 'ALL REGIONS NOMINAL'}
-          </span>
+          {!affected && (
+            <span>
+              <i />
+              ALL SYSTEMS NOMINAL
+            </span>
+          )}
         </footer>
       </div>
     </div>

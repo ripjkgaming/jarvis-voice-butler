@@ -89,6 +89,8 @@ class Desktop(SUIT.Desktop):
         self.usage_requests = []
         self.paper_requests = 0
         self.offline = False
+        self.voice = {"tab": None, "seq": 0}
+        self.panel_polls = 0
 
     async def bridge(self, route):
         parsed = urlparse(route.request.url)
@@ -98,6 +100,12 @@ class Desktop(SUIT.Desktop):
             return await route.fulfill(
                 status=503 if self.offline else 200,
                 json={"ok": False} if self.offline else usage(period),
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
+        if parsed.path == "/panels" and route.request.method == "GET":
+            self.panel_polls += 1
+            return await route.fulfill(
+                json={"ok": True, "visible": [], "panels": {}, "insights": self.voice},
                 headers={"Access-Control-Allow-Origin": "*"},
             )
         if parsed.path == "/paper-market":
@@ -129,10 +137,24 @@ async def check(browser, url, output, school=False, width=1600):
         await desktop.ready()
         if width != 1600:
             await page.set_viewport_size({"width": width, "height": 900})
-    assert not desktop.usage_requests and not desktop.paper_requests, (
-        "Closed panels fetched data"
-    )
-    await page.locator('[data-insights-launch="usage"]').click()
+    if school:
+        assert not desktop.usage_requests and not desktop.paper_requests, (
+            f"Closed panels fetched data: usage={desktop.usage_requests} paper={desktop.paper_requests}"
+        )
+    else:
+        # The normal HUD desk keeps live AI usage / paper market read-outs, so
+        # only requests made after this point belong to the Insights drawer.
+        await page.wait_for_timeout(500)
+    base_paper = desktop.paper_requests
+    if school:
+        await page.locator('[data-insights-launch="usage"]').click()
+    else:
+        # The normal HUD is voice-only: "check AI usage" bumps the /panels seq.
+        polls = desktop.panel_polls
+        await page.wait_for_function("() => true")
+        while desktop.panel_polls == polls:
+            await page.wait_for_timeout(100)
+        desktop.voice = {"tab": "usage", "seq": 1}
     dialog = page.get_by_role("dialog", name="Insights", exact=True)
     await dialog.wait_for()
     await page.get_by_text("REPORT READY", exact=True).wait_for()
@@ -142,7 +164,7 @@ async def check(browser, url, output, school=False, width=1600):
     assert await page.locator(".sbar-root" if school else ".hud").evaluate(
         "e => e.inert"
     )
-    assert not desktop.paper_requests
+    assert desktop.paper_requests == base_paper
     bounds = await dialog.bounding_box()
     assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= width + 1
     if school:
@@ -186,7 +208,7 @@ async def check(browser, url, output, school=False, width=1600):
         "Paper market service is unavailable. Retrying automatically.", exact=True
     ).wait_for()
     assert len(desktop.usage_requests) == before
-    assert 1 <= desktop.paper_requests <= 2  # Dev StrictMode may replay the mount.
+    assert 1 <= desktop.paper_requests - base_paper <= 2  # Dev StrictMode may replay the mount.
     # Returning to the inactive tab mounts a fresh reader; failure is not $0.
     desktop.offline = True
     await page.get_by_role(
@@ -218,9 +240,6 @@ async def check(browser, url, output, school=False, width=1600):
         await dialog.wait_for(state="detached")
         assert not await page.locator(".hud").evaluate("e => e.inert")
         assert not any(name == "hide_overlay" for name, _ in desktop.calls)
-        assert await page.locator('[data-insights-launch="usage"]').evaluate(
-            "e => e === document.activeElement"
-        )
     frozen = (len(desktop.usage_requests), desktop.paper_requests)
     await page.wait_for_timeout(1200)
     assert frozen == (len(desktop.usage_requests), desktop.paper_requests)

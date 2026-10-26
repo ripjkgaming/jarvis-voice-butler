@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { type AgentState } from '@livekit/components-react';
 
 function findGcdLessThan(columns: number, max: number = columns): number {
@@ -62,29 +62,28 @@ export const useAgentAudioVisualizerRadialAnimator = (
     setIndex(0);
   }, [state, barCount]);
 
-  const animationFrameId = useRef<number | null>(null);
   useEffect(() => {
-    let startTime = performance.now();
-
-    const animate = (time: DOMHighResTimeStamp) => {
-      const timeElapsed = time - startTime;
-
-      if (timeElapsed >= interval) {
-        setIndex((prev) => prev + 1);
-        startTime = time;
-      }
-
-      animationFrameId.current = requestAnimationFrame(animate);
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const sync = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (!document.hidden && !reduced.matches && sequence.length > 1) {
+        timer = setInterval(
+          () => setIndex((i) => (i + 1) % sequence.length),
+          Math.max(80, interval)
+        );
+      } else if (reduced.matches) setIndex(0);
     };
-
-    animationFrameId.current = requestAnimationFrame(animate);
-
+    sync();
+    reduced.addEventListener('change', sync);
+    document.addEventListener('visibilitychange', sync);
     return () => {
-      if (animationFrameId.current !== null) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
+      clearInterval(timer);
+      reduced.removeEventListener('change', sync);
+      document.removeEventListener('visibilitychange', sync);
     };
-  }, [interval, barCount, state, sequence.length]);
+  }, [interval, state, sequence.length]);
 
   return sequence[index % sequence.length] ?? [];
 };

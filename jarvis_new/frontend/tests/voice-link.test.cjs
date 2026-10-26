@@ -196,3 +196,55 @@ test('wakeword presence acquires immediately before a boot log arrives', () => {
   assert.equal(link.step, 0);
   assert.equal(voiceLinkFrom({ waking: false, room: null }, null, now).phase, 'idle');
 });
+
+test('backend termination of a pending join stays interrupted until a new attempt', () => {
+  const { observeVoiceLink } = scope.exports;
+  let state = observeVoiceLink(raw('dispatch'), null, { pending: null, interrupted: false }, now);
+  assert.equal(state.link.phase, 'agent');
+  state = observeVoiceLink({ room: null, waking: false, boot: null }, null, state.history, now);
+  assert.equal(state.link.phase, 'failed');
+  assert.match(state.link.word, /INTERRUPTED/);
+  assert.equal(state.link.joining, false);
+  state = observeVoiceLink(null, null, state.history, now);
+  assert.equal(state.link.phase, 'failed');
+  state = observeVoiceLink(null, { at: now, baseline: null, failed: false }, state.history, now);
+  assert.equal(state.link.phase, 'request');
+});
+test('missed poll preserves pending; actual online ends acquisition at any loop point', () => {
+  const { observeVoiceLink } = scope.exports;
+  let state = observeVoiceLink(raw('dispatch'), null, { pending: null, interrupted: false }, now);
+  state = observeVoiceLink(null, null, state.history, now + 100);
+  assert.equal(state.link.phase, 'agent');
+  state = observeVoiceLink(raw('online'), null, state.history, now + 200);
+  assert.equal(state.link.joining, false);
+  state = observeVoiceLink({ room: null, waking: false }, null, state.history, now + 300);
+  assert.equal(state.link.phase, 'idle');
+});
+test('wake detection cancelled before its first detailed stage is also interrupted', () => {
+  const { observeVoiceLink } = scope.exports;
+  let state = observeVoiceLink({ waking: true }, null, { pending: null, interrupted: false }, now);
+  assert.equal(state.link.joining, true);
+  state = observeVoiceLink({ waking: false, room: null }, null, state.history, now);
+  assert.equal(state.link.phase, 'failed');
+});
+
+test('connected-call activation recognizes final user wakes, never assistant or partial text', () => {
+  const { isWakeCaption } = scope.exports;
+  assert.equal(isWakeCaption({ role: 'sir', text: 'Hey Jarvis, open notes.' }), true);
+  assert.equal(isWakeCaption({ role: 'sir', text: 'Jarvis?' }), true);
+  assert.equal(isWakeCaption({ role: 'sir', text: 'Hey Jarvis…' }), false);
+  assert.equal(isWakeCaption({ role: 'jarvis', text: 'Hey Jarvis' }), false);
+  assert.equal(isWakeCaption({ role: 'sir', text: 'I asked Jarvis earlier' }), false);
+});
+
+test('confirmed leased call clears stale pending/interrupted decoration without a synthetic online step', () => {
+  const result = scope.exports.observeVoiceLink(
+    { room: 'new', call_live: true, agent_state: 'listening', boot: null, waking: false },
+    null,
+    { pending: raw('dispatch'), interrupted: true },
+    now
+  );
+  assert.equal(result.link.phase, 'idle');
+  assert.equal(result.history.pending, null);
+  assert.equal(result.history.interrupted, false);
+});

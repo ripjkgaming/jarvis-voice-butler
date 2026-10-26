@@ -1,3 +1,5 @@
+import { JARVIS_COLORS, MUTED_COLOR } from './jarvis-palette';
+
 /** Small, additive light sprites: generated once at native DPR, then reused.
  * No per-frame DOM reads, gradients, blur filters, or particle allocations. */
 export type AmbientVariant = 'hud' | 'bar' | 'menu';
@@ -35,13 +37,7 @@ export function subscribeAmbientFrame(draw: Draw): () => void {
 
 const TAU = Math.PI * 2;
 const CELL = 32;
-const ACCENT: Record<AmbientState, string> = {
-  idle: '#5fe3ff',
-  listening: '#ba8fff',
-  thinking: '#74ffd0',
-  speaking: '#ffbd81',
-  muted: '#7294a5',
-};
+const ACCENT: Record<AmbientState, string> = { ...JARVIS_COLORS, muted: MUTED_COLOR };
 const SPEED: Record<AmbientState, number> = {
   idle: 1,
   listening: 1.15,
@@ -89,6 +85,7 @@ export function createAmbientScene(
   let state = initialState;
   let time = 0;
   let speed = SPEED[state];
+  let strength = state === 'muted' ? 0.55 : 1;
   let anchor: AmbientAnchor | null = null;
   let count = 0;
   let data = new Float32Array(0);
@@ -197,15 +194,18 @@ export function createAmbientScene(
     if (!width || !height) return;
     const dt = Math.min(34, Math.max(0, delta));
     speed += (SPEED[state] - speed) * (1 - Math.exp(-dt / 600));
+    const targetStrength =
+      state === 'muted' ? 0.55 : state === 'speaking' ? 1.35 : state === 'listening' ? 1.15 : 1;
+    strength += (targetStrength - strength) * (1 - Math.exp(-dt / 350));
     time += (dt / 1000) * speed;
-    // The field is decoration over a mostly static HUD. Cap raster work at
-    // 30 FPS; drawing it on every 60–144 Hz display tick buys little visually.
+    // Keep the low idle raster budget; fluid 60 FPS is reserved for active
+    // voice states on the main reactor. Small bar/menu surfaces stay at 30.
+    const fps = variant === 'hud' && state !== 'idle' && state !== 'muted' ? 60 : 30;
     drawBudgetMs += dt;
-    if (dt > 0 && drawBudgetMs < 1000 / 30) return;
-    drawBudgetMs %= 1000 / 30;
+    if (dt > 0 && drawBudgetMs < 1000 / fps) return;
+    drawBudgetMs %= 1000 / fps;
     ctx.clearRect(0, 0, width, height);
     ctx.globalCompositeOperation = 'lighter';
-    const strength = state === 'muted' ? 0.55 : 1;
     const offset = ambientDustOffset(time);
     // Tile only the narrow exposed edge strips as the pre-rendered dust drifts.
     // The wrapped copies make the texture periodic with no blank edge or seam.

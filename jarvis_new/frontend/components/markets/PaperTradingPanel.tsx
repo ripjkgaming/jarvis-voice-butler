@@ -46,7 +46,11 @@ function remaining(expires: string, now: number): string {
 }
 
 /** Poll failures are visible even after a good read. Hidden panels stop polling. */
-export function usePaperMarket(override: PaperMarketSnapshot | undefined, refresh: number) {
+export function usePaperMarket(
+  override: PaperMarketSnapshot | undefined,
+  refresh: number,
+  enabled = true
+) {
   const [snapshot, setSnapshot] = useState<PaperMarketSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +71,7 @@ export function usePaperMarket(override: PaperMarketSnapshot | undefined, refres
     };
   }, []);
   useEffect(() => {
-    if (override !== undefined) return;
+    if (override !== undefined || !enabled) return;
     let stopped = false;
     let inFlight = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -121,7 +125,7 @@ export function usePaperMarket(override: PaperMarketSnapshot | undefined, refres
       clearTimeout(timer);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [override, refresh]);
+  }, [override, refresh, enabled]);
   if (override !== undefined) {
     const valid = parsePaperMarketSnapshot(override);
     return {
@@ -404,6 +408,20 @@ export function PaperTradingPanel({
                   </dd>
                 </div>
                 <div>
+                  <dt>Automatic trader</dt>
+                  <dd>
+                    {expired
+                      ? 'Finished'
+                      : snapshot.runtime.autotrading_enabled
+                        ? 'Enabled'
+                        : 'Paused'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Risk checks</dt>
+                  <dd>Every minute</dd>
+                </div>
+                <div>
                   <dt>Cadence</dt>
                   <dd>Every {Math.round(snapshot.runtime.decision_interval_seconds / 60)} min</dd>
                 </div>
@@ -589,27 +607,6 @@ export function PaperTradingPanel({
               )}
             </section>
           </div>
-
-          <footer className={styles.footer}>
-            <div>
-              <span className={styles.eyebrow}>LAST CYCLE</span>
-              <span>
-                {human(snapshot.runtime.last_cycle_status)} ·{' '}
-                {dateLabel(snapshot.runtime.last_cycle_at, true)}
-              </span>
-            </div>
-            {snapshot.runtime.last_error && (
-              <p className={styles.warning} role="status">
-                {snapshot.runtime.last_error}
-              </p>
-            )}
-            {snapshot.runtime.last_refresh_error && (
-              <p className={styles.warning} role="status">
-                Quote refresh: {snapshot.runtime.last_refresh_error}
-              </p>
-            )}
-            <p>{snapshot.runtime.fill_policy}</p>
-          </footer>
         </>
       )}
     </section>

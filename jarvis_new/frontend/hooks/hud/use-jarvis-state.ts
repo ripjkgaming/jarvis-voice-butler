@@ -2,29 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgent } from '@livekit/components-react';
-import { useCallState } from '@/hooks/hud/use-room-state';
+import { useCallState, useRoomState } from '@/hooks/hud/use-room-state';
+import { JARVIS_COLORS, type JarvisState } from '@/lib/jarvis-palette';
 import { isTauri, micStatus, setMicMuted } from '@/lib/tauri';
 
-/**
- * Maps the LiveKit agent state machine to the JARVIS status word.
- * Cyan = IDLE, everything else = ACTIVE + sub-state.
- * Priority for orb tint: Orange > Green > Purple > Cyan.
- *
- * No LiveKit client runs in the Tauri webview (no WebRTC in WebKitGTK),
- * so the agent state is always disconnected there — call presence from
- * the bridge room watcher stands in as LISTENING (purple) instead.
+/** Canonical colour rule: execution green, active call purple, no call cyan.
+ * Tauri consumes the leased bridge state; browser voice sessions use the SDK.
+ * Speech and quiet listening share a colour, while retaining their labels.
  */
-export type JarvisState = 'idle' | 'listening' | 'thinking' | 'speaking';
-
-export const JARVIS_COLORS: Record<JarvisState, string> = {
-  idle: '#22d3ee', // Cyan
-  listening: '#a855f7', // Purple
-  thinking: '#22c55e', // Green
-  speaking: '#fb923c', // Orange
-};
-
-/** Orb tint while the mic is muted (tray/HUD mute): neutral grey. */
-export const MUTED_COLOR = '#6b7280';
+export { JARVIS_COLORS, MUTED_COLOR, type JarvisState } from '@/lib/jarvis-palette';
 
 export function agentStateToJarvis(agentState: string | undefined): JarvisState {
   switch (agentState) {
@@ -41,16 +27,21 @@ export function agentStateToJarvis(agentState: string | undefined): JarvisState 
 
 export function useJarvisState() {
   const { state: agentState } = useAgent();
-  // Call presence without a session: the shared /room poll (one request
-  // loop for every component using this hook; paused while hidden). A live
-  // room means Sir is talking to Jarvis; the last state holds if the bridge
-  // drops a beat.
   const inCall = useCallState()?.live ?? false;
+  const room = useRoomState();
 
-  const jarvis = useMemo(() => {
-    const fromAgent = agentStateToJarvis(agentState);
-    return fromAgent === 'idle' && inCall ? 'listening' : fromAgent;
-  }, [agentState, inCall]);
+  const jarvis = useMemo<JarvisState>(() => {
+    if (isTauri()) {
+      if (!inCall) return 'idle';
+      const state = agentStateToJarvis(room?.agent_state ?? undefined);
+      return state === 'idle' ? 'listening' : state;
+    }
+    const state = agentStateToJarvis(agentState);
+    if (state !== 'idle') return state;
+    if (!inCall) return 'idle';
+    const bridgeState = agentStateToJarvis(room?.agent_state ?? undefined);
+    return bridgeState === 'idle' ? 'listening' : bridgeState;
+  }, [agentState, inCall, room?.agent_state]);
   const color = JARVIS_COLORS[jarvis];
   const label = jarvis === 'idle' ? '[IDLE] JARVIS' : `[ACTIVE] ${jarvis.toUpperCase()}`;
   const active = jarvis !== 'idle';

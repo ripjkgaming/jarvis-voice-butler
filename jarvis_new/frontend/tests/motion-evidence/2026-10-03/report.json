@@ -1,0 +1,10 @@
+{
+  "state_reveal_settles": true,
+  "keyboard_tabs_keep_focus": true,
+  "close_returns_focus": true,
+  "repeated_escape_is_idempotent": true,
+  "exit_retains_inert_until_unmount": true,
+  "reopen_and_reduced_motion": true,
+  "narrow_layout": true,
+  "errors": []
+}

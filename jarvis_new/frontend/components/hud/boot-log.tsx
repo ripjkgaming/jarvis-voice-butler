@@ -1,6 +1,9 @@
 'use client';
 
+import { Decode } from '@/components/ascii/use-decode';
 import { type BootView, useBootLog } from '@/hooks/hud/use-boot-log';
+
+const SPIN = '|/-\\';
 
 /** Rows kept on screen; older steps scroll off the top. */
 const VISIBLE_ROWS = 6;
@@ -21,8 +24,14 @@ export function BootLog() {
       <ol className="hud-boot__rows">
         {rows.map((r) => (
           <li key={r.key} className="hud-boot__row" data-done={r.done}>
-            <span className="hud-boot__mark" aria-hidden="true" />
-            <span className="hud-boot__label">{r.label}</span>
+            <span className="hud-boot__mark hud-boot__mark--ascii" aria-hidden="true">
+              {r.done
+                ? '[ OK ]'
+                : `[ ${SPIN[Math.floor(Date.now() / 120) % 4]}${SPIN[Math.floor(Date.now() / 120 + 2) % 4]} ]`}
+            </span>
+            <span className="hud-boot__label">
+              <Decode text={r.label} ms={380} />
+            </span>
             <span className="hud-boot__detail">{r.detail}</span>
             <span className="hud-boot__at">{r.at}</span>
           </li>

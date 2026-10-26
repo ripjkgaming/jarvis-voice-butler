@@ -12,6 +12,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ASCII skin (whole HUD): every display face resolves to Commit Mono, the
+   one vendored monospace that carries every box-drawing and block glyph the
+   ASCII engine (lib/ascii.ts) draws with. html:root outranks the next/font
+   variable classes on <html>, so no per-surface font plumbing is needed. */
+html:root {
+  --font-rajdhani: var(--font-commit-mono);
+  --font-orbitron: var(--font-commit-mono);
+  --font-share-tech-mono: var(--font-commit-mono);
+  --font-public-sans: var(--font-commit-mono);
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -1047,7 +1058,7 @@
   transition: background 0.6s ease;
 }
 .hud[data-state='speaking'] {
-  --jarvis-state: #fb923c;
+  --jarvis-state: #a855f7;
 }
 .hud[data-state='thinking'] {
   --jarvis-state: #22c55e;
@@ -5091,7 +5102,9 @@ html.school-tx body > .group.fixed {
   animation-play-state: paused !important;
   transition: none !important;
 }
-.stx-snapshot .im-boot { display: none !important; }
+.stx-snapshot .im-boot {
+  display: none !important;
+}
 html.school-entry .stx-bar[data-pooling='true'] .sbar-root {
   animation: none;
   clip-path: inset(0 var(--school-entry-reveal, 50%) 0);
@@ -5546,7 +5559,7 @@ html.stx-scan .jarvis-background {
   }
 }
 
-/* STARK OS companion surfaces. The scoped components/stark design is untouched. */
+/* LOCKE OS companion surfaces. The scoped components/stark design is untouched. */
 .sbar,
 .smenu {
   --line: rgba(95, 227, 255, 0.18);
@@ -5625,4 +5638,25 @@ canvas[data-ambient-particles] {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+/* Jarvis ASCII: boot rows use terminal marks instead of drawn dots. */
+.hud-boot__mark.hud-boot__mark--ascii {
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  animation: none;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  white-space: pre;
+  color: var(--state, #5fe3ff);
+}
+.hud-boot__row[data-done='true'] .hud-boot__mark--ascii {
+  background: none;
+  box-shadow: none;
+  color: #5af0a0;
 }

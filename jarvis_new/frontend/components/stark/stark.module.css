@@ -1,4 +1,4 @@
-/* STARK OS HUD — tokens and rules from design/STARK_OS.md.
+/* LOCKE OS HUD — tokens and rules from design/LOCKE_OS.md.
    Scoped (CSS module): the legacy globals.css HUD layers never reach in,
    except the root's shared `hud` class, which is neutralised below. */
 
@@ -22,9 +22,12 @@
   --red: #ff4d5e;
   --green: #6dffb3;
   --glow: 0 0 10px rgba(95, 227, 255, 0.45);
-  --f-label: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
-  --f-mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
-  --f-brand: var(--font-orbitron), 'Orbitron', var(--f-label);
+  /* ASCII skin: one monospace face (Commit Mono carries every box and
+     block glyph) for labels, read-outs and the wordmark alike. */
+  --f-ascii: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
+  --f-label: var(--f-ascii);
+  --f-mono: var(--f-ascii);
+  --f-brand: var(--f-ascii);
   --top-h: 64px;
   --foot-h: 30px;
 
@@ -80,20 +83,33 @@
   align-items: center;
   gap: 16px;
   padding: 0 22px;
-  border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(6, 24, 38, 0.92), rgba(3, 16, 26, 0.55));
   cursor: grab;
 }
 
+/* glyph rule under the masthead: ═══ with a brighter centre run */
 .top::after {
-  content: '';
+  content: '════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════';
   position: absolute;
-  left: 50%;
-  bottom: -1px;
-  width: 360px;
-  height: 1px;
-  transform: translateX(-50%);
-  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 12px;
+  overflow: hidden;
+  font-family: var(--f-ascii);
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    rgba(95, 227, 255, 0.22),
+    rgba(95, 227, 255, 0.85) 50%,
+    rgba(95, 227, 255, 0.22)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  pointer-events: none;
 }
 
 .brand {
@@ -105,26 +121,18 @@
 
 .emblem {
   flex: none;
-  width: 38px;
-  height: 38px;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--f-ascii);
+  font-size: 11px;
+  line-height: 12px;
+  white-space: pre;
+  color: rgba(95, 227, 255, 0.7);
 }
 
-.emblemRing {
-  fill: none;
-  stroke: var(--cyan);
-  stroke-width: 1;
-  opacity: 0.85;
-}
-
-.emblemCore {
-  fill: none;
-  stroke: var(--state);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-}
-
-.emblemHeart {
-  fill: var(--cyan-hot);
+.emblem b {
+  color: var(--state);
+  text-shadow: 0 0 8px var(--state);
 }
 
 .brandCopy {
@@ -161,22 +169,36 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 26px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  background: rgba(6, 24, 38, 0.65);
+  height: 24px;
+  padding: 0 4px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   color: var(--text-dim);
   white-space: nowrap;
-  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+
+/* box-drawn brackets: [ STANDBY ] */
+.chip::before,
+.chip::after {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: rgba(95, 227, 255, 0.45);
+}
+.chip::before {
+  content: '[';
+}
+.chip::after {
+  content: ']';
 }
 
 .chip[data-tone='state'] {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--state) 60%, transparent);
-  background: color-mix(in srgb, var(--state) 10%, rgba(6, 24, 38, 0.8));
+  background: color-mix(in srgb, var(--state) 12%, transparent);
+}
+.chip[data-tone='state']::before,
+.chip[data-tone='state']::after {
+  color: var(--state);
 }
 
 .chip[data-tone='ok'] {
@@ -185,15 +207,20 @@
 
 .chip[data-tone='warn'] {
   color: var(--amber);
-  border-color: rgba(255, 179, 71, 0.5);
 }
 
 .chipDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--state);
-  box-shadow: 0 0 8px var(--state);
+  font-style: normal;
+  letter-spacing: 0;
+  color: var(--state);
+  text-shadow: 0 0 8px var(--state);
+  animation: chip-blink 1.2s steps(2) infinite;
+}
+
+@keyframes chip-blink {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .clock {
@@ -270,18 +297,18 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 11px 15px 13px;
-  animation: rise 0.5s ease-out both;
+  padding: 0;
+  animation: rise 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .left > .frame:nth-child(2),
 .right > :nth-child(2) {
-  animation-delay: 0.06s;
+  animation-delay: 40ms;
 }
 
 .left > .frame:nth-child(3),
 .right > :nth-child(3) {
-  animation-delay: 0.12s;
+  animation-delay: 80ms;
 }
 
 .outline {
@@ -302,7 +329,9 @@
   stroke: var(--line-strong);
 }
 
+/* Brackets resolve once after the plate arrives, then remain still. */
 .outlineBracket {
+  animation: bracket-lock 480ms ease-out both;
   fill: none;
   stroke: var(--cyan);
   stroke-width: 1.5;
@@ -410,7 +439,7 @@
 
 .trendRow {
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
+  grid-template-columns: 6ch minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   margin-top: 3px;
@@ -419,49 +448,24 @@
 .trendValue,
 .powerValue {
   font-family: var(--f-mono);
-  font-size: 23px;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
   color: var(--cyan-hot);
   text-shadow: var(--glow);
 }
 
 .spark {
-  display: block;
-  width: 100%;
-  height: 30px;
-}
-
-.sparkGrid {
-  fill: none;
-  stroke: rgba(95, 227, 255, 0.08);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.sparkArea {
-  fill: rgba(95, 227, 255, 0.1);
-}
-
-.sparkLine {
-  fill: none;
-  stroke: var(--cyan);
-  stroke-width: 1.4;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+  justify-self: end;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
 }
 
 .trend[data-warn] .trendValue,
 .powerRow[data-warn] .powerValue {
   color: var(--amber);
   text-shadow: 0 0 10px rgba(255, 179, 71, 0.45);
-}
-
-.spark[data-warn] .sparkLine {
-  stroke: var(--amber);
-}
-
-.spark[data-warn] .sparkArea {
-  fill: rgba(255, 179, 71, 0.12);
 }
 
 /* --------------------------------------------------------------- power */
@@ -487,26 +491,9 @@
 }
 
 .cells {
-  display: grid;
-  grid-template-columns: repeat(20, minmax(0, 1fr));
-  gap: 3px;
-  height: 10px;
-  margin: 7px 0 5px;
-}
-
-.cells i {
-  background: rgba(95, 227, 255, 0.1);
-  transform: skewX(-24deg);
-}
-
-.cells i[data-on] {
-  background: var(--cyan);
-  box-shadow: 0 0 6px rgba(95, 227, 255, 0.5);
-}
-
-.cells[data-warn] i[data-on] {
-  background: var(--amber);
-  box-shadow: 0 0 6px rgba(255, 179, 71, 0.5);
+  display: block;
+  margin: 6px 0 4px;
+  font-size: 12px;
 }
 
 .powerSub {
@@ -528,11 +515,13 @@
 
 .link {
   display: grid;
-  grid-template-columns: 10px 78px minmax(0, 1fr);
+  grid-template-columns: 3ch 9ch minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px dashed rgba(95, 227, 255, 0.1);
+  gap: 1ch;
+  padding: 6px 0;
+  border-bottom: 0;
+  background: linear-gradient(90deg, rgba(95, 227, 255, 0.14) 50%, transparent 0) 0 100% / 4px 1px
+    repeat-x;
 }
 
 .link:last-child {
@@ -1099,6 +1088,8 @@
 }
 
 .readoutWord {
+  position: relative;
+  animation: state-resolve 240ms ease-out both;
   padding-left: 0.5em;
   font-size: 26px;
   font-weight: 700;
@@ -1108,7 +1099,74 @@
   text-shadow: 0 0 16px color-mix(in srgb, var(--state) 60%, transparent);
 }
 
+.readoutSignal {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  display: flex;
+  gap: 1ch;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.readoutSignal i {
+  font-family: var(--f-ascii);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: none;
+  opacity: 0.5;
+  animation: signal-lock 420ms ease-out both;
+}
+.readoutSignal i::before {
+  content: '──';
+}
+.readoutSignal i:nth-child(2)::before {
+  content: '◆';
+}
+.readoutSignal i:nth-child(2) {
+  animation-delay: 45ms;
+}
+.readoutSignal i:nth-child(3) {
+  animation-delay: 90ms;
+}
+@keyframes state-resolve {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes signal-lock {
+  from {
+    opacity: 0;
+    transform: scaleX(0.15);
+  }
+  60% {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0.5;
+    transform: scaleX(1);
+  }
+}
+@keyframes bracket-lock {
+  from {
+    opacity: 0;
+  }
+  45% {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
 .readoutHint {
+  margin-top: 8px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.26em;
@@ -1127,9 +1185,8 @@
   width: min(780px, 94%);
   min-height: 58px;
   margin-top: 12px;
+  position: relative;
   padding: 10px 18px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
   background: linear-gradient(
     90deg,
     transparent,
@@ -1139,10 +1196,42 @@
   );
 }
 
+/* glyph rules above and below the subtitle line */
+.caption::before,
+.caption::after {
+  content: '╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  overflow: hidden;
+  font-family: var(--f-ascii);
+  font-size: 10px;
+  line-height: 10px;
+  white-space: nowrap;
+  text-align: center;
+  color: rgba(95, 227, 255, 0.28);
+  pointer-events: none;
+}
+.caption::before {
+  top: -5px;
+}
+.caption::after {
+  bottom: -5px;
+}
+
+.captionWho::before {
+  content: '[';
+  opacity: 0.6;
+}
+.captionWho::after {
+  content: ']';
+  opacity: 0.6;
+}
+
 .captionWho {
   margin-top: 3px;
-  padding: 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--state) 55%, transparent);
+  padding: 2px 0;
   font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.16em;
@@ -1150,7 +1239,6 @@
 }
 
 .caption[data-who='SIR'] .captionWho {
-  border-color: var(--line-strong);
   color: var(--cyan);
 }
 
@@ -1161,14 +1249,21 @@
   max-height: calc(1.35em * 2);
   margin: 0;
   overflow: hidden;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 400;
   line-height: 1.35;
   color: var(--text);
 }
 
 .captionWord {
   animation: word-in 0.18s ease-out both;
+}
+
+.captionIdle::before {
+  content: '— ';
+}
+.captionIdle::after {
+  content: ' —';
 }
 
 .captionIdle {
@@ -1212,8 +1307,6 @@
 }
 
 .researchTag {
-  padding: 1px 6px;
-  border: 1px solid var(--line-strong);
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--cyan);
@@ -1237,32 +1330,8 @@
 .researchBar,
 .execBar {
   grid-column: 1 / -1;
-  height: 3px;
-  overflow: hidden;
-  background: rgba(95, 227, 255, 0.12);
-}
-
-.researchBar i,
-.execBar i {
-  display: block;
-  height: 100%;
-  background: var(--cyan);
-  box-shadow: 0 0 6px rgba(95, 227, 255, 0.6);
-  transition: width 0.6s ease-out;
-}
-
-.execBar[data-indeterminate] i {
-  width: 28%;
-  animation: indeterminate 1.4s linear infinite;
-}
-
-@keyframes indeterminate {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(360%);
-  }
+  max-width: 100%;
+  font-size: 10px;
 }
 
 /* ------------------------------------------------------------- execution */
@@ -1286,15 +1355,13 @@
 }
 
 .execTag {
-  padding: 1px 5px;
-  border: 1px solid var(--line-strong);
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--cyan);
 }
 
 .execMark {
-  width: 22px;
+  width: 3ch;
   font-family: var(--f-mono);
   font-size: 13px;
   text-align: center;
@@ -1436,10 +1503,10 @@
 
 .logRow {
   display: grid;
-  grid-template-columns: 62px 82px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 10ch 13ch minmax(0, 1fr);
+  gap: 0;
   font-family: var(--f-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.6;
   white-space: nowrap;
 }
@@ -1448,9 +1515,31 @@
   color: var(--text-faint);
 }
 
+.logTime::after,
+.logTag::after {
+  content: ' │';
+  color: rgba(95, 227, 255, 0.2);
+}
+
+.logTag {
+  padding-left: 1ch;
+}
+
+.logText {
+  padding-left: 1ch;
+}
+
+/* terminal cursor on the newest line */
+.logRow:last-child .logText::after {
+  content: '▌';
+  margin-left: 1ch;
+  color: var(--cyan);
+  animation: chip-blink 1.1s steps(2) infinite;
+}
+
 .logTag {
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   color: var(--cyan-dim);
 }
 
@@ -1481,7 +1570,7 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 0 20px;
-  border-top: 1px solid var(--line);
+  border-top: 1px dashed rgba(95, 227, 255, 0.18);
   background: rgba(3, 16, 26, 0.85);
   font-size: 11px;
   font-weight: 700;
@@ -1503,11 +1592,9 @@
 }
 
 .footHealth i {
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
-  transform: rotate(45deg);
+  font-style: normal;
+  letter-spacing: 0;
+  text-shadow: 0 0 8px currentColor;
 }
 
 .footHealth[data-warn] {
@@ -1632,6 +1719,8 @@
 /* Connection feedback occupies the existing voice core, preserving the
    surrounding instruments and leaving controls immediately usable. */
 .root:not([data-voice-phase='idle']) .readoutWord {
+  color: #91d3ff;
+  text-shadow: 0 0 16px #58bdff60;
   font-size: clamp(16px, 1.65vw, 24px);
   letter-spacing: 0.2em;
   padding-left: 0.2em;
@@ -1679,6 +1768,11 @@
   min-width: 0;
 }
 
+.deskStat small::before {
+  content: '› ';
+  color: var(--cyan-dim);
+}
+
 .deskStat small {
   font-size: 10px;
   font-weight: 600;
@@ -1716,25 +1810,11 @@
 }
 
 .deskSpark {
-  display: block;
-  width: 100%;
-  height: 22px;
+  display: flex;
+  max-width: 100%;
   margin-top: 5px;
-}
-
-.deskSpark polyline {
-  fill: none;
-  stroke: var(--cyan);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.deskSpark[data-tone='up'] polyline {
-  stroke: var(--green);
-}
-
-.deskSpark[data-tone='down'] polyline {
-  stroke: var(--red);
+  overflow: hidden;
+  font-size: 9px;
 }
 
 .deskDrafts {
@@ -1750,14 +1830,27 @@
   display: flex;
   gap: 8px;
   min-width: 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--cyan-dim);
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.deskDrafts > li[data-urgent] {
-  border-left-color: var(--amber);
+.deskDrafts > li::before {
+  content: '├─';
+  flex: none;
+  color: var(--cyan-dim);
+}
+
+.deskDrafts > li:last-child::before {
+  content: '└─';
+}
+
+.deskDrafts > li[data-urgent]::before {
+  color: var(--amber);
+}
+
+.deskDrafts > li[data-urgent] b::before {
+  content: '! ';
+  color: var(--amber);
 }
 
 .deskDrafts b {
@@ -1783,78 +1876,26 @@
   display: none;
 }
 
-/* Wake acquisition spans backend stages without restarting at each poll.
- * This is an indeterminate energy envelope, never time-based readiness.
- * Only the visual core is tinted; telemetry and status remain legible. */
+/* Acquisition owns the center. Keep cached films for immediate readiness,
+ * but stop painting/compositing the reactor behind the acquisition veil. */
 .rxEnergy {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  filter: hue-rotate(0deg) brightness(1);
-  transform: scale(1);
-  transition:
-    filter 280ms ease-out,
-    transform 280ms ease-out;
+  opacity: 1;
+  transition: opacity 320ms ease-out;
 }
-
 .reactor[data-energizing] .rxEnergy {
-  filter: hue-rotate(66deg) brightness(1.24);
-  transform: scale(1.035);
-  transition-duration: 3.2s;
-  transition-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
-}
-
-.rxEnergy::after {
-  content: '';
-  position: absolute;
-  top: 25%;
-  left: 32.955%;
-  width: 34.09%;
-  height: 50%;
-  border: 1px solid rgba(153, 209, 255, 0.6);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 28px rgba(74, 188, 255, 0.16),
-    0 0 20px rgba(74, 188, 255, 0.12);
   opacity: 0;
 }
-
-.reactor[data-energizing] .rxEnergy::after {
-  animation: rx-acquire 2.8s ease-in-out infinite;
+.reactor[data-energizing] .rxEnergy * {
+  animation-play-state: paused !important;
 }
-
-@keyframes rx-acquire {
-  0% {
-    opacity: 0;
-    transform: scale(1.48);
-  }
-  24% {
-    opacity: 0.65;
-  }
-  82% {
-    opacity: 0.16;
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.62);
-  }
-}
-
-:global(.hud-hidden) .rxEnergy::after {
-  animation-play-state: paused;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .rxEnergy {
     transition: none !important;
-    transform: none !important;
-  }
-  .reactor[data-energizing] .rxEnergy::after {
-    animation: none;
-    opacity: 0.35;
   }
 }
-
 
 /* Amber instruments feed a single cached particle field plus small, static
    light textures. Only opacity is transitioned; voice/acquisition colours
@@ -1866,29 +1907,104 @@
   opacity: 0;
   transition: opacity 850ms ease-out;
 }
-.rxWarning[data-reactor-warning='true'] { opacity: 1; }
-.rxWarningParticles { opacity: 0.88; }
+.rxWarning[data-reactor-warning='true'] {
+  opacity: 1;
+}
+.rxWarningParticles {
+  opacity: 0.88;
+}
 .rxWarningGlow {
   position: absolute;
   inset: 7% 20.682%;
   border-radius: 50%;
-  background: radial-gradient(circle,
-    rgba(255, 198, 112, 0.12) 0%, transparent 22%,
-    rgba(255, 164, 61, 0.10) 40%, transparent 51%,
-    rgba(255, 179, 71, 0.12) 67%, transparent 73%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 198, 112, 0.12) 0%,
+    transparent 22%,
+    rgba(255, 164, 61, 0.1) 40%,
+    transparent 51%,
+    rgba(255, 179, 71, 0.12) 67%,
+    transparent 73%
+  );
 }
 .rxWarningSource {
   position: absolute;
   width: 24%;
   height: 35.2%;
   border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(255, 211, 145, 0.30),
-    rgba(255, 157, 48, 0.14) 30%, transparent 70%);
+  background: radial-gradient(
+    ellipse,
+    rgba(255, 211, 145, 0.3),
+    rgba(255, 157, 48, 0.14) 30%,
+    transparent 70%
+  );
   opacity: 0;
   transition: opacity 650ms ease-out;
 }
-.rxWarningSource[data-on] { opacity: 1; }
-.rxWarningSource[data-source='cpu'] { left: 18.4%; top: 3.6%; }
-.rxWarningSource[data-source='mem'] { right: 18.4%; top: 3.6%; }
-.rxWarningSource[data-source='temp'] { right: 18.4%; bottom: 3.6%; }
-.rxWarningSource[data-source='power'] { left: 18.4%; bottom: 3.6%; }
+.rxWarningSource[data-on] {
+  opacity: 1;
+}
+.rxWarningSource[data-source='cpu'] {
+  left: 18.4%;
+  top: 3.6%;
+}
+.rxWarningSource[data-source='mem'] {
+  right: 18.4%;
+  top: 3.6%;
+}
+.rxWarningSource[data-source='temp'] {
+  right: 18.4%;
+  bottom: 3.6%;
+}
+.rxWarningSource[data-source='power'] {
+  left: 18.4%;
+  bottom: 3.6%;
+}
+
+/* Protocol 12 (components/protocol): the quick-display cards fade and blur
+   into the background while the red protocol UI takes over the canvas
+   above; the rest of the HUD cross-fades under it. 'off' is the way back. */
+:global(html[data-protocol]) .left,
+:global(html[data-protocol]) .right,
+:global(html[data-protocol]) .soloGrid > :not(.center) {
+  transition:
+    opacity 0.7s ease,
+    filter 0.7s ease;
+}
+
+:global(html[data-protocol='on']) .left,
+:global(html[data-protocol='on']) .right,
+:global(html[data-protocol='on']) .soloGrid > :not(.center) {
+  opacity: 0;
+  filter: blur(10px);
+  visibility: hidden;
+  transition:
+    opacity 0.9s ease,
+    filter 0.9s ease,
+    visibility 0s linear 0.9s;
+}
+
+:global(html[data-protocol]) .top,
+:global(html[data-protocol]) .center,
+:global(html[data-protocol]) .foot {
+  transition: opacity 0.7s ease;
+}
+
+:global(html[data-protocol='on']) .top,
+:global(html[data-protocol='on']) .center,
+:global(html[data-protocol='on']) .foot {
+  opacity: 0;
+  transition: opacity 0.9s ease 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(html[data-protocol]) .left,
+  :global(html[data-protocol]) .right,
+  :global(html[data-protocol]) .soloGrid > :not(.center),
+  :global(html[data-protocol]) .top,
+  :global(html[data-protocol]) .center,
+  :global(html[data-protocol]) .foot {
+    filter: none;
+    transition-duration: 0.01s;
+  }
+}

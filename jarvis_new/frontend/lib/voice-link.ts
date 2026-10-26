@@ -10,6 +10,9 @@ export type VoiceLinkPhase =
   | 'stalled';
 export type VoiceRequest = { at: number; baseline: number | null; failed: boolean };
 export type VoiceLink = {
+  /** Shared controller; view-only consumers may omit the retry action. */
+  retry?: () => void;
+  activation?: number;
   phase: VoiceLinkPhase;
   word: string;
   detail: string;
@@ -125,4 +128,48 @@ export function voiceLinkFrom(
     return make('request', 'ACQUIRING', detail, 0, until);
   }
   return IDLE;
+}
+
+export type VoiceLinkHistory = {
+  pending: BridgeRoomState | null;
+  interrupted: boolean;
+};
+
+/** Preserve an observed pending join across a missed/stale poll. An explicit
+ * backend clear ends it as interrupted, never as connected or silent success. */
+export function observeVoiceLink(
+  raw: BridgeRoomState | null,
+  request: VoiceRequest | null,
+  previous: VoiceLinkHistory,
+  now = Date.now()
+): { link: VoiceLink; history: VoiceLinkHistory } {
+  const stage = raw?.boot?.at(-1)?.[0];
+  let { pending, interrupted } = previous;
+  if (stage === 'online' || raw?.call_live === true) {
+    pending = null;
+    interrupted = false;
+  } else if (stage || raw?.waking) {
+    pending = raw;
+    interrupted = false;
+  } else if (raw && !raw.room && !raw.waking) {
+    interrupted = interrupted || pending !== null;
+    pending = null;
+  }
+  if (request) interrupted = false;
+  const link = voiceLinkFrom(raw?.boot?.length ? raw : (pending ?? raw), request, now);
+  return {
+    link:
+      interrupted && link.phase === 'idle'
+        ? make('failed', 'LINK INTERRUPTED', 'JOIN ENDED BEFORE CONNECTION · RETRY WHEN READY', -1)
+        : link,
+    history: { pending, interrupted },
+  };
+}
+
+/** Final wake-addressed user speech, not assistant text or partial captions. */
+export function isWakeCaption(caption: { role: string; text: string }): boolean {
+  if (caption.role !== 'sir' || /(?:…|\.\.\.)$/.test(caption.text.trim())) return false;
+  return /^(?:(?:hey|hi|hello|ok|okay)[,\s]+)?(?:jarvis|jarvus|javis|jervis|jeeves)\b/i.test(
+    caption.text.trim()
+  );
 }

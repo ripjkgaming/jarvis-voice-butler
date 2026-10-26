@@ -1,6 +1,13 @@
 'use client';
 
-import { type CSSProperties, type KeyboardEvent, useEffect, useRef } from 'react';
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import dynamic from 'next/dynamic';
 import type { InsightsTab } from '@/hooks/hud/use-insights';
 import s from './insights.module.css';
@@ -40,6 +47,24 @@ export default function InsightsDrawer({
   const tabs = useRef(new Map<InsightsTab, HTMLButtonElement>());
   const close = useRef(onClose);
   close.current = onClose;
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestClose = useCallback(() => {
+    if (closeTimer.current) return;
+    // Keep focus trapped and the underlying HUD inert until the exit finishes.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      close.current();
+      return;
+    }
+    setClosing(true);
+    closeTimer.current = setTimeout(() => close.current(), 180);
+  }, []);
+  useEffect(
+    () => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    },
+    []
+  );
   useEffect(() => {
     const previous = returnFocus ?? document.activeElement;
     closeButton.current?.focus({ preventScroll: true });
@@ -47,7 +72,7 @@ export default function InsightsDrawer({
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        close.current();
+        requestClose();
         return;
       }
       if (event.key !== 'Tab' || !dialog.current) return;
@@ -86,7 +111,7 @@ export default function InsightsDrawer({
           ?.focus({ preventScroll: true });
       }
     };
-  }, [school, returnFocus]);
+  }, [school, returnFocus, requestClose]);
 
   const tabKeys = (event: KeyboardEvent) => {
     let next: InsightsTab;
@@ -104,6 +129,7 @@ export default function InsightsDrawer({
     <div
       className={s.overlay}
       data-insights="true"
+      data-closing={closing || undefined}
       data-school={school || undefined}
       style={{ '--insights-bar-height': `${school ? barHeight : 0}px` } as CSSProperties}
     >
@@ -126,7 +152,7 @@ export default function InsightsDrawer({
             type="button"
             ref={closeButton}
             className={s.close}
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close Insights"
           >
             <span aria-hidden="true">×</span> Close <kbd>ESC</kbd>
@@ -160,12 +186,17 @@ export default function InsightsDrawer({
           ))}
         </div>
         <div
+          key={tab}
           className={s.content}
           id="insights-panel"
           role="tabpanel"
           aria-labelledby={`insights-tab-${tab}`}
         >
-          {tab === 'usage' ? <AiUsagePanel /> : <PaperTradingPanel embedded onClose={onClose} />}
+          {tab === 'usage' ? (
+            <AiUsagePanel />
+          ) : (
+            <PaperTradingPanel embedded onClose={requestClose} />
+          )}
         </div>
       </div>
     </div>

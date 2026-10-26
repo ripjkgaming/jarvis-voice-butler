@@ -247,7 +247,7 @@ async def context_loss_checks(page):
     await page.wait_for_timeout(120)
     lost = await page.evaluate("suitProbe()")
     await page.get_by_role("button", name="Critical", exact=True).click()
-    assert (await meters(page))["Simulated reactor charge"] == 29
+    assert (await meters(page))["reactor charge"] == 29
     await page.wait_for_timeout(180)
     assert await page.evaluate("suitProbe()") == lost, (
         "Lost context retained renderer work"
@@ -401,12 +401,12 @@ async def run(browser, url, output, *, school=False, width=1600, height=900, dpr
         assert layout_width["mainScroll"] <= layout_width["mainWidth"] + 1, layout_width
         assert await dialog.get_attribute("aria-modal") == "true"
         assert await page.get_by_label(
-            "Simulation, fictional suit telemetry", exact=True
+            "Suit telemetry", exact=True
         ).is_visible()
         assert await meters(page) == {
-            "Simulated reactor charge": 76,
-            "Simulated fuel reserve": 58,
-            "Simulated coolant level": 83,
+            "reactor charge": 76,
+            "fuel reserve": 58,
+            "coolant level": 83,
         }
         await focus_checks(page)
         if school:
@@ -432,9 +432,9 @@ async def run(browser, url, output, *, school=False, width=1600, height=900, dpr
 
         await page.get_by_role("button", name="Critical", exact=True).click()
         assert await meters(page) == {
-            "Simulated reactor charge": 29,
-            "Simulated fuel reserve": 18,
-            "Simulated coolant level": 42,
+            "reactor charge": 29,
+            "fuel reserve": 18,
+            "coolant level": 42,
         }
         await page.get_by_role("option", name=re.compile("Left arm")).click()
         selected = page.get_by_role("region", name="Selected region", exact=True)
@@ -451,9 +451,9 @@ async def run(browser, url, output, *, school=False, width=1600, height=900, dpr
         await page.screenshot(path=str(output / f"suit-{label}-critical-back.png"))
         await page.get_by_role("button", name="Nominal", exact=True).click()
         assert await meters(page) == {
-            "Simulated reactor charge": 98,
-            "Simulated fuel reserve": 94,
-            "Simulated coolant level": 96,
+            "reactor charge": 98,
+            "fuel reserve": 94,
+            "coolant level": 96,
         }
         await page.get_by_role("button", name="Pause model motion", exact=True).click()
         await page.wait_for_timeout(120)
@@ -499,7 +499,7 @@ async def run(browser, url, output, *, school=False, width=1600, height=900, dpr
         )
         await desktop.suit("open")
         await ready_scene(page)
-        assert (await meters(page))["Simulated reactor charge"] == 76, (
+        assert (await meters(page))["reactor charge"] == 76, (
             "Local preset state leaked across mounts"
         )
         if not school and width == 1600 and dpr == 1:

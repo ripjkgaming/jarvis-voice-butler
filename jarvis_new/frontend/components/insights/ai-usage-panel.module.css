@@ -11,7 +11,7 @@
   padding: 24px;
   background: radial-gradient(ellipse at 0 0, rgba(28, 102, 126, 0.14), transparent 52%), #04111c;
   color: var(--usage-text);
-  font-family: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 14px;
   color-scheme: dark;
   scrollbar-color: #2c5969 #04111c;
@@ -41,7 +41,7 @@
 }
 .eyebrow {
   color: var(--usage-cyan);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.18em;
 }
@@ -105,7 +105,7 @@
   gap: 7px;
   letter-spacing: 0.08em;
   color: var(--usage-cyan);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
 }
 .status::before,
 .statusStale::before {
@@ -193,7 +193,7 @@
   display: block;
   margin-top: 5px;
   color: var(--usage-text);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -261,7 +261,7 @@
 }
 .chartReadout strong {
   color: var(--usage-text);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-weight: 400;
   font-size: 16px;
 }
@@ -282,7 +282,7 @@
 }
 .axisText {
   fill: #9ab4c3;
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 12px;
 }
 .zeroBar {
@@ -309,7 +309,7 @@
 }
 .count {
   color: var(--usage-cyan);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 11px;
   padding: 3px 7px;
   background: rgba(99, 230, 255, 0.06);
@@ -340,7 +340,7 @@
 }
 .appHeading > span:last-child {
   color: var(--usage-amber);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   white-space: nowrap;
 }
 .appIndex {
@@ -394,7 +394,7 @@
 .attribution dd {
   margin: 5px 0 0;
   color: var(--usage-text);
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -442,7 +442,7 @@
   display: block;
   color: var(--usage-text);
   font-weight: 400;
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
   overflow-wrap: anywhere;
 }
 .modelTable tbody th {
@@ -464,7 +464,7 @@
 .dailyTable {
   min-width: 410px;
   margin-top: 10px;
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
 }
 .dailyTable th,
 .dailyTable td {
@@ -502,7 +502,7 @@
   margin: 2px 0 0;
   color: var(--usage-text);
   overflow-wrap: anywhere;
-  font-family: var(--font-share-tech-mono), ui-monospace, monospace;
+  font-family: var(--font-commit-mono), ui-monospace, monospace;
 }
 .provenance ul {
   padding-left: 17px;
@@ -673,4 +673,86 @@
   .provenance dl {
     grid-template-columns: 1fr;
   }
+}
+
+/* ------------------------------------------------------------ ASCII skin */
+.eyebrow::before {
+  content: '── ' / '';
+  opacity: 0.7;
+}
+.metricSwitch,
+.rangeControls {
+  border-style: dashed;
+}
+.rangeControls button::before,
+.metricSwitch button::before {
+  content: '[ ' / '';
+  opacity: 0.4;
+}
+.rangeControls button::after,
+.metricSwitch button::after {
+  content: ' ]' / '';
+  opacity: 0.4;
+}
+.rangeControls button[aria-pressed='true']::before,
+.metricSwitch button[aria-pressed='true']::before {
+  content: '[▶' / '';
+  opacity: 1;
+}
+/* hero cards: a glyph rule instead of the decorative circle */
+.tokenCard::after,
+.costCard::after {
+  content: none;
+}
+.gridLine {
+  stroke-dasharray: 1 6;
+}
+.appBar {
+  height: auto;
+  background: none;
+  border: 0;
+  overflow: hidden;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.appBar span {
+  display: inline;
+  height: auto;
+  background: none;
+}
+
+/* box-drawn cards: dashed hairline frame, ┌ ┘ glyph corners */
+.chartSection,
+.appsSection,
+.modelsSection {
+  position: relative;
+  border-style: dashed;
+}
+.chartSection::before,
+.appsSection::before,
+.modelsSection::before,
+.chartSection::after,
+.appsSection::after,
+.modelsSection::after {
+  position: absolute;
+  z-index: 1;
+  font:
+    13px/1 var(--font-commit-mono),
+    monospace;
+  color: var(--usage-cyan);
+  pointer-events: none;
+}
+.chartSection::before,
+.appsSection::before,
+.modelsSection::before {
+  content: '┌' / '';
+  top: -3px;
+  left: -2px;
+}
+.chartSection::after,
+.appsSection::after,
+.modelsSection::after {
+  content: '┘' / '';
+  right: -2px;
+  bottom: -3px;
 }

@@ -353,6 +353,7 @@ function renderPanel(snapshot, range = 'today') {
     },
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@/lib/ai-usage': f,
+    '@/components/ascii/glyphs': { GlyphBar: () => null },
     './ai-usage-panel.module.css': {
       default: new Proxy({}, { get: (_object, key) => String(key) }),
     },

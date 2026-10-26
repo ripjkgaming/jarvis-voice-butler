@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import {
   type BridgeCaptions,
   type BridgeLiveCaption,
@@ -12,9 +12,10 @@ import {
 } from '@/lib/bridge';
 import { useSharedPoll } from '@/lib/shared-poll';
 
-/** Call presence ("hey Jarvis" should go purple at once) and the wake's
- *  boot log: one shared /room poll for every HUD component. */
+/** Call liveness + execution and wake setup: one poll for all HUD components. */
 export const ROOM_POLL_MS = 300;
+/** A bridge stall cannot hold an old active colour indefinitely. */
+export const ROOM_STALE_MS = 3000;
 /** Jarvis's word-synced live line, only while a call is up. */
 export const LIVE_POLL_MS = 100;
 /** Finished caption lines, only while a call is up. */
@@ -23,21 +24,12 @@ export const CAPTIONS_POLL_MS = 1500;
 const CAPTIONS_PATH = '/captions?limit=3';
 
 export function useRoomState(ms = ROOM_POLL_MS): BridgeRoomState | null {
-  return useSharedPoll<BridgeRoomState>('/room', ms);
+  return useSharedPoll<BridgeRoomState>('/room', ms, true, ROOM_STALE_MS);
 }
 
 export function useCallState(): CallState | null {
   const raw = useRoomState();
-  const pending = useRef(false);
-  return useMemo(() => {
-    if (raw) {
-      const stage = raw.boot?.at(-1)?.[0];
-      if (stage === 'online' || (!raw.room && !raw.waking && !stage)) pending.current = false;
-      else if (stage || raw.waking) pending.current = true;
-    }
-    const call = callStateFrom(raw);
-    return call && pending.current ? { ...call, live: false } : call;
-  }, [raw]);
+  return useMemo(() => callStateFrom(raw), [raw]);
 }
 
 export function useRoom(ms = ROOM_POLL_MS): string | null {

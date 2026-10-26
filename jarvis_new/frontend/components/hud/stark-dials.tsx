@@ -130,7 +130,7 @@ export function StarkDials() {
   const daySeconds = now ? now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() : 0;
 
   return (
-    <div className="stark-dials" role="status" aria-label="Stark instruments">
+    <div className="stark-dials" role="status" aria-label="Locke instruments">
       <Dial
         label="DATE"
         pct={(day / daysInMonth) * 100}

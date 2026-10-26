@@ -8,22 +8,18 @@
  *  voice, and the screen only reflects the drafts on file. When the last
  *  draft is sent or discarded the window asks the bridge to hide it. */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AsciiBox, SayHint } from '@/components/ascii/glyphs';
+import { Decode } from '@/components/ascii/use-decode';
 import { useSurfaceVisibility } from '@/hooks/hud/use-surface-visibility';
 import { type ReplyDraft, closeIfEmpty, listDrafts } from '@/lib/drafts';
 import styles from './drafts-window.module.css';
 
 const POLL_MS = 2000;
 
-const PHRASES = [
-  'read it',
-  'send it',
-  'change it to say …',
-  'discard it',
-  'next draft',
-  'close drafts',
-];
-
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Real draft voice tools (src/draft_tools.py): read, revise, discard, send. */
+const PHRASES = ['read the draft', 'revise it to …', 'send it', 'discard it'];
 
 function senderName(d: ReplyDraft): string {
   const raw = (d.sender || d.to || 'Unknown').trim();
@@ -83,10 +79,13 @@ export function DraftsWindow() {
 
       <header className={styles.header}>
         <div className={styles.brand}>
-          <svg viewBox="0 0 120 120" className={styles.mark} aria-hidden>
-            <path d="M60 8 L112 104 H8 Z" />
-            <path d="M60 40 L60 72 M60 84 L60 88" className={styles.markBang} />
-          </svg>
+          <span className={styles.mark} aria-hidden>
+            <span>╭───╮</span>
+            <span>
+              │<b>▲!</b>│
+            </span>
+            <span>╰───╯</span>
+          </span>
           <div>
             <strong>DRAFTS</strong>
             <small>REPLIES AWAITING APPROVAL</small>
@@ -94,14 +93,14 @@ export function DraftsWindow() {
         </div>
         <div className={styles.stats}>
           <span>
-            <b>{list.length}</b>ON FILE
+            <b>{pad(list.length)}</b>ON FILE
           </span>
           <span>
-            <b className={high ? styles.hot : undefined}>{high}</b>URGENT
+            <b className={high ? styles.hot : undefined}>{pad(high)}</b>URGENT
           </span>
         </div>
         <div className={styles.clock}>
-          {offline ? <em className={styles.offline}>BRIDGE OFFLINE</em> : null}
+          {offline ? <em className={styles.offline}>▲ BRIDGE OFFLINE</em> : null}
           {now
             ? new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '--:--'}
@@ -109,8 +108,14 @@ export function DraftsWindow() {
       </header>
 
       <main className={styles.monitors}>
-        <section className={styles.monitor} aria-label="Draft index">
-          <div className={styles.monTag}>MON-A // INBOX</div>
+        <AsciiBox
+          label="MON-A // INBOX"
+          index={1}
+          heavy
+          aside={`${pad(list.length)} WAITING`}
+          className={styles.monitor}
+          bodyClassName={styles.monBody}
+        >
           <ol className={styles.list}>
             {drafts === null && <li className={styles.hint}>Reaching the bridge…</li>}
             {drafts !== null && list.length === 0 && (
@@ -124,55 +129,64 @@ export function DraftsWindow() {
                   <span className={styles.rowSub}>{d.subject.replace(/^(re:\s*)+/i, '')}</span>
                   <span className={styles.rowMeta}>{age(d.created, now)}</span>
                 </span>
-                {d.priority === 'high' ? <span className={styles.urgent}>URGENT</span> : null}
+                {d.priority === 'high' ? <span className={styles.urgent}>[! URGENT]</span> : null}
               </li>
             ))}
           </ol>
-        </section>
+          <div className={styles.phrases} aria-label="Voice commands">
+            {PHRASES.map((p) => (
+              <SayHint key={p}>{p}</SayHint>
+            ))}
+          </div>
+        </AsciiBox>
 
-        <section className={styles.sheet} aria-label="Reply draft">
-          <div className={styles.monTag}>MON-B // REPLY SHEET</div>
+        <AsciiBox
+          label="MON-B // REPLY SHEET"
+          index={2}
+          heavy
+          tone={current?.priority === 'high' ? 'amber' : undefined}
+          aside={current ? 'NOT SENT' : undefined}
+          className={styles.sheet}
+          bodyClassName={styles.monBody}
+        >
           {current ? (
             <article className={styles.paper}>
               <dl className={styles.fields}>
                 <dt>TO</dt>
                 <dd>{current.to}</dd>
                 <dt>RE</dt>
-                <dd>{current.subject}</dd>
+                <dd>
+                  <Decode text={current.subject} ms={480} />
+                </dd>
                 <dt>STATE</dt>
                 <dd>
                   <span className={current.status === 'announced' ? styles.stA : styles.stP}>
-                    {current.status === 'announced' ? 'ANNOUNCED' : 'WAITING'}
+                    [{current.status === 'announced' ? 'ANNOUNCED' : 'WAITING'}]
                   </span>
-                  <span className={styles.notSent}>NOT SENT</span>
+                  <span className={styles.notSent}>[✕ NOT SENT]</span>
                 </dd>
               </dl>
               {current.summary ? (
                 <p className={styles.said}>
-                  <span>THEY WROTE</span>
+                  <span>── THEY WROTE ──</span>
                   {current.summary}
                 </p>
               ) : null}
               <div className={styles.body} role="region" aria-label="Draft reply text">
-                <span className={styles.bodyTag}>MY REPLY</span>
+                <span className={styles.bodyTag}>── MY REPLY ──</span>
                 {current.body}
               </div>
             </article>
           ) : (
             <div className={styles.empty}>
-              <span>ALL CLEAR</span>
+              <span>
+                <Decode text="[■] ALL CLEAR" />
+              </span>
               Nothing is waiting for your approval.
             </div>
           )}
-        </section>
+        </AsciiBox>
       </main>
-
-      <footer className={styles.phrases}>
-        <span className={styles.say}>SAY</span>
-        {PHRASES.map((p) => (
-          <em key={p}>{p}</em>
-        ))}
-      </footer>
     </div>
   );
 }

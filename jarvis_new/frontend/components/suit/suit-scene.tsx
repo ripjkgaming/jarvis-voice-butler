@@ -81,7 +81,7 @@ export default function SuitScene(props: SuitSceneProps) {
       renderer.setClearColor(0x000000, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.25;
+      renderer.toneMappingExposure = 1.05;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       // Armor and lights are static: orbiting reuses the same detailed shadow map.
@@ -92,7 +92,7 @@ export default function SuitScene(props: SuitSceneProps) {
       canvas.setAttribute('role', 'img');
       canvas.setAttribute(
         'aria-label',
-        'Interactive three-dimensional armor. Drag or use arrow keys to orbit, scroll or use plus and minus to zoom, and click armor to select a region.'
+        'Interactive holographic three-dimensional armor. Damage appears as brighter blue fracture lines. Drag or use arrow keys to orbit, scroll or use plus and minus to zoom, and click armor to select a region.'
       );
       canvas.style.cssText =
         'display:block;width:100%;height:100%;touch-action:none;cursor:grab;outline-offset:-3px';
@@ -125,13 +125,13 @@ export default function SuitScene(props: SuitSceneProps) {
       try {
         const environment = pmrem.fromScene(room, 0.04);
         scene.environment = environment.texture;
-        scene.environmentIntensity = 0.95;
+        scene.environmentIntensity = 0.6;
         cleanups.push(() => environment.dispose());
       } finally {
         room.dispose();
         pmrem.dispose();
       }
-      const key = new THREE.DirectionalLight('#fff0d5', 4.2);
+      const key = new THREE.DirectionalLight('#c1f2ff', 1.7);
       key.position.set(-4.5, 10, 7);
       key.target.position.copy(suit.center);
       key.castShadow = true;
@@ -148,19 +148,21 @@ export default function SuitScene(props: SuitSceneProps) {
       key.shadow.bias = -0.00015;
       scene.add(key, key.target);
       cleanups.push(() => key.shadow.dispose());
-      const fill = new THREE.DirectionalLight('#79dfff', 2.1);
+      const fill = new THREE.DirectionalLight('#79dfff', 1.5);
       fill.position.set(5, 5.5, 4);
-      const rim = new THREE.DirectionalLight('#ff9862', 4);
+      const rim = new THREE.DirectionalLight('#62dcff', 3.2);
       rim.position.set(1.2, 8.5, -5.5);
       scene.add(fill, rim, new THREE.HemisphereLight('#b8dbff', '#151321', 0.65));
 
       const floorGeometry = new THREE.CircleGeometry(2.75, 96);
       const floorMaterial = new THREE.MeshStandardMaterial({
-        color: '#071723',
+        color: '#032632',
+        emissive: '#0a5766',
+        emissiveIntensity: 0.3,
         metalness: 0.3,
         roughness: 0.72,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.2,
         depthWrite: false,
       });
       const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -172,12 +174,12 @@ export default function SuitScene(props: SuitSceneProps) {
         floorGeometry.dispose();
         floorMaterial.dispose();
       });
-      const grid = new THREE.PolarGridHelper(2.78, 12, 4, 96, '#3a9aad', '#164051');
+      const grid = new THREE.PolarGridHelper(2.78, 12, 4, 96, '#54dfff', '#1a778d');
       grid.position.y = floorY + 0.003;
       const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
       for (const material of gridMaterials) {
         material.transparent = true;
-        material.opacity = 0.48;
+        material.opacity = 0.5;
         material.depthWrite = false;
       }
       scene.add(grid);
@@ -185,14 +187,36 @@ export default function SuitScene(props: SuitSceneProps) {
         grid.geometry.dispose();
         for (const material of gridMaterials) material.dispose();
       });
+      // Precision projection rings anchor the hologram without hiding the armor.
+      const projectionGeometry = new THREE.RingGeometry(2.7, 2.72, 128);
+      const projectionMaterial = new THREE.MeshBasicMaterial({
+        color: '#53dfff',
+        transparent: true,
+        opacity: 0.65,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const projectionRing = new THREE.Mesh(projectionGeometry, projectionMaterial);
+      projectionRing.rotation.x = -Math.PI / 2;
+      projectionRing.position.y = floorY + 0.008;
+      scene.add(projectionRing);
+      const innerRing = projectionRing.clone();
+      innerRing.scale.setScalar(0.7);
+      scene.add(innerRing);
+      cleanups.push(() => {
+        projectionGeometry.dispose();
+        projectionMaterial.dispose();
+      });
+
       const contactCanvas = document.createElement('canvas');
       contactCanvas.width = contactCanvas.height = 256;
       const ink = contactCanvas.getContext('2d');
       if (ink) {
         const gradient = ink.createRadialGradient(128, 128, 0, 128, 128, 128);
-        gradient.addColorStop(0, 'rgba(0,0,0,.7)');
-        gradient.addColorStop(0.45, 'rgba(0,0,0,.36)');
-        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+        gradient.addColorStop(0, 'rgba(55,215,255,.2)');
+        gradient.addColorStop(0.45, 'rgba(20,145,195,.1)');
+        gradient.addColorStop(1, 'rgba(10,90,140,0)');
         ink.fillStyle = gradient;
         ink.fillRect(0, 0, 256, 256);
         const texture = new THREE.CanvasTexture(contactCanvas);
@@ -524,10 +548,7 @@ export default function SuitScene(props: SuitSceneProps) {
             zIndex: 1,
           }}
         >
-          <p>
-            3D rendering is unavailable. Region diagnostics and simulated telemetry remain
-            available.
-          </p>
+          <p>3D rendering is unavailable. Region diagnostics and telemetry remain available.</p>
           <button
             type="button"
             onClick={() => setAttempt((value) => value + 1)}

@@ -1,0 +1,90 @@
+/* Protocol 12 layer (protocol-layer.tsx): a full-screen canvas above the
+   HUD plus the HUD toast chips. Never takes the pointer. */
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  font-family: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.chips {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  max-width: min(720px, calc(100vw - 32px));
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 77, 94, 0.55);
+  background: rgba(14, 2, 5, 0.86);
+  color: #ffd6da;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 0 18px rgba(255, 59, 78, 0.18);
+}
+
+.chip i {
+  font-style: normal;
+  color: #ff4d5e;
+}
+
+.chip[data-tone='notice'] {
+  animation: chip-life 4s ease forwards;
+}
+
+.chip[data-tone='warn'] {
+  border-color: rgba(255, 196, 77, 0.6);
+  color: #ffe6b8;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.chip[data-tone='warn'] i {
+  color: #ffc44d;
+}
+
+@keyframes chip-life {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  8%,
+  85% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip[data-tone='notice'] {
+    animation: none;
+  }
+}

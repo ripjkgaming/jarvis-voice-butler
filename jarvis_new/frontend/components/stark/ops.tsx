@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { GlyphBar } from '@/components/ascii/glyphs';
 import { PANEL_TITLES, panelRow, panelRowKeys, usePanelsView } from '@/components/hud/hud-panels';
 import { type BridgeActivity } from '@/lib/bridge';
 import { useSharedPoll } from '@/lib/shared-poll';
@@ -67,19 +68,13 @@ export function Execution({ items, index }: { items: BridgeActivity[]; index: nu
             const pct = a.progress == null ? null : Math.max(0, Math.min(100, a.progress));
             return (
               <li key={a.id} className={s.execRow} data-running="true">
-                <span className={s.execTag}>{KIND_TAG[a.kind] ?? 'TASK'}</span>
+                <span className={s.execTag}>{`[${KIND_TAG[a.kind] ?? 'TASK'}]`}</span>
                 <span className={s.execTitle}>{a.title}</span>
                 <span className={s.execTime}>
                   {pct !== null ? `${Math.round(pct)}% · ` : ''}
                   {fmtDuration(now - a.started)}
                 </span>
-                <span
-                  className={s.execBar}
-                  data-indeterminate={pct === null ? 'true' : undefined}
-                  aria-hidden="true"
-                >
-                  <i style={pct !== null ? { width: `${pct}%` } : undefined} />
-                </span>
+                <GlyphBar pct={pct} width={30} indeterminate={pct === null} className={s.execBar} />
                 {a.detail ? <span className={s.execDetail}>{a.detail}</span> : null}
               </li>
             );
@@ -87,7 +82,7 @@ export function Execution({ items, index }: { items: BridgeActivity[]; index: nu
           {done.map((a) => (
             <li key={a.id} className={s.execRow} data-status={a.status}>
               <span className={s.execMark} aria-hidden="true">
-                {a.status === 'done' ? '✓' : a.status === 'cancelled' ? '–' : '✕'}
+                {a.status === 'done' ? '[✓]' : a.status === 'cancelled' ? '[-]' : '[✕]'}
               </span>
               <span className={s.execTitle}>{a.title}</span>
               <span className={s.execTime}>{fmtAgo(now - (a.finished ?? a.updated))}</span>

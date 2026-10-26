@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { ICON_MISS_TTL_MS, bridgeAppIcon, bridgeGet, bridgeLaunch, bridgePost } from '@/lib/bridge';
+import { PowerConfirmation } from '@/lib/power-confirmation';
 
 /** School taskbar menus. They open upward out of the bar: the shell grows
  *  the window by MENU_EXTRA (school.rs `school_menu`), the area around a
@@ -109,9 +110,30 @@ const POWER: { action: string; label: string; confirm: boolean; icon: string }[]
 function PowerRow({ onDone }: { onDone: () => void }) {
   // Consequential actions arm on the first click and fire on the second.
   const [armed, setArmed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const power = useRef<PowerConfirmation | null>(null);
+  const getPower = () => {
+    if (!power.current) {
+      power.current = new PowerConfirmation(
+        (body) => bridgePost('/power', body),
+        (action, pending) => {
+          setArmed(action);
+          setBusy(pending);
+        }
+      );
+    }
+    return power.current;
+  };
+  useEffect(
+    () => () => {
+      power.current?.dispose();
+      power.current = null;
+    },
+    []
+  );
   useEffect(() => {
     if (!armed) return;
-    const t = setTimeout(() => setArmed(null), 3500);
+    const t = setTimeout(() => power.current?.clear(), 3500);
     return () => clearTimeout(t);
   }, [armed]);
   return (
@@ -123,14 +145,13 @@ function PowerRow({ onDone }: { onDone: () => void }) {
           className="smenu__pbtn"
           data-armed={armed === p.action}
           data-danger={p.confirm}
-          onClick={() => {
-            if (p.confirm && armed !== p.action) {
-              setArmed(p.action);
-              return;
-            }
-            setArmed(null);
-            onDone();
-            void bridgePost('/power', { action: p.action });
+          disabled={busy}
+          onClick={(event) => {
+            void getPower()
+              .click(p.action, p.confirm, event.isTrusted)
+              .then((finished) => {
+                if (finished) onDone();
+              });
           }}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true">

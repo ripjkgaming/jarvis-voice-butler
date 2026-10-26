@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCallState, useRoomState } from '@/hooks/hud/use-room-state';
+import { useVoiceActivation } from '@/hooks/hud/use-voice-activation';
 import { bridgeSummon } from '@/lib/bridge';
 import { isTauri, summonTalk } from '@/lib/tauri';
-import { type VoiceRequest, voiceLinkFrom } from '@/lib/voice-link';
+import { type VoiceLinkHistory, type VoiceRequest, observeVoiceLink } from '@/lib/voice-link';
 
 /** One summon controller survives swaps between the HUD and school bar.
  * A local request paints immediately, then observed backend stages own it. */
@@ -14,16 +15,12 @@ export function useVoiceLink(muted: boolean | null) {
   const [, setNow] = useState(Date.now);
   const busy = useRef(false);
   const sequence = useRef(0);
-  const lastPending = useRef<typeof raw>(null);
-  const lastStage = raw?.boot?.at(-1)?.[0];
-  if (lastStage && lastStage !== 'online') lastPending.current = raw;
-  else if (lastStage === 'online' || (raw && !raw.room && !raw.waking)) lastPending.current = null;
-  const link = voiceLinkFrom(
-    raw?.boot?.length ? raw : (lastPending.current ?? raw),
-    request,
-    Date.now()
-  );
+  const history = useRef<VoiceLinkHistory>({ pending: null, interrupted: false });
+  const observed = observeVoiceLink(raw, request, history.current, Date.now());
+  history.current = observed.history;
+  const link = observed.link;
   const live = useCallState()?.live ?? false;
+  const activation = useVoiceActivation(live, muted);
 
   useEffect(
     () => () => {
@@ -95,5 +92,9 @@ export function useVoiceLink(muted: boolean | null) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [summon]);
-  return link;
+  return {
+    ...link,
+    retry: summon,
+    activation: ['failed', 'stalled'].includes(link.phase) ? 0 : activation,
+  };
 }

@@ -3,8 +3,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { SUIT_REGIONS, type SuitRegion, type SuitSnapshot } from '@/lib/suit-diagnostics';
 
 type Contour = readonly (readonly [number, number])[];
-const RED = '#a91d30';
-const GOLD = '#d5ad60';
+const SHELL = '#021321';
+const INLAY = '#032036';
 const LIMIT = (value: number) =>
   Number.isFinite(value) ? THREE.MathUtils.clamp(value, 0, 100) / 100 : 0;
 
@@ -12,7 +12,7 @@ const LIMIT = (value: number) =>
  * GPU resources are tracked at construction, including selection/wear overlays. */
 export function createSuitGeometry() {
   const root = new THREE.Group();
-  root.name = 'Aegis articulated armor';
+  root.name = 'Aegis holographic articulated armor';
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   const pickable: THREE.Mesh[] = [];
@@ -21,9 +21,10 @@ export function createSuitGeometry() {
   const tint: { region: SuitRegion; material: THREE.MeshStandardMaterial; base: THREE.Color }[] =
     [];
   const regions = {} as Record<SuitRegion, THREE.Group>;
-  const red = {} as Record<SuitRegion, THREE.MeshStandardMaterial>;
-  const gold = {} as Record<SuitRegion, THREE.MeshStandardMaterial>;
+  const shells = {} as Record<SuitRegion, THREE.MeshStandardMaterial>;
+  const inlays = {} as Record<SuitRegion, THREE.MeshStandardMaterial>;
   const scars = {} as Record<SuitRegion, THREE.LineBasicMaterial>;
+  const contours = {} as Record<SuitRegion, THREE.LineBasicMaterial>;
   const material = <T extends THREE.Material>(m: T): T => {
     materials.add(m);
     return m;
@@ -50,38 +51,57 @@ export function createSuitGeometry() {
       roughness: 0.18,
     })
   );
-  const selectedInk = material(
-    new THREE.LineBasicMaterial({
-      color: '#7ef0ff',
-      transparent: true,
-      opacity: 0.48,
-      depthWrite: false,
-    })
-  );
-  const burned = new THREE.Color('#24202a');
-  const alarm = new THREE.Color('#ff6b2b');
+  const projection = new THREE.Color('#36baff');
+
+  // The volume stays dark; the armor is read through fine luminous blue seams.
+  const holographic = (surface: THREE.MeshStandardMaterial) => {
+    surface.color.set(SHELL);
+    surface.emissive.set('#06304b');
+    surface.emissiveIntensity = 0.08;
+    surface.transparent = true;
+    surface.opacity = 0.12;
+    surface.depthWrite = true;
+    surface.envMapIntensity = 0;
+    return surface;
+  };
+  for (const surface of [steel, graphite, silver, light]) holographic(surface);
+  light.color.set('#269fff');
+  light.emissive.copy(projection);
+  light.opacity = 0.5;
   for (const { id } of SUIT_REGIONS) {
     const group = new THREE.Group();
     group.name = id;
     group.userData.suitRegion = id;
     root.add(group);
     regions[id] = group;
-    red[id] = material(
-      new THREE.MeshStandardMaterial({ color: RED, metalness: 0.72, roughness: 0.26 })
+    shells[id] = material(
+      holographic(new THREE.MeshStandardMaterial({ color: SHELL, metalness: 0.5, roughness: 0.32 }))
     );
-    gold[id] = material(
-      new THREE.MeshStandardMaterial({ color: GOLD, metalness: 0.78, roughness: 0.3 })
+    inlays[id] = material(
+      holographic(
+        new THREE.MeshStandardMaterial({ color: INLAY, metalness: 0.65, roughness: 0.28 })
+      )
     );
     scars[id] = material(
       new THREE.LineBasicMaterial({
-        color: '#ffb278',
+        color: '#68caff',
+        toneMapped: false,
         transparent: true,
         opacity: 0,
         depthWrite: false,
       })
     );
-    tint.push({ region: id, material: red[id], base: red[id].color.clone() });
-    tint.push({ region: id, material: gold[id], base: gold[id].color.clone() });
+    contours[id] = material(
+      new THREE.LineBasicMaterial({
+        color: projection,
+        transparent: true,
+        opacity: 0.58,
+        depthWrite: false,
+        toneMapped: false,
+      })
+    );
+    tint.push({ region: id, material: shells[id], base: shells[id].color.clone() });
+    tint.push({ region: id, material: inlays[id], base: inlays[id].color.clone() });
   }
 
   const mesh = (
@@ -100,6 +120,39 @@ export function createSuitGeometry() {
     object.userData.suitRegion = region;
     parent.add(object);
     pickable.push(object);
+    // Curved joints use their designed latitude/longitude topology; beveled
+    // panels use feature edges so triangulation never blankets the silhouette.
+    if (g.type !== 'ExtrudeGeometry' && g.type !== 'PlaneGeometry') {
+      let contourGeometry: THREE.BufferGeometry;
+      if (g instanceof THREE.SphereGeometry) {
+        const points: THREE.Vector3[] = [];
+        const radius = g.parameters.radius * 1.002;
+        const point = (latitude: number, longitude: number) =>
+          new THREE.Vector3(
+            radius * Math.sin(latitude) * Math.cos(longitude),
+            radius * Math.cos(latitude),
+            radius * Math.sin(latitude) * Math.sin(longitude)
+          );
+        for (let latitude = 1; latitude < 6; latitude++) {
+          for (let i = 0; i < 48; i++)
+            points.push(
+              point((latitude * Math.PI) / 6, (i * Math.PI) / 24),
+              point((latitude * Math.PI) / 6, ((i + 1) * Math.PI) / 24)
+            );
+        }
+        for (let longitude = 0; longitude < 10; longitude++) {
+          for (let i = 0; i < 24; i++)
+            points.push(
+              point((i * Math.PI) / 24, (longitude * Math.PI) / 5),
+              point(((i + 1) * Math.PI) / 24, (longitude * Math.PI) / 5)
+            );
+        }
+        contourGeometry = new THREE.BufferGeometry().setFromPoints(points);
+      } else contourGeometry = new THREE.EdgesGeometry(g, 10);
+      const edge = new THREE.LineSegments(geometry(contourGeometry), contours[region]);
+      object.add(edge);
+      outlines.push({ region, line: edge });
+    }
     return object;
   };
   const ball = (
@@ -147,7 +200,7 @@ export function createSuitGeometry() {
     x: number,
     y: number,
     z: number,
-    m: THREE.Material = red[r],
+    m: THREE.Material = shells[r],
     depth = 0.11,
     holes: Contour[] = []
   ) => {
@@ -164,10 +217,34 @@ export function createSuitGeometry() {
       curveSegments: 16,
     });
     const object = mesh(r, g, m, x, y, z);
-    const outline = new THREE.LineSegments(geometry(new THREE.EdgesGeometry(g, 35)), selectedInk);
-    outline.visible = false;
+    const outline = new THREE.LineSegments(geometry(new THREE.EdgesGeometry(g, 20)), contours[r]);
+    outline.visible = true;
     object.add(outline);
     outlines.push({ region: r, line: outline });
+    if (points.length > 5 && holes.length === 0) {
+      const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length;
+      const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+      const seamPoints: THREE.Vector3[] = [];
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i],
+          b = points[(i + 1) % points.length];
+        seamPoints.push(
+          new THREE.Vector3(cx + (a[0] - cx) * 0.79, cy + (a[1] - cy) * 0.79, depth + 0.039),
+          new THREE.Vector3(cx + (b[0] - cx) * 0.79, cy + (b[1] - cy) * 0.79, depth + 0.039)
+        );
+        if (i % 2 === 0)
+          seamPoints.push(
+            new THREE.Vector3(a[0], a[1], depth + 0.039),
+            new THREE.Vector3(cx + (a[0] - cx) * 0.79, cy + (a[1] - cy) * 0.79, depth + 0.039)
+          );
+      }
+      const seams = new THREE.LineSegments(
+        geometry(new THREE.BufferGeometry().setFromPoints(seamPoints)),
+        contours[r]
+      );
+      object.add(seams);
+      outlines.push({ region: r, line: seams });
+    }
     // Fixed hairline fractures become visible with damage; no runtime textures.
     if (points.length > 5 && holes.length === 0) {
       const bounds = new THREE.Box3().setFromBufferAttribute(
@@ -267,7 +344,7 @@ export function createSuitGeometry() {
       side * 0.63,
       0.72,
       0.5,
-      gold.chest,
+      inlays.chest,
       0.07
     );
     clavicle.rotation.z = side * -0.09;
@@ -280,7 +357,7 @@ export function createSuitGeometry() {
         side * 0.75,
         -0.23 - i * 0.19,
         0.02,
-        gold.chest,
+        inlays.chest,
         0.035
       );
       rib.rotation.z = side * -0.18;
@@ -300,7 +377,7 @@ export function createSuitGeometry() {
       0,
       -0.95 - i * 0.27,
       0.21,
-      i === 1 ? gold.chest : red.chest,
+      i === 1 ? inlays.chest : shells.chest,
       0.1
     );
   box('chest', 1.2, 0.3, 0.66, 0, -1.55, -0.02, graphite);
@@ -319,7 +396,7 @@ export function createSuitGeometry() {
     0,
     -1.59,
     0.3,
-    gold.chest,
+    inlays.chest,
     0.12
   );
   const dorsal = plate(
@@ -346,9 +423,9 @@ export function createSuitGeometry() {
       box('chest', 0.23, 0.032, 0.04, side * 0.5, -0.13 + i * 0.14, -0.81, silver, 0.01);
   }
 
-  // Helmet: sculpted red shell, pierced gold faceplate and inset optical slits.
+  // Helmet: sculpted shell, pierced faceplate and inset optical slits.
   regions.head.position.set(0, 7.08, 0);
-  const shell = ball('head', 0.52, 0, 0, -0.085, red.head);
+  const shell = ball('head', 0.52, 0, 0, -0.085, shells.head);
   shell.scale.set(0.95, 1.28, 1.02);
   const mask: Contour = [
     [-0.31, 0.56],
@@ -367,7 +444,7 @@ export function createSuitGeometry() {
     [-0.31, 0.025],
   ];
   const eyeR = eyeL.map(([x, y]) => [-x, y] as const).reverse();
-  plate('head', mask, 0, 0, 0.35, gold.head, 0.1, [eyeL, eyeR]);
+  plate('head', mask, 0, 0, 0.35, inlays.head, 0.1, [eyeL, eyeR]);
   for (const eye of [eyeL, eyeR]) plate('head', eye, 0, 0, 0.43, light, 0.018);
   plate(
     'head',
@@ -381,7 +458,7 @@ export function createSuitGeometry() {
     0,
     0,
     0.49,
-    gold.head,
+    inlays.head,
     0.035
   );
   box('head', 0.3, 0.055, 0.025, 0, -0.34, 0.49, graphite, 0.012);
@@ -396,13 +473,13 @@ export function createSuitGeometry() {
     0,
     0,
     0.4,
-    red.head,
+    shells.head,
     0.07
   );
   for (const side of [-1, 1]) {
-    const ear = cylinder('head', 0.2, 0.2, 0.08, side * 0.5, -0.015, -0.04, gold.head);
+    const ear = cylinder('head', 0.2, 0.2, 0.08, side * 0.5, -0.015, -0.04, inlays.head);
     ear.rotation.z = Math.PI / 2;
-    const temple = box('head', 0.13, 0.41, 0.27, side * 0.46, 0.25, -0.07, red.head, 0.055);
+    const temple = box('head', 0.13, 0.41, 0.27, side * 0.46, 0.25, -0.07, shells.head, 0.055);
     temple.rotation.z = side * 0.08;
     plate(
       'head',
@@ -416,7 +493,7 @@ export function createSuitGeometry() {
       side * 0.37,
       -0.32,
       0.28,
-      red.head,
+      shells.head,
       0.08
     );
   }
@@ -426,7 +503,7 @@ export function createSuitGeometry() {
     const r: SuitRegion = side > 0 ? 'leftArm' : 'rightArm';
     regions[r].position.set(side * 1.23, 5.98, -0.025);
     regions[r].rotation.z = side * 0.085;
-    const shoulder = ball(r, 0.43, 0, -0.03, 0, red[r]);
+    const shoulder = ball(r, 0.43, 0, -0.03, 0, shells[r]);
     shoulder.scale.set(1.18, 0.88, 1.16);
     plate(
       r,
@@ -441,7 +518,7 @@ export function createSuitGeometry() {
       0,
       0,
       0.29,
-      red[r],
+      shells[r],
       0.18
     );
     plate(
@@ -457,7 +534,7 @@ export function createSuitGeometry() {
       0,
       0.035,
       0.49,
-      gold[r],
+      inlays[r],
       0.05
     );
     cylinder(r, 0.26, 0.22, 0.81, 0, -0.73, 0, graphite);
@@ -476,9 +553,9 @@ export function createSuitGeometry() {
       -0.72,
       0.21
     );
-    box(r, 0.12, 0.7, 0.27, side * 0.25, -0.71, 0, gold[r], 0.035);
+    box(r, 0.12, 0.7, 0.27, side * 0.25, -0.71, 0, inlays[r], 0.035);
     ball(r, 0.25, 0, -1.25, 0.015, steel);
-    ring(r, 0.17, 0.045, 0, -1.25, 0.25, gold[r]);
+    ring(r, 0.17, 0.045, 0, -1.25, 0.25, inlays[r]);
     cylinder(r, 0.24, 0.19, 0.92, 0, -1.82, 0.065, graphite);
     plate(
       r,
@@ -494,7 +571,7 @@ export function createSuitGeometry() {
       0,
       -1.84,
       0.24,
-      red[r],
+      shells[r],
       0.17
     );
     plate(
@@ -509,11 +586,11 @@ export function createSuitGeometry() {
       side * 0.21,
       -1.81,
       0.42,
-      gold[r],
+      inlays[r],
       0.045
     );
     box(r, 0.46, 0.12, 0.48, 0, -2.33, 0.08, silver, 0.035);
-    box(r, 0.44, 0.38, 0.32, 0, -2.58, 0.12, red[r], 0.09);
+    box(r, 0.44, 0.38, 0.32, 0, -2.58, 0.12, shells[r], 0.09);
     for (let i = 0; i < 4; i++)
       box(
         r,
@@ -523,10 +600,10 @@ export function createSuitGeometry() {
         -0.15 + i * 0.1,
         -2.85,
         0.15,
-        red[r],
+        shells[r],
         0.038
       );
-    const thumb = box(r, 0.13, 0.3, 0.19, side * -0.27, -2.64, 0.16, gold[r], 0.04);
+    const thumb = box(r, 0.13, 0.3, 0.19, side * -0.27, -2.64, 0.16, inlays[r], 0.04);
     thumb.rotation.z = side * -0.28;
     ring(r, 0.095, 0.025, 0, -2.57, -0.055, silver);
     const palm = mesh(r, new THREE.CircleGeometry(0.073, 32), light, 0, -2.57, -0.08);
@@ -544,7 +621,7 @@ export function createSuitGeometry() {
       0,
       -1.85,
       -0.17,
-      gold[r],
+      inlays[r],
       0.1
     );
     rear.rotation.y = Math.PI;
@@ -571,7 +648,7 @@ export function createSuitGeometry() {
       0,
       -0.56,
       0.25,
-      red[r],
+      shells[r],
       0.16
     );
     plate(
@@ -586,7 +663,7 @@ export function createSuitGeometry() {
       side * 0.23,
       -0.54,
       0.43,
-      gold[r],
+      inlays[r],
       0.055
     );
     ball(r, 0.245, 0, -1.43, -0.02, steel);
@@ -603,7 +680,7 @@ export function createSuitGeometry() {
       0,
       -1.44,
       0.31,
-      gold[r],
+      inlays[r],
       0.13
     );
     plate(
@@ -619,7 +696,7 @@ export function createSuitGeometry() {
       0,
       -1.44,
       0.47,
-      red[r],
+      shells[r],
       0.09
     );
     cylinder(r, 0.24, 0.19, 1.28, 0, -2.21, -0.04, graphite);
@@ -637,7 +714,7 @@ export function createSuitGeometry() {
       0,
       -2.21,
       0.2,
-      red[r],
+      shells[r],
       0.19
     );
     plate(
@@ -651,12 +728,12 @@ export function createSuitGeometry() {
       0,
       -2.2,
       0.41,
-      gold[r],
+      inlays[r],
       0.055
     );
-    const calf = box(r, 0.28, 0.96, 0.31, side * 0.22, -2.21, -0.06, gold[r], 0.075);
+    const calf = box(r, 0.28, 0.96, 0.31, side * 0.22, -2.21, -0.06, inlays[r], 0.075);
     calf.rotation.z = side * -0.045;
-    box(r, 0.59, 0.38, 1.02, 0, -3.07, 0.24, red[r], 0.12);
+    box(r, 0.59, 0.38, 1.02, 0, -3.07, 0.24, shells[r], 0.12);
     box(r, 0.64, 0.11, 1.06, 0, -3.28, 0.24, graphite, 0.04);
     plate(
       r,
@@ -669,7 +746,7 @@ export function createSuitGeometry() {
       0,
       -3.08,
       0.76,
-      gold[r],
+      inlays[r],
       0.045
     );
     const rear = plate(
@@ -684,7 +761,7 @@ export function createSuitGeometry() {
       0,
       -0.57,
       -0.27,
-      red[r],
+      shells[r],
       0.12
     );
     rear.rotation.y = Math.PI;
@@ -694,7 +771,7 @@ export function createSuitGeometry() {
   regions.reactor.position.set(0, 5.47, 0.7);
   const socket = cylinder('reactor', 0.35, 0.35, 0.08, 0, 0, 0.035, steel);
   socket.rotation.x = Math.PI / 2;
-  ring('reactor', 0.32, 0.047, 0, 0, 0.08, gold.reactor);
+  ring('reactor', 0.32, 0.047, 0, 0, 0.08, inlays.reactor);
   ring('reactor', 0.248, 0.026, 0, 0, 0.105, silver);
   const reactorLight = material(
     new THREE.MeshStandardMaterial({
@@ -705,7 +782,9 @@ export function createSuitGeometry() {
       metalness: 0.2,
     })
   );
-  mesh('reactor', new THREE.CircleGeometry(0.194, 64), reactorLight, 0, 0, 0.13);
+  holographic(reactorLight);
+  reactorLight.opacity = 0.22;
+  mesh('reactor', new THREE.RingGeometry(0.16, 0.194, 64), reactorLight, 0, 0, 0.13);
   for (let i = 0; i < 8; i++) {
     const a = (i * Math.PI) / 4;
     const spoke = box(
@@ -758,6 +837,14 @@ export function createSuitGeometry() {
   reactorSelection.castShadow = false;
   pickable.splice(pickable.indexOf(reactorSelection), 1);
 
+  // Articulation is fixed at construction; diagnostics only change materials and
+  // visibility. Cache each local transform instead of recomposing every mesh on
+  // each orbit frame. Keep the root movable and world-matrix propagation enabled.
+  root.traverse((object) => {
+    if (object === root) return;
+    object.updateMatrix();
+    object.matrixAutoUpdate = false;
+  });
   root.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(root);
   const center = bounds.getCenter(new THREE.Vector3());
@@ -771,21 +858,27 @@ export function createSuitGeometry() {
     update(snapshot: SuitSnapshot, selected: SuitRegion) {
       for (const item of tint) {
         const damage = LIMIT(snapshot.damage[item.region]);
-        item.material.color.copy(item.base).lerp(burned, damage * 0.76);
-        item.material.roughness = 0.26 + damage * 0.5;
-        item.material.emissive.copy(alarm);
-        item.material.emissiveIntensity = Math.max(0, damage - 0.4) * 0.15;
+        item.material.color.copy(item.base);
+        item.material.roughness = 0.5;
+        item.material.emissive.copy(projection);
+        item.material.emissiveIntensity = 0.025 + damage * 0.04;
       }
-      for (const { id } of SUIT_REGIONS) scars[id].opacity = LIMIT(snapshot.damage[id]) * 0.86;
+      for (const { id } of SUIT_REGIONS) {
+        const damage = LIMIT(snapshot.damage[id]);
+        scars[id].opacity = damage > 0 ? 0.35 + damage * 0.6 : 0;
+        contours[id].color.copy(projection);
+        contours[id].opacity = id === selected ? 0.9 : 0.48 + damage * 0.28;
+      }
       for (const item of wear) item.line.visible = LIMIT(snapshot.damage[item.region]) > 0.04;
-      for (const item of outlines) item.line.visible = item.region === selected;
+      for (const item of outlines) item.line.visible = true;
       reactorSelection.visible = selected === 'reactor';
       const charge = LIMIT(snapshot.reactor) * (1 - LIMIT(snapshot.damage.reactor) * 0.8);
-      reactorLight.emissiveIntensity = 0.25 + charge * 3;
-      reactorLight.emissive.set(charge < 0.28 ? '#ff883e' : '#5fe3ff');
-      haloMaterial.uniforms.strength.value = 0.15 + charge * 0.6;
-      haloMaterial.uniforms.glowColor.value.set(charge < 0.28 ? '#ff883e' : '#54dfff');
-      light.emissiveIntensity = 0.8 + charge * 2.2;
+      reactorLight.emissiveIntensity = 0.15 + charge * 0.5;
+      reactorLight.emissive.copy(projection);
+      reactorLight.color.set('#269fff');
+      haloMaterial.uniforms.strength.value = 0.04 + charge * 0.12;
+      haloMaterial.uniforms.glowColor.value.copy(projection);
+      light.emissiveIntensity = 0.2 + charge * 0.35;
     },
     dispose() {
       for (const g of geometries) g.dispose();

@@ -93,7 +93,7 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
       canvas.height = film.height;
     }
     // Parked (HUD idle): hold frame 0, zero wakeups. Resumes on unpause.
-    if (paused || prefersReducedMotion()) {
+    if (paused || film.frames.length === 1) {
       const f = film.frames[0];
       if (f) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -103,6 +103,14 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inView = true;
+    const root = document.documentElement;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const visible = () =>
+      inView &&
+      !document.hidden &&
+      !root.classList.contains('hud-hidden') &&
+      !root.classList.contains('school-tx') &&
+      !(root.classList.contains('suit-open') && canvas.closest('.hud, .sbar-root'));
     const t0 = performance.now();
     const paint = (frameIdx: number) => {
       const f = film.frames[frameIdx % film.frames.length];
@@ -115,7 +123,7 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
     // callback on every 60–144 Hz display refresh.
     let last = -1;
     const loop = () => {
-      if (!inView || document.hidden) {
+      if (!visible() || reduced.matches) {
         timer = null;
         return;
       }
@@ -134,10 +142,19 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
         clearTimeout(timer);
         timer = null;
       }
-      if (inView && !document.hidden) {
+      if (!visible()) return;
+      if (reduced.matches) {
+        if (last !== 0) paint(0);
+        last = 0;
+      } else {
         timer = setTimeout(loop, 0);
       }
     };
+    // Native hiding and modal coverage do not necessarily change document.hidden.
+    // Observe existing ownership flags instead of spending ticks behind them.
+    const classes = new MutationObserver(kick);
+    classes.observe(root, { attributes: true, attributeFilter: ['class'] });
+    reduced.addEventListener('change', kick);
     const onVisibility = () => kick();
     document.addEventListener('visibilitychange', onVisibility);
     const observer =
@@ -148,11 +165,14 @@ export function useBakedPlayback(film: BakedFilm | null, fps: number, paused = f
           })
         : null;
     observer?.observe(canvas);
-    loop();
+    if (reduced.matches) kick();
+    else loop();
     return () => {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
+      classes.disconnect();
+      reduced.removeEventListener('change', kick);
     };
   }, [film, fps, paused]);
 
@@ -189,6 +209,10 @@ export type UseBakedCanvasOpts = {
   /** Keep finished bakes in a shared LRU under this id, so flipping back
    *  to a seen state/size blits instantly instead of re-baking. */
   cacheId?: string;
+  /** Yield between frames on expensive cold bakes; keep playback visible. */
+  incremental?: boolean;
+  /** Spread independent decorative layer bakes across the handoff. */
+  bakeDelay?: number;
 };
 
 /** Shared bake cache, evicted oldest-first past a byte budget. */
@@ -199,14 +223,7 @@ function filmBytes(f: BakedFilm): number {
   return f.width * f.height * 4 * f.frames.length;
 }
 
-function cachedFilm(key: string, make: () => BakedFilm): BakedFilm {
-  const hit = FILM_CACHE.get(key);
-  if (hit) {
-    FILM_CACHE.delete(key);
-    FILM_CACHE.set(key, hit);
-    return hit;
-  }
-  const film = make();
+function cacheFilm(key: string, film: BakedFilm): BakedFilm {
   FILM_CACHE.set(key, film);
   let total = 0;
   for (const f of FILM_CACHE.values()) total += filmBytes(f);
@@ -216,6 +233,16 @@ function cachedFilm(key: string, make: () => BakedFilm): BakedFilm {
     total -= filmBytes(f);
   }
   return film;
+}
+
+function cachedFilm(key: string, make: () => BakedFilm): BakedFilm {
+  const hit = FILM_CACHE.get(key);
+  if (hit) {
+    FILM_CACHE.delete(key);
+    FILM_CACHE.set(key, hit);
+    return hit;
+  }
+  return cacheFilm(key, make());
 }
 
 /**
@@ -233,6 +260,8 @@ export function useBakedCanvas({
   paused = false,
   layoutBox = false,
   cacheId,
+  incremental = false,
+  bakeDelay = 0,
 }: UseBakedCanvasOpts): RefObject<HTMLCanvasElement | null> {
   const renderRef = useRef(render);
   renderRef.current = render;
@@ -278,16 +307,36 @@ export function useBakedCanvas({
     if (!box) return;
     const W = Math.max(1, Math.floor(box.w * scale));
     const H = Math.max(1, Math.floor(box.h * scale));
+    // Capture the renderer for this key: a later state must not recolor an
+    // unfinished film before its effect cleanup cancels the next slice.
+    const draw = renderRef.current;
+    const key = cacheId ? `${cacheId}|${W}x${H}|${frames}|${seed}|${bakeKey}` : null;
     const bake = () => {
       const rng = mulberry32(seed);
-      return bakeFilm(frames, W, H, (ctx, w, h, i, n) => renderRef.current(ctx, w, h, i, n, rng));
+      return bakeFilm(frames, W, H, (ctx, w, h, i, n) => draw(ctx, w, h, i, n, rng));
     };
-    setFilm(
-      cacheId ? cachedFilm(`${cacheId}|${W}x${H}|${frames}|${seed}|${bakeKey}`, bake) : bake()
-    );
+    if (!incremental || (key && FILM_CACHE.has(key))) {
+      setFilm(key ? cachedFilm(key, bake) : bake());
+      return;
+    }
+    const rng = mulberry32(seed);
+    const next: BakedFilm = { frames: [], width: W, height: H };
+    let timer: ReturnType<typeof setTimeout>;
+    const slice = () => {
+      const i = next.frames.length;
+      const frame = bakeFilm(1, W, H, (ctx, w, h) => draw(ctx, w, h, i, frames, rng));
+      next.frames.push(frame.frames[0]);
+      // A matching-color still is available after one frame. Subsequent
+      // frames stay private until the entire loop can be played/cached.
+      if (i === 0) setFilm({ ...next, frames: [...next.frames] });
+      if (next.frames.length < frames) timer = setTimeout(slice, 16);
+      else setFilm(key ? cacheFilm(key, next) : next);
+    };
+    timer = setTimeout(slice, bakeDelay);
+    return () => clearTimeout(timer);
     // Re-bake on size / bakeKey / seed / frame-count changes only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box, bakeKey, seed, frames, scale, cacheId]);
+  }, [box, bakeKey, seed, frames, scale, cacheId, incremental, bakeDelay]);
 
   return canvasRef;
 }

@@ -99,3 +99,31 @@ export function micStatus(): Promise<MicStatus> {
 export function summonTalk(): Promise<{ ok: boolean; talk?: string; muted?: boolean }> {
   return invoke<{ ok: boolean; talk?: string; muted?: boolean }>('talk');
 }
+
+/** Subscribe to the shell's real wake/show event without invoking a new call. */
+export async function listenToTalk(callback: () => void): Promise<() => void> {
+  const api = internals() as
+    | (TauriInternals & {
+        transformCallback?: (fn: () => void) => number;
+        unregisterCallback?: (id: number) => void;
+      })
+    | null;
+  if (!api?.transformCallback) return () => {};
+  const handler = api.transformCallback(callback);
+  try {
+    const id = await api.invoke('plugin:event|listen', {
+      event: 'jarvis-talk',
+      target: { kind: 'Any' },
+      handler,
+    });
+    return () => {
+      api.unregisterCallback?.(handler);
+      void api
+        .invoke('plugin:event|unlisten', { event: 'jarvis-talk', eventId: id })
+        .catch(() => {});
+    };
+  } catch {
+    api.unregisterCallback?.(handler);
+    return () => {};
+  }
+}

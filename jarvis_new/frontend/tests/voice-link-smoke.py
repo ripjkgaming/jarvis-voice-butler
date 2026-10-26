@@ -53,6 +53,8 @@ class VoiceDesktop(SCHOOL.Desktop):
         previous = None if fresh else self.room.get("boot")
         self.room = {
             "ok": True,
+            "call_live": stage == "online",
+            "agent_state": "listening" if stage == "online" else None,
             "room": "mock-voice" if stage in ("dispatch", "online") else None,
             "waking": True,
             "boot": (previous or [["wake", stamp - 0.01]]) + [[stage, stamp]],
@@ -92,21 +94,23 @@ async def run(url, folder):
         energy = page.locator("[data-reactor-energy]")
         assert await energy.locator("..").get_attribute("data-energizing") == "true"
         await page.wait_for_timeout(1200)
-        early_filter = await energy.evaluate("n => getComputedStyle(n).filter")
+        early_motion = await page.locator(".vlink-reticle__orbit").evaluate(
+            "n => getComputedStyle(n).transform"
+        )
         desktop.stage("connect", fresh=True)
         await phase(page, "relay")
         await page.wait_for_timeout(1600)
-        late_filter = await energy.evaluate("n => getComputedStyle(n).filter")
-        assert early_filter != late_filter, (
-            "Energy tint did not progress across boot stages"
+        late_motion = await page.locator(".vlink-reticle__orbit").evaluate(
+            "n => getComputedStyle(n).transform"
         )
+        assert early_motion != late_motion, "Aperture did not move across boot stages"
         await page.screenshot(path=str(folder / "reactor-energizing.png"))
         desktop.stage("online")
         await phase(page, "ready")
         assert await energy.locator("..").get_attribute("data-energizing") is None
         await page.wait_for_timeout(320)
         await page.wait_for_function(
-            "getComputedStyle(document.querySelector('[data-reactor-energy]')).filter === 'hue-rotate(0deg) brightness(1)'",
+            "getComputedStyle(document.querySelector('[data-reactor-energy]')).filter === 'none'",
             timeout=1500,
         )
         await page.screenshot(path=str(folder / "reactor-joined.png"))
@@ -161,14 +165,14 @@ async def run(url, folder):
         await page.wait_for_timeout(1250)
         await phase(page, "idle")
         assert await page.locator(".hud").get_attribute("data-jstate") == "listening"
-        # Backend cancel/failure/silence: clearing setup returns standby; a quiet
+        # Backend cancel/failure: clearing setup exposes interruption; a quiet
         # connected room remains established with no perpetual joining overlay.
         desktop.clear()
         await page.wait_for_timeout(400)
         desktop.stage("dispatch", fresh=True)
         await phase(page, "agent")
         desktop.clear()
-        await phase(page, "idle")
+        await phase(page, "failed")
         desktop.summon_ok = False
         await page.keyboard.press("NumpadEnter")
         await phase(page, "failed")
@@ -291,7 +295,7 @@ async def run(url, folder):
         await page.screenshot(path=str(folder / "school-menu-during-link.png"))
         desktop.clear()
         await page.wait_for_timeout(650)
-        await phase(page, "idle")
+        await phase(page, "failed")
         await page.keyboard.press("NumpadEnter")
         await phase(page, "request")
         desktop.stage("online", fresh=True)
@@ -306,10 +310,10 @@ async def run(url, folder):
                     "ok": True,
                     "scenarios": [
                         "wakeword before boot details",
-                    "continuous reactor energizing across boot stages",
-                    "prompt reactor release on actual online",
-                    "muted and reduced-motion reactor",
-                    "immediate summon",
+                        "continuous reactor energizing across boot stages",
+                        "prompt reactor release on actual online",
+                        "muted and reduced-motion reactor",
+                        "immediate summon",
                         "no duplicate summon",
                         "observed stages",
                         "slow join over15s",

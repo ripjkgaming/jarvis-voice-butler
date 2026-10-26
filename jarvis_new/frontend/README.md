@@ -1,7 +1,7 @@
-# Jarvis STARK OS HUD
+# Jarvis LOCKE OS HUD
 
 The desktop HUD lives in `components/stark/` and follows
-[`../design/STARK_OS.md`](../design/STARK_OS.md): an arc reactor, cyan
+[`../design/LOCKE_OS.md`](../design/LOCKE_OS.md): an arc reactor, cyan
 instrument panels, live system telemetry, voice panels and a communications log.
 Fonts are bundled locally with their OFL notices in `fonts/`.
 
@@ -208,7 +208,7 @@ This template is open source and we welcome contributions! Please open a PR or i
 
 ## School mode and animation checks
 
-The school strip and its menus share the STARK OS visual language. Mode
+The school strip and its menus share the LOCKE OS visual language. Mode
 transitions use a single frame clock: tweens update before the canvas draws,
 keep native device-pixel resolution, and cancel pending stages on reversal.
 Window geometry has one visibility-aware fallback poll; menus briefly request

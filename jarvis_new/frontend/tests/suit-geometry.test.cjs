@@ -67,7 +67,7 @@ test('cyan optics remain in front of the shell through both faceplate openings',
       assert.equal(hit.object.userData.suitRegion, 'head');
       assert.equal(
         hit.object.material.color.getHexString(),
-        'd6fcff',
+        '269fff',
         `visible cyan optical surface at yaw ${yaw}, x ${x}`
       );
     }
@@ -85,7 +85,7 @@ test('regional damage changes the chosen armor without recoloring other limbs', 
       (mesh) =>
         mesh.userData.suitRegion === region &&
         mesh.geometry.type === 'ExtrudeGeometry' &&
-        mesh.material.color.getHexString() === 'a91d30'
+        mesh.material.color.getHexString() === '021321'
     );
   const left = redPlate('leftArm');
   const right = redPlate('rightArm');
@@ -93,13 +93,45 @@ test('regional damage changes the chosen armor without recoloring other limbs', 
   const rightBefore = right.material.color.getHexString();
   neutral.damage.leftArm = 100;
   suit.update(neutral, 'leftArm');
-  assert.notEqual(left.material.color.getHexString(), 'a91d30');
+  assert.equal(
+    left.material.color.getHexString(),
+    '021321',
+    'damage keeps dark transparent interiors'
+  );
+  assert.equal(left.material.emissive.getHexString(), '36baff');
+  assert.equal(
+    right.material.emissive.getHexString(),
+    '36baff',
+    'healthy armor keeps its cyan projection'
+  );
   assert.equal(right.material.color.getHexString(), rightBefore);
-  assert.ok(left.material.roughness > right.material.roughness);
+  assert.ok(left.material.emissiveIntensity > right.material.emissiveIntensity);
+  assert.ok(left.material.opacity < 0.2);
   assert.ok(
     left.children.some((line) => line.visible),
     'selected/damaged left armor overlay'
   );
+  suit.dispose();
+});
+
+test('every diagnostic preset keeps all visible armor and fracture materials in blue', () => {
+  const suit = createSuitGeometry();
+  for (const preset of Object.values(model.SUIT_PRESETS)) {
+    suit.update(preset.snapshot, 'reactor');
+    for (const material of resources(suit).material) {
+      for (const color of [
+        material.color,
+        material.emissive,
+        material.uniforms?.glowColor?.value,
+      ]) {
+        if (!color) continue;
+        assert.ok(
+          color.b >= color.g && color.g > color.r,
+          `non-blue material: ${color.getHexString()}`
+        );
+      }
+    }
+  }
   suit.dispose();
 });
 
