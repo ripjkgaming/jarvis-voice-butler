@@ -119,7 +119,7 @@ class Endpointer:
         start_prob: float = 0.5,
         end_silence_ms: int = 350,
         max_s: float = 8.0,
-        preroll_ms: int = 200,
+        preroll_ms: int = 300,
         min_speech_ms: int = 120,
     ):
         self.vad = vad

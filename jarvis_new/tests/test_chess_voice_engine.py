@@ -64,6 +64,13 @@ def test_short_gap_inside_a_move_does_not_split_it():
     assert len(run_endpointer(audio)) == 1
 
 
+def test_default_preroll_is_300ms():
+    import inspect
+
+    default = inspect.signature(Endpointer.__init__).parameters["preroll_ms"].default
+    assert default == 300
+
+
 @needs_piper
 def test_max_utterance_is_eight_seconds():
     long = np.tile(ca.speech("knight to f three and then bishop takes e five"), 4)
