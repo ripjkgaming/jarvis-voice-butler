@@ -1,0 +1,59 @@
+{
+  "sentences": [
+    "Good evening, Sir.",
+    "All systems are operating within normal parameters.",
+    "I have finished the analysis you requested.",
+    "There are no strings on me.",
+    "Shall I proceed with the deployment?"
+  ],
+  "results": {
+    "friday": {
+      "model": "en_US-lessac-medium",
+      "cold_load_ms": 872.6,
+      "prewarm_ms": 122.5,
+      "prewarm_ok": true,
+      "warm_ms_per_sentence": [
+        66.4,
+        231.8,
+        217.7,
+        166.4,
+        80.6
+      ],
+      "warm_mean_ms": 152.6,
+      "warm_max_ms": 231.8,
+      "rtf": 0.092
+    },
+    "jarvis": {
+      "model": "en_GB-alan-medium",
+      "cold_load_ms": 919.9,
+      "prewarm_ms": 31.3,
+      "prewarm_ok": true,
+      "warm_ms_per_sentence": [
+        62.3,
+        135.2,
+        121.1,
+        68.7,
+        78.2
+      ],
+      "warm_mean_ms": 93.1,
+      "warm_max_ms": 135.2,
+      "rtf": 0.042
+    },
+    "ultron": {
+      "model": "en_US-ryan-high",
+      "cold_load_ms": 649.9,
+      "prewarm_ms": 127.0,
+      "prewarm_ok": true,
+      "warm_ms_per_sentence": [
+        312.0,
+        711.1,
+        687.3,
+        349.2,
+        548.5
+      ],
+      "warm_mean_ms": 521.6,
+      "warm_max_ms": 711.1,
+      "rtf": 0.296
+    }
+  }
+}

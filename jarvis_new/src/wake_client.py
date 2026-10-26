@@ -660,6 +660,19 @@ class WakeClient:
                             self._talk_event.set()
                             reply = {"ok": True, "announce": "queued"}
                         new_muted = None
+                    elif isinstance(msg, dict) and "character_say" in msg:
+                        reply = self._character_say(msg["character_say"])
+                        new_muted = None
+                    elif isinstance(msg, dict) and "voice_output" in msg:
+                        if isinstance(msg["voice_output"], bool):
+                            self._voice_output = msg["voice_output"]
+                            reply = {"ok": True, "voice_output": self._voice_output}
+                        else:
+                            reply = {
+                                "ok": False,
+                                "error": "'voice_output' must be true or false",
+                            }
+                        new_muted = None
                     elif isinstance(msg, dict) and msg.get("cancel_external") is True:
                         reply = {"ok": True, "cancelled": self._cancel_linked_turn(msg)}
                         new_muted = None
@@ -699,6 +712,100 @@ class WakeClient:
                     self.set_muted(new_muted)
                 with contextlib.suppress(OSError):
                     conn.sendall(json.dumps(reply).encode())
+
+    # ---- character voice (control socket "character_say") ----------
+    def _voice_output_on(self) -> bool:
+        flag = getattr(self, "_voice_output", None)
+        if flag is None:
+            flag = os.environ.get("JARVIS_VOICE_OUTPUT", "1").strip().lower() not in (
+                "0",
+                "false",
+                "off",
+                "no",
+            )
+            self._voice_output = flag
+        return flag
+
+    def _say_event_loop(self):
+        loop = getattr(self, "_capture_loop", None)
+        if loop is not None and loop.is_running():
+            return loop
+        loop = getattr(self, "_say_loop", None)
+        if loop is None or not loop.is_running():
+            loop = asyncio.new_event_loop()
+            threading.Thread(
+                target=loop.run_forever, name="jarvis-say-loop", daemon=True
+            ).start()
+            self._say_loop = loop
+        return loop
+
+    def _character_say(self, req: object) -> dict:
+        """Render a character line (blocking, socket thread) and queue playback."""
+        t0 = time.monotonic()
+        if not isinstance(req, dict):
+            return {"ok": False, "error": "character_say must be an object"}
+        text = req.get("text")
+        cid = req.get("character")
+        if not isinstance(text, str) or not text.strip() or len(text) > TALK_TEXT_MAX:
+            return {"ok": False, "error": "bad text"}
+        if not isinstance(cid, str) or not cid.strip():
+            return {"ok": False, "error": "bad character"}
+        if not self._voice_output_on():
+            return {"ok": True, "skipped": "voice_output_off"}
+        try:
+            import character_voice
+            import characters as _characters
+            from character_runtime import get_runtime
+
+            char = get_runtime().chars.get(cid.strip().lower())
+            if char is None:
+                return {"ok": False, "error": f"unknown character {cid!r}"}
+            motion = _characters.motion()
+            pcm, sr = character_voice.render_pcm(text.strip(), char)
+            if req.get("whoosh"):
+                pcm = mix_character_whoosh(
+                    pcm, sr, character_voice.whoosh_pcm(char, sr),
+                    float(motion.get("whoosh_gain_db", -18)),
+                )
+            pcm = prepare_character_pcm(pcm, sr, float(motion.get("audio_crossfade_ms", 120)))
+        except Exception as exc:
+            logger.warning("character_say failed: %s", exc)
+            return {"ok": False, "error": "render failed"}
+        interrupt = req.get("interrupt", True) is not False
+        asyncio.run_coroutine_threadsafe(
+            self._say_play(pcm, sr, interrupt), self._say_event_loop()
+        )
+        return {"ok": True, "ms": int((time.monotonic() - t0) * 1000)}
+
+    async def _say_play(self, pcm, sr: int, interrupt: bool) -> None:
+        """Play through the one shared AudioPlayback; newest line wins."""
+        from audio_playback import AudioPlayback
+
+        lock = getattr(self, "_say_lock", None)
+        if lock is None:
+            lock = self._say_lock = asyncio.Lock()
+        self._say_seq = seq = getattr(self, "_say_seq", 0) + 1
+        output = getattr(self, "_agent_output", None)
+        if output is None or getattr(output, "_closed", False):
+            output = getattr(self, "_say_output", None)
+            if output is None or getattr(output, "_closed", False):
+                output = self._say_output = AudioPlayback()
+        if interrupt:
+            # Gate fade-out of whatever is playing (agent speech or prior line).
+            with contextlib.suppress(Exception):
+                output.cancel()
+        async with lock:
+            if interrupt and seq != self._say_seq:
+                return  # a newer line superseded this one while queued
+            turn = ("character_say", seq)
+            chunk = max(256, sr // 50)
+            try:
+                for i in range(0, len(pcm), chunk):
+                    if interrupt and seq != self._say_seq:
+                        break
+                    await output.write(pcm[i : i + chunk], sr, turn_id=turn)
+            except Exception as exc:
+                logger.warning("character_say playback failed: %s", exc)
 
     @staticmethod
     def _socket_live(path: str) -> bool:
@@ -1654,7 +1761,14 @@ class WakeClient:
         scoped_call = getattr(self, "_playback_scope", None) is not None
         lease = not scoped_call or await asyncio.to_thread(self._speaker_lease, "claim")
         refresh_at = time.monotonic() + 30.0
+        idle_say = getattr(self, "_say_output", None)
+        if idle_say is not None:
+            # One OutputStream at a time: the call's playback takes over.
+            self._say_output = None
+            with contextlib.suppress(Exception):
+                await idle_say.aclose()
         self._agent_output = output
+        fade_left = fade_total = 0
         ack = getattr(self, "_ack_session", None)
         if ack is not None:
             ack.cancelled.set()
@@ -1684,6 +1798,20 @@ class WakeClient:
                     samples = (samples.astype("float32") * _school_gain()).astype(
                         "int16"
                     )
+                if samples.size and (fade_left or _character_changed()):
+                    if not fade_left:
+                        fade_left = fade_total = int(
+                            frame.sample_rate * CHAR_FADE_IN_MS / 1000
+                        )
+                    n = min(fade_left, samples.size)
+                    ramp = (
+                        (fade_total - fade_left + __import__("numpy").arange(n))
+                        / max(fade_total, 1)
+                    )
+                    samples = samples.astype("float32")
+                    samples[:n] *= ramp
+                    samples = samples.astype("int16")
+                    fade_left -= n
                 turn_id = getattr(self, "_agent_turn_id", None)
                 scoped_id = (
                     (getattr(self, "_playback_scope", "call"), turn_id)
@@ -1701,6 +1829,44 @@ class WakeClient:
                 if scoped_call and lease:
                     with contextlib.suppress(Exception):
                         await asyncio.to_thread(self._speaker_lease, "release")
+
+
+def mix_character_whoosh(pcm, sr: int, whoosh, gain_db: float):
+    """Whoosh mixed under the line, soft-limited (peak safe). Pure."""
+    import voice_fx
+
+    return voice_fx.mix_under(pcm, whoosh, gain_db)
+
+
+def prepare_character_pcm(pcm, sr: int, fade_ms: float):
+    """Head fade-in so a cut-in never clicks. Pure."""
+    import voice_fx
+
+    return voice_fx.fade_in(pcm, sr, fade_ms)
+
+
+CHAR_FADE_IN_MS = 120
+
+
+def _character_changed() -> bool:
+    """True once after the active character changed. Jarvis-only: always False."""
+    import sys
+
+    mod = sys.modules.get("character_runtime")
+    if mod is None:
+        return False
+    try:
+        active = mod.get_runtime().active_id()
+    except Exception:
+        return False
+    global _played_character
+    if active == _played_character:
+        return False
+    _played_character = active
+    return True
+
+
+_played_character = "jarvis"
 
 
 def _school_quiet() -> bool:
