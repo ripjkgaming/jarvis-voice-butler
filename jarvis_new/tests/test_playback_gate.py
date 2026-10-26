@@ -209,3 +209,24 @@ async def test_wake_mic_opens_before_model_load_and_buffers_startup(monkeypatch)
         await client._listen_loop(None)
     assert order == ["mic", "model", "closed"]
     assert await client._capture_queue.get() == b"\x01\x00" * BLOCKSIZE
+
+
+@pytest.mark.asyncio
+async def test_repeated_piper_cancellation_drains_writer_before_return():
+    sink = MemorySink(realtime=True, rate=1000)
+    speaker = PiperSpeaker(voice=object(), sink=sink)
+    speaker.rate = 1000
+    speaker.render_stream = lambda text: iter(
+        [np.full(500, 2000, dtype=np.int16).tobytes()]
+    )
+    task = asyncio.create_task(speaker.speak("Interrupted request."))
+    await asyncio.sleep(0.04)
+    for _ in range(12):
+        task.cancel()
+        await asyncio.sleep(0.005)
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    count = len(sink.chunks)
+    await asyncio.sleep(0.1)
+    assert len(sink.chunks) == count
+    assert await speaker.speak("Next request.") is True

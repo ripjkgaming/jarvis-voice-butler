@@ -19,6 +19,23 @@ import audio_shared
 
 CHUNK_S = 0.02
 
+
+async def _drain_native(awaitable, *, propagate_cancel=True):
+    """Keep device ownership until a native writer survives repeated cancel."""
+    future = asyncio.ensure_future(awaitable)
+    interrupted = False
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError:
+            interrupted = True
+            continue
+    result = future.result()
+    if interrupted and propagate_cancel:
+        raise asyncio.CancelledError
+    return result
+
+
 COMMON_LINES = [
     "Very good, Sir.",
     "Your move, Sir.",
@@ -276,12 +293,12 @@ class PiperSpeaker:
                     session.cancelled.set()
                     producer = getattr(self, "_producer", None)
                     if producer is not None:
-                        await asyncio.shield(producer)
+                        await _drain_native(producer, propagate_cancel=False)
                     raise
                 finally:
                     if session.cancelled.is_set() and self._sink is not None:
-                        await asyncio.to_thread(
-                            session.fade, self.rate, self._sink.write
+                        await _drain_native(
+                            asyncio.to_thread(session.fade, self.rate, self._sink.write)
                         )
                     self.speaking = False
                     self.out_rms = 0.0
@@ -336,8 +353,8 @@ class PiperSpeaker:
                 ok = await asyncio.shield(playback)
             except asyncio.CancelledError:
                 self._stop.set()
-                await asyncio.shield(playback)
-                await asyncio.shield(worker)
+                await _drain_native(playback, propagate_cancel=False)
+                await _drain_native(worker, propagate_cancel=False)
                 raise
             if not ok:
                 completed = False
