@@ -78,6 +78,7 @@ class VoiceEngine:
         g = self.game
         g.on_say = self.say
         g.on_stop_speech = self.cancel_speech
+        g.user_speaking = self._user_is_speaking
         g.listening = True
         g.mic_state = "listening"
         self.running = True
@@ -114,6 +115,10 @@ class VoiceEngine:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self.speaker.close()
+
+    def _user_is_speaking(self) -> bool:
+        """Share live VAD state with takeover, including endpointing silence."""
+        return self.running and not self.paused and self.ep.in_speech
 
     # --------------------------------------------------------------- audio in
     def on_frame(self, frame: np.ndarray, t: float) -> None:
@@ -197,6 +202,11 @@ class VoiceEngine:
     async def _speech_worker(self) -> None:
         while True:
             text = await self._speech_q.get()
+            epoch = self._epoch
+            while self._user_is_speaking():
+                await asyncio.sleep(0.02)
+            if self.paused or epoch != self._epoch:
+                continue
             self.game.speaking = True
             self.game._changed_soon()
             try:
