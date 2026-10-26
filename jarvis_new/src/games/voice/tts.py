@@ -17,7 +17,7 @@ import numpy as np
 
 import audio_shared
 
-CHUNK_S = 0.1
+CHUNK_S = 0.02
 
 COMMON_LINES = [
     "Very good, Sir.",
@@ -141,6 +141,9 @@ class PiperSpeaker:
         self.rate = 22050
         self._cache: OrderedDict[str, bytes] = OrderedDict()
         self._stop = threading.Event()
+        self._speak_lock = asyncio.Lock()
+        self._sessions = set()
+        self._sessions_lock = threading.Lock()
         self._gate = threading.Event()
         self._gate.set()
         self.speaking = False
@@ -235,8 +238,9 @@ class PiperSpeaker:
         self.stops += 1
         self._stop.set()
         self._gate.set()
-        if self._sink is not None:
-            self._sink.abort()
+        with self._sessions_lock:
+            for session in self._sessions:
+                session.cancelled.set()
 
     def hold(self, on: bool) -> None:
         """Pause output (barge-in ducking) until the listener decides."""
@@ -254,7 +258,39 @@ class PiperSpeaker:
         return any(a - margin <= t1 and b + margin >= t0 for a, b in spans)
 
     # ------------------------------------------------------------ speaking
-    async def speak(self, text: str) -> bool:
+    async def speak(self, text: str, *, turn_id=None) -> bool:
+        from playback_gate import get_playback_gate
+
+        session = get_playback_gate().session(turn_id)
+        with self._sessions_lock:
+            self._sessions.add(session)
+        try:
+            async with self._speak_lock:
+                if session.cancelled.is_set():
+                    return False
+                self._stop = session.cancelled
+                self._playback_session = session
+                try:
+                    return await self._speak(text)
+                except asyncio.CancelledError:
+                    session.cancelled.set()
+                    producer = getattr(self, "_producer", None)
+                    if producer is not None:
+                        await asyncio.shield(producer)
+                    raise
+                finally:
+                    if session.cancelled.is_set() and self._sink is not None:
+                        await asyncio.to_thread(
+                            session.fade, self.rate, self._sink.write
+                        )
+                    self.speaking = False
+                    self.out_rms = 0.0
+        finally:
+            session.close()
+            with self._sessions_lock:
+                self._sessions.discard(session)
+
+    async def _speak(self, text: str) -> bool:
         """Speak ``text``; returns False if interrupted by ``stop``.
 
         Rendering runs in a worker thread and each PCM chunk is queued to the
@@ -265,7 +301,6 @@ class PiperSpeaker:
         if not sentences:
             return True
         sentences = first_segments(sentences[0]) + sentences[1:]
-        self._stop.clear()
         loop = asyncio.get_running_loop()
         q: queue.Queue[bytes | None] = queue.Queue()
 
@@ -282,6 +317,7 @@ class PiperSpeaker:
                 q.put(None)
 
         worker = loop.run_in_executor(None, produce)
+        self._producer = worker
         completed = True
         started = False
         while True:
@@ -295,7 +331,14 @@ class PiperSpeaker:
                 started = True
                 self.speaking = True
                 self._current_start = time.monotonic()
-            ok = await loop.run_in_executor(None, self._play, pcm)
+            playback = loop.run_in_executor(None, self._play, pcm)
+            try:
+                ok = await asyncio.shield(playback)
+            except asyncio.CancelledError:
+                self._stop.set()
+                await asyncio.shield(playback)
+                await asyncio.shield(worker)
+                raise
             if not ok:
                 completed = False
                 break
@@ -303,7 +346,7 @@ class PiperSpeaker:
             completed = False
         if not completed:
             self._stop.set()  # make the producer bail out
-        await worker
+        await asyncio.shield(worker)
         if started:
             self.intervals.append((self._current_start, time.monotonic()))
             self.intervals = self.intervals[-20:]
@@ -312,23 +355,24 @@ class PiperSpeaker:
         return completed
 
     def _play(self, pcm: bytes) -> bool:
+        session = self._playback_session
+        if not session._acquired and not session.acquire():
+            return False
         sink = self._sink_or_open()
-        n = int(self.rate * CHUNK_S) * 2
         data = pcm
         if self.volume != 1.0:
             a = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * self.volume
             data = np.clip(a, -32768, 32767).astype(np.int16).tobytes()
-        for i in range(0, len(data), n):
-            if self._stop.is_set():
-                return False
+
+        def write(chunk):
             while not self._gate.wait(0.02):
                 if self._stop.is_set():
-                    return False
-            chunk = data[i : i + n]
+                    break
             a = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
             self.out_rms = float(np.sqrt(np.mean(a * a))) if a.size else 0.0
             sink.write(chunk)
-        return not self._stop.is_set()
+
+        return session.write(data, self.rate, write)
 
     def close(self) -> None:
         self.stop()

@@ -114,7 +114,22 @@ def _synth_wav(text: str) -> bytes:
 
 
 def _play(wav: bytes) -> None:
-    subprocess.run(["paplay"], input=wav, timeout=60, capture_output=True)
+    from games.voice.tts import SoundDeviceSink
+    from playback_gate import get_playback_gate
+
+    session = get_playback_gate().session()
+    sink = None
+    try:
+        if not session.acquire():
+            return
+        with wave.open(io.BytesIO(wav), "rb") as audio:
+            rate = audio.getframerate()
+            sink = SoundDeviceSink(rate)
+            session.write(audio.readframes(audio.getnframes()), rate, sink.write)
+    finally:
+        if sink is not None:
+            sink.close()
+        session.close()
 
 
 def _run(text: str, title: str, voice: bool) -> None:

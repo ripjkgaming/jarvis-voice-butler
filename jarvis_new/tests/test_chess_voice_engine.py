@@ -167,7 +167,7 @@ def fake_speaker(realtime=True):
     return sp, sink
 
 
-async def test_piper_stop_cuts_speech_within_300ms():
+async def test_piper_stop_fades_speech_within_200ms():
     sp, sink = fake_speaker()
     task = asyncio.ensure_future(
         sp.speak("This is a rather long sentence for Sir to hear in full.")
@@ -178,9 +178,10 @@ async def test_piper_stop_cuts_speech_within_300ms():
     sp.stop()
     done = await asyncio.wait_for(task, 1.0)
     assert done is False
-    assert time.monotonic() - t0 < 0.3
+    assert time.monotonic() - t0 < 0.2
     assert not sp.speaking
-    assert sink.aborted >= 1
+    assert sink.aborted == 0  # the writer fades; no racy PortAudio abort
+    assert np.frombuffer(sink.chunks[-1], dtype=np.int16)[-1] == 0
 
 
 async def test_piper_speaks_sentence_by_sentence_and_caches_lines():
