@@ -123,6 +123,9 @@ class ChessSettings:
     paused_clock_during_jarvis: bool = True
 
     def to_dict(self) -> dict[str, Any]:
+    def difficulty_level(self) -> int:
+        return difficulty_level(self.difficulty)
+
         return asdict(self)
 
     def update(self, **kw: Any) -> list[str]:

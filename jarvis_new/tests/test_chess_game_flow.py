@@ -334,9 +334,9 @@ async def test_settings_by_voice(tmp_path):
     await g.handle_text("hide labels")
     assert g.settings.square_labels is False
     await g.handle_text("expert")
-    assert g.settings.difficulty == "expert"
+    assert g.settings.difficulty == "level:8"
     await g.handle_text("easier")
-    assert g.settings.difficulty == "strong"
+    assert g.settings.difficulty == "level:7"
     await g.handle_text("play at fifteen hundred")
     assert g.settings.difficulty == "elo:1500"
     await g.handle_text("blitz")

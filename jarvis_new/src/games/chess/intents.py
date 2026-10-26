@@ -8,9 +8,9 @@ from typing import Any
 
 import chess
 
-from games.chess import saves, templates, text_norm, voice_moves
+from games.chess import intents_level, saves, templates, text_norm, voice_moves
 from games.chess.reply import AMBIGUOUS_RESIGN, PRESETS, Reply
-from games.chess.settings import PRESET_ELO
+from games.chess.settings import PRESET_LEVEL
 from games.chess.state import Clock, GameState
 
 
@@ -62,17 +62,21 @@ class IntentsMixin:
             )
         if level not in PRESETS:
             return Reply("I'm afraid I don't know that level, Sir.", ok=False)
-        self.settings.difficulty = level
-        await self._changed()
-        return Reply(f"Very good, Sir. {level.capitalize()} level.", kind="difficulty")
+        return await self._i_set_level(PRESET_LEVEL[level])
 
     async def _i_difficulty_adjust(self, direction: int) -> Reply:
-        cur = self.settings.difficulty
-        if cur not in PRESETS:
-            elo = int(cur[4:]) if cur.startswith("elo:") else 1200
-            cur = min(PRESETS, key=lambda p: abs(PRESET_ELO[p] - elo))
-        i = max(0, min(len(PRESETS) - 1, PRESETS.index(cur) + direction))
-        return await self._i_difficulty(level=PRESETS[i])
+        return await self._i_level_adjust(direction)
+
+    async def _i_set_level(self, n: int) -> Reply:
+        return await intents_level._i_set_level(self, n)
+
+    async def _i_level_adjust(self, direction: int | str) -> Reply:
+        if isinstance(direction, str):
+            direction = -1 if direction.lower() in ("down", "-1", "easier") else 1
+        return await intents_level._i_level_adjust(self, direction)
+
+    async def _i_level_query(self) -> Reply:
+        return await intents_level._i_level_query(self)
 
     async def _i_time_control(self, spec: str) -> Reply:
         self.settings.time_control = spec
