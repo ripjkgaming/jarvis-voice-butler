@@ -237,6 +237,23 @@ class VoiceEngine:
                     self.game.mic_state = "listening"
                     self.game._changed_soon()
 
+    def _character_switch(self, text: str) -> bool:
+        """"switch to Ultron" (any source): run it, never hand it to chess."""
+        try:
+            try:
+                from character_runtime import get_runtime
+                from switch_conductor import start_switch
+            except ImportError:
+                from src.character_runtime import get_runtime
+                from src.switch_conductor import start_switch
+            res = get_runtime().handle_text(text, "voice")
+            if res is None:
+                return False
+            start_switch(res, "voice")
+            return True
+        except Exception:
+            return False
+
     def _accept(self, text: str, utt: Utterance) -> str | None:
         """Gate a transcript; returns the (possibly de-prefixed) text or None."""
         clean = text_norm.clean(text)
@@ -245,8 +262,8 @@ class VoiceEngine:
         if clean in _HALLUCINATIONS and not commands.is_stop(clean):
             self.dropped.append((text, "noise"))
             return None
-        if text_norm.is_wake_phrase(text):
-            return text  # handled by caller as a wake backstop
+        if text_norm.is_jarvis_wake(text):
+            return text  # handled by caller as a wake backstop ("Hey Jarvis" wins)
         stop_like = (
             commands.is_stop(text) or commands.match_narrow_stop(text) is not None
         )
@@ -255,6 +272,10 @@ class VoiceEngine:
         if self.speaker.overlaps(utt.start, utt.end) and not stop_like:
             self.dropped.append((text, "echo"))
             return None
+        if self._character_switch(text):
+            return None  # a switch phrase is never a chess command
+        if text_norm.is_wake_phrase(text):
+            return text  # another character's wake name: same backstop
         if self.resume_only:
             return text if text_norm.strip_wrappers(text) in _RESUME_WORDS else None
         if self.game.settings.require_prefix and not stop_like:

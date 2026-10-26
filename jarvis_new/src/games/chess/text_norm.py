@@ -73,7 +73,37 @@ def clean(text: str) -> str:
     return t
 
 
+def _other_wake_re() -> re.Pattern[str] | None:
+    """Wake names of every loaded non-Jarvis character (None if unavailable)."""
+    try:
+        try:
+            from character_runtime import get_runtime
+        except ImportError:
+            from src.character_runtime import get_runtime
+        names: set[str] = set()
+        for cid, ch in get_runtime().chars.items():
+            if cid != "jarvis":
+                names.update(
+                    re.escape(clean(n)) for n in (*ch.wake_names, ch.spoken_name) if clean(n)
+                )
+        if not names:
+            return None
+        alt = "|".join(sorted(names))
+        return re.compile(rf"^(?:(?:hey|hi|ok|okay)\s+)?(?:{alt})\b")
+    except Exception:
+        return None
+
+
 def is_wake_phrase(text: str) -> bool:
+    """True when the utterance starts with any character's wake words."""
+    if is_jarvis_wake(text):
+        return True
+    t = clean(text)
+    rx = _other_wake_re() if t else None
+    return bool(rx and rx.match(t))
+
+
+def is_jarvis_wake(text: str) -> bool:
     """True when the utterance starts with the main assistant's wake words."""
     t = clean(text)
     if not t:

@@ -2547,6 +2547,18 @@ def _runtime():
     return get_runtime()
 
 
+def _start_switch(res: dict, source: str) -> None:
+    """Hand an accepted runtime.switch() result to the conductor. Never raises."""
+    try:
+        try:
+            from switch_conductor import start_switch
+        except ImportError:
+            from src.switch_conductor import start_switch
+        start_switch(res, source)
+    except Exception:
+        pass
+
+
 def _character_gate(text: str, source: str = "text") -> dict | None:
     """Owner character-switch command -> response payload, else None. Never raises."""
     try:
@@ -2555,6 +2567,7 @@ def _character_gate(text: str, source: str = "text") -> dict | None:
         return None
     if res is None:
         return None
+    _start_switch(res, source)
     return {"ok": True, **res, "character": _runtime().snapshot()}
 
 
@@ -3979,6 +3992,7 @@ class _Handler(BaseHTTPRequestHandler):
             source = body.get("source")
             source = source if source in ("voice", "text", "ui") else "ui"
             res = _runtime().switch(target.strip().lower(), source)
+            _start_switch(res, source)
             self._send(200, {"ok": True, **res, "character": _runtime().snapshot()})
             return
         if route == "/chat":

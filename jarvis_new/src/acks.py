@@ -121,6 +121,23 @@ def expected_slow(tool: str) -> bool:
     return tool in KNOWN_SLOW
 
 
+def _lines() -> tuple[str, ...]:
+    """Ack lines for the active character; Jarvis keeps LINES verbatim."""
+    try:
+        try:
+            from character_runtime import get_runtime
+        except ImportError:
+            from src.character_runtime import get_runtime
+        ch = get_runtime().active()
+        if ch.id != "jarvis":
+            lines = tuple((ch.lines or {}).get("ack", ()))
+            if lines:
+                return lines
+    except Exception:
+        pass
+    return LINES
+
+
 def next_line(tool: str, now: float | None = None) -> str | None:
     """The line to say before `tool` runs, or None (fast tool / too soon)."""
     if not enabled() or not expected_slow(tool):
@@ -130,7 +147,8 @@ def next_line(tool: str, now: float | None = None) -> str | None:
         if now - _state["last"] < ACK_GAP_S:
             return None
         _state["last"] = now
-        line = LINES[_state["i"] % len(LINES)]
+        lines = _lines()
+        line = lines[_state["i"] % len(lines)]
         _state["i"] += 1
     return line
 

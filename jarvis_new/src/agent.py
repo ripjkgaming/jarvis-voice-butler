@@ -817,6 +817,64 @@ NAME_ALIASES = frozenset(
 )
 
 
+def _char_runtime():
+    try:
+        try:
+            from character_runtime import get_runtime
+        except ImportError:
+            from src.character_runtime import get_runtime
+        return get_runtime()
+    except Exception:
+        return None
+
+
+def _active_character():
+    rt = _char_runtime()
+    try:
+        return rt.active() if rt is not None else None
+    except Exception:
+        return None
+
+
+def _canned(kind: str, default: str) -> str:
+    """Canned line for the active character; Jarvis keeps `default` verbatim."""
+    ch = _active_character()
+    if ch is None or ch.id == "jarvis":
+        return default
+    try:
+        import persona
+
+        return persona.line(ch, kind) or default
+    except Exception:
+        return default
+
+
+def _extra_names() -> frozenset[str]:
+    """Every loaded non-Jarvis character's names/aliases/wake names."""
+    rt = _char_runtime()
+    if rt is None:
+        return frozenset()
+    out: set[str] = set()
+    for cid, ch in rt.chars.items():
+        if cid == "jarvis":
+            continue
+        for n in (cid, ch.spoken_name, *ch.aliases, *ch.wake_names):
+            n = str(n).casefold().strip()
+            if n and " " not in n:
+                out.add(n)
+    return frozenset(out - NAME_ALIASES)
+
+
+def _extra_name_called(text: str) -> bool:
+    """Another character addressed by name: only as one of the first two
+    words ("Ultron", "hey Friday ..."), so "see you Friday" is not a summons."""
+    extra = _extra_names()
+    if not extra:
+        return False
+    words = re.findall(r"[a-z']+", text.casefold())
+    return any(w in extra for w in words[:2])
+
+
 def _name_called(text: str) -> bool:
     """Was Jarvis addressed, allowing STT mangling? "Jarvis", "Jeeves",
     "hey Jarvis" all count; background words ("service", "jars",
@@ -828,10 +886,12 @@ def _name_called(text: str) -> bool:
     words = set(re.findall(r"[a-z']+", lowered))
     if words & NAME_ALIASES:
         return True
-    return any(
+    if any(
         len(word) >= 5 and difflib.get_close_matches(word, ["jarvis"], n=1, cutoff=0.8)
         for word in words
-    )
+    ):
+        return True
+    return _extra_name_called(text)
 
 
 _DISMISS = re.compile(
@@ -847,7 +907,22 @@ def _is_dismiss(text: str) -> bool:
     no farewell, back to wake-word standby. The whole utterance must be
     the command, so "Jarvis, dismiss that notification" stays a request.
     Pure."""
-    return bool(_DISMISS.match((text or "").strip()))
+    t = (text or "").strip()
+    if _DISMISS.match(t):
+        return True
+    extra = _extra_names()
+    if not extra:
+        return False
+    alt = "|".join(sorted(map(re.escape, extra)))
+    return bool(
+        re.match(
+            rf"^(?:(?:hey|ok|okay)\s+)?(?:{alt})[\s,.!:;-]*"
+            r"(?:you(?:'re| are)\s+)?dismiss(?:ed)?(?:\s+(?:now|please))?[\s.!]*$"
+            rf"|^dismiss(?:ed)?[\s,.!]+(?:{alt})[\s.!]*$",
+            t,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _is_summons(text: str) -> bool:
@@ -1097,7 +1172,7 @@ async def _greet_with_retry(
     """
     if getattr(session, "_jarvis_greeting_consumed", False):
         return
-    line = "Good day, Sir. What do you require?"
+    line = _canned("greet", "Good day, Sir. What do you require?")
     if listen_first_s > 0 and await _sir_already_talking(session, listen_first_s):
         with contextlib.suppress(Exception):
             from system import log_action
@@ -1154,6 +1229,18 @@ def _session_tts():
     override = os.environ.get("JARVIS_TTS", "local").strip().lower()
     if override and override != "local":
         return inference.TTS(model=override)
+    ch = _active_character()
+    if ch is not None and ch.id != "jarvis":
+        try:
+            try:
+                import character_voice as _cvoice
+            except ImportError:
+                from src import character_voice as _cvoice
+            make = getattr(_cvoice, "make_session_tts", None)
+            if make is not None:
+                return make()
+        except Exception:
+            pass
     return PiperTTS()
 
 
@@ -1854,6 +1941,20 @@ class SystemAgent(_SpecialistAgent):
         )
 
 
+def _persona_instructions() -> str:
+    """Owner instructions for the active character (Jarvis: unchanged bytes)."""
+    ch = _active_character()
+    if ch is None or ch.id == "jarvis":
+        return _with_memory(AGENT_INSTRUCTIONS)
+    try:
+        import persona
+
+        block = _with_memory(AGENT_INSTRUCTIONS)[len(AGENT_INSTRUCTIONS):]
+        return persona.build_instructions(AGENT_INSTRUCTIONS, ch, memory_block=block)
+    except Exception:
+        return _with_memory(AGENT_INSTRUCTIONS)
+
+
 def _with_memory(instructions: str) -> str:
     """Append Sir's remembered preferences + a 'last time' line (§2).
 
@@ -2106,7 +2207,7 @@ class Assistant(Agent):
             router.append(self._more_tools_handoff(sorted(cold_ids)))
         import watch_mode
 
-        self._owner_instructions = _with_memory(AGENT_INSTRUCTIONS)
+        self._owner_instructions = _persona_instructions()
         self._watch_guest = phone_session.guest_required()
         instructions = watch_mode.GUEST_INSTRUCTIONS if self._watch_guest else self._owner_instructions
         super().__init__(
@@ -2199,6 +2300,53 @@ class Assistant(Agent):
             return None
         return hit[0], hit[1], "goal"
 
+    async def _character_switch_turn(self, text: str) -> bool:
+        """Typed/voice "switch to Ultron": runtime first, conductor runs it.
+
+        Returns True when the turn was a switch command (reply is stopped; the
+        conductor speaks the exit line and greeting). Never raises.
+        """
+        try:
+            rt = _char_runtime()
+            if rt is None:
+                return False
+            res = rt.handle_text(text, "voice")
+            if res is None:
+                return False
+            try:
+                from switch_conductor import get_conductor
+            except ImportError:
+                from src.switch_conductor import get_conductor
+            cond = get_conductor()
+            if not getattr(cond, "_agent_wired", False):
+                cond._agent_wired = True
+                cond.on_complete(self._on_character_switched)
+                self._loop = asyncio.get_running_loop()
+            if res.get("switched"):
+                cond.start(res, source="voice")
+            elif res.get("reply"):
+                with contextlib.suppress(Exception):
+                    await self.session.say(res["reply"], add_to_chat_ctx=False)
+            return True
+        except Exception:
+            return False
+
+    def _on_character_switched(self, char) -> None:
+        """Conductor thread: new persona instructions + TTS voice follow."""
+        loop = getattr(self, "_loop", None)
+        try:
+            self._owner_instructions = _persona_instructions()
+            tts = getattr(self.session, "tts", None)
+            setter = getattr(tts, "set_character", None)
+            if callable(setter):
+                setter(char)
+            if loop is not None and not phone_session.guest_required():
+                asyncio.run_coroutine_threadsafe(
+                    self.update_instructions(self._owner_instructions), loop
+                )
+        except Exception:
+            pass
+
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         """Execute instant commands before the text model replies.
 
@@ -2264,6 +2412,8 @@ class Assistant(Agent):
                     import computer_watch_client
 
                     computer_watch_client.note_context(text)
+            if text and await self._character_switch_turn(text):
+                raise StopResponse()
             goodnight_binding = getattr(self.session, "jarvis_goodnight", None)
             if goodnight_binding is not None and goodnight_binding.consume(new_message):
                 raise StopResponse()
@@ -2810,11 +2960,12 @@ async def my_agent(ctx: JobContext):
 
                             async def _ack_summons() -> None:
                                 try:
-                                    await session.say("Yes, Sir?")
+                                    _yes = _canned("greet", "Yes, Sir?")
+                                    await session.say(_yes)
                                 except Exception:
                                     return
                                 with __import__("contextlib").suppress(Exception):
-                                    _hud_caption("jarvis", "Yes, Sir?")
+                                    _hud_caption("jarvis", _yes)
 
                             try:
                                 _wloop = asyncio.get_running_loop()
@@ -2895,7 +3046,7 @@ async def my_agent(ctx: JobContext):
             # short butler-style goodnight...") instead of following them.
             # A hangup line wants determinism, not variety.
             with contextlib.suppress(Exception):
-                await session.say("Very good, Sir. Ring when you require me.")
+                await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
             await session.aclose()
         finally:
             _hangup_watching["active"] = False
@@ -3341,7 +3492,7 @@ async def my_agent(ctx: JobContext):
     elif _decision == "greet" and _wake_reason(ctx.room) == "daddy":
         # "Wake up, daddy's home": the custom welcome plus the briefing.
         _presence["engaged"] = True
-        await _say(DADDY_GREETING)
+        await _say(_canned("greet", DADDY_GREETING))
         try:
             _brief = await assistant.inbox_tools.morning_briefing(
                 SimpleNamespace(session=session)
@@ -3380,7 +3531,7 @@ async def my_agent(ctx: JobContext):
         if _wake_reason(ctx.room) == "school-bare":
             # Bare "hey Jarvis": say so, or Sir and Jarvis both wait in
             # silence until the first window closes the call.
-            await _say(SCHOOL_BARE_REPLY)
+            await _say(_canned("greet", SCHOOL_BARE_REPLY))
     # "silent": standby; the idle hangup closes us if nobody comes.
 
     async def _presence_loop() -> None:
@@ -3416,7 +3567,7 @@ async def my_agent(ctx: JobContext):
                     _presence["engaged"] = False
                     await _say(_absent_lines[1])
                     with contextlib.suppress(Exception):
-                        await session.say("Very good, Sir. Ring when you require me.")
+                        await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
                     with contextlib.suppress(Exception):
                         await session.aclose()
                     break
@@ -3455,7 +3606,7 @@ async def my_agent(ctx: JobContext):
                     "presence", f"idle hangup after {budget:.0f}s without a real turn"
                 )
             with contextlib.suppress(Exception):
-                await session.say("Very good, Sir. Ring when you require me.")
+                await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
             with contextlib.suppress(Exception):
                 await session.aclose()
             break
