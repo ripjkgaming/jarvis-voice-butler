@@ -19,6 +19,7 @@ persona:
     switch_in: ["Friday's got the wheel, boss."]
     unknown_name: ["Don't know that one, boss. I've got: {names}."]
     rollback: ["Handover didn't take, boss. Staying with {name}. {reason}"]
+    tagline: ["YOUR DAY, HANDLED"]
 voice:
   model: en_US-lessac-medium
   pitch_semitones: 1.5
