@@ -13,12 +13,8 @@ import audio_shared
 # A vocabulary list, not sample phrases: a prompt that spells out whole moves
 # makes base.en echo them back (a "knight to f three" clip came out as 40
 # repeats and 13 s of fallback re-decodes). Measured 0.5-0.8 s per move.
-CHESS_PROMPT = (
-    "Chess commands: pawn, knight, bishop, rook, queen, king, castle, takes, "
-    "en passant, alpha, bravo, charlie, delta, echo, foxtrot, golf, hotel, "
-    "undo, hint, stop."
-)
-CHESS_HOTWORDS = "pawn knight bishop rook queen king castle takes"
+CHESS_PROMPT = audio_shared.VOCAB_PROMPTS["chess"]
+CHESS_HOTWORDS = audio_shared.VOCAB_HOTWORDS["chess"]
 
 
 class LocalSTT:

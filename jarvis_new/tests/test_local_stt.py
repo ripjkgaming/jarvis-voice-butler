@@ -5,6 +5,7 @@ import pytest
 from livekit import rtc
 
 import agent as agent_mod
+import audio_shared
 from agent import _pipeline_name
 from local_stt import FasterWhisperSTT, frames_to_mono16k, whisper_model_name
 
@@ -141,7 +142,13 @@ async def test_lazy_decode_stays_off_event_loop_and_preserves_recognition(monkey
     assert result.alternatives[0].text == "hello world"
     assert result.alternatives[0].confidence == pytest.approx(np.exp(-0.3))
     assert calls[0][0] != main_thread
-    assert calls[0][2] == {"language": "en", "beam_size": 1, "vad_filter": False}
+    assert calls[0][2] == {
+        "language": "en",
+        "beam_size": 1,
+        "vad_filter": False,
+        "initial_prompt": audio_shared.VOCAB_PROMPTS["general"],
+        "hotwords": audio_shared.VOCAB_HOTWORDS["general"],
+    }
     assert np.array_equal(calls[0][1], pcm.astype(np.float32) / 32768.0)
 
 

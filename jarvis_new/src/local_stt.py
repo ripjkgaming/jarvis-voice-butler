@@ -69,6 +69,10 @@ def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
         from audio_dsp import downsample_48k_to_16k
 
         out = downsample_48k_to_16k(mono)  # anti-aliased, not naive [::3]
+    elif rate == 48000:
+        from audio_dsp import downsample_48k_to_16k
+
+        out = downsample_48k_to_16k(mono)  # anti-aliased, not naive [::3]
     elif rate % TARGET_RATE == 0:
         out = mono[:: rate // TARGET_RATE]
     else:
@@ -105,6 +109,12 @@ class FasterWhisperSTT(stt.STT):
             "JARVIS_WHISPER_COMPUTE", "int8"
         )
         self._model = None
+        # Vocabulary bias mode (audio_shared.VOCAB_PROMPTS); None disables.
+        self._vocab_mode = (
+            os.environ.get("JARVIS_STT_VOCAB", "general").strip().lower() or None
+        )
+        if self._vocab_mode in {"off", "none", "0"}:
+            self._vocab_mode = None
         self._inference_lock = threading.Lock()
 
     @property
@@ -139,8 +149,15 @@ class FasterWhisperSTT(stt.STT):
         with self._inference_lock:
             if cancelled.is_set():
                 return []  # an obsolete queued turn must not delay the next one
+            from audio_shared import vocab_bias
+
+            prompt, hotwords = vocab_bias(self._vocab_mode)
+            extra = {}
+            if prompt:
+                extra["initial_prompt"] = prompt
+                extra["hotwords"] = hotwords
             segments, _info = self._load().transcribe(
-                audio, language=language, beam_size=1, vad_filter=False
+                audio, language=language, beam_size=1, vad_filter=False, **extra
             )
             result = []
             try:

@@ -112,6 +112,34 @@ def pcm_to_mono16k(pcm: np.ndarray, rate: int, channels: int = 1) -> np.ndarray:
 
 
 # -------------------------------------------------------------------- whisper
+# Vocabulary bias per mode: WORD LISTS only. Prompts that spell out whole
+# phrases/moves make base.en echo them back (see games/voice/stt.py). Chess
+# words live only in the "chess" mode so they never bias ordinary speech.
+_GENERAL_WORDS = (
+    "Jarvis, Firefox, Spotify, Discord, Brave, Visual Studio Code, Chrome, "
+    "Telegram, WhatsApp, Steam, Obsidian, Nautilus, Terminal."
+)
+VOCAB_PROMPTS = {
+    "general": _GENERAL_WORDS,
+    "chess": (
+        "Chess commands: pawn, knight, bishop, rook, queen, king, castle, takes, "
+        "en passant, alpha, bravo, charlie, delta, echo, foxtrot, golf, hotel, "
+        "undo, hint, stop."
+    ),
+}
+VOCAB_HOTWORDS = {
+    "general": "Jarvis",
+    "chess": "pawn knight bishop rook queen king castle takes",
+}
+
+
+def vocab_bias(mode: str | None) -> tuple[str | None, str | None]:
+    """(initial_prompt, hotwords) for a mode; (None, None) when unknown/off."""
+    if not mode or mode not in VOCAB_PROMPTS:
+        return None, None
+    return VOCAB_PROMPTS[mode], VOCAB_HOTWORDS[mode]
+
+
 def load_whisper_model(
     model_size: str,
     device: str = "cpu",
