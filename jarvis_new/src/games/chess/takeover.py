@@ -105,6 +105,11 @@ class TakeoverLoop:
         self.moves_played = 0
 
     # ------------------------------------------------------------ control
+    def detach(self) -> None:
+        """The game dropped this loop (cancel follows): it must not touch state."""
+        self.a.detached = True
+        self.release("detached")
+
     def release(self, reason: str = "release") -> None:
         """Ask the loop to leave takeover (no new game).  Idempotent."""
         if self.reason is None:
@@ -230,6 +235,8 @@ class TakeoverLoop:
         }.get(self.reason or "", None)
 
     async def _leave(self, say: str | None) -> None:
+        if getattr(self.a, "detached", False):
+            return  # replaced / released by the game: it already left cleanly
         if self.series is not None and self.reason in (
             "stop",
             "release",
@@ -247,14 +254,20 @@ class TakeoverLoop:
 class GameAdapter:
     """Adapter over a ChessGame (``g``); keeps the glue in intents.py tiny."""
 
-    def __init__(self, g: Any, continuous: bool = False) -> None:
+    def __init__(self, g: Any, continuous: bool = False, quiet: bool = False) -> None:
         self.g = g
         self.continuous = continuous
+        self.detached = False
+        self.quiet = quiet  # series: moves are spoken only via say_move
         self.record_obj: Any = None
 
     @property
     def stop_flag(self) -> bool:
-        return self.g.state.mode != "takeover" or getattr(self.g, "_closed", False)
+        return (
+            self.detached
+            or self.g.state.mode != "takeover"
+            or getattr(self.g, "_closed", False)
+        )
 
     def fen(self) -> str:
         return self.g.state.fen()
@@ -264,10 +277,14 @@ class GameAdapter:
 
     def result(self) -> tuple[str, str]:
         r = self.g.state.result()
-        return (r.outcome, r.reason) if r else ("*", "abandoned")
+        if not r:
+            return ("*", "abandoned")
+        from games.chess.session import termination_of
+
+        return r.outcome, termination_of(r.outcome, r.reason)
 
     def record(self) -> Any:
-        return self.record_obj
+        return getattr(self.g, "_rec", None) or self.record_obj
 
     def user_colour(self) -> str:
         import chess
@@ -306,8 +323,8 @@ class GameAdapter:
         before = g.state.board.copy(stack=False)
         if self.continuous:
             g._over_announced = True  # loop speaks the one-line result itself
-        san = await g._apply(mv, "auto")
-        if g.settings.announce_moves and not g.state.is_over():
+        san = await g._apply(mv, "auto", think_ms=think_ms)
+        if g.settings.announce_moves and not self.quiet and not g.state.is_over():
             from . import templates
 
             await g._say(templates.announce_move(before, mv))
@@ -343,6 +360,8 @@ class GameAdapter:
         g.state.mode = "play"
         g.takeover_remaining = None
         g._finish_fast = False
+        if reason == "series_complete":
+            say = await g.series_wrap_up() or say
         if reason != "cancelled":
             await g._changed()
             if say:

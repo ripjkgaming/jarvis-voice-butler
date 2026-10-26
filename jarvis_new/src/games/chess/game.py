@@ -30,10 +30,11 @@ from games.chess.reply import Reply
 from games.chess.settings import ChessSettings
 from games.chess.settings import load as load_settings
 from games.chess.settings import save as save_settings
+from games.chess.session import SessionMixin
 from games.chess.state import Clock, GameState
 
 
-class ChessGame(IntentsMixin, AnalysisMixin):
+class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
     name = "chess"
 
     def __init__(
@@ -49,6 +50,10 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         ai_delay: float = 0.0,
         step_delay: float = 0.6,
         persist_settings: bool = False,
+        store: Any = None,
+        store_root: Any = None,
+        eval_engine_factory: Any = None,
+        evaluate: bool | None = None,
     ):
         self.settings = settings or load_settings()
         self._persist = persist_settings
@@ -125,6 +130,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         self._closed = False
         self.speech_log: list[str] = []  # everything handed to Piper (tests)
         self.ui_mode = "classic"  # classic | voice (voice: display only)
+        self._init_session(store, store_root, eval_engine_factory, evaluate)
 
     # ------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -137,6 +143,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         for t in (self._reply_task, self._auto_task):
             if t:
                 t.cancel()
+        await self.close_session()
         if self.engine:
             await self.engine.close()
 
@@ -153,6 +160,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         fen: str | None = None,
         moves: list[str] | None = None,
         keep_analysis: bool | None = None,
+        record: Any = None,
     ) -> None:
         await self.start()
         kept = (
@@ -163,6 +171,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
             self.blunder_warn,
             self.time_warn,
         )
+        self._abandon_record(keep=record)
         self._cancel_game_tasks()
         if colour is not None:
             self.settings.colour = colour
@@ -197,6 +206,10 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         else:
             self._reset_passive()
         self._reset_view()
+        self._rec = record
+        self._move_t0 = self.now()
+        if moves and record is None:
+            self._sync_record()
         self.flipped = not human
         self._changed_soon()
         if not self.state.is_over() and self.state.board.turn != human:
@@ -428,10 +441,10 @@ class ChessGame(IntentsMixin, AnalysisMixin):
             return Reply("The game is over, Sir.", ok=False, kind="over")
         if st.mode == "spectate":
             return Reply("You are spectating, Sir. Say 'my turn' to join in.", ok=False)
-        if st.mode == "takeover":
-            return Reply(
-                "I have the board, Sir. Say 'my turn' to take it back.", ok=False
-            )
+        if st.mode == "takeover":  # a move from the user releases control
+            await self._release_takeover("user")
+            if st.board.turn != st.human_colour:
+                return Reply("The board is yours, Sir.", ok=False, kind="handback")
         if self.paused or self.jarvis_active:
             return Reply("The game is paused, Sir.", ok=False)
         if st.board.turn != st.human_colour:
@@ -447,9 +460,15 @@ class ChessGame(IntentsMixin, AnalysisMixin):
             say = templates.confirm_line(board_before, move)
         return Reply(say, kind="move", data={"uci": move.uci()})
 
-    async def _apply(self, move: chess.Move, who: str) -> str:
+    async def _apply(
+        self, move: chess.Move, who: str, think_ms: int | None = None
+    ) -> str:
         st = self.state
+        fen_before = st.fen()
+        if think_ms is None and self._move_t0 is not None:
+            think_ms = max(0, int((self.now() - self._move_t0) * 1000))
         san = st.push(move)
+        self._move_t0 = self.now()
         self.hint = None
         self.pending = None
         self.arrow = None
@@ -463,6 +482,8 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         self._last_who = who
         self.caption = ""
         self._autosave()
+        self._sync_record(think_ms)
+        self._enqueue_eval(fen_before, move)
         res = st.result()
         await self._changed()
         if res:
@@ -511,7 +532,9 @@ class ChessGame(IntentsMixin, AnalysisMixin):
                 await self._changed()
                 await self._wait_runnable()
                 assert self.engine
+                t_think = self.now()
                 move = await self.engine.best_move(st.board, self.preset)
+                think_ms = int((self.now() - t_think) * 1000)
                 if self.ai_delay:
                     await asyncio.sleep(self.ai_delay)
                 await self._wait_runnable()
@@ -519,7 +542,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
                     self.thinking = False
                     return
                 board_before = st.board.copy(stack=False)
-                await self._apply(move, "ai")
+                await self._apply(move, "ai", think_ms=think_ms)
                 if (
                     self.settings.announce_moves and not st.is_over()
                 ) or self.settings.announce_moves:
@@ -533,6 +556,7 @@ class ChessGame(IntentsMixin, AnalysisMixin):
 
     # -------------------------------------------------------------- game over
     async def _on_over(self) -> None:
+        self._finish_record()
         if self._over_announced:
             return
         self._over_announced = True
@@ -545,6 +569,8 @@ class ChessGame(IntentsMixin, AnalysisMixin):
             res.outcome, res.reason, self.state.human_colour == chess.WHITE
         )
         await self._say(line)
+        if self._eval_enabled() and self._rec is not None:
+            self._spawn(self._post_game_task())
         if not self.review_offered and self.state.move_count >= 4:
             self.review_offered = True
             self.pending = {"type": "review_offer"}
@@ -610,13 +636,22 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         elif st.mode in ("takeover", "spectate") and not commands.looks_like_question(
             raw
         ):
-            pr = voice_moves.parse_move(raw, st.board, self._ctx)
-            if pr.kind == "move" and pr.confidence >= 0.5:
-                return Reply(
-                    "I have the board, Sir. Say 'my turn' to take it back.",
-                    ok=False,
-                    kind="busy",
-                )
+            # Control phrases first: "I'll take it from here" contains "take it",
+            # which the move parser reads as "capture the piece that just moved"
+            # whenever such a capture exists (position dependent -> flaky).
+            ctl = commands.classify(raw, {"takeover"})
+            pr = None if ctl else voice_moves.parse_move(raw, st.board, self._ctx)
+            if pr and pr.kind == "move" and pr.confidence >= 0.5:
+                if st.mode == "spectate":
+                    return Reply(
+                        "I have the board, Sir. Say 'my turn' to take it back.",
+                        ok=False,
+                        kind="busy",
+                    )
+                await self._release_takeover("user")  # user move releases control
+                if st.board.turn != st.human_colour:
+                    return Reply("The board is yours, Sir.", ok=False, kind="handback")
+                return await self._on_parse(pr, raw)
         # 5. everything else in catalogue order
         hit = commands.classify(raw)
         if hit:
@@ -721,6 +756,20 @@ class ChessGame(IntentsMixin, AnalysisMixin):
         p = self.pending
         assert p
         typ = p["type"]
+        if typ == "series_resume":
+            hit = commands.classify(raw, {"answer"})
+            if hit and hit.name == "yes":
+                from games.chess import intents_series
+
+                return intents_series._i_series_resume_offer(self)
+            if hit and hit.name == "no":
+                self.pending = None
+                await self._changed()
+                return Reply(
+                    "Very well, Sir. Say 'resume the old series' whenever you like.",
+                    kind="decline",
+                )
+            return None
         if typ == "disambiguate":
             moves: list[chess.Move] = p["moves"]
             b = self.state.board

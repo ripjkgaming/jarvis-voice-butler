@@ -116,6 +116,8 @@ async def handle(game: Any, hit: commands.Intent, raw: str = "") -> Reply | None
     out = fn(game, **{k: v for k, v in hit.args.items() if k in inspect.signature(fn).parameters})
     if inspect.isawaitable(out):
         out = await out
+    if out is not None and hasattr(game, "_changed_soon"):
+        game._changed_soon()  # series / history / list state may have changed
     return out
 
 
@@ -143,8 +145,7 @@ def _i_series_start(
     _notify(game, "start")
     how = {"white": "as white", "black": "as black"}.get(colour, "alternating colours")
     head = "until you say stop" if total is None else f"{_w(total)} game{'s' * (total != 1)}"
-    tail = "" if _mod("takeover") else " Auto-play is not available yet, Sir."
-    return Reply(f"Very good, Sir. {head[0].upper() + head[1:]}, {how}.{tail}", kind="series")
+    return Reply(f"Very good, Sir. {head[0].upper() + head[1:]}, {how}.", kind="series")
 
 
 def _i_series_bad_count(game: Any, total: int = 0) -> Reply:
@@ -234,13 +235,20 @@ def _i_series_resume_offer(game: Any) -> Reply:
     store = _store(game)
     if mod is None or store is None:
         return _bad("Series play is not available yet, Sir.")
-    ctl = mod.SeriesController(store)
-    st = ctl.resume_offer()
-    if st is None:
-        return _bad("There's no unfinished series, Sir.")
+    cur = getattr(game, "series", None)
+    if cur is not None and cur.state is not None and cur.state.status == "running":
+        return _bad("A series is already running, Sir.")
+    if cur is not None and cur.state is not None and cur.state.status == "paused":
+        ctl, st = cur, cur.state
+    else:
+        ctl = mod.SeriesController(store)
+        st = ctl.resume_offer()
+        if st is None:
+            return _bad("There's no unfinished series, Sir.")
     if st.status == "paused":
         ctl.resume()
     game.series = ctl
+    game.pending = None
     _notify(game, "resume")
     return Reply(f"Resuming your series at game {_w(len(st.game_ids) + 1)}, Sir.", kind="series")
 
@@ -252,7 +260,9 @@ def _i_list_games(game: Any) -> Reply:
         return _bad(NOT_YET, "history")
     items = store.list(limit=20)
     if not items:
+        game.games_list = []
         return Reply("You have no games on record yet, Sir.", kind="history", data={"games": []})
+    game.games_list = items
     top = items[0]
     say = (
         f"{_w(len(items)) if len(items) < 20 else 'Twenty'} game{'s' * (len(items) != 1)} on record. "
@@ -338,19 +348,21 @@ def _branch_ply(n: int, user_white: bool) -> int:
 
 async def _load_branch(game: Any, rec: Any) -> None:
     moves = [m["uci"] for m in rec.moves]
-    await game.new_game(colour="white" if rec.white == "user" else "black", moves=moves)
+    await game.new_game(
+        colour="white" if rec.white == "user" else "black", moves=moves, record=rec
+    )
 
 
-def _i_hist_branch(game: Any, n: int | None = None) -> Reply:
+async def _i_hist_branch(game: Any, n: int | None = None) -> Reply:
+    """Branch a NEW game from the saved one (store.branch); original untouched."""
     if _hist_active(game):
         v = game.hist_view
         if n is not None:
             v.goto(_branch_ply(n, v.record.white == "user"))
         rec = v.branch_here()
         game.hist_view = None
-        game._spawn(_load_branch(game, rec))
+        await _load_branch(game, rec)
         return Reply("Branching from here, Sir. The original game is untouched.", kind="history")
-    # live game: rewind it in place
     st = game.state
     if n is None or not getattr(st, "move_count", 0):
         return _bad("Open a game first, Sir.", "history")
@@ -358,19 +370,30 @@ def _i_hist_branch(game: Any, n: int | None = None) -> Reply:
     k = st.move_count - target
     if k <= 0:
         return _bad("We haven't reached that move yet, Sir.", "history")
+    live = getattr(game, "_rec", None)
+    if live is not None and live.moves:
+        game._sync_record()
+        rec = game.store.branch(live, target)
+        await _load_branch(game, rec)
+        return Reply(
+            f"Branching a new game from move {_w(n)}, Sir. The original is untouched.",
+            kind="history",
+        )
     st.undo(k)
-
-    async def changed() -> None:
-        await game._changed()
-
-    game._spawn(changed())
+    game._sync_record()
+    await game._changed()
     return Reply(f"Back to move {_w(n)}, Sir. Your turn to continue.", kind="history")
 
 
 # ------------------------------------------------------------------- analysis
 async def _i_analyse_board(game: Any) -> Reply:
-    # deterministic eval now, detail pushed async by the legacy analyse task
-    return await game._i_analyse()
+    # saved eval -> instant 2-sentence answer; else the engine runs in the background
+    return await game.analyse_board_now()
+
+
+async def _i_explain(game: Any, n: int | None = None, which: str | None = None) -> Reply | None:
+    """Explain from saved evals; None -> legacy engine explanation."""
+    return await game.explain_saved(n)
 
 
 _HANDLERS = {
@@ -390,4 +413,5 @@ _HANDLERS = {
     "hist_close": _i_hist_close,
     "hist_branch": _i_hist_branch,
     "analyse_board": _i_analyse_board,
+    "explain": _i_explain,
 }

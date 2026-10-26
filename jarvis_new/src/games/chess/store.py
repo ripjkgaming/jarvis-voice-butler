@@ -205,6 +205,8 @@ class GameStore:
         return False
 
     def finish(self, rec: GameRecord, result: str, termination: str) -> None:
+        if rec.status == "finished":
+            return  # idempotent: a game id is finished once
         rec.result = result
         rec.termination = termination
         rec.status = "finished"

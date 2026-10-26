@@ -130,6 +130,7 @@ class IntentsMixin:
         self._over_announced = False
         self._ctx = voice_moves.MoveContext()
         self._autosave()
+        self._sync_record()
         await self._changed()
         if not st.is_over() and st.mode == "play" and st.board.turn != st.human_colour:
             self._start_reply()
@@ -140,6 +141,7 @@ class IntentsMixin:
             return Reply("There's nothing to undo, Sir.", ok=False)
         if self.state.mode != "play":
             done = self.state.undo(n)
+            self._sync_record()
             await self._changed()
             return Reply(None, kind="undo")
         done, _ = await self._undo_plies(n)
@@ -158,6 +160,7 @@ class IntentsMixin:
             if st.board.turn == st.human_colour:
                 break
         self._autosave()
+        self._sync_record()
         await self._changed()
         return Reply("Restored, Sir.", kind="redo")
 
@@ -302,6 +305,7 @@ class IntentsMixin:
 
     async def restore(self, data: dict) -> None:
         self._cancel_game_tasks()
+        self._rec = None
         self.state = GameState.from_dict(data, now=self.now)
         if data.get("preset"):
             self.settings.difficulty = data["preset"]
@@ -318,11 +322,29 @@ class IntentsMixin:
             self._start_auto()
 
     async def resume_last(self) -> bool:
+        """Resume the last game (store record wins over the legacy autosave)
+        and offer an unfinished series ('yes' resumes at game k)."""
         data = saves.read(None, self.save_dir)
-        if not data:
+        rec = self._store_active()
+        if rec is not None and rec.moves:
+            if not data or data.get("moves") != [m["uci"] for m in rec.moves]:
+                data = self.data_from_record(rec)
+            data.setdefault("preset", None)
+        else:
+            rec = None
+        offer = self._series_offer()
+        if not data and offer is None:
             return False
         await self.start()
-        await self.restore(data)
+        if data:
+            if offer is not None:
+                data = {**data, "mode": "play"}  # the series waits for a 'yes'
+            await self.restore(data)
+            self._rec = rec
+        if offer is not None:
+            self.pending = {"type": "series_resume"}
+            await self._say(self.series_offer_text())
+            await self._changed()
         return True
 
     async def _i_list_saves(self) -> Reply:
@@ -392,17 +414,31 @@ class IntentsMixin:
             return await self._auto_loop()
         from .takeover import GameAdapter, TakeoverLoop
 
-        cont = bool(getattr(self.settings, "takeover_continuous", False))
-        await TakeoverLoop(
-            GameAdapter(self, continuous=cont),
+        series = self._series_proxy()
+        cont = bool(getattr(self.settings, "takeover_continuous", False)) or bool(series)
+        s = series.state if series else None
+        loop = TakeoverLoop(
+            GameAdapter(self, continuous=cont, quiet=bool(series)),
+            store=self.store if self._persist_on() else None,
+            series=series,
             continuous=cont,
+            level=self._level_preset(s.level) if s else None,
             max_moves=self.takeover_remaining,
             step_delay=(
-                min(self.step_delay, 0.02)
+                float(s.move_time or 0.0)
+                if s
+                else min(self.step_delay, 0.02)
                 if getattr(self, "_finish_fast", False)
                 else self.step_delay
             ),
-        ).run()
+            sleep=self._takeover_sleep,
+        )
+        self._takeover_loop = loop
+        try:
+            await loop.run()
+        finally:
+            if self._takeover_loop is loop:
+                self._takeover_loop = None
 
     async def _auto_loop(self) -> None:
         st = self.state
@@ -475,12 +511,11 @@ class IntentsMixin:
             self.thinking = False
 
     async def _handback(self, say: str | None = "Back to you, Sir.") -> None:
-        if (
-            self._auto_task
-            and not self._auto_task.done()
-            and asyncio.current_task() is not self._auto_task
-        ):
-            self._auto_task.cancel()
+        if asyncio.current_task() is not self._auto_task:
+            self._detach_loop()
+        if self.state.mode == "takeover":
+            self._pause_series_for_release()
+            self._series_restore_settings()
         self.state.mode = "play"
         self.takeover_remaining = None
         self._finish_fast = False
