@@ -83,8 +83,8 @@ def resolve_voice_path(explicit: str | None = None) -> Path:
 def pcm_to_mono16k(pcm: np.ndarray, rate: int, channels: int = 1) -> np.ndarray:
     """int16 / float PCM at any rate -> mono float32 at 16 kHz.
 
-    Integer-ratio rates decimate directly (48k -> 16k is the hot path); any
-    other rate is linearly resampled.
+    48 kHz -> 16 kHz (the hot path) is low-pass filtered first; other integer
+    ratios decimate directly and any other rate is linearly resampled.
     """
     pcm = np.asarray(pcm)
     if pcm.dtype.kind == "f":
@@ -97,6 +97,12 @@ def pcm_to_mono16k(pcm: np.ndarray, rate: int, channels: int = 1) -> np.ndarray:
         mono = pcm.astype(np.float32) / 32768.0
     if rate == TARGET_RATE or mono.size == 0:
         return mono
+    if rate == 48000:
+        from audio_dsp import downsample_48k_to_16k
+
+        # Anti-aliased: naive [::3] folds 8-24 kHz mic noise into the speech band.
+        x = downsample_48k_to_16k(np.clip(mono * 32768.0, -32768, 32767).astype(np.int16))
+        return x.astype(np.float32) / 32768.0
     if rate % TARGET_RATE == 0:
         return mono[:: rate // TARGET_RATE]
     n_out = round(mono.size * TARGET_RATE / rate)

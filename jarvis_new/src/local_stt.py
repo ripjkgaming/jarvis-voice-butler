@@ -65,6 +65,10 @@ def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
     mono = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
     if rate == TARGET_RATE:
         out = mono
+    elif rate == 48000:
+        from audio_dsp import downsample_48k_to_16k
+
+        out = downsample_48k_to_16k(mono)  # anti-aliased, not naive [::3]
     elif rate % TARGET_RATE == 0:
         out = mono[:: rate // TARGET_RATE]
     else:
