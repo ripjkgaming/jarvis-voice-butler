@@ -97,7 +97,7 @@ class AnalysisMixin:
     # --------------------------------------------------------- analyse once
     async def _i_analyse(self) -> Reply:
         self._spawn(self._analyse_task())
-        return Reply(None, kind="analyse")
+        return Reply("Let me look, Sir.", kind="analyse")
 
     async def _analyse_task(self) -> None:
         st = self.state
@@ -201,14 +201,14 @@ class AnalysisMixin:
         if ply is None:
             return Reply("There's nothing to explain yet, Sir.", ok=False)
         self._spawn(self._explain_task(ply))
-        return Reply(None, kind="explain")
+        return Reply("Let me think that through, Sir.", kind="explain")
 
     async def _i_explain_piece(self, piece: str) -> Reply:
         ply = self._ply_to_explain(None, piece)
         if ply is None:
             return Reply(f"I can't find a {piece} move, Sir.", ok=False)
         self._spawn(self._explain_task(ply))
-        return Reply(None, kind="explain")
+        return Reply("Let me think that through, Sir.", kind="explain")
 
     async def _explain_task(
         self, ply: int, *, speak: bool = True, template_only: bool = False

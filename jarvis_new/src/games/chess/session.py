@@ -474,7 +474,7 @@ class SessionMixin:
             self._set_board_analysis(text, full)
             return Reply(text, kind="analyse_board")
         self._spawn(self._analyse_board_task())
-        return Reply(None, kind="analyse_board")
+        return Reply("Let me look at the board, Sir.", kind="analyse_board")
 
     def _set_board_analysis(self, voice: str, full: dict) -> None:
         detail = " ".join([voice] + list(full.get("statements") or [])[1:])

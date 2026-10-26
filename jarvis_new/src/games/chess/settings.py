@@ -94,6 +94,7 @@ class ChessSettings:
     commentary_volume: float = 1.0
     commentary_muted: bool = False
     takeover_strength: str = "club"
+    takeover_continuous: bool = True  # bare "take over" keeps playing new games
     hint_default: int = 1
     detail: str = "normal"  # brief | normal | detailed
     audience: str = "club"  # explain pitch: novice | club | advanced

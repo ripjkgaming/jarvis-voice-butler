@@ -268,12 +268,23 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
                 await r
 
     def _spawn(self, coro: Awaitable) -> asyncio.Task:
+        started = False
+
         async def guarded() -> None:
+            nonlocal started
+            started = True
             # a stop aborted it: its reply must never be spoken
             with contextlib.suppress(Cancelled):
                 await coro
 
         t = asyncio.ensure_future(guarded())
+
+        def _close_unrun(_t: asyncio.Task) -> None:
+            # cancelled before its first step: the inner coroutine never ran
+            if not started and hasattr(coro, "close"):
+                coro.close()
+
+        t.add_done_callback(_close_unrun)
         self._bg.add(t)
         t.add_done_callback(self._bg.discard)
         return t
