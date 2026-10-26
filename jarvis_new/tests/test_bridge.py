@@ -1833,3 +1833,27 @@ def test_drafts_http_routes_use_same_bearer_gate(monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_handler_keepalive_reuses_connection_and_drains_unread_body():
+    import http.client
+
+    server = bridge.create_server(0, token="tok")
+    import threading
+
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1])
+        for _ in range(3):  # unauthorized POST with an unread body, then reuse
+            conn.request("POST", "/chat", body=b'{"text":"x"}')
+            r = conn.getresponse()
+            r.read()
+            assert r.status in (400, 401, 200)
+            assert r.getheader("Content-Length") is not None
+        sock = conn.sock
+        conn.request("GET", "/health")
+        conn.getresponse().read()
+        assert conn.sock is sock  # same socket: keep-alive held
+    finally:
+        server.shutdown()
+        server.server_close()

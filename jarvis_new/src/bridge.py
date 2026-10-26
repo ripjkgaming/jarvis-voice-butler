@@ -2997,8 +2997,28 @@ class _Handler(BaseHTTPRequestHandler):
                 elif not isinstance(seed, str):
                     self._send(400, {"ok": False, "error": "text must be a string"})
                     return
+class _CountingReader:
+    """rfile proxy counting bytes read so unread POST bodies can be drained."""
+
+    def __init__(self, raw: object) -> None:
+        self._raw = raw
+        self.count = 0
+
+    def read(self, *args: object) -> bytes:
+        data = self._raw.read(*args)  # type: ignore[attr-defined]
+        self.count += len(data)
+        return data
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._raw, name)
+
+
                 elif len(seed.strip()) > 500:
                     self._send(400, {"ok": False, "error": "seed text max 500 chars"})
+    # HTTP/1.1 keep-alive: every response path (_send, _send_bytes,
+    # do_OPTIONS) sets Content-Length; do_POST drains unread bodies.
+    protocol_version = "HTTP/1.1"
+    timeout = 30  # reap idle keep-alive sockets
                     return
                 else:
                     talk["text"] = seed.strip()
@@ -3047,6 +3067,38 @@ class _Handler(BaseHTTPRequestHandler):
         if route == "/youtube/download":
             import youtube_download
             from system import LocalSystemError
+    def handle_one_request(self) -> None:
+        super().handle_one_request()
+        # Keep-alive hygiene: a POST rejected before its body was read
+        # (401, 400...) would leave the body to be parsed as the next
+        # request. Drain it (bounded) or close the connection.
+        reader = self.rfile
+        if not isinstance(reader, _CountingReader) or self.command != "POST":
+            return
+        try:
+            want = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            want = 0
+        left = want - reader.count
+        if left > 0 and not self.close_connection:
+            if left <= 1_048_576:
+                try:
+                    reader.read(left)
+                except Exception:
+                    self.close_connection = True
+            else:
+                self.close_connection = True
+
+    def parse_request(self) -> bool:
+        ok = super().parse_request()
+        if isinstance(self.rfile, _CountingReader):
+            self.rfile.count = 0  # count body bytes only
+        return ok
+
+    def setup(self) -> None:
+        super().setup()
+        self.rfile = _CountingReader(self.rfile)  # type: ignore[assignment]
+
 
             body = _read_json_body(self, 4096)
             if not isinstance(body, dict):
