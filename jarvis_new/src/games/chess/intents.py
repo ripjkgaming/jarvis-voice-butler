@@ -314,6 +314,8 @@ class IntentsMixin:
             and self.state.board.turn != self.state.human_colour
         ):
             self._start_reply()
+        elif not self.state.is_over() and self.state.mode == "takeover":
+            self._start_auto()
 
     async def resume_last(self) -> bool:
         data = saves.read(None, self.save_dir)
@@ -383,11 +385,31 @@ class IntentsMixin:
     def _start_auto(self) -> None:
         if self._auto_task and not self._auto_task.done():
             return
-        self._auto_task = asyncio.ensure_future(self._auto_loop())
+        self._auto_task = self._spawn(self._auto_entry())
+
+    async def _auto_entry(self) -> None:
+        if self.state.mode != "takeover":
+            return await self._auto_loop()
+        from .takeover import GameAdapter, TakeoverLoop
+
+        cont = bool(getattr(self.settings, "takeover_continuous", False))
+        await TakeoverLoop(
+            GameAdapter(self, continuous=cont),
+            continuous=cont,
+            max_moves=self.takeover_remaining,
+            step_delay=(
+                min(self.step_delay, 0.02)
+                if getattr(self, "_finish_fast", False)
+                else self.step_delay
+            ),
+        ).run()
 
     async def _auto_loop(self) -> None:
         st = self.state
         fast = getattr(self, "_finish_fast", False)
+        from .takeover import ErrorBreaker
+
+        breaker = ErrorBreaker()
         try:
             while not st.is_over() and st.mode in ("takeover", "spectate"):
                 await self._wait_runnable()
@@ -399,6 +421,9 @@ class IntentsMixin:
                     await asyncio.sleep(0.03)
                     continue
                 self._step_event.clear()
+                if breaker.tripped:
+                    await self._handback("The engine keeps failing, Sir.")
+                    return
                 mode = st.mode
                 human_side = st.board.turn == st.human_colour
                 preset = self.preset
@@ -409,10 +434,18 @@ class IntentsMixin:
                 assert self.engine
                 self.thinking = True
                 await self._changed()
-                mv = await self.engine.best_move(st.board, preset)
+                try:
+                    mv = await self.engine.best_move(st.board, preset)
+                except Exception as exc:
+                    self.thinking = False
+                    breaker.fail(exc)
+                    await asyncio.sleep(0.5)
+                    continue
+                breaker.ok()
                 self.thinking = False
                 await self._wait_runnable()
                 if st.fen() != fen or st.mode != mode:
+                    await asyncio.sleep(0.01)  # no busy-spin
                     continue
                 before = st.board.copy(stack=False)
                 await self._apply(mv, "auto")
