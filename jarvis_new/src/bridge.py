@@ -359,12 +359,16 @@ def _spoken_math(text: str) -> str | None:
     return t
 
 
-def _match_voice_tool(text: str) -> tuple[str, dict, str | None] | None:
+def _match_voice_tool(text: str, client_id: str = "default") -> tuple[str, dict, str | None] | None:
     """Map spoken/chatted text to (tool, args, reply). None = pure chat.
 
     Pure: regexes over the cleaned text (lowercased, leading wakeword and
     filler stripped), first match wins.
     """
+    import youtube_phone
+    download_command = youtube_phone.command(text, client_id)
+    if download_command is not None:
+        return download_command
     lowered = _clean_voice_text(text)
     if not lowered:
         return None
@@ -2063,6 +2067,33 @@ def run_phone_tool(tool: str, args: dict) -> dict:
         return _tool_result(False, error=private_error)
     if not isinstance(args, dict):
         args = {}
+    if tool in {"download_youtube_video", "confirm_youtube_download", "cancel_youtube_download", "youtube_download_status"}:
+        import youtube_download
+        from system import LocalSystemError
+        if phone_session.guest_required():
+            return _tool_result(False, error="Guest mode refuses YouTube downloads")
+        try:
+            if tool == "cancel_youtube_download":
+                job = youtube_download.jobs().cancel(args.get("job_id") or None)
+            elif tool == "youtube_download_status":
+                job = youtube_download.jobs().get(str(args.get("job_id") or ""))
+                if not job:
+                    return _tool_result(False, error="YouTube download not found")
+            else:
+                url = args.get("url", "")
+                if not isinstance(url, str) or len(url) > 2048:
+                    return _tool_result(False, error="Invalid YouTube request")
+                if tool == "confirm_youtube_download":
+                    if not isinstance(args.get("confirmation_id"), str) or type(args.get("confirmed")) is not bool:
+                        return _tool_result(False, error="A download choice needs a token and yes/no")
+                    job = youtube_download.start_download(confirmation_id=args["confirmation_id"], confirm=args["confirmed"], quiet=True)
+                else:
+                    job = youtube_download.start_download(url, quiet=True)
+            import youtube_phone
+            youtube_phone.remember(str(args.get("_client_id") or "default"), job)
+            return _tool_result(True, job=job, reply=youtube_download.job_say(job))
+        except (LocalSystemError, ValueError, youtube_download.DownloadError) as exc:
+            return _tool_result(False, error=str(exc))
     if tool == "set_suit_diagnostics":
         import suit_diagnostics
         from system import LocalSystemError
@@ -2467,6 +2498,8 @@ def _run_voice_action(tool: str, args: dict) -> tuple[int, dict]:
 
 def _dynamic_voice_reply(tool: str, args: dict, result: dict) -> str:
     """Success replies that need the tool result. Pure."""
+    if tool in {"download_youtube_video", "confirm_youtube_download", "cancel_youtube_download", "youtube_download_status"}:
+        return str(result.get("reply") or "YouTube status unavailable, Sir.")
     if tool == "protocol":
         return str(result.get("say") or "")
     if tool == "computer_watch":
@@ -2540,6 +2573,8 @@ def _voice_tool_reply(
         action_guard.settle(tool, args, "talk", bool(result.get("ok")), reply, outcome=receipt)
     audio_b64, rate = _speak_quietly(reply)
     action = {"tool": tool, "ok": bool(result.get("ok"))}
+    if isinstance(result.get("job"), dict):
+        action["job"] = result["job"]
     if receipt is not None:
         action["outcome"] = receipt.to_dict()
     if not result.get("ok"):
@@ -2785,6 +2820,8 @@ def handle_route(body: dict) -> tuple[int, dict]:
             tool, args, "route", code == 200 and bool(result.get("ok")), reply, outcome=receipt
         )
         action: dict = {"tool": tool, "ok": bool(result.get("ok"))}
+        if isinstance(result.get("job"), dict):
+            action["job"] = result["job"]
         if receipt is not None:
             action["outcome"] = receipt.to_dict()
         if not result.get("ok"):
@@ -2796,7 +2833,7 @@ def handle_route(body: dict) -> tuple[int, dict]:
                 action["port"] = result["port"]
         return 200, {"ok": True, "reply": reply, "action": action}
 
-    cmd = _match_voice_tool(clean)
+    cmd = _match_voice_tool(clean, str(body.get("client_id") or "default")[:128])
     if cmd is not None:
         return done(*cmd)
     import suit_diagnostics
@@ -2862,7 +2899,7 @@ def handle_talk(body: dict) -> tuple[int, dict]:
     if not transcript:
         return 200, {"ok": True, "transcript": "", "reply": "", "audio_b64": ""}
     guest = _effective_guest(body)
-    cmd = _match_voice_tool(transcript)
+    cmd = _match_voice_tool(transcript, str(body.get("client_id") or "default")[:128])
     if cmd is not None:
         return _voice_tool_reply(cmd, transcript, guest)
     reply, warning = _gemini_reply(transcript, guest)
@@ -2938,7 +2975,7 @@ def handle_chat(body: dict) -> tuple[int, dict]:
             import computer_watch
 
             computer_watch.note_context(text.strip())
-    cmd = _match_voice_tool(text.strip())
+    cmd = _match_voice_tool(text.strip(), str(body.get("client_id") or "default")[:128])
     if cmd is not None:
         tool, args, ok_reply = cmd
         if guest and tool not in _GUEST_VOICE_TOOLS:
@@ -2957,6 +2994,8 @@ def handle_chat(body: dict) -> tuple[int, dict]:
         else:
             reply = f"I couldn't, Sir — {(result.get('error') or 'it failed')[:150]}."
         action = {"tool": tool, "ok": bool(result.get("ok"))}
+        if isinstance(result.get("job"), dict):
+            action["job"] = result["job"]
         if not result.get("ok"):
             action["error"] = result.get("error")
         elif tool == "remote_start":
@@ -3315,7 +3354,7 @@ class _Handler(BaseHTTPRequestHandler):
             code, result = handle_talk(body)
             self._send(code, result)
             return
-        if route == "/youtube/download":
+        if route in {"/youtube/download", "/youtube/download/cancel"}:
             import youtube_download
             from system import LocalSystemError
 
@@ -3327,11 +3366,20 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(403, {"ok": False, "error": "guest mode refuses YouTube downloads"})
                 return
             url = body.get("url", "")
-            if set(body) - {"url", "guest"} or not isinstance(url, str) or len(url) > 2048:
-                self._send(400, {"ok": False, "error": "body needs an optional YouTube video URL"})
+            if (set(body) - {"url", "guest", "confirmation_id", "confirm", "job_id", "quiet"}
+                or not isinstance(url, str) or len(url) > 2048
+                or not isinstance(body.get("confirmation_id", ""), str)
+                or len(body.get("confirmation_id", "")) > 64
+                or ("confirm" in body and type(body["confirm"]) is not bool)
+                or ("quiet" in body and type(body["quiet"]) is not bool)
+                or (body.get("job_id") is not None and not isinstance(body["job_id"], str))):
+                self._send(400, {"ok": False, "error": "invalid YouTube download request"})
                 return
             try:
-                job = youtube_download.start_download(url)
+                if route.endswith("/cancel"):
+                    job = youtube_download.jobs().cancel(body.get("job_id"))
+                else:
+                    job = youtube_download.start_download(url, confirmation_id=body.get("confirmation_id", ""), confirm=body.get("confirm"), quiet=body.get("quiet", False))
             except LocalSystemError as exc:
                 self._send(403, {"ok": False, "error": str(exc)})
                 return

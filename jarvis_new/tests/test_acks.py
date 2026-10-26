@@ -39,22 +39,35 @@ def test_rate_limit_and_rotation(monkeypatch) -> None:
     assert acks.next_line("search_the_web", now=900.0) is None
 
 
-def test_say_ack_uses_run_context_session() -> None:
-    said = []
+def test_say_ack_is_caption_only_and_once_per_turn(monkeypatch) -> None:
+    """A say() queued behind the active turn is stale on arrival, so the
+    filler is a caption, never queued speech, and at most once per turn."""
+    from turn_manager import TurnManager
+
+    said, captions = [], []
+    monkeypatch.setattr(agent, "_pipeline_name", lambda: "direct")
+    monkeypatch.setattr(acks, "next_line", lambda tool, now=None: "On it, Sir.")
+    import hud_events
+
+    monkeypatch.setattr(hud_events, "caption", lambda who, line: captions.append(line))
+    manager = TurnManager()
+    manager.set_ready()
+    manager.begin_turn("search something")
 
     class Session:
+        jarvis_turn_manager = manager
+        agent_state = "thinking"
+
         def say(self, text, **kw):
-            said.append((text, kw))
+            said.append(text)
 
     class Ctx:
         session = Session()
 
     agent._say_ack("search_the_web", (object(), Ctx()), {})
-    assert said == [
-        ("On it, Sir.", {"add_to_chat_ctx": False, "allow_interruptions": True})
-    ]
-    agent._say_ack("tell_time", (), {"context": Ctx()})
-    assert len(said) == 1
+    agent._say_ack("search_the_web", (), {"context": Ctx()})
+    assert said == []
+    assert captions == ["On it, Sir."]
 
 
 def test_say_ack_never_raises() -> None:
@@ -69,10 +82,10 @@ def test_say_ack_never_raises() -> None:
 def test_barge_in(monkeypatch) -> None:
     assert agent.barge_in("vad") == {
         "mode": "vad",
-        "min_duration": 0.3,
-        "resume_false_interruption": True,
+        "min_duration": 0.15,
+        "resume_false_interruption": False,
     }
     monkeypatch.setenv("JARVIS_BARGE_IN_S", "0.05")
     assert agent.barge_in("adaptive")["min_duration"] == 0.1
     monkeypatch.setenv("JARVIS_BARGE_IN_S", "junk")
-    assert agent.barge_in("vad")["min_duration"] == 0.3
+    assert agent.barge_in("vad")["min_duration"] == 0.15

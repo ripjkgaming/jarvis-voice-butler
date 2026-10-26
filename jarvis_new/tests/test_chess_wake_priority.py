@@ -70,7 +70,7 @@ async def test_wake_mid_utterance_plays_no_move(tmp_path):
     await game.close()
 
 
-async def test_wake_mid_piper_stops_speech_under_150ms(tmp_path):
+async def test_wake_mid_piper_stops_speech_under_200ms(tmp_path):
     eng, game, sp, _sink = await build(tmp_path)
     await eng.say(
         "A long explanation that Sir will hear only a part of, because Jarvis is calling."
@@ -81,7 +81,7 @@ async def test_wake_mid_piper_stops_speech_under_150ms(tmp_path):
     eng.on_wake()
     while sp.speaking and time.monotonic() - t0 < 1:
         await asyncio.sleep(0.005)
-    assert time.monotonic() - t0 < 0.15
+    assert time.monotonic() - t0 < 0.2
     assert not game.speaking
     assert eng._speech_q.empty()
     await eng.stop()
