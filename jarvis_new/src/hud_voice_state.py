@@ -151,12 +151,22 @@ class VoiceStateMonitor:
         ]
         for emitter, event, callback in self.listeners:
             emitter.on(event, callback)
+        manager = getattr(session, "jarvis_turn_manager", None)
+        if manager is not None:
+            manager.on_state(self.refresh)
         _monitors[session] = self
         self.refresh()
 
     def refresh(self, *_):
+        agent = getattr(self.session, "agent_state", "initializing")
+        manager = getattr(self.session, "jarvis_turn_manager", None)
+        if manager is not None and agent not in ("closed", "disconnected"):
+            # Native state events may arrive after interruption. The turn
+            # owner knows whether the corresponding reply is still relevant.
+            state = manager.state.value
+            agent = "initializing" if state == "loading" else state
         self.publisher.update(
-            agent=getattr(self.session, "agent_state", "initializing"),
+            agent=agent,
             user=getattr(self.session, "user_state", "listening"),
             executing=self.executing,
         )

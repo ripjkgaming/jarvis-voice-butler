@@ -34,3 +34,19 @@ def test_four_word_echo_without_affirmation_still_caught() -> None:
     g.note_agent("Shall I open Spotify for you, Sir?", 100.0)
     assert g.is_echo("shall I open Spotify", 102.0)
     assert not g.is_echo("open Spotify", 102.0)  # under 4 words
+
+
+def test_short_exact_echo_only_when_agent_audio_active():
+    guard = EchoGuard()
+    guard.note_agent("You have three new messages, Sir.", 100)
+    assert not guard.is_echo("three new messages", 101)
+    guard.speaking = True
+    assert guard.is_echo("three new messages", 101)
+    assert not guard.is_echo("stop", 101)
+    assert not guard.is_echo("yes three new messages", 101)
+
+
+def test_reordered_vocabulary_is_not_echo():
+    guard = EchoGuard()
+    guard.note_agent("Please send Bob the message and read the news", 100)
+    assert not guard.is_echo("read the message and send Bob the news please", 101)

@@ -1095,6 +1095,8 @@ async def _greet_with_retry(
     gemini-3.8-live, 2 Oct). Let wake-tail noise settle, and yield to
     actual requests or replies: Gemini answers those directly.
     """
+    if getattr(session, "_jarvis_greeting_consumed", False):
+        return
     line = "Good day, Sir. What do you require?"
     if listen_first_s > 0 and await _sir_already_talking(session, listen_first_s):
         with contextlib.suppress(Exception):
@@ -1104,7 +1106,13 @@ async def _greet_with_retry(
         return
     if not can_greet():
         return
-    if await _say_with_caption(session, f"{line}{budget_aside}", caption):
+    session._jarvis_greeting_active = True
+    try:
+        said = await _say_with_caption(session, f"{line}{budget_aside}", caption)
+    finally:
+        session._jarvis_greeting_active = False
+    if said or getattr(session, "_jarvis_wake_request_seen", False):
+        session._jarvis_greeting_consumed = True
         return
     await asyncio.sleep(2.0)
     # A retry uses generate_reply on Gemini, which ends its current input
@@ -1336,15 +1344,23 @@ def _say_ack(tool: str, args: tuple, kwargs: dict) -> None:
     try:
         import acks
 
-        line = acks.next_line(tool)
-        if not line:
-            return
         ctx = kwargs.get("context")
         if ctx is None:
             ctx = next((a for a in args if hasattr(a, "session")), None)
         session = getattr(ctx, "session", None)
-        if session is not None:
-            session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
+        manager = getattr(session, "jarvis_turn_manager", None)
+        turn = manager.current_turn if manager else None
+        # A queued say() behind an active SDK turn is stale on arrival.
+        # Realtime owns its audio and cannot safely mix local filler.
+        if session is None or turn is None or _pipeline_name() == "realtime":
+            return
+        if getattr(session, "agent_state", None) == "speaking":
+            return
+        line = acks.next_line(tool)
+        if not line or not manager.filler(turn):
+            return
+        from hud_events import caption
+        caption("jarvis", line)
     except Exception:
         pass
 
@@ -1354,13 +1370,13 @@ def barge_in(mode: str) -> dict:
     (default 0.3 s) of speech; a false interruption resumes the reply, so
     nothing said is lost (IRONMAN_SPEC §4). Pure (env only)."""
     try:
-        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.3"))
+        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.15"))
     except ValueError:
-        secs = 0.3
+        secs = 0.15
     return {
         "mode": mode,
         "min_duration": max(0.1, min(2.0, secs)),
-        "resume_false_interruption": True,
+        "resume_false_interruption": False,
     }
 
 
@@ -1456,9 +1472,26 @@ def _wrap_tools_with_timing(tools: list) -> list:
                 cleanup.enter_context(goodnight_work)
                 TRACKER.call_started()
                 call_started = True
+                from turn_manager import complete_side_effect, tool_has_side_effect
+
+                protected = tool_has_side_effect(_tid)
+                manager = getattr(getattr(context, "session", None), "jarvis_turn_manager", None)
+                binding = getattr(getattr(context, "session", None), "_jarvis_turn_binding", None)
+                turn = binding.turn_for_context(context) if binding else (manager.current_turn if manager else None)
+                if turn is not None and turn.cancelled:
+                    raise asyncio.CancelledError()
+                if protected:
+                    if callable(getattr(context, "disallow_interruptions", None)):
+                        # Refuse to start if the SDK already interrupted this
+                        # call; once started, mutations drain to completion.
+                        context.disallow_interruptions()
+                    if turn is not None:
+                        turn.side_effect = True
+                elif turn is not None and turn.cancelled:
+                    raise asyncio.CancelledError()
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
                 if _inspect.isawaitable(res):
-                    res = await res
+                    res = await complete_side_effect(res) if protected else await res
                 if phone_session.private() and phone_session.guest_required():
                     raise ToolError("The private phone call has ended.")
                 if phone_session.guest_required() and _tid not in {"tell_time", "do_math", "set_volume", "media_control", "end_call"}:
@@ -1880,6 +1913,7 @@ def _never_demote(tool_id: str) -> bool:
             "set_volume",
             "tell_time",
             "download_youtube_video",
+            "cancel_youtube_download",
         }
     )
 
@@ -2539,6 +2573,47 @@ async def my_agent(ctx: JobContext):
 
     _echo = EchoGuard()
     _features.is_echo = _echo.is_echo
+    from turn_manager import VoiceTurnBinding
+
+    async def _publish_voice_turn(payload):
+        import json
+        await ctx.room.local_participant.publish_data(
+            json.dumps(payload).encode(), reliable=True, topic="jarvis.turn"
+        )
+
+    _voice_turns = VoiceTurnBinding(session, _echo, _publish_voice_turn)
+    ctx.add_shutdown_callback(_voice_turns.close)
+
+    @ctx.room.on("data_received")
+    def _turn_control(packet):
+        import json
+        try:
+            # Only the selected input participant may control this session.
+            identity = getattr(getattr(packet, "participant", None), "identity", "")
+            owner = phone_session.identity()
+            if owner and identity != owner:
+                return
+            data = json.loads(bytes(packet.data))
+            if data.get("type") != "jarvis_turn":
+                return
+            event = data.get("event")
+            if event == "startup_audio":
+                session._jarvis_startup_audio_pending = bool(data.get("pending"))
+                if data.get("pending"):
+                    session._jarvis_wake_request_seen = True
+                    session._jarvis_greeting_consumed = True
+                elif getattr(session, "_jarvis_models_ready", False):
+                    _voice_turns.ready()
+            elif event == "cancel_all":
+                _voice_turns.manager.cancel_all()
+                session.interrupt(force=True)
+            elif event == "cancel":
+                tid = int(data["turn_id"])
+                if _voice_turns.manager.is_current(tid):
+                    _voice_turns.manager.cancel(tid)
+                    session.interrupt(force=True)
+        except (ValueError, KeyError, TypeError):
+            return
     from goodnight_host import install as install_goodnight
 
     _goodnight_binding = install_goodnight(session, _features)
@@ -3019,6 +3094,10 @@ async def my_agent(ctx: JobContext):
             delete_room_on_close=True,
         ),
     )
+
+    session._jarvis_models_ready = True
+    if not getattr(session, "_jarvis_startup_audio_pending", False):
+        _voice_turns.ready()
 
     # Pinned private owner audio is the only source of WhatsApp send approval.
     # Exact review uses local TTS even when the realtime model owns normal speech.

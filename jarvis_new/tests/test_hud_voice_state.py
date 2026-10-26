@@ -301,3 +301,25 @@ def test_installed_sdk_events_reach_authenticated_room_handler(monkeypatch, tmp_
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_turn_manager_overrides_stale_sdk_speaking_state():
+    from turn_manager import TurnManager
+
+    session, room = Emitter(), Emitter()
+    manager = session.jarvis_turn_manager = TurnManager()
+    manager.set_ready()
+    monitor = voice.VoiceStateMonitor(session, room)
+    turn = manager.begin_turn("first request")
+    manager.start_speaking(turn.id)
+    session.agent_state = "speaking"
+    session.emit("agent_state_changed")
+    assert voice.read("desktop") == "speaking"
+    manager.cancel_all()
+    # The SDK's delayed state callback cannot resurrect cancelled speech.
+    assert voice.read("desktop") == "listening"
+    manager.begin_turn("new request")
+    assert voice.read("desktop") == "thinking"
+    monitor.close()
+    manager.cancel_all()
+    assert voice.read("desktop") == "idle"
