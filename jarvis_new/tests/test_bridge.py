@@ -603,7 +603,7 @@ def _fake_genai(monkeypatch, script):
             return _Resp(action)
 
     class _Client:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, http_options=None):
             self.models = _Models()
 
     pkg = _types.ModuleType("google")
@@ -611,6 +611,22 @@ def _fake_genai(monkeypatch, script):
     monkeypatch.setitem(sys.modules, "google", pkg)
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     return calls
+
+
+@pytest.fixture(autouse=True)
+def _reset_gemini_cooldown():
+    bridge._GEMINI_COOLDOWN.clear()
+    yield
+    bridge._GEMINI_COOLDOWN.clear()
+
+
+def test_gemini_reply_skips_cooled_down_model(monkeypatch):
+    calls = _fake_genai(monkeypatch, [_UsageError(504), "backup answers"])
+    bridge._gemini_reply("hello")
+    calls.clear()
+    reply, _ = bridge._gemini_reply("hello again")
+    assert bridge.GEMINI_TEXT_MODEL not in calls
+    assert reply
 
 
 def test_gemini_reply_uses_primary_first(monkeypatch):

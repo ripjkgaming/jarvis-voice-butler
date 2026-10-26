@@ -1953,6 +1953,11 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
         return _fallback_chat(transcript, persona, "voice stack missing (google-genai)")
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
+GEMINI_ATTEMPT_TIMEOUT_MS = 10_000
+GEMINI_COOLDOWN_S = 60.0
+_GEMINI_COOLDOWN: dict[str, float] = {}
+
+
         return _fallback_chat(transcript, persona, "GOOGLE_API_KEY not configured")
     if guest:
         brief = (
@@ -1967,14 +1972,14 @@ def _gemini_reply(transcript: str, guest: bool = False) -> tuple[str, str | None
             "Reply in one or two short spoken sentences, no formatting. "
             f"User said: {transcript}"
         )
-    # No custom http_options: SDK 2.x mis-handles a timeout dict
-    # (instant ReadTimeout on every call) — defaults work.
-    client = genai.Client(api_key=api_key)
     chain = [GEMINI_TEXT_MODEL, *GEMINI_TEXT_FALLBACKS]
     seen = set()
     models = [m for m in chain if not (m in seen or seen.add(m))]
     last_err: Exception | None = None
-    for model_id in models:
+    for idx, model_id in enumerate(models):
+        # Per-attempt deadline (ms). Gemini rejects deadlines under 10s
+        # (400), so 10s is the floor; the final attempt gets longer.
+        timeout_ms = GEMINI_ATTEMPT_TIMEOUT_MS * (2 if idx == len(models) - 1 else 1)
         try:
             return (
                 client.models.generate_content(
@@ -1997,9 +2002,17 @@ def _fallback_chat(
 ) -> tuple[str, str | None]:
     """Ling 3.0 Flash via OpenRouter; the original warning if it
     fails too. Never raises."""
+    # Skip models that just failed (504/429) so a dead model costs nothing
+    # on the next requests; the last model is always tried.
+    now = time.monotonic()
+    live = [m for m in models if _GEMINI_COOLDOWN.get(m, 0.0) <= now]
+    models = live or models[-1:]
     try:
         import openrouter_chat
 
+            client = genai.Client(
+                api_key=api_key, http_options={"timeout": timeout_ms}
+            )
         reply, _ = openrouter_chat.chat_reply(
             transcript,
             system=persona,
@@ -2011,6 +2024,7 @@ def _fallback_chat(
 
 
 def _tool_result(ok: bool, **fields) -> dict:
+            _GEMINI_COOLDOWN[model_id] = time.monotonic() + GEMINI_COOLDOWN_S
     return {"ok": ok, **fields}
 
 
