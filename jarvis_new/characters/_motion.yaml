@@ -1,0 +1,49 @@
+# Shared motion tokens. Single source for desktop (frontend) and mobile.
+# Durations in ms. No magic numbers in components: read these.
+total_ms: 1800          # whole switch, tunable
+beat_ms: 700            # signature moment, max
+reduced_ms: 200         # reduced-motion cross-fade
+ready_gate_ms: 1000     # trigger-to-ready budget
+fast_forward_ms: 150    # finish-up when user input arrives mid-switch
+exit_line_max_ms: 1500
+audio_crossfade_ms: 120
+whoosh_gain_db: -18     # mixed under the greeting
+max_flash_hz: 3         # photosensitivity cap
+max_shake_px: 6
+max_glitch_alpha: 0.55
+easing:
+  out_expo:     [0.16, 1.0, 0.3, 1.0]
+  in_out_cubic: [0.65, 0.0, 0.35, 1.0]
+  snap:         [0.9, 0.0, 0.1, 1.0]     # ultron
+  glide:        [0.22, 0.61, 0.36, 1.0]  # friday
+# Phases as [start_ms, end_ms] on the shared skeleton.
+phases:
+  out_chrome:  [0, 200]
+  out_panels:  [80, 320]
+  out_text:    [160, 380]
+  out_orb:     [240, 500]
+  palette:     [150, 900]
+  signature:   [500, 1200]
+  in_chrome:   [900, 1200]
+  in_panels:   [1000, 1400]
+  in_text:     [1200, 1500]
+  in_orb:      [1100, 1500]
+  greeting_at: 1100
+  whoosh:      [500, 1300]
+# Signature keyframes inside the beat, per character-in.
+signatures:
+  holo_reassembly:
+    rings_spin:   [500, 900]
+    hud_lines:    [600, 900]
+    panel_resolve: [800, 1100]
+    bloom:        [1000, 1200]
+  luminous_sweep:
+    wavefront:    [500, 900]
+    particles:    [650, 1100]
+    gradient_bloom: [700, 1200]
+  violent_settle:
+    tear_rgb:     [500, 620]
+    core_ignite:  [620, 760]
+    shard_snap:   [700, 980]
+    shake:        [760, 860]
+    settle:       [980, 1200]
