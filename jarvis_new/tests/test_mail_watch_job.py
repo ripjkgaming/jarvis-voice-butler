@@ -634,3 +634,18 @@ async def test_main_retries_errored_mail(fakes, monkeypatch) -> None:
     await mail_watch_job.main()
     assert handled == ["e1"]
     assert mail_watch_job._load_state()["seen_map"]["e1"].startswith("normal-logged")
+
+
+def test_poll_failed_backs_off_while_signin_expired():
+    import mail_watch_job as m
+
+    logs = []
+    m._backoff.update(fails=0, until=0.0)
+    for _ in range(3):
+        m._poll_failed(RuntimeError("Gmail sign-in expired, Sir."), lambda *a: logs.append(a))
+    assert m._backoff["fails"] == 3 and len(logs) == 3
+    assert "retry in 240s" in logs[-1][1]
+    for _ in range(10):
+        m._poll_failed(RuntimeError("Gmail sign-in expired"), lambda *a: None)
+    assert m._backoff["until"] - __import__("time").monotonic() <= 1800
+    m._backoff.update(fails=0, until=0.0)

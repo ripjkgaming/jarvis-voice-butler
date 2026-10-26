@@ -491,9 +491,28 @@ async def _handle_one(msg_id: str, acks: dict | None = None) -> str:
 
 async def main() -> None:
     from system import log_action
+_BACKOFF_CAP_S = 1800.0
+_backoff: dict[str, float] = {"fails": 0, "until": 0.0}
+
+
+def _poll_failed(exc: Exception, log_action) -> None:
+    """Log a poll failure; while Gmail sign-in is expired, back off
+    exponentially (60s doubling, cap 30 min) and log only once per step."""
+    if "sign-in expired" not in str(exc):
+        log_action("mailwatch", f"poll failed: {exc}")
+        return
+    fails = int(_backoff["fails"]) + 1
+    wait = min(_BACKOFF_CAP_S, 60.0 * 2 ** (fails - 1))
+    _backoff.update(fails=fails, until=time.monotonic() + wait)
+    log_action("mailwatch", f"poll failed: {exc} (retry in {int(wait)}s)")
+
+
 
     os.environ["JARVIS_LOCAL"] = "1"
     _run["drafts"] = 0
+    if time.monotonic() < _backoff["until"]:
+        return
+
     _run["events"] = 0
     state = _load_state()
     seen = set(state.get("seen", []))
@@ -508,10 +527,11 @@ async def main() -> None:
             {"q": "is:unread newer_than:2d", "maxResults": MAX_PER_RUN},
         )
     except Exception as exc:
-        log_action("mailwatch", f"poll failed: {exc}")
+        _poll_failed(exc, log_action)
         return
     seen_map = dict(state.get("seen_map", {}))
     for entry in seen:
+    _backoff.update(fails=0, until=0.0)
         # Back-compat with the firstdraft "id:outcome" list format.
         seen_map.setdefault(str(entry).split(":")[0], "seen")
     fresh = [
