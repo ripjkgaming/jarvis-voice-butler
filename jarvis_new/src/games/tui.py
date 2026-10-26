@@ -27,6 +27,7 @@ from games.chess.engine import BaseEngine, make_engine
 from games.chess.game import ChessGame
 from games.chess.settings import ChessSettings
 from games.chess.settings import load as load_settings
+from games.ui_state import status_suffix
 
 CELL_W = 7
 CELL_H = 3
@@ -389,6 +390,7 @@ class TuiApp(App):
         snap = g.snapshot()
         mic = snap["mic_state"].upper()
         line = f"{snap['status']}"
+        line += status_suffix(g)
         if snap["analysis_on"]:
             line += "  · ANALYSIS ON"
         if st.clock.timed:

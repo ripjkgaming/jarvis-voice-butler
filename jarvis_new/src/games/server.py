@@ -23,6 +23,8 @@ from typing import Any
 
 from websockets.asyncio.server import ServerConnection, serve
 
+from .ui_state import full_snapshot
+
 HOST = "127.0.0.1"
 PORT = 4320
 UI_PORT = 4321
@@ -109,7 +111,7 @@ class GamesServer:
                 self.notify()
 
     def _snapshot_msg(self) -> str:
-        return json.dumps({"type": "snapshot", "data": self.game.snapshot()})
+        return json.dumps({"type": "snapshot", "data": full_snapshot(self.game)})
 
     async def broadcast(self) -> None:
         if not self._clients:
