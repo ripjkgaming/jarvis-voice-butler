@@ -179,7 +179,7 @@ def test_caption_poll_reads_only_the_tail(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "open", counted_open)
     assert bridge.read_captions(1) == [
-        {"ts": 3, "role": "sir", "text": "Latest caption ✓"}
+        {"ts": 3, "role": "sir", "text": "Latest caption ✓", "speaker": "jarvis"}
     ]
     assert sum(reads) <= 4096
 
@@ -187,7 +187,7 @@ def test_caption_poll_reads_only_the_tail(tmp_path, monkeypatch):
 def test_corrupt_caption_bytes_do_not_break_polling(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     (tmp_path / "captions.log").write_bytes(b"1\tjarvis\tHi \xff\n2\tsir\tHello\n")
-    assert bridge.read_captions(1) == [{"ts": 2, "role": "sir", "text": "Hello"}]
+    assert bridge.read_captions(1) == [{"ts": 2, "role": "sir", "text": "Hello", "speaker": "jarvis"}]
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])

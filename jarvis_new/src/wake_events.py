@@ -28,10 +28,18 @@ def wake_events_path() -> Path:
     return base / "wake-events.sock"
 
 
-def encode_event(event: str, ts: float | None = None) -> bytes:
-    return (
-        json.dumps({"event": event, "ts": ts if ts is not None else time.time()}) + "\n"
-    ).encode()
+def encode_event(
+    event: str,
+    ts: float | None = None,
+    character: str | None = None,
+    char_turn: int | None = None,
+) -> bytes:
+    payload: dict = {"event": event, "ts": ts if ts is not None else time.time()}
+    if character is not None:
+        payload["character"] = character
+    if char_turn is not None:
+        payload["char_turn"] = char_turn
+    return (json.dumps(payload) + "\n").encode()
 
 
 class WakeEventBroadcaster:

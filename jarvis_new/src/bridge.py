@@ -686,14 +686,15 @@ def read_captions(limit: int = 20) -> list[dict]:
         return []
     out: list[dict] = []
     for line in lines:
-        parts = line.split("\t", 2)
-        if len(parts) != 3:
+        parts = line.split("\t", 3)
+        if len(parts) not in (3, 4):
             continue
         try:
             ts = int(parts[0])
         except ValueError:
             continue
-        out.append({"ts": ts, "role": parts[1], "text": parts[2]})
+        speaker = parts[3].strip() if len(parts) == 4 and parts[3].strip() else "jarvis"
+        out.append({"ts": ts, "role": parts[1], "text": parts[2], "speaker": speaker})
     return out
 
 
@@ -2538,6 +2539,25 @@ def store_camera_frame(image_b64: str) -> dict:
     return _tool_result(True, name=name, bytes=len(raw))
 
 
+def _runtime():
+    try:
+        from character_runtime import get_runtime
+    except ImportError:
+        from src.character_runtime import get_runtime
+    return get_runtime()
+
+
+def _character_gate(text: str, source: str = "text") -> dict | None:
+    """Owner character-switch command -> response payload, else None. Never raises."""
+    try:
+        res = _runtime().handle_text(text, source)
+    except Exception:
+        return None
+    if res is None:
+        return None
+    return {"ok": True, **res, "character": _runtime().snapshot()}
+
+
 def handle_type(body: dict) -> tuple[int, dict]:
     """Remote keyboard: {"text": ...} or {"key": ...} via wtype.
 
@@ -2545,6 +2565,10 @@ def handle_type(body: dict) -> tuple[int, dict]:
     Returns (http_code, payload); never raises.
     """
     text, key = body.get("text", ""), body.get("key", "")
+    if isinstance(text, str) and text.strip() and not key and not _effective_guest(body):
+        handled = _character_gate(text.strip())
+        if handled is not None:
+            return 200, handled
     if key:
         if not isinstance(key, str) or len(key) > 40:
             return 400, {"ok": False, "error": "bad key"}
@@ -2860,6 +2884,10 @@ def handle_route(body: dict) -> tuple[int, dict]:
         return 400, {"ok": False, "error": "body needs text 1..500 chars"}
     guest = _effective_guest(body)
     clean = text.strip()
+    if not guest:
+        handled = _character_gate(clean)
+        if handled is not None:
+            return 200, handled
     if not guest:
         from watch_control import controls
 
@@ -3337,6 +3365,10 @@ def _handle_chat(body: dict) -> tuple[int, dict]:
         # Listener absent: fall through to the text answer below.
     guest = _effective_guest(body)
     if not guest:
+        handled = _character_gate(text.strip())
+        if handled is not None:
+            return 200, handled
+    if not guest:
         from watch_control import controls
 
         watched = controls.handle(text.strip(), "bridge-owner")
@@ -3382,17 +3414,25 @@ def _handle_chat(body: dict) -> tuple[int, dict]:
             if result.get("port"):
                 action["port"] = result["port"]
         return 200, {"ok": True, "reply": reply, "action": action}
+    # The runtime is authoritative: a client-sent body["character"] is ignored.
+    rt = _runtime()
+    active_char = rt.active()
+    snap = rt.snapshot()
     history = body.get("history", [])
     turns = []
     if isinstance(history, list):
         for turn in history[-20:]:
             if (
                 isinstance(turn, list)
-                and len(turn) == 2
+                and len(turn) in (2, 3)
                 and turn[0] in ("user", "jarvis")
                 and isinstance(turn[1], str)
             ):
                 who = "User" if turn[0] == "user" else "Jarvis"
+                if len(turn) == 3 and isinstance(turn[2], str):
+                    sp = rt.chars.get(turn[2])
+                    if sp is not None and turn[0] != "user":
+                        who = sp.spoken_name
                 turns.append(f"{who}: {turn[1][:1000]}")
     if guest:
         prompt = (
@@ -3405,15 +3445,24 @@ def _handle_chat(body: dict) -> tuple[int, dict]:
             "You are Jarvis, a terse British butler texting with Sir. "
             "Keep replies short (a few sentences max), plain text, no formatting. "
         )
+        if active_char.id != "jarvis":
+            import persona
+
+            prompt = persona.build_instructions(prompt, active_char)
     if turns and not guest:
         prompt += "Conversation so far:\n" + "\n".join(turns) + "\n"
     prompt += f"Sir: {text.strip()}"
     reply, warning = (
         _gemini_reply(prompt, guest=True) if guest else _gemini_reply(prompt)
     )
+    extra = {
+        "character": snap,
+        "char_turn": snap["char_turn"],
+        "speaker": snap["active"],
+    }
     if warning and not reply:
-        return 200, {"ok": True, "reply": "", "warning": warning}
-    return 200, {"ok": True, "reply": reply}
+        return 200, {"ok": True, "reply": "", "warning": warning, **extra}
+    return 200, {"ok": True, "reply": reply, **extra}
 
 
 def handle_summon(body: dict) -> tuple[int, dict]:
@@ -3913,6 +3962,25 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, "turn_id": _valid_turn_id(body["turn_id"])})
             return
+        if route == "/character/switch":
+            body = _read_json_body(self, 4096)
+            if not isinstance(body, dict):
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            if _effective_guest(body):
+                self._send(
+                    403, {"ok": False, "error": "guest mode refuses owner actions"}
+                )
+                return
+            target = body.get("target")
+            if not isinstance(target, str) or not target.strip():
+                self._send(400, {"ok": False, "error": "body needs target"})
+                return
+            source = body.get("source")
+            source = source if source in ("voice", "text", "ui") else "ui"
+            res = _runtime().switch(target.strip().lower(), source)
+            self._send(200, {"ok": True, **res, "character": _runtime().snapshot()})
+            return
         if route == "/chat":
             body = _read_json_body(self, 65536)
             if body is None:
@@ -4285,8 +4353,26 @@ class _Handler(BaseHTTPRequestHandler):
                     "voice_owner": voice["owner"] if voice else None,
                     "waking": read_hud_waking(),
                     "boot": read_hud_boot(),
+                    "character": _runtime().snapshot(),
                 },
             )
+        elif route == "/characters":
+            import characters as _characters
+
+            rt = _runtime()
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "active": rt.active_id(),
+                    "motion": _characters.motion(),
+                    "characters": {
+                        cid: _characters.public_dict(ch) for cid, ch in rt.chars.items()
+                    },
+                },
+            )
+        elif route == "/character":
+            self._send(200, _runtime().snapshot())
         elif route == "/captions":
             try:
                 limit = max(1, min(50, int(qs.get("limit", ["20"])[0])))

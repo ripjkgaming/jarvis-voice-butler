@@ -153,6 +153,17 @@ def captions_path() -> Path:
     return base / CAPTIONS_FILE
 
 
+def _active_speaker() -> str:
+    try:
+        try:
+            from character_runtime import get_runtime
+        except ImportError:
+            from src.character_runtime import get_runtime
+        return get_runtime().active_id()
+    except Exception:
+        return "jarvis"
+
+
 def caption(role: str, text: str) -> bool:
     """Append one `ts\\trole\\ttext` line, pruning to the last keep window.
 
@@ -169,7 +180,7 @@ def caption(role: str, text: str) -> bool:
         path = captions_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as fh:
-            fh.write(f"{int(time.time())}\t{role}\t{text[:500]}\n")
+            fh.write(f"{int(time.time())}\t{role}\t{text[:500]}\t{_active_speaker()}\n")
         lines = path.read_text().splitlines()
         if len(lines) > CAPTIONS_KEEP + 50:
             path.write_text("\n".join(lines[-CAPTIONS_KEEP:]) + "\n")
@@ -218,12 +229,13 @@ def read_captions(limit: int = 20) -> list[dict]:
         return []
     out: list[dict] = []
     for line in lines:
-        parts = line.split("\t", 2)
-        if len(parts) != 3:
+        parts = line.split("\t", 3)
+        if len(parts) not in (3, 4):
             continue
         try:
             ts = int(parts[0])
         except ValueError:
             continue
-        out.append({"ts": ts, "role": parts[1], "text": parts[2]})
+        speaker = parts[3].strip() if len(parts) == 4 and parts[3].strip() else "jarvis"
+        out.append({"ts": ts, "role": parts[1], "text": parts[2], "speaker": speaker})
     return out

@@ -39,7 +39,8 @@ def _action(monkeypatch):
 
 def test_no_fields_unchanged():
     code, res = bridge.handle_chat({"text": "hi"})
-    assert code == 200 and res == {"ok": True, "reply": "hello"}
+    assert code == 200 and res["ok"] is True and res["reply"] == "hello"
+    assert "turn_id" not in res
 
 
 def test_turn_id_echoed_including_errors():
