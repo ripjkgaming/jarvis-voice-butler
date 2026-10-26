@@ -171,7 +171,7 @@ async def test_series_options_colour_level_applied_and_restored(tmp_path):
     await g.wait_series()
     games = sorted(g.store.list(), key=lambda i: i["series_index"])
     assert [i["white"] for i in games] == ["jarvis", "jarvis"]  # user black both
-    assert set(seen) == {"elo:820"}  # level 3 on both sides
+    assert set(seen) == {"level:3"}  # level 3 on both sides
     assert g.settings.difficulty == diff and g.settings.takeover_strength == "club"
     await g.close()
 

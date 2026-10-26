@@ -129,7 +129,7 @@ VOCAB_PROMPTS = {
 }
 VOCAB_HOTWORDS = {
     "general": "Jarvis",
-    "chess": "pawn knight bishop rook queen king castle takes series games rewind release",
+    "chess": "pawn knight bishop rook queen king castle takes series games rewind release level",
 }
 
 

@@ -260,6 +260,64 @@ def _level(args: dict, _t: str) -> dict | None:
     return None
 
 
+# ------------------------------------------------------- strength levels 1-10
+_LV_PRE = (
+    r"(?:(?:set|make|change|put|switch|move|go|play|turn)"
+    r"(?: it| me| the difficulty| difficulty| the level| the)?(?: (?:to|at|on))? )?"
+    r"(?:(?:to|at|on) )?(?:(?:the )?difficulty )?"
+)
+_LV_HI = "max|maximum|highest|top|hardest"
+_LV_LO = "lowest|minimum|min|easiest|bottom"
+
+
+def _lv_n(args: dict, _t: str) -> dict | None:
+    n = parse_number(args.get("n", ""))
+    return None if n is None else {"n": n}
+
+
+def _lv_word(args: dict, _t: str) -> dict | None:
+    w = args.get("w", "")
+    return {"n": 10 if re.fullmatch(_LV_HI, w) else 1}
+
+
+def _lv_adjust_phrases(words: list[str]) -> list[str]:
+    pre = ["", "make it ", "go ", "play ", "can you make it ", "could you make it "]
+    mod = ["", "a bit ", "a little ", "slightly ", "a notch ", "a touch ", "a tad ", "much "]
+    return [f"{a}{m}{w}" for a in pre for m in mod for w in words if m or a not in ("", "make it ")]
+
+
+_LEVEL_RULES = [
+    R("set_level", "game", rx=_LV_PRE + r"level(?: (?:to|too|for))? (?P<n>[a-z0-9 -]+?)(?: please)?", post=_lv_n),
+    R("set_level", "game", rx=_LV_PRE + r"(?:the )?(?P<w>" + _LV_HI + "|" + _LV_LO + r") (?:difficulty )?level", post=_lv_word),
+    R("set_level", "game", rx=_LV_PRE + r"level(?: (?:to|too|for))? (?P<w>" + _LV_HI + "|" + _LV_LO + ")", post=_lv_word),
+    R(
+        "level_adjust", "game",
+        _lv_adjust_phrases(["harder", "tougher", "stronger"])
+        + ["ramp it up", "crank it up", "step it up", "turn it up", "level up",
+           "up a level", "raise the level", "increase the level", "up a notch"],
+        direction=1,
+    ),
+    R(
+        "level_adjust", "game",
+        _lv_adjust_phrases(["easier", "weaker", "gentler"])
+        + ["dial it down", "tone it down", "turn it down", "ease up", "ease off",
+           "level down", "down a level", "lower the level", "decrease the level",
+           "down a notch", "too difficult"],
+        direction=-1,
+    ),
+    R(
+        "level_query", "game",
+        "what level are you|what level are you at|what level are you playing|"
+        "what level are you on|what level is this|what level is it|what level is that|"
+        "what level am i playing|what level am i playing at|what level do i play|"
+        "what's the level|what is the level|which level|what level|current level|"
+        "what is your level|what's your level|what's the current level|"
+        "what level is the engine|what level is it set to|which level are you",
+    ),
+]  # fmt: skip
+
+
+
 RULES: list[Rule] = []
 
 
@@ -612,6 +670,7 @@ add(
         "random colours|random colors|you choose|flip a coin|random colour",
         colour="random",
     ),
+    *_LEVEL_RULES,
     R(
         "difficulty_adjust",
         "game",

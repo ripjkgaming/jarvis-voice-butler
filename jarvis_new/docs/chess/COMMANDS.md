@@ -57,6 +57,8 @@ Narrow: “eval off” · “hide the eval” · “hide the evaluation” · �
 - **start** — “a game of chess” · “chess” · “fancy a game” · “game of chess” · “let's play” · “let's play chess” · “lets play chess” · “play a game” · “play chess”
 - **new game** — “again” · “another game” · “go again” · “new” · “new game” · “one more” · “one more game” · “play again” · “rematch” … (+4)
 - **colour** — “give me white” · “i am white” · “i'll be white” · “play as white” · “you be black” · “give me black” · “i am black” · “i'll be black” · “play as black” … (+6)
+- **level adjust** — “a bit harder” · “a bit stronger” · “a bit tougher” · “a little harder” · “a little stronger” · “a little tougher” · “a notch harder” · “a notch stronger” · “a notch tougher” … (+287)
+- **level query** — “current level” · “what is the level” · “what is your level” · “what level” · “what level am i playing” · “what level am i playing at” · “what level are you” · “what level are you at” · “what level are you on” … (+12)
 - **difficulty adjust** — “easier” · “go easier” · “go easy on me” · “make it easier” · “too hard” · “do not hold back” · “don't hold back” · “harder” · “make it harder” … (+1)
 - **difficulty** — “beginner” · “easy” · “novice” · “novice level” · “club” · “club level” · “intermediate” · “advanced” · “strong” … (+10)
 - **time control** — “no clock” · “no limit” · “no time limit” · “untimed” · “5 minute game” · “blitz” · “five minute” · “five minute game” · “five minutes” … (+8)

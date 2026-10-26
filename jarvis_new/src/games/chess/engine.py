@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import chess
 import chess.engine
 
-from games.chess.settings import PRESET_ELO
+from games.chess.settings import PRESET_ELO, level_elo
 
 
 @dataclass
@@ -51,6 +51,11 @@ def find_stockfish() -> str | None:
 
 def elo_of(preset: str) -> int:
     """Preset name or ``elo:1500`` -> rating."""
+    if preset.startswith("level:"):
+        try:
+            return level_elo(int(preset[6:]))
+        except ValueError:
+            return 1200
     if preset.startswith("elo:"):
         try:
             return int(preset[4:])

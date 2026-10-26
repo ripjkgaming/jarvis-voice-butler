@@ -36,14 +36,41 @@ DEFAULT_MODELS = [
     "openrouter/free",
 ]
 
-PRESET_ELO = {
-    "novice": 800,
-    "club": 1200,
-    "strong": 1600,
-    "expert": 2000,
-    "master": 2400,
-    "full": 3190,
-}
+# Ten-step strength ladder (voice: "level seven"). Stored as ``level:N``.
+LEVELS = {1: 500, 2: 700, 3: 900, 4: 1100, 5: 1300, 6: 1500, 7: 1800,
+          8: 2100, 9: 2500, 10: 3190}  # fmt: skip
+# Old preset names stay as aliases onto the ladder.
+PRESET_LEVEL = {"novice": 2, "club": 4, "strong": 6, "expert": 8, "master": 9,
+                "full": 10}  # fmt: skip
+PRESET_ELO = {p: LEVELS[n] for p, n in PRESET_LEVEL.items()}
+
+
+def level_elo(n: int) -> int:
+    """Level 1-10 (clamped) -> rating."""
+    return LEVELS[max(1, min(10, int(n)))]
+
+
+def elo_level(elo: int) -> int:
+    """Nearest level for a rating."""
+    return min(LEVELS, key=lambda n: (abs(LEVELS[n] - elo), n))
+
+
+def difficulty_level(difficulty: str) -> int:
+    """Any stored difficulty (``level:N``, preset, ``elo:N``) -> level 1-10."""
+    if difficulty.startswith("level:"):
+        try:
+            return max(1, min(10, int(difficulty[6:])))
+        except ValueError:
+            return PRESET_LEVEL["club"]
+    if difficulty in PRESET_LEVEL:
+        return PRESET_LEVEL[difficulty]
+    if difficulty.startswith("elo:"):
+        try:
+            return elo_level(int(difficulty[4:]))
+        except ValueError:
+            pass
+    return PRESET_LEVEL["club"]
+
 
 TIME_CONTROLS = {
     "untimed": (0, 0),
