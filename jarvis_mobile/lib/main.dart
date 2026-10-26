@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/theme.dart';
+import 'core/voice_ctrl.dart';
 import 'screens/chat_screen.dart';
 import 'screens/control_screen.dart';
 import 'screens/home_screen.dart';
@@ -37,12 +38,16 @@ class _Tabs extends StatefulWidget {
 class _TabsState extends State<_Tabs> {
   int _i = 0;
 
-  static const _pages = [
-    HomeScreen(),
-    VoiceScreen(),
-    ChatScreen(),
-    ControlScreen(),
-  ];
+  final VoiceCtrl _call = VoiceCtrl();
+  late final List<Widget> _pages;
+  @override
+  void initState() {
+    super.initState();
+    _pages = [HomeScreen(onCall: _startCall), VoiceScreen(controller: _call), const ChatScreen(), const ControlScreen()];
+  }
+  void _startCall() { _select(1); _call.join(); }
+  @override
+  void dispose() { _call.dispose(); super.dispose(); }
 
   static const _tabs = [
     (Icons.home_outlined, Icons.home, 'Home'),
@@ -64,20 +69,12 @@ class _TabsState extends State<_Tabs> {
       body: HudBackground(
         child: SafeArea(
           bottom: false,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 320),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, anim) => FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween(
-                        begin: const Offset(0.04, 0), end: Offset.zero)
-                    .animate(anim),
-                child: child,
-              ),
-            ),
-            child: KeyedSubtree(key: ValueKey(_i), child: _pages[_i]),
+          child: IndexedStack(
+            index: _i,
+            children: List.generate(_pages.length, (i) => TickerMode(
+              enabled: i == _i,
+              child: ExcludeSemantics(excluding: i != _i, child: _pages[i]),
+            )),
           ),
         ),
       ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -29,9 +30,11 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
   Future<Map<String, dynamic>> _get(String path,
       [Map<String, String>? query]) async {
     try {
-      final r = await _http.get(_u(path, query)).timeout(
+      final r = await _http.get(_u(path, query), headers: _headers).timeout(
           const Duration(seconds: 8));
       return jsonDecode(r.body) as Map<String, dynamic>;
+    } on TimeoutException {
+      return {'ok': false, 'error': 'timeout'};
     } catch (_) {
       return {'ok': false, 'error': 'unreachable'};
     }
@@ -45,10 +48,14 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
               headers: _headers, body: jsonEncode(body))
           .timeout(const Duration(seconds: 30));
       return jsonDecode(r.body) as Map<String, dynamic>;
+    } on TimeoutException {
+      return {'ok': false, 'error': 'timeout'};
     } catch (_) {
       return {'ok': false, 'error': 'unreachable'};
     }
   }
+
+  void close() => _http.close();
 
   Future<Map<String, dynamic>> health() => _get('/health');
   Future<Map<String, dynamic>> status() => _get('/status');

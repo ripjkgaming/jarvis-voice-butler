@@ -13,7 +13,8 @@ import '../widgets/orb.dart';
 /// Home: live connection status, arc-reactor hero orb, caption tail,
 /// quick actions. Logic untouched — same poll/link/settings pipeline.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onCall;
+  const HomeScreen({super.key, this.onCall});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -167,6 +168,10 @@ class _HomeScreenState extends State<HomeScreen> {
       body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
+            if (widget.onCall != null) ...[
+              FilledButton.icon(onPressed: widget.onCall, icon: const Icon(Icons.call), label: const Text('CALL JARVIS')),
+              const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Start a voice session through your linked home bridge.', textAlign: TextAlign.center)),
+            ],
             const HudScanline(),
             const SizedBox(height: 12),
             Stagger(
