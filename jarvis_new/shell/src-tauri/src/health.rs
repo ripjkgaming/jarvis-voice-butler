@@ -146,7 +146,12 @@ pub fn http_post_json_on(
         head += &format!("Authorization: Bearer {clean_token}\r\n");
     }
     head += "\r\n";
-    let resp = http_roundtrip_on(host, port, &head, text.as_bytes())?;
+    let read_timeout = if path == "/watch-control" && body.get("text").and_then(|v| v.as_str()) != Some("stop watching") {
+        Duration::from_secs(5) // fresh target inspection plus bounded enrollment
+    } else {
+        READ_TIMEOUT
+    };
+    let resp = http_roundtrip_on_with_timeout(host, port, &head, text.as_bytes(), read_timeout)?;
     serde_json::from_str(&resp).map_err(|e| format!("bad json: {e}"))
 }
 
@@ -157,13 +162,17 @@ fn http_roundtrip(port: u16, head: &str, body: &[u8]) -> Result<String, String> 
 
 /// Host-aware variant of [`http_roundtrip`].
 fn http_roundtrip_on(host: &str, port: u16, head: &str, body: &[u8]) -> Result<String, String> {
+    http_roundtrip_on_with_timeout(host, port, head, body, READ_TIMEOUT)
+}
+
+fn http_roundtrip_on_with_timeout(host: &str, port: u16, head: &str, body: &[u8], read_timeout: Duration) -> Result<String, String> {
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .map_err(|e| format!("bad addr: {e}"))?;
     let mut stream =
         TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| format!("{e}"))?;
     stream
-        .set_read_timeout(Some(READ_TIMEOUT))
+        .set_read_timeout(Some(read_timeout))
         .map_err(|e| format!("{e}"))?;
     stream
         .set_write_timeout(Some(CONNECT_TIMEOUT))

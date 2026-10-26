@@ -64,8 +64,10 @@ impl LifecycleGate {
         effect: impl FnOnce(),
     ) -> bool {
         self.run_if(
-            || school.load(Ordering::SeqCst) == expected_school
-                && generation.load(Ordering::SeqCst) == expected_gen,
+            || {
+                school.load(Ordering::SeqCst) == expected_school
+                    && generation.load(Ordering::SeqCst) == expected_gen
+            },
             effect,
         )
     }
@@ -179,16 +181,29 @@ struct SchoolApplyPlan {
 }
 
 impl SuitFocusState {
-    fn prepare_apply(&mut self, generation: u64, transitioning: bool, menu_extra: u32) -> SchoolApplyPlan {
+    fn prepare_apply(
+        &mut self,
+        generation: u64,
+        transitioning: bool,
+        menu_extra: u32,
+    ) -> SchoolApplyPlan {
         let focusable = self.active.map(|(gen, _)| gen) == Some(generation);
         if !transitioning {
             if !focusable && self.active.is_some() {
                 self.reset();
             }
-            return SchoolApplyPlan { preserve_geometry: focusable || menu_extra > 0, focusable, menu_extra };
+            return SchoolApplyPlan {
+                preserve_geometry: focusable || menu_extra > 0,
+                focusable,
+                menu_extra,
+            };
         }
         self.reset();
-        SchoolApplyPlan { preserve_geometry: false, focusable: false, menu_extra: 0 }
+        SchoolApplyPlan {
+            preserve_geometry: false,
+            focusable: false,
+            menu_extra: 0,
+        }
     }
 
     fn reset(&mut self) -> SuitFocusChange {
@@ -233,13 +248,17 @@ static SUIT_FOCUS: std::sync::Mutex<SuitFocusState> = std::sync::Mutex::new(Suit
 /// Only the focus keys change; the exact-title rule keeps all its docking,
 /// stacking and taskbar behavior while diagnostics temporarily takes keys.
 fn suit_focus_rule_entries(active: bool) -> [(&'static str, &'static str); 2] {
-    [("acceptfocus", if active { "true" } else { "false" }), ("acceptfocusrule", "2")]
+    [
+        ("acceptfocus", if active { "true" } else { "false" }),
+        ("acceptfocusrule", "2"),
+    ]
 }
 
 fn set_suit_focus_locked(app: &AppHandle, active: bool) -> Result<(), String> {
     install_rule(RULE_ID, &suit_focus_rule_entries(active));
     if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
-        win.set_focusable(active).map_err(|error| error.to_string())?;
+        win.set_focusable(active)
+            .map_err(|error| error.to_string())?;
         if active {
             win.set_focus().map_err(|error| error.to_string())?;
         }
@@ -265,9 +284,13 @@ pub fn suit_focus(app: AppHandle, active: bool, lease: Option<u64>) -> Result<Op
     let gen = TX_GEN.load(Ordering::SeqCst);
     let epoch = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner()).epoch;
     on_main_sync(&app, move |app| {
-        let eligible = current_mode(true, gen) && !in_transition()
-            && !crate::orb::is_orb() && overlay_visible(app);
-        let change = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner())
+        let eligible = current_mode(true, gen)
+            && !in_transition()
+            && !crate::orb::is_orb()
+            && overlay_visible(app);
+        let change = SUIT_FOCUS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .request(active, lease, gen, epoch, eligible);
         match change {
             SuitFocusChange::Enable(lease) => {
@@ -285,7 +308,8 @@ pub fn suit_focus(app: AppHandle, active: bool, lease: Option<u64>) -> Result<Op
             }
             SuitFocusChange::Unchanged => Ok(None),
         }
-    }).unwrap_or_else(|| Err("suit focus main-thread dispatch failed or timed out".into()))
+    })
+    .unwrap_or_else(|| Err("suit focus main-thread dispatch failed or timed out".into()))
 }
 
 pub fn is_school() -> bool {
@@ -297,7 +321,11 @@ pub fn school_on_disk(home: &std::path::Path) -> bool {
     std::fs::read_to_string(home.join("mode.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("mode").and_then(|m| m.as_str()).map(|m| m == "school"))
+        .and_then(|v| {
+            v.get("mode")
+                .and_then(|m| m.as_str())
+                .map(|m| m == "school")
+        })
         .unwrap_or(false)
 }
 
@@ -392,7 +420,10 @@ fn with_panel_thickness(script: &str) -> String {
 /// Connector name (e.g. "DP-1") of Plasma's primary display: the output
 /// `kscreen-doctor -j` reports at priority 1. None off Plasma / on error.
 pub fn primary_output_name() -> Option<String> {
-    let out = std::process::Command::new("kscreen-doctor").arg("-j").output().ok()?;
+    let out = std::process::Command::new("kscreen-doctor")
+        .arg("-j")
+        .output()
+        .ok()?;
     parse_primary_output(&String::from_utf8_lossy(&out.stdout))
 }
 
@@ -405,7 +436,9 @@ pub fn parse_primary_output(json: &str) -> Option<String> {
             && o.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true);
         let name = o.get("name")?.as_str()?;
         let safe = !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
         (primary && safe).then(|| name.to_string())
     })
 }
@@ -429,7 +462,11 @@ fn primary_script(primary: Option<&str>) -> String {
 /// Matches our overlay by exact caption "Jarvis" on a jarvis-shell window.
 /// The strip docks onto the live primary; `primary` is a connector hint
 /// for KWin versions without screenOrder.
-pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary: Option<&str>) -> String {
+pub fn kwin_script(
+    school: bool,
+    restore: Option<(i32, i32, u32, u32)>,
+    primary: Option<&str>,
+) -> String {
     let body = if school {
         format!(
             "const target = jkPrimary();\n\
@@ -451,9 +488,9 @@ pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary:
         )
     } else {
         let geo = match restore {
-            Some((x, y, width, height)) => format!(
-                "w.frameGeometry = {{x: {x}, y: {y}, width: {width}, height: {height}}};"
-            ),
+            Some((x, y, width, height)) => {
+                format!("w.frameGeometry = {{x: {x}, y: {y}, width: {width}, height: {height}}};")
+            }
             None => String::new(),
         };
         format!(
@@ -461,7 +498,11 @@ pub fn kwin_script(school: bool, restore: Option<(i32, i32, u32, u32)>, primary:
              w.skipTaskbar = false; w.skipPager = false; w.skipSwitcher = false; w.onAllDesktops = false;"
         )
     };
-    let primary_js = if school { primary_script(primary) } else { String::new() };
+    let primary_js = if school {
+        primary_script(primary)
+    } else {
+        String::new()
+    };
     format!(
         "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
@@ -502,7 +543,11 @@ pub fn rules_with_ours(existing: &str) -> String {
 
 /// Rules list with `id` appended once. Pure.
 pub fn rules_with(existing: &str, id: &str) -> String {
-    let mut ids: Vec<&str> = existing.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let mut ids: Vec<&str> = existing
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     if !ids.contains(&id) {
         ids.push(id);
     }
@@ -531,7 +576,14 @@ pub(crate) fn install_rule(rule_id: &str, entries: &[(&str, &str)]) {
 
 fn install_rule_locked(rule_id: &str, entries: &[(&str, &str)]) {
     let read = std::process::Command::new("kreadconfig6")
-        .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
+        .args([
+            "--file",
+            "kwinrulesrc",
+            "--group",
+            "General",
+            "--key",
+            "rules",
+        ])
         .output();
     let existing = match read {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -539,7 +591,15 @@ fn install_rule_locked(rule_id: &str, entries: &[(&str, &str)]) {
     };
     let write = |group: &str, key: &str, value: &str| {
         let _ = std::process::Command::new("kwriteconfig6")
-            .args(["--file", "kwinrulesrc", "--group", group, "--key", key, value])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                group,
+                "--key",
+                key,
+                value,
+            ])
             .output();
     };
     for (key, value) in entries {
@@ -549,7 +609,13 @@ fn install_rule_locked(rule_id: &str, entries: &[(&str, &str)]) {
     write("General", "count", &rules.split(',').count().to_string());
     write("General", "rules", &rules);
     let _ = std::process::Command::new("dbus-send")
-        .args(["--session", "--print-reply", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+        .args([
+            "--session",
+            "--print-reply",
+            "--dest=org.kde.KWin",
+            "/KWin",
+            "org.kde.KWin.reconfigure",
+        ])
         .output();
 }
 
@@ -695,8 +761,11 @@ fn start_keeper() {
         // Re-checked on this thread: an exit or entry that began since the
         // keeper was asked for has already stopped it, and loading it now
         // would snap the window back to bar height mid-transition.
-        if !is_school() || in_transition() || TX_GEN.load(Ordering::SeqCst) != gen
-            || KEEPER_GEN.load(Ordering::SeqCst) != keeper_gen {
+        if !is_school()
+            || in_transition()
+            || TX_GEN.load(Ordering::SeqCst) != gen
+            || KEEPER_GEN.load(Ordering::SeqCst) != keeper_gen
+        {
             return;
         }
         load_kwin_named(&script, KEEPER_NAME);
@@ -775,7 +844,14 @@ pub(crate) fn uninstall_rule(rule_id: &str) {
 
 fn uninstall_rule_locked(rule_id: &str) {
     let read = std::process::Command::new("kreadconfig6")
-        .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
+        .args([
+            "--file",
+            "kwinrulesrc",
+            "--group",
+            "General",
+            "--key",
+            "rules",
+        ])
         .output();
     let existing = match read {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -787,14 +863,32 @@ fn uninstall_rule_locked(rule_id: &str) {
     }
     let write = |group: &str, key: &str, value: &str| {
         let _ = std::process::Command::new("kwriteconfig6")
-            .args(["--file", "kwinrulesrc", "--group", group, "--key", key, value])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                group,
+                "--key",
+                key,
+                value,
+            ])
             .output();
     };
-    let count = if rules.is_empty() { 0 } else { rules.split(',').count() };
+    let count = if rules.is_empty() {
+        0
+    } else {
+        rules.split(',').count()
+    };
     write("General", "count", &count.to_string());
     write("General", "rules", &rules);
     let _ = std::process::Command::new("dbus-send")
-        .args(["--session", "--print-reply", "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"])
+        .args([
+            "--session",
+            "--print-reply",
+            "--dest=org.kde.KWin",
+            "/KWin",
+            "org.kde.KWin.reconfigure",
+        ])
         .output();
 }
 
@@ -808,8 +902,10 @@ pub fn heal_normal_mode(app: Option<&AppHandle>) {
 
 fn heal_normal_generation(app: Option<&AppHandle>, gen: u64) {
     if !run_guarded_kwin(
-        &normalize_script(), "jarvis_hud_normalize",
-        || current_mode(false, gen), || uninstall_rule(RULE_ID),
+        &normalize_script(),
+        "jarvis_hud_normalize",
+        || current_mode(false, gen),
+        || uninstall_rule(RULE_ID),
     ) {
         return;
     }
@@ -824,28 +920,57 @@ fn heal_normal_generation(app: Option<&AppHandle>, gen: u64) {
     }
 }
 
-/// KWin script filling the work area (screen minus panels) with the HUD,
-/// keeping its title bar so the top still drags it. Fills a matching window
-/// now and once more when one is mapped later (boot may show it late).
-fn boot_fill_script() -> String {
+/// Recover an inaccessible normal HUD without overriding a visible placement.
+/// KWin geometry is logical, so use its live work areas instead of mixing in
+/// the physical pixel coordinates from overlay.json on scaled outputs.
+fn boot_fill_script(restore: Option<crate::overlay::OverlayGeometry>) -> String {
+    let saved = restore
+        .map(|g| {
+            format!(
+                "{{x: {}, y: {}, width: {}, height: {}}}",
+                g.x, g.y, g.width, g.height
+            )
+        })
+        .unwrap_or_else(|| "null".to_string());
     format!(
-        "function jkFill(w) {{\n\
+        "const jkSaved = {saved};\n\
+         const jkPlaced = new Set();\n\
+         function jkFill(w) {{\n\
            if (!w || w.caption !== \"{hud}\") return;\n\
            if (!String(w.resourceClass || \"\").toLowerCase().includes(\"jarvis\")) return;\n\
+           const id = String(w.internalId);\n\
+           const first = !jkPlaced.has(id);\n\
+           jkPlaced.add(id);\n\
+           if (w.move || w.resize) return;\n\
+           if (first && jkSaved) {{\n\
+             // Saved Tauri outer-frame pixels; KWin expects logical frames.\n\
+             const scale = w.output && w.output.scale > 0 ? w.output.scale : 1;\n\
+             w.frameGeometry = {{x: jkSaved.x / scale, y: jkSaved.y / scale, width: jkSaved.width / scale, height: jkSaved.height / scale}};\n\
+           }}\n\
+           const g = w.frameGeometry;\n\
+           const areas = workspace.screens.map(o => workspace.clientArea(KWin.MaximizeArea, o, workspace.currentDesktop));\n\
+           // Leave a usable title-bar segment on any output exactly where it is.\n\
+           if (areas.some(a => Math.min(g.x + g.width, a.x + a.width) - Math.max(g.x, a.x) >= Math.min(96, g.width) && g.y >= a.y && g.y + 24 <= a.y + a.height)) return;\n\
            const a = workspace.clientArea(KWin.MaximizeArea, w);\n\
-           w.frameGeometry = {{x: a.x, y: a.y, width: a.width, height: a.height}};\n\
+           if (!a || a.width <= 0 || a.height <= 0) return;\n\
+           const x = Math.max(a.x, Math.min(g.x, a.x + Math.max(0, a.width - g.width)));\n\
+           const y = Math.max(a.y, Math.min(g.y, a.y + Math.max(0, a.height - 24)));\n\
+           w.frameGeometry = {{x: x, y: y, width: g.width, height: g.height}};\n\
          }}\n\
-         for (const w of workspace.windowList()) jkFill(w);\n\
-         workspace.windowAdded.connect(jkFill);\n",
+         function jkRecover() {{ for (const w of workspace.windowList()) jkFill(w); }}\n\
+         jkRecover();\n\
+         workspace.windowAdded.connect(jkFill);\n\
+         workspace.screensChanged.connect(jkRecover);\n\
+         workspace.virtualScreenGeometryChanged.connect(jkRecover);\n",
         hud = HUD_TITLE
     )
 }
 
 const BOOT_FILL_NAME: &str = "jarvis_boot_fill";
 
-/// At launch (normal mode) the HUD fills the screen's work area but stays a
-/// normal decorated window: drag the title bar to move it. Fail-soft.
-pub fn fill_work_area_at_boot() {
+/// At launch, preserve the HUD placement; recover only an inaccessible title bar.
+/// School docking and transition placement retain their own lifecycle. Fail-soft.
+pub fn fill_work_area_at_boot(restore: Option<crate::overlay::OverlayGeometry>) {
     if is_school() {
         return;
     }
@@ -856,7 +981,7 @@ pub fn fill_work_area_at_boot() {
         heal_normal_generation(None, gen);
         let mut loaded = false;
         run_in_mode(false, gen, || {
-            loaded = load_kwin_named(&boot_fill_script(), BOOT_FILL_NAME);
+            loaded = load_kwin_named(&boot_fill_script(restore), BOOT_FILL_NAME);
         });
         if loaded {
             std::thread::sleep(std::time::Duration::from_secs(20));
@@ -883,7 +1008,11 @@ fn kwin_dbus(args: &[&str]) -> std::io::Result<std::process::Output> {
 
 /// Unload a KWin script by name. Fail-soft.
 fn unload_kwin_named(name: &str) {
-    let _ = kwin_dbus(&["/Scripting", "org.kde.kwin.Scripting.unloadScript", &format!("string:{name}")]);
+    let _ = kwin_dbus(&[
+        "/Scripting",
+        "org.kde.kwin.Scripting.unloadScript",
+        &format!("string:{name}"),
+    ]);
 }
 
 /// Load (replacing a same-named one) and run a KWin script, leaving it
@@ -942,7 +1071,11 @@ fn enter_locked(app: &AppHandle) {
     MENU_EXTRA_NOW.store(0, Ordering::SeqCst);
     ENTERING.store(true, Ordering::SeqCst);
     let gen = TX_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    let phase = if returning || !overlay_visible(app) { "arrive" } else { "collapse" };
+    let phase = if returning || !overlay_visible(app) {
+        "arrive"
+    } else {
+        "collapse"
+    };
     signal(app, phase);
     let app = app.clone();
     std::thread::spawn(move || {
@@ -995,7 +1128,11 @@ pub const TX_WATCHDOG_MS: u64 = 20_000;
 /// which way the primary lies. `nonce` is echoed so the page ignores stale
 /// reports. Pure.
 pub fn measure_script(nonce: &str, primary: Option<&str>) -> String {
-    let nonce: String = nonce.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect();
+    let nonce: String = nonce
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(32)
+        .collect();
     format!(
         "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
@@ -1086,7 +1223,11 @@ pub fn cover_script(cover: Cover, primary: Option<&str>, content: Option<[i32; 4
             )
         }
     };
-    let primary_js = if cover == Cover::Primary { primary_script(primary) } else { String::new() };
+    let primary_js = if cover == Cover::Primary {
+        primary_script(primary)
+    } else {
+        String::new()
+    };
     format!(
         "{primary_js}for (const w of workspace.windowList()) {{\n\
            if (w.caption !== \"Jarvis\" && w.caption !== \"{title}\") continue;\n\
@@ -1138,7 +1279,8 @@ pub fn school_stage(
 ) -> Result<(), String> {
     on_main_sync(&app, move |app| {
         school_stage_locked(app, stage, nonce, rect)
-    }).unwrap_or_else(|| Err("school stage main-thread dispatch failed or timed out".into()))
+    })
+    .unwrap_or_else(|| Err("school stage main-thread dispatch failed or timed out".into()))
 }
 
 fn school_stage_locked(
@@ -1186,7 +1328,11 @@ fn school_stage_locked(
                     std::thread::sleep(std::time::Duration::from_millis(UNFRAME_SETTLE_MS));
                 }
                 let primary = primary_output_name();
-                run_school_stage_kwin(&cover_script(cover, primary.as_deref(), content), "jarvis_school_cover", gen);
+                run_school_stage_kwin(
+                    &cover_script(cover, primary.as_deref(), content),
+                    "jarvis_school_cover",
+                    gen,
+                );
             });
         }
         "dock" => {
@@ -1318,7 +1464,11 @@ pub fn school_menu(extra: f64) -> Result<(), String> {
     if !is_school() || crate::orb::is_orb() || in_transition() {
         return Ok(());
     }
-    let extra = if extra.is_finite() { extra.max(0.0) as u32 } else { 0 };
+    let extra = if extra.is_finite() {
+        extra.max(0.0) as u32
+    } else {
+        0
+    };
     let extra = extra.min(MENU_MAX_EXTRA);
     let gen = TX_GEN.load(Ordering::SeqCst);
     MENU_EXTRA_NOW.store(extra, Ordering::SeqCst);
@@ -1326,8 +1476,13 @@ pub fn school_menu(extra: f64) -> Result<(), String> {
         let primary = primary_output_name();
         let script = with_panel_thickness(&menu_script_on_primary(extra, primary.as_deref()));
         run_guarded_kwin(
-            &script, "jarvis_school_menu",
-            || current_mode(true, gen) && !in_transition() && MENU_EXTRA_NOW.load(Ordering::SeqCst) == extra,
+            &script,
+            "jarvis_school_menu",
+            || {
+                current_mode(true, gen)
+                    && !in_transition()
+                    && MENU_EXTRA_NOW.load(Ordering::SeqCst) == extra
+            },
             || {},
         );
     });
@@ -1349,9 +1504,14 @@ fn apply_locked(app: &AppHandle) {
     // A show/voice summon of an already docked modal or menu must not
     // collapse its window or revoke keyboard access without a UI close.
     // Decide before clearing ENTERING, so watchdog docking still resets.
-    let plan = SUIT_FOCUS.lock().unwrap_or_else(|e| e.into_inner()).prepare_apply(
-        TX_GEN.load(Ordering::SeqCst), in_transition(), MENU_EXTRA_NOW.load(Ordering::SeqCst),
-    );
+    let plan = SUIT_FOCUS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .prepare_apply(
+            TX_GEN.load(Ordering::SeqCst),
+            in_transition(),
+            MENU_EXTRA_NOW.load(Ordering::SeqCst),
+        );
     MENU_EXTRA_NOW.store(plan.menu_extra, Ordering::SeqCst);
     if plan.preserve_geometry {
         if let Some(win) = app.get_webview_window(crate::commands::OVERLAY_LABEL) {
@@ -1479,14 +1639,17 @@ fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, s
         let _ = win.set_always_on_top(false);
         let _ = win.set_decorations(true);
         let _ = win.set_skip_taskbar(false);
-        let (w, h) = geom
-            .as_ref()
-            .map(|g| (g.width, g.height))
-            .unwrap_or((crate::overlay::OVERLAY_WIDTH, crate::overlay::OVERLAY_HEIGHT));
+        let (w, h) = geom.as_ref().map(|g| (g.width, g.height)).unwrap_or((
+            crate::overlay::OVERLAY_WIDTH,
+            crate::overlay::OVERLAY_HEIGHT,
+        ));
         // A placed return goes straight to its frame via KWin; resizing
         // here first would flash the HUD at the wrong size.
         if !placed {
-            let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: w, height: h }));
+            let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: w,
+                height: h,
+            }));
         }
     }
     let restore = geom.map(|g| (g.x, g.y, g.width, g.height));
@@ -1496,8 +1659,10 @@ fn restore_at(app: &AppHandle, frame: Option<crate::overlay::OverlayGeometry>, s
         // Rule removal and placement belong to this return; retention and
         // cleanup of its unique script can safely overlap the next entry.
         if !run_guarded_kwin(
-            &kwin_script(false, restore, None), "jarvis_school_restore",
-            || current_mode(false, gen), || uninstall_rule(RULE_ID),
+            &kwin_script(false, restore, None),
+            "jarvis_school_restore",
+            || current_mode(false, gen),
+            || uninstall_rule(RULE_ID),
         ) {
             return;
         }
@@ -1524,8 +1689,14 @@ mod tests {
 
     #[test]
     fn suit_focus_changes_only_the_forced_focus_rule() {
-        assert_eq!(suit_focus_rule_entries(true), [("acceptfocus", "true"), ("acceptfocusrule", "2")]);
-        assert_eq!(suit_focus_rule_entries(false), [("acceptfocus", "false"), ("acceptfocusrule", "2")]);
+        assert_eq!(
+            suit_focus_rule_entries(true),
+            [("acceptfocus", "true"), ("acceptfocusrule", "2")]
+        );
+        assert_eq!(
+            suit_focus_rule_entries(false),
+            [("acceptfocus", "false"), ("acceptfocusrule", "2")]
+        );
         assert!(rule_entries().contains(&("acceptfocus", "false")));
     }
 
@@ -1533,33 +1704,66 @@ mod tests {
     fn suit_focus_requires_a_visible_docked_school_window() {
         let mut focus = SuitFocusState::default();
         // Normal HUD, hidden strip, orb, and transitions are ineligible.
-        assert_eq!(focus.request(true, None, 1, 0, false), SuitFocusChange::Unchanged);
+        assert_eq!(
+            focus.request(true, None, 1, 0, false),
+            SuitFocusChange::Unchanged
+        );
         assert!(focus.active.is_none());
-        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(1));
-        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Disable);
+        assert_eq!(
+            focus.request(true, None, 1, 0, true),
+            SuitFocusChange::Enable(1)
+        );
+        assert_eq!(
+            focus.request(false, Some(1), 1, 0, true),
+            SuitFocusChange::Disable
+        );
         assert!(focus.active.is_none());
     }
 
     #[test]
     fn old_suit_close_cannot_disable_a_newer_modal() {
         let mut focus = SuitFocusState::default();
-        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(1));
-        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Enable(2));
-        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(
+            focus.request(true, None, 1, 0, true),
+            SuitFocusChange::Enable(1)
+        );
+        assert_eq!(
+            focus.request(true, None, 1, 0, true),
+            SuitFocusChange::Enable(2)
+        );
+        assert_eq!(
+            focus.request(false, Some(1), 1, 0, true),
+            SuitFocusChange::Unchanged
+        );
         assert_eq!(focus.active, Some((1, 2)));
-        assert_eq!(focus.request(false, Some(2), 1, 0, true), SuitFocusChange::Disable);
+        assert_eq!(
+            focus.request(false, Some(2), 1, 0, true),
+            SuitFocusChange::Disable
+        );
     }
 
     #[test]
     fn suit_reload_reset_revokes_orphans_and_queued_acquires() {
         let mut focus = SuitFocusState::default();
         focus.request(true, None, 1, 0, true);
-        assert_eq!(focus.request(false, None, 1, 0, true), SuitFocusChange::Disable);
+        assert_eq!(
+            focus.request(false, None, 1, 0, true),
+            SuitFocusChange::Disable
+        );
         assert!(focus.active.is_none());
-        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Unchanged);
-        assert_eq!(focus.request(true, None, 1, 1, true), SuitFocusChange::Enable(2));
+        assert_eq!(
+            focus.request(true, None, 1, 0, true),
+            SuitFocusChange::Unchanged
+        );
+        assert_eq!(
+            focus.request(true, None, 1, 1, true),
+            SuitFocusChange::Enable(2)
+        );
         // An older page's token cannot revoke the post-reset lease.
-        assert_eq!(focus.request(false, Some(1), 1, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(
+            focus.request(false, Some(1), 1, 0, true),
+            SuitFocusChange::Unchanged
+        );
         assert_eq!(focus.active, Some((1, 2)));
     }
 
@@ -1567,10 +1771,19 @@ mod tests {
     fn suit_transition_reset_invalidates_focus_even_without_a_prior_lease() {
         let mut focus = SuitFocusState::default();
         assert_eq!(focus.reset(), SuitFocusChange::Unchanged);
-        assert_eq!(focus.request(true, None, 1, 0, true), SuitFocusChange::Unchanged);
-        assert_eq!(focus.request(true, None, 2, 1, true), SuitFocusChange::Enable(1));
+        assert_eq!(
+            focus.request(true, None, 1, 0, true),
+            SuitFocusChange::Unchanged
+        );
+        assert_eq!(
+            focus.request(true, None, 2, 1, true),
+            SuitFocusChange::Enable(1)
+        );
         assert_eq!(focus.reset(), SuitFocusChange::Disable);
-        assert_eq!(focus.request(true, None, 2, 1, true), SuitFocusChange::Unchanged);
+        assert_eq!(
+            focus.request(true, None, 2, 1, true),
+            SuitFocusChange::Unchanged
+        );
         assert!(focus.active.is_none());
     }
 
@@ -1578,39 +1791,69 @@ mod tests {
     fn docked_show_or_repeated_entry_preserves_suit_focus_and_expansion() {
         let mut focus = SuitFocusState::default();
         focus.request(true, None, 4, 0, true);
-        for _ in 0..2 { // show/apply, then an already-on school entry
-            assert_eq!(focus.prepare_apply(4, false, 740), SchoolApplyPlan {
-                preserve_geometry: true, focusable: true, menu_extra: 740,
-            });
+        for _ in 0..2 {
+            // show/apply, then an already-on school entry
+            assert_eq!(
+                focus.prepare_apply(4, false, 740),
+                SchoolApplyPlan {
+                    preserve_geometry: true,
+                    focusable: true,
+                    menu_extra: 740,
+                }
+            );
             assert_eq!(focus.active, Some((4, 1)));
             assert_eq!(focus.epoch, 0);
         }
         // The modal still closes with the original lease.
-        assert_eq!(focus.request(false, Some(1), 4, 0, true), SuitFocusChange::Disable);
+        assert_eq!(
+            focus.request(false, Some(1), 4, 0, true),
+            SuitFocusChange::Disable
+        );
     }
 
     #[test]
     fn transition_apply_revokes_suit_focus_and_expansion() {
         let mut focus = SuitFocusState::default();
         focus.request(true, None, 4, 0, true);
-        assert_eq!(focus.prepare_apply(4, true, 740), SchoolApplyPlan {
-            preserve_geometry: false, focusable: false, menu_extra: 0,
-        });
+        assert_eq!(
+            focus.prepare_apply(4, true, 740),
+            SchoolApplyPlan {
+                preserve_geometry: false,
+                focusable: false,
+                menu_extra: 0,
+            }
+        );
         assert!(focus.active.is_none());
-        assert_eq!(focus.request(true, None, 4, 0, true), SuitFocusChange::Unchanged);
+        assert_eq!(
+            focus.request(true, None, 4, 0, true),
+            SuitFocusChange::Unchanged
+        );
         // Ordinary taskbar menus retain their height, without taking keys.
-        assert_eq!(focus.prepare_apply(4, false, 360), SchoolApplyPlan {
-            preserve_geometry: true, focusable: false, menu_extra: 360,
-        });
+        assert_eq!(
+            focus.prepare_apply(4, false, 360),
+            SchoolApplyPlan {
+                preserve_geometry: true,
+                focusable: false,
+                menu_extra: 360,
+            }
+        );
     }
 
     #[test]
     fn ordinary_show_does_not_invalidate_a_pending_suit_acquire() {
         let mut focus = SuitFocusState::default();
-        assert_eq!(focus.prepare_apply(4, false, 0), SchoolApplyPlan {
-            preserve_geometry: false, focusable: false, menu_extra: 0,
-        });
-        assert_eq!(focus.request(true, None, 4, 0, true), SuitFocusChange::Enable(1));
+        assert_eq!(
+            focus.prepare_apply(4, false, 0),
+            SchoolApplyPlan {
+                preserve_geometry: false,
+                focusable: false,
+                menu_extra: 0,
+            }
+        );
+        assert_eq!(
+            focus.request(true, None, 4, 0, true),
+            SuitFocusChange::Enable(1)
+        );
     }
 
     fn assert_serialized_rule_mutations(
@@ -1630,13 +1873,17 @@ mod tests {
             mutate_rule_config(&first_gate, || {
                 let snapshot = first_rules.lock().unwrap().clone();
                 read_tx.send(()).unwrap();
-                finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                finish_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
                 // The transaction must retain the gate between read/write.
                 assert!(first_gate.try_lock().is_err());
                 *first_rules.lock().unwrap() = first(&snapshot);
             });
         });
-        read_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        read_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         let (attempt_tx, attempt_rx) = mpsc::channel();
         let second_gate = gate.clone();
         let second_rules = rules.clone();
@@ -1647,7 +1894,9 @@ mod tests {
                 *second_rules.lock().unwrap() = second(&snapshot);
             });
         });
-        attempt_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        attempt_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         finish_tx.send(()).unwrap();
         first_worker.join().unwrap();
         second_worker.join().unwrap();
@@ -1657,7 +1906,9 @@ mod tests {
     #[test]
     fn simultaneous_rule_installs_preserve_both_and_unrelated_rules() {
         assert_serialized_rule_mutations(
-            "other", |rules| rules_with(rules, "orb"), |rules| rules_with(rules, RULE_ID),
+            "other",
+            |rules| rules_with(rules, "orb"),
+            |rules| rules_with(rules, RULE_ID),
             "other,orb,jarvis-school-strip",
         );
     }
@@ -1665,7 +1916,9 @@ mod tests {
     #[test]
     fn orb_rule_removal_cannot_overwrite_a_school_rule_install() {
         assert_serialized_rule_mutations(
-            "other,orb", |rules| rules_without(rules, "orb"), |rules| rules_with(rules, RULE_ID),
+            "other,orb",
+            |rules| rules_without(rules, "orb"),
+            |rules| rules_with(rules, RULE_ID),
             "other,jarvis-school-strip",
         );
     }
@@ -1694,10 +1947,11 @@ mod tests {
         }
 
         fn restore(&self, gen: u64, geometry: &'static str) -> bool {
-            self.gate.run_for_mode(&self.school, &self.generation, false, gen, || {
-                self.rule_installed.store(false, Ordering::SeqCst);
-                *self.geometry.lock().unwrap() = geometry;
-            })
+            self.gate
+                .run_for_mode(&self.school, &self.generation, false, gen, || {
+                    self.rule_installed.store(false, Ordering::SeqCst);
+                    *self.geometry.lock().unwrap() = geometry;
+                })
         }
     }
 
@@ -1733,7 +1987,10 @@ mod tests {
         native.transition(false);
         native.transition(true);
         assert!(!native.gate.run_for_mode(
-            &native.school, &native.generation, true, old_entry,
+            &native.school,
+            &native.generation,
+            true,
+            old_entry,
             || *native.geometry.lock().unwrap() = "old fullscreen cover",
         ));
         assert_eq!(*native.geometry.lock().unwrap(), "strip");
@@ -1749,16 +2006,23 @@ mod tests {
         let worker_native = native.clone();
         let worker = std::thread::spawn(move || {
             worker_native.gate.run_for_mode(
-                &worker_native.school, &worker_native.generation, false, old_return,
+                &worker_native.school,
+                &worker_native.generation,
+                false,
+                old_return,
                 || {
                     checked_tx.send(()).unwrap();
-                    finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                    finish_rx
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap();
                     worker_native.rule_installed.store(false, Ordering::SeqCst);
                     *worker_native.geometry.lock().unwrap() = "old HUD";
                 },
             )
         });
-        checked_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        checked_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         // Deterministically pause between the eligibility check and effects.
         // An entry cannot acquire its gate anywhere inside that interval.
         let held_during_effect = native.gate.0.try_lock().is_err();
@@ -1777,11 +2041,18 @@ mod tests {
         let native = Arc::new(LifecycleFixture::default());
         native.transition(true);
         let scripts = Arc::new(Mutex::new(HashSet::new()));
-        let old = native.gate.start_one_shot("measure", || true, |name| {
-            assert!(native.gate.0.try_lock().is_err());
-            scripts.lock().unwrap().insert(name.to_owned());
-            true
-        }).unwrap();
+        let old = native
+            .gate
+            .start_one_shot(
+                "measure",
+                || true,
+                |name| {
+                    assert!(native.gate.0.try_lock().is_err());
+                    scripts.lock().unwrap().insert(name.to_owned());
+                    true
+                },
+            )
+            .unwrap();
         let old_name = old.name.clone();
         let (retaining_tx, retaining_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel();
@@ -1792,7 +2063,9 @@ mod tests {
                 || {
                     assert!(worker_native.gate.0.try_lock().is_ok());
                     retaining_tx.send(()).unwrap();
-                    finish_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                    finish_rx
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap();
                 },
                 |name| {
                     assert!(worker_native.gate.0.try_lock().is_ok());
@@ -1800,22 +2073,36 @@ mod tests {
                 },
             );
         });
-        retaining_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        retaining_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         // Pause the old script in retention, then perform the next mode
         // change and native stage without allowing that retention to end.
         assert!(native.gate.0.try_lock().is_ok());
         native.transition(false);
-        let new = native.gate.start_one_shot("measure", || true, |name| {
-            scripts.lock().unwrap().insert(name.to_owned());
-            true
-        }).unwrap();
+        let new = native
+            .gate
+            .start_one_shot(
+                "measure",
+                || true,
+                |name| {
+                    scripts.lock().unwrap().insert(name.to_owned());
+                    true
+                },
+            )
+            .unwrap();
         assert_ne!(old_name, new.name);
         finish_tx.send(()).unwrap();
         worker.join().unwrap();
         // Cleanup targets its invocation, not the shared purpose name.
         assert!(!scripts.lock().unwrap().contains(&old_name));
         assert!(scripts.lock().unwrap().contains(&new.name));
-        new.finish_with(|| {}, |name| { scripts.lock().unwrap().remove(name); });
+        new.finish_with(
+            || {},
+            |name| {
+                scripts.lock().unwrap().remove(name);
+            },
+        );
         assert!(scripts.lock().unwrap().is_empty());
     }
 
@@ -1827,8 +2114,10 @@ mod tests {
         native.transition(false);
         let stale = native.gate.start_one_shot(
             "restore",
-            || !native.school.load(Ordering::SeqCst)
-                && native.generation.load(Ordering::SeqCst) == old_gen,
+            || {
+                !native.school.load(Ordering::SeqCst)
+                    && native.generation.load(Ordering::SeqCst) == old_gen
+            },
             |_| panic!("stale restore must not remove a rule or load a script"),
         );
         assert!(stale.is_none());
@@ -1849,6 +2138,22 @@ mod tests {
             },
         );
         assert!(cleaned);
+    }
+
+    #[test]
+    fn boot_restore_uses_saved_frame_once_without_default_resize() {
+        let s = boot_fill_script(Some(crate::overlay::OverlayGeometry {
+            x: 985,
+            y: 1110,
+            width: 1880,
+            height: 1000,
+        }));
+        assert!(s.contains("const jkSaved = {x: 985, y: 1110, width: 1880, height: 1000}"));
+        assert!(s.contains("first && jkSaved"));
+        assert!(s.contains("jkPlaced.add(id)"));
+        assert!(s.contains("w.output.scale"));
+        assert!(!s.contains("width: a.width"));
+        assert!(boot_fill_script(None).contains("const jkSaved = null"));
     }
 
     #[test]
@@ -1885,7 +2190,11 @@ mod tests {
     fn school_scripts_never_run_in_normal_mode() {
         // Would shell out to dbus-send if it ran; in normal mode it must
         // return before touching KWin at all.
-        run_school_stage_kwin("w.keepAbove = true;", "jarvis_test_never_loaded", TX_GEN.load(Ordering::SeqCst));
+        run_school_stage_kwin(
+            "w.keepAbove = true;",
+            "jarvis_test_never_loaded",
+            TX_GEN.load(Ordering::SeqCst),
+        );
         assert!(!is_school());
     }
 
@@ -1939,8 +2248,14 @@ mod tests {
             {"name": "eDP-1", "priority": 3, "enabled": true}]}"#;
         assert_eq!(parse_primary_output(json).as_deref(), Some("HDMI-A-2"));
         // Disabled outputs and unsafe names never reach the script.
-        assert_eq!(parse_primary_output(r#"{"outputs":[{"name":"DP-1","priority":1,"enabled":false}]}"#), None);
-        assert_eq!(parse_primary_output(r#"{"outputs":[{"name":"a\"b","priority":1}]}"#), None);
+        assert_eq!(
+            parse_primary_output(r#"{"outputs":[{"name":"DP-1","priority":1,"enabled":false}]}"#),
+            None
+        );
+        assert_eq!(
+            parse_primary_output(r#"{"outputs":[{"name":"a\"b","priority":1}]}"#),
+            None
+        );
         assert_eq!(parse_primary_output("not json"), None);
     }
 
@@ -1969,7 +2284,9 @@ mod tests {
         assert!(here.contains("const target = w.output;") && !here.contains("eDP-1"));
         let prim = cover_script(Cover::Primary, Some("eDP-1"), None);
         assert!(prim.contains("JK_PRIMARY = \"eDP-1\"") && prim.contains("sendClientToScreen"));
-        assert!(prim.contains("width: g.width, height: g.height") && prim.contains("noBorder = true"));
+        assert!(
+            prim.contains("width: g.width, height: g.height") && prim.contains("noBorder = true")
+        );
         // Unframing keeps the content rect: the HUD folds in place.
         let un = cover_script(Cover::Unframe, None, None);
         assert!(un.contains("const c = w.clientGeometry;") && un.contains("width: c.width"));
@@ -1988,7 +2305,10 @@ mod tests {
         assert_eq!(parse_thickness(reply), 40);
         assert_eq!(parse_thickness("   string \"50,30\"\n"), 50);
         assert_eq!(parse_thickness("   string \"\"\n"), 0);
-        assert_eq!(parse_thickness("Error org.freedesktop.DBus.Error.ServiceUnknown"), 0);
+        assert_eq!(
+            parse_thickness("Error org.freedesktop.DBus.Error.ServiceUnknown"),
+            0
+        );
         assert_eq!(parse_thickness("   string \"4000\"\n"), 0);
     }
 
@@ -2001,9 +2321,14 @@ mod tests {
         assert!(k.contains("virtualScreenGeometryChanged") && k.contains("outputChanged"));
         assert!(k.contains("sendClientToScreen(w, o)"));
         // Never left stacked under the panel it covers.
-        assert!(k.contains("stackingOrderChanged.connect(jkRaise)") && k.contains("workspace.raiseWindow(w)"));
+        assert!(
+            k.contains("stackingOrderChanged.connect(jkRaise)")
+                && k.contains("workspace.raiseWindow(w)")
+        );
         // Bottom edge pinned to the screen bottom, full width.
-        assert!(k.contains("y: p.full.y + p.full.height - p.inset - h, width: p.full.width - 2 * p.inset"));
+        assert!(k.contains(
+            "y: p.full.y + p.full.height - p.inset - h, width: p.full.width - 2 * p.inset"
+        ));
         // Exactly the panel with no menu open: never guesses from the
         // window's own height (a still-full-size window after a transition
         // was taken for a menu and pinned tall, showing the HUD).
@@ -2011,7 +2336,9 @@ mod tests {
         assert!(!k.contains("g.height - p.panel"));
         // A granted menu height is kept, capped.
         assert!(keeper_script(None, 480).contains("const h = p.barH + 480;"));
-        assert!(keeper_script(None, 5000).contains(&format!("const h = p.barH + {MENU_MAX_EXTRA};")));
+        assert!(
+            keeper_script(None, 5000).contains(&format!("const h = p.barH + {MENU_MAX_EXTRA};"))
+        );
         // Re-evaluate primary changes while both monitors remain attached.
         assert!(k.contains("workspace.screenOrderChanged.connect(jkSoon)"));
         assert!(k.contains("const o = jkPrimary();") && !k.contains("activeScreen"));
@@ -2040,9 +2367,14 @@ mod tests {
     fn rule_is_exact_title_and_forced() {
         let rule = rule_entries();
         assert!(rule.contains(&("title", STRIP_TITLE)) && rule.contains(&("titlematch", "1")));
-        assert!(rule.contains(&("acceptfocus", "false")) && rule.contains(&("acceptfocusrule", "2")));
+        assert!(
+            rule.contains(&("acceptfocus", "false")) && rule.contains(&("acceptfocusrule", "2"))
+        );
         assert_eq!(rules_with_ours(""), RULE_ID);
         assert_eq!(rules_with_ours("abc"), format!("abc,{RULE_ID}"));
-        assert_eq!(rules_with_ours(&format!("abc,{RULE_ID}")), format!("abc,{RULE_ID}"));
+        assert_eq!(
+            rules_with_ours(&format!("abc,{RULE_ID}")),
+            format!("abc,{RULE_ID}")
+        );
     }
 }

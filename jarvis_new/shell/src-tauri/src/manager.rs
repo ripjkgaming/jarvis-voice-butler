@@ -6,8 +6,9 @@
 //!   /health :4317) → mic-uplink (TCP :4318) → ui (static export on :4000).
 //! Overall state is published on a watch channel for the
 //!   tray. Unexpected exits restart on the [`BACKOFF_SECS`] ladder (max 5),
-//!   then the sidecar is marked Down and the tray goes red. Quit kills the
-//!   whole tree — no orphan python/livekit processes.
+//!   then the sidecar is marked Down and the tray goes red. The bridge alone
+//!   gets one slow recovery attempt every two minutes with an existing valid
+//!   credential. Quit kills the whole tree — no orphan processes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -77,8 +78,10 @@ pub fn entered_down(old: &SidecarState, new: &SidecarState) -> bool {
 /// Set a sidecar Down, notifying once on entry. The tray goes red via the
 /// next `announce`; the notification is the part that used to be silent.
 fn mark_down(state: &mut SidecarState, reason: String) {
+    #[cfg(not(test))]
     let old = state.clone();
     *state = SidecarState::Down(reason.clone());
+    #[cfg(not(test))]
     if entered_down(&old, state) {
         let (title, body) = down_notice(&reason);
         crate::tray::desktop_notify(&title, &body);
@@ -304,7 +307,7 @@ pub fn build_specs(
                 host: env_cfg::mic_host(),
                 port: mic_port(),
             },
-            ready_timeout_s: 20,
+            ready_timeout_s: 60,
         },
         SidecarSpec {
             name: "ui",
@@ -380,7 +383,58 @@ pub async fn supervise(
     env: HashMap<String, String>,
     log_dir: PathBuf,
     state_tx: watch::Sender<ShellState>,
+    shutdown: watch::Receiver<bool>,
+) {
+    supervise_with_timing(
+        specs,
+        env,
+        log_dir,
+        state_tx,
+        shutdown,
+        SupervisionTiming {
+            tick: Duration::from_secs(2),
+            backoff_secs: &BACKOFF_SECS,
+            bridge_recovery: Duration::from_secs(120),
+        },
+    )
+    .await;
+}
+
+#[derive(Clone, Copy)]
+struct SupervisionTiming {
+    tick: Duration,
+    backoff_secs: &'static [u64],
+    bridge_recovery: Duration,
+}
+
+/// After the fast ladder, only the bridge gets a bounded slow recovery.
+/// Missing/invalid credentials never spawn a server or change credentials.
+fn bridge_recovery_due(
+    name: &str,
+    state: &SidecarState,
+    next_probe: &mut Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+    delay: Duration,
+    credential_ready: bool,
+) -> bool {
+    if name != "bridge" || !matches!(state, SidecarState::Down(_)) {
+        return false;
+    }
+    let due = next_probe.get_or_insert(now + delay);
+    if now < *due || !credential_ready {
+        return false;
+    }
+    *due = now + delay;
+    true
+}
+
+async fn supervise_with_timing(
+    specs: Vec<SidecarSpec>,
+    env: HashMap<String, String>,
+    log_dir: PathBuf,
+    state_tx: watch::Sender<ShellState>,
     mut shutdown: watch::Receiver<bool>,
+    timing: SupervisionTiming,
 ) {
     // Tuple: spec, child, state, restarts-used, continuously-ready-since.
     // The budget refreshes after 5 unbroken healthy minutes, so a sidecar
@@ -392,6 +446,7 @@ pub async fn supervise(
         .into_iter()
         .map(|s| (s, None, SidecarState::Starting, 0, None))
         .collect();
+    let mut next_bridge_probe = None;
 
     let announce = |procs: &[Supervised], tx: &watch::Sender<ShellState>| {
         let alive: Vec<(&str, bool)> = procs
@@ -421,9 +476,13 @@ pub async fn supervise(
                 ready = start_and_gate(&mut procs[i], &env, &log_dir) => ready,
             };
             if !ok {
-                procs[i].3 = BACKOFF_SECS.len() as u8; // gate failed: mark down
-                let reason = format!("{} failed to start", procs[i].0.name);
-                mark_down(&mut procs[i].2, reason);
+                // A cold import/readiness timeout must get the same bounded
+                // ladder as a later crash, rather than spending every retry.
+                procs[i].2 = SidecarState::Starting;
+                eprintln!(
+                    "jarvis: {} initial readiness failed; retry pending",
+                    procs[i].0.name
+                );
             }
             announce(&procs, &state_tx);
         }
@@ -433,10 +492,39 @@ pub async fn supervise(
             tokio::select! {
                 biased;
                 _ = wait_shutdown(&mut shutdown) => break,
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                _ = tokio::time::sleep(timing.tick) => {}
             }
             let mut changed = false;
             for entry in procs.iter_mut() {
+                let credential_ready = entry.0.name == "bridge"
+                    && matches!(entry.2, SidecarState::Down(_))
+                    && env_cfg::bridge_token().is_some();
+                if bridge_recovery_due(
+                    entry.0.name,
+                    &entry.2,
+                    &mut next_bridge_probe,
+                    tokio::time::Instant::now(),
+                    timing.bridge_recovery,
+                    credential_ready,
+                ) {
+                    let previous = entry.2.clone();
+                    let ok = tokio::select! {
+                        biased;
+                        _ = wait_shutdown(&mut shutdown) => break 'supervision,
+                        ready = start_and_gate(entry, &env, &log_dir) => ready,
+                    };
+                    if ok {
+                        entry.2 = SidecarState::Ready;
+                        entry.3 = 0;
+                        next_bridge_probe = None;
+                    } else {
+                        // Remain Down without another fast burst or repeated
+                        // desktop notifications for the same outage.
+                        entry.2 = previous;
+                    }
+                    changed = true;
+                    continue;
+                }
                 let (spec, child, state, restarts, last_ok) = entry;
                 if budget_refresh_due(state, *restarts, *last_ok, BUDGET_REFRESH_S) {
                     *restarts = 0;
@@ -450,8 +538,8 @@ pub async fn supervise(
                     continue;
                 }
                 *child = None;
-                if (*restarts as usize) < BACKOFF_SECS.len() {
-                    let delay = BACKOFF_SECS[*restarts as usize];
+                if (*restarts as usize) < timing.backoff_secs.len() {
+                    let delay = timing.backoff_secs[*restarts as usize];
                     *restarts += 1;
                     *state = SidecarState::Restarting(*restarts);
                     // Wait out this rung of the ladder, then respawn inline so
@@ -468,7 +556,7 @@ pub async fn supervise(
                     };
                     if ok {
                         entry.2 = SidecarState::Ready;
-                    } else if (entry.3 as usize) >= BACKOFF_SECS.len() {
+                    } else if (entry.3 as usize) >= timing.backoff_secs.len() {
                         let reason = format!("{} restart budget spent", entry.0.name);
                         mark_down(&mut entry.2, reason);
                     }
@@ -585,6 +673,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_initial_gate_gets_a_bounded_retry() {
+        let logs = isolated_test_dir("initial-retry");
+        let marker = logs.join("attempts");
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        drop(socket);
+        let code = format!(
+            "import pathlib,socket,time\np=pathlib.Path({:?})\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nif n==1: raise SystemExit(2)\ns=socket.socket();s.bind(('127.0.0.1',{}));s.listen(1);time.sleep(30)",
+            marker.to_string_lossy(), port
+        );
+        let spec = SidecarSpec {
+            name: "test-only",
+            program: PathBuf::from("/usr/bin/python3"),
+            args: vec!["-c".into(), code],
+            ready: ReadyCheck::TcpPort(port),
+            ready_timeout_s: 1,
+        };
+        let (state_tx, _rx) = watch::channel(ShellState::Starting);
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let task = tokio::spawn(supervise(
+            vec![spec],
+            HashMap::new(),
+            logs.clone(),
+            state_tx,
+            stop_rx,
+        ));
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(7);
+        let mut recovered = false;
+        while tokio::time::Instant::now() < deadline {
+            if std::fs::read_to_string(&marker).unwrap_or_default() == "2"
+                && health::tcp_reachable(port)
+            {
+                recovered = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        stop_tx.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        std::fs::remove_dir_all(logs).ok();
+        assert!(
+            recovered,
+            "initial failure spent the entire retry budget without retrying"
+        );
+    }
+
+    #[tokio::test]
     async fn shutdown_interrupts_an_unready_service() {
         let logs = isolated_test_dir("shutdown-gate");
         let spec = unready_spec("/bin/sleep", vec!["30".into()]);
@@ -609,6 +747,112 @@ mod tests {
         assert!(
             result.is_ok(),
             "shutdown waited for the 30-second readiness timeout"
+        );
+    }
+
+    #[tokio::test]
+    async fn bridge_recovers_after_fast_budget_without_restarting_other_services() {
+        struct RestoreEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+        impl Drop for RestoreEnv {
+            fn drop(&mut self) {
+                for (key, value) in &self.0 {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+        let logs = isolated_test_dir("slow-bridge-recovery");
+        let marker = logs.join("attempts");
+        let peer_marker = logs.join("peer-attempts");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let _restore = RestoreEnv(
+            [
+                "JARVIS_HOME",
+                "JARVIS_BRIDGE_TOKEN",
+                "JARVIS_BRIDGE_PORT",
+                "JARVIS_BRIDGE_BIND",
+            ]
+            .into_iter()
+            .map(|key| (key, std::env::var_os(key)))
+            .collect(),
+        );
+        std::env::set_var("JARVIS_HOME", &logs);
+        std::env::remove_var("JARVIS_BRIDGE_TOKEN");
+        std::env::set_var("JARVIS_BRIDGE_PORT", port.to_string());
+        std::env::set_var("JARVIS_BRIDGE_BIND", "127.0.0.1");
+        std::fs::write(logs.join("bridge_token"), "isolated-recovery-token").unwrap();
+        let code = format!(
+            "import pathlib\nfrom http.server import BaseHTTPRequestHandler,HTTPServer\np=pathlib.Path({:?})\nn=int(p.read_text())+1 if p.exists() else 1\np.write_text(str(n))\nif n<=2: raise SystemExit(2)\nclass H(BaseHTTPRequestHandler):\n def do_GET(self):\n  self.send_response(200);self.end_headers();self.wfile.write(b'{{\"ok\":true}}')\n def log_message(self,*args): pass\nHTTPServer(('127.0.0.1',{}),H).serve_forever()",
+            marker.to_string_lossy(), port
+        );
+        let spec = SidecarSpec {
+            name: "bridge",
+            program: PathBuf::from("/usr/bin/python3"),
+            args: vec!["-c".into(), code],
+            ready: ReadyCheck::HttpOkOn {
+                host: "127.0.0.1".into(),
+                port,
+                path: "/health".into(),
+            },
+            ready_timeout_s: 1,
+        };
+        let peer = SidecarSpec {
+            name: "test-peer",
+            program: PathBuf::from("/usr/bin/python3"),
+            args: vec!["-c".into(), format!(
+                "import pathlib,time\np=pathlib.Path({:?})\np.write_text(str(int(p.read_text())+1 if p.exists() else 1))\ntime.sleep(30)",
+                peer_marker.to_string_lossy()
+            )],
+            ready: ReadyCheck::ProcessAlive,
+            ready_timeout_s: 1,
+        };
+        let (state_tx, mut states) = watch::channel(ShellState::Starting);
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let task = tokio::spawn(supervise_with_timing(
+            vec![peer, spec],
+            HashMap::from([("JARVIS_BRIDGE_PORT".into(), port.to_string())]),
+            logs.clone(),
+            state_tx,
+            stop_rx,
+            SupervisionTiming {
+                tick: Duration::from_millis(20),
+                backoff_secs: &[0],
+                bridge_recovery: Duration::from_millis(150),
+            },
+        ));
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        let mut observed_down = false;
+        let mut recovered = false;
+        while tokio::time::Instant::now() < deadline {
+            let state = states.borrow_and_update().clone();
+            observed_down |= matches!(state, ShellState::Down(_));
+            if observed_down && state == ShellState::Running {
+                recovered = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let attempts = std::fs::read_to_string(&marker).unwrap_or_default();
+        let peer_attempts = std::fs::read_to_string(&peer_marker).unwrap_or_default();
+        stop_tx.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        std::fs::remove_dir_all(logs).ok();
+        assert!(observed_down, "test never exhausted the fast retry budget");
+        assert!(
+            recovered,
+            "bridge stayed down after its transient outage ended"
+        );
+        assert_eq!(attempts, "3", "recovery started another fast restart burst");
+        assert_eq!(
+            peer_attempts, "1",
+            "bridge recovery restarted a healthy peer"
         );
     }
 
@@ -747,6 +991,89 @@ mod tests {
             300
         ));
         assert!(!budget_refresh_due(&SidecarState::Ready, 2, None, 300));
+    }
+
+    #[test]
+    fn down_bridge_probes_are_slow_and_require_an_existing_valid_credential() {
+        let now = tokio::time::Instant::now();
+        let delay = Duration::from_secs(120);
+        let state = SidecarState::Down("bridge restart budget spent".into());
+        let mut next = None;
+        assert!(!bridge_recovery_due(
+            "bridge", &state, &mut next, now, delay, true
+        ));
+        assert!(!bridge_recovery_due(
+            "bridge",
+            &state,
+            &mut next,
+            now + delay - Duration::from_secs(1),
+            delay,
+            true
+        ));
+        assert!(!bridge_recovery_due(
+            "bridge",
+            &state,
+            &mut next,
+            now + delay,
+            delay,
+            false
+        ));
+        assert!(bridge_recovery_due(
+            "bridge",
+            &state,
+            &mut next,
+            now + delay,
+            delay,
+            true
+        ));
+        assert!(!bridge_recovery_due(
+            "bridge",
+            &state,
+            &mut next,
+            now + delay + Duration::from_secs(1),
+            delay,
+            true
+        ));
+        assert!(bridge_recovery_due(
+            "bridge",
+            &state,
+            &mut next,
+            now + delay * 2,
+            delay,
+            true
+        ));
+    }
+
+    #[test]
+    fn slow_recovery_never_restarts_voice_sidecars_or_a_healthy_bridge() {
+        let now = tokio::time::Instant::now();
+        let mut next = None;
+        for name in ["agent", "wake", "livekit", "mic-uplink", "ui"] {
+            assert!(!bridge_recovery_due(
+                name,
+                &SidecarState::Down("x".into()),
+                &mut next,
+                now,
+                Duration::ZERO,
+                true
+            ));
+            assert!(next.is_none());
+        }
+        for state in [
+            SidecarState::Starting,
+            SidecarState::Ready,
+            SidecarState::Restarting(1),
+        ] {
+            assert!(!bridge_recovery_due(
+                "bridge",
+                &state,
+                &mut next,
+                now,
+                Duration::ZERO,
+                true
+            ));
+            assert!(next.is_none());
+        }
     }
 
     #[test]

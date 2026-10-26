@@ -11,9 +11,10 @@ mod env_cfg;
 mod health;
 mod hotkey;
 mod manager;
-mod overlay;
 mod orb;
+mod overlay;
 mod school;
+mod screen_control;
 mod tray;
 mod updater;
 
@@ -34,18 +35,17 @@ fn main() {
     let (state_tx, state_rx) = tokio::sync::watch::channel(ShellState::Starting);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+    let app = tauri::Builder::default().plugin(tauri_plugin_shell::init());
+    let app = if screen_control::native_only() {
+        app
+    } else {
+        app.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Second launch: route CLI verbs into the running instance.
             // `jarvis toggle` shows/hides the overlay, `jarvis talk`
             // summons, `jarvis quit` exits.
             let verb = args.get(1).map(String::as_str).unwrap_or("toggle");
             match verb {
                 "quit" => app.exit(0),
-                "globe" => tray::toggle_globe(app),
-                "globeshow" => tray::show_globe(app),
-                "globestate" => print_window_state(app, "globe"),
                 "projects" => tray::toggle_projects(app),
                 "projectsshow" => tray::show_projects(app),
                 "projectshide" => tray::hide_projects(app),
@@ -53,14 +53,25 @@ fn main() {
                 "draftsshow" => tray::show_drafts(app),
                 "draftshide" => tray::hide_drafts(app),
                 "draftsstate" => print_window_state(app, "drafts"),
+                // `jarvis chess [--classic|--voice]`: bring the board forward.
+                "chess" | "chessshow" => tray::show_chess(app),
+                "chesshide" => tray::hide_chess(app),
+                "chessstate" => print_window_state(app, "chess"),
                 "suitshow" => tray::show_suit_overlay(app),
                 "state" => print_overlay_state(app),
                 "schoolon" => school::enter(app),
                 "schooloff" => school::exit(app),
-                "schoolmenu" => school::open_menu(app, args.get(2).map(String::as_str).unwrap_or("launcher")),
+                "schoolmenu" => {
+                    school::open_menu(app, args.get(2).map(String::as_str).unwrap_or("launcher"))
+                }
                 "orbon" => orb::enter(app),
                 "orboff" => orb::exit(app),
                 "domstate" => print_dom_state(app),
+                "frameprobe" => {
+                    if let Some(win) = app.get_webview_window(commands::OVERLAY_LABEL) {
+                        let _ = win.eval(include_str!("frame-probe.js"));
+                    }
+                }
                 "talk" => {
                     tray::show_overlay(app);
                     let _ = app.emit(tray::EVENT_TALK, ());
@@ -71,17 +82,24 @@ fn main() {
                 _ => tray::toggle_overlay(app),
             }
         }))
+    };
+    let app = app
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ))
-        .invoke_handler(tauri::generate_handler![
+        ));
+    let app = if screen_control::native_only() {
+        app // no webview command or token/file access in acceptance shell
+    } else {
+        app.invoke_handler(tauri::generate_handler![
             commands::app_config,
             commands::bridge_info,
             commands::mint_token,
             commands::hide_overlay,
+            commands::open_chess_window,
+            commands::close_chess_window,
             commands::set_overlay_click_through,
             commands::set_mic_muted,
             commands::mic_status,
@@ -90,12 +108,18 @@ fn main() {
             school::school_stage,
             school::suit_focus
         ])
+    };
+    let app = app
         // No `capabilities/` dir in Phase 1: the placeholder UI makes zero
         // frontend→backend calls, and all plugin use below is Rust-side
         // (tray, hotkey, autostart need no IPC grants). Phase 2 adds
         // `invoke('mint_token')` + capabilities together.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
+            if screen_control::native_only() {
+                tray::build_tray(app.handle())?;
+                return Ok(()); // no sidecars, hotkeys, autostart or geometry/state reads
+            }
             // `suitshow` only targets an existing primary. The single-instance
             // plugin forwards it and exits before this setup when one exists.
             // If that instance disappeared, fail before starting any sidecars.
@@ -127,12 +151,12 @@ fn main() {
 
             // Overlay geometry: restore last position/size (fail-soft to
             // the tauri.conf.json defaults when nothing was ever saved).
-            restore_overlay_geometry(app.handle());
+            let saved_frame = restore_overlay_geometry(app.handle());
             // School mode survives restarts: come back as the strip.
             if school::school_on_disk(&env_cfg::jarvis_home()) {
                 school::enter_quiet(app.handle());
             } else {
-                school::fill_work_area_at_boot();
+                school::fill_work_area_at_boot(saved_frame);
             }
 
             // Cold-start verb: the single-instance callback only fires for
@@ -245,8 +269,18 @@ fn main() {
             label,
             event: win_event,
             ..
-        } if label == commands::OVERLAY_LABEL => {
+        } if label == commands::OVERLAY_LABEL && !screen_control::native_only() => {
             on_overlay_window_event(handle, win_event);
+        }
+        // The chess board hides on [X] / Alt+F4 instead of being destroyed,
+        // so "chess" can always bring it back.
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == commands::CHESS_LABEL => {
+            api.prevent_close();
+            tray::hide_chess(handle);
         }
         _ => {}
     });
@@ -259,7 +293,7 @@ fn print_overlay_state(app: &tauri::AppHandle) {
     print_window_state(app, commands::OVERLAY_LABEL);
 }
 
-/// `jarvis globestate`: same visibility report for the globe window.
+/// Visibility report for a named window (`jarvis <window>state`).
 fn print_window_state(app: &tauri::AppHandle, label: &str) {
     // stderr: unbuffered past the primary's redirected log (stdout would
     // sit in the block buffer until exit).
@@ -288,7 +322,7 @@ fn print_dom_state(app: &tauri::AppHandle) {
         None => eprintln!("domstate: missing"),
         Some(win) => {
             let (tx, rx) = std::sync::mpsc::channel();
-            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, scripts: [...document.scripts].map((s) => s.getAttribute('src')).filter(Boolean), header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null, vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, orb: !!document.querySelector('.hud-orb-dot'), hidden: document.hidden, scrollY: scrollY, svh: (() => { const d = document.createElement('div'); d.style.height = '100svh'; document.body.appendChild(d); const h = d.getBoundingClientRect().height; d.remove(); return h; })(), stark: (() => { const h = document.querySelector('.hud'); if (!h) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [e.tagName, (e.className || '').toString().slice(0, 24), Math.round(q.top), Math.round(q.height), getComputedStyle(e).position]; }; return {root: r(h), rows: getComputedStyle(h).gridTemplateRows, kids: [...h.children].map(r), body: [...document.body.children].filter((e) => e.tagName !== 'SCRIPT').map(r)}; })(), sbar: (() => { const b = document.querySelector('.sbar'); if (!b) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.top), Math.round(q.height), getComputedStyle(e).transform]; }; return {bar: r(b), zones: [...b.querySelectorAll(':scope > section')].map(r), body: r(document.body), parents: (() => { const out = []; let e = b.parentElement; while (e && out.length < 4) { out.push(e.tagName + '.' + e.className.toString().slice(0, 30) + ':' + r(e).slice(0, 2).join('/')); e = e.parentElement; } return out; })()}; })()}); } catch (e) { return 'ERR:' + e; } })()";
+            let js = "(() => { try { const h = document.querySelector('.hud__header'); const l = document.querySelector('.hud-linking'); return JSON.stringify({url: location.href, title: document.title, frameProbe:window.__jarvisFrameProbe, voice: (() => { const r=document.querySelector('.vlink-reticle'); const w=document.querySelector('.vlink-wake'); const a=w?.querySelector('.vlink-wake__ring'); return {phase:r?.dataset.phase, channels:[...document.querySelectorAll('.vlink-reticle__channels li')].map(n=>({text:n.textContent,stage:n.dataset.stage})), activation:w?.dataset.activation, wakeRing:a ? {transform:getComputedStyle(a).transform, opacity:getComputedStyle(a).opacity, play:getComputedStyle(a).animationPlayState} : null, reticle:r ? {opacity:getComputedStyle(r).opacity, width:r.getBoundingClientRect().width} : null, reduced:matchMedia('(prefers-reduced-motion: reduce)').matches, classes:document.documentElement.className}; })(), scripts: [...document.scripts].map((s) => s.getAttribute('src')).filter(Boolean), header: h ? h.innerText.slice(0, 80) : null, pill: l ? l.innerText.slice(0, 80) : null, vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, orb: !!document.querySelector('.hud-orb-dot'), hidden: document.hidden, scrollY: scrollY, svh: (() => { const d = document.createElement('div'); d.style.height = '100svh'; document.body.appendChild(d); const h = d.getBoundingClientRect().height; d.remove(); return h; })(), stark: (() => { const h = document.querySelector('.hud'); if (!h) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [e.tagName, (e.className || '').toString().slice(0, 24), Math.round(q.top), Math.round(q.height), getComputedStyle(e).position]; }; return {state:h.dataset.jstate, color:getComputedStyle(h).getPropertyValue('--state').trim(), root: r(h), rows: getComputedStyle(h).gridTemplateRows, kids: [...h.children].map(r), body: [...document.body.children].filter((e) => e.tagName !== 'SCRIPT').map(r)}; })(), sbar: (() => { const b = document.querySelector('.sbar'); if (!b) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.top), Math.round(q.height), getComputedStyle(e).transform]; }; return {state:b.dataset.state, color:getComputedStyle(b).getPropertyValue('--sbar-accent').trim(), bar: r(b), zones: [...b.querySelectorAll(':scope > section')].map(r), body: r(document.body), parents: (() => { const out = []; let e = b.parentElement; while (e && out.length < 4) { out.push(e.tagName + '.' + e.className.toString().slice(0, 30) + ':' + r(e).slice(0, 2).join('/')); e = e.parentElement; } return out; })()}; })()}); } catch (e) { return 'ERR:' + e; } })()";
             match win.eval_with_callback(js, move |v| {
                 let _ = tx.send(v);
             }) {
@@ -334,12 +368,9 @@ fn run_diagnostics_from_cli() {
 /// Restore the persisted overlay geometry (Phase 4.1). No-op when nothing
 /// was saved yet or the window is missing; never fails the boot.
 /// Pre-16:9 portrait geometries migrate to 1280x720 in place (position kept).
-fn restore_overlay_geometry(app: &tauri::AppHandle) {
+fn restore_overlay_geometry(app: &tauri::AppHandle) -> Option<overlay::OverlayGeometry> {
     let path = overlay::geometry_path(&env_cfg::jarvis_home());
-    let mut geom = match overlay::load_geometry(&path) {
-        Some(g) => g,
-        None => return,
-    };
+    let mut geom = overlay::load_geometry(&path)?;
     if overlay::needs_migration(&geom) {
         geom.width = overlay::OVERLAY_WIDTH;
         geom.height = overlay::OVERLAY_HEIGHT;
@@ -359,6 +390,9 @@ fn restore_overlay_geometry(app: &tauri::AppHandle) {
             height: geom.height,
         }));
     }
+    // Keep the startup snapshot independent of early configure events that
+    // can save the default client size before the mapped frame is restored.
+    Some(geom)
 }
 
 /// Overlay window events: move/resize persist geometry for the next boot

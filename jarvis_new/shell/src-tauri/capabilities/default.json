@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Jarvis overlay: custom invoke commands for the static HUD + project archive",
-  "windows": ["overlay", "projects", "drafts"],
+  "windows": ["overlay", "projects", "drafts", "chess"],
   "permissions": ["core:default"]
 }

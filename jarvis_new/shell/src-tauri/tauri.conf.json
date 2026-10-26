@@ -40,6 +40,21 @@
         "skipTaskbar": false
       },
       {
+        "label": "chess",
+        "title": "Jarvis — Chess",
+        "url": "chess.html",
+        "width": 1100,
+        "height": 820,
+        "minWidth": 860,
+        "minHeight": 640,
+        "resizable": true,
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false
+      },
+      {
         "label": "drafts",
         "title": "Jarvis — Drafts",
         "url": "drafts.html",
@@ -47,20 +62,6 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 560,
-        "decorations": true,
-        "transparent": false,
-        "alwaysOnTop": false,
-        "visible": false,
-        "skipTaskbar": false
-      },
-      {
-        "label": "globe",
-        "title": "God's Eye (display only)",
-        "url": "http://127.0.0.1:4001/index.html?ambient=1",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 960,
-        "minHeight": 600,
         "decorations": true,
         "transparent": false,
         "alwaysOnTop": false,
@@ -75,7 +76,7 @@
       "menuOnLeftClick": true
     },
     "security": {
-      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 http://127.0.0.1:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:4000 http://127.0.0.1:4001; style-src 'self' 'unsafe-inline' http://localhost:4000 http://127.0.0.1:4000 http://127.0.0.1:4001 https://fonts.googleapis.com; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* http://100.77.6.93:* ws://127.0.0.1:7880 https: wss:; font-src 'self' data: http://127.0.0.1:* https://fonts.gstatic.com; img-src 'self' data: http://127.0.0.1:* https: blob:; media-src 'self' data: blob: http://127.0.0.1:* https:; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "csp": "default-src 'self' tauri: asset: http://localhost:4000 ws://127.0.0.1:7880 ws://127.0.0.1:4320 http://127.0.0.1:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:4000 http://127.0.0.1:4001; style-src 'self' 'unsafe-inline' http://localhost:4000 http://127.0.0.1:4000 http://127.0.0.1:4001 https://fonts.googleapis.com; connect-src 'self' tauri: http://localhost:4000 http://127.0.0.1:* http://100.77.6.93:* ws://127.0.0.1:7880 ws://127.0.0.1:4320 https: wss:; font-src 'self' data: http://127.0.0.1:* https://fonts.gstatic.com; img-src 'self' data: http://127.0.0.1:* https: blob:; media-src 'self' data: blob: http://127.0.0.1:* https:; object-src 'none'; base-uri 'none'; form-action 'none'",
       "dangerousDisableAssetCspModification": [
         "style-src"
       ]

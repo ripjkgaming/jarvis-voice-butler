@@ -29,6 +29,14 @@ pub const ITEM_TALK: &str = "talk";
 pub const ITEM_TOGGLE: &str = "toggle-overlay";
 pub const ITEM_PROJECTS: &str = "projects";
 pub const ITEM_MUTE: &str = "mute-mic";
+pub const ITEM_SCREEN_STOP: &str = "screen-stop";
+pub const ITEM_SCREEN_RESUME: &str = "screen-resume-quiet";
+pub const ITEM_SCREEN_END: &str = "screen-end";
+pub const ITEM_WATCH_START: &str = "watch-start";
+pub const ITEM_WATCH_CONFIRM: &str = "watch-confirm";
+pub const ITEM_WATCH_STOP: &str = "watch-stop";
+pub const ITEM_WATCH_STATUS: &str = "watch-status";
+pub const ITEM_WATCH_BRIEFING: &str = "watch-briefing";
 pub const ITEM_STATUS: &str = "status";
 pub const ITEM_UPDATES: &str = "updates-note";
 pub const ITEM_CHECK_UPDATES: &str = "check-updates";
@@ -43,6 +51,22 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let mute = CheckMenuItemBuilder::with_id(ITEM_MUTE, "Mute microphone")
         .checked(false)
         .build(app)?;
+    let screen_enabled = crate::screen_control::configured();
+    let screen_stop = MenuItemBuilder::with_id(ITEM_SCREEN_STOP, "Stop screen voice")
+        .enabled(screen_enabled)
+        .build(app)?;
+    let screen_resume =
+        MenuItemBuilder::with_id(ITEM_SCREEN_RESUME, "Resume screen voice — speech is quiet")
+            .enabled(screen_enabled)
+            .build(app)?;
+    let screen_end = MenuItemBuilder::with_id(ITEM_SCREEN_END, "End screen call")
+        .enabled(screen_enabled)
+        .build(app)?;
+    let watch_start = MenuItemBuilder::with_id(ITEM_WATCH_START, "Watch selected window — review Gemini disclosure").build(app)?;
+    let watch_confirm = MenuItemBuilder::with_id(ITEM_WATCH_CONFIRM, "Confirm selected-window screenshots to Gemini").build(app)?;
+    let watch_stop = MenuItemBuilder::with_id(ITEM_WATCH_STOP, "Stop Watch Mode").build(app)?;
+    let watch_status = MenuItemBuilder::with_id(ITEM_WATCH_STATUS, "Watch Mode status").build(app)?;
+    let watch_briefing = MenuItemBuilder::with_id(ITEM_WATCH_BRIEFING, "Watch Mode briefing — private window").build(app)?;
     let status = MenuItemBuilder::with_id(ITEM_STATUS, "Status: starting…")
         .enabled(false)
         .build(app)?;
@@ -52,18 +76,32 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let check_updates =
         MenuItemBuilder::with_id(ITEM_CHECK_UPDATES, "Check for updates").build(app)?;
     let quit = MenuItemBuilder::with_id(ITEM_QUIT, "Quit").build(app)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[
-            &talk,
-            &toggle,
-            &projects,
-            &mute,
-            &status,
-            &updates,
-            &check_updates,
-            &quit,
-        ])
-        .build()?;
+    let menu = if crate::screen_control::native_only() {
+        MenuBuilder::new(app)
+            .items(&[&screen_stop, &screen_resume, &screen_end, &quit])
+            .build()?
+    } else {
+        MenuBuilder::new(app)
+            .items(&[
+                &talk,
+                &toggle,
+                &projects,
+                &mute,
+                &screen_stop,
+                &screen_resume,
+                &screen_end,
+                &watch_start,
+                &watch_confirm,
+                &watch_stop,
+                &watch_status,
+                &watch_briefing,
+                &status,
+                &updates,
+                &check_updates,
+                &quit,
+            ])
+            .build()?
+    };
     app.manage(StatusHandle(status));
     app.manage(MuteHandle(mute));
     app.manage(UpdatesHandle(updates));
@@ -84,6 +122,14 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             ITEM_MUTE => {
                 toggle_mute(app);
             }
+            ITEM_SCREEN_STOP => native_screen_control(crate::screen_control::Action::Stop),
+            ITEM_SCREEN_RESUME => native_screen_control(crate::screen_control::Action::ResumeQuiet),
+            ITEM_SCREEN_END => native_screen_control(crate::screen_control::Action::Hangup),
+            ITEM_WATCH_START => native_watch_control("watch the computer"),
+            ITEM_WATCH_CONFIRM => native_watch_control("confirm visual watch"),
+            ITEM_WATCH_STOP => native_watch_control("stop watching"),
+            ITEM_WATCH_STATUS => native_watch_control("watch mode status"),
+            ITEM_WATCH_BRIEFING => native_watch_control("watch briefing"),
             ITEM_CHECK_UPDATES => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
@@ -102,12 +148,47 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn native_screen_control(action: crate::screen_control::Action) {
+    // Native OS menu event only. Do not export as webview IPC or a CLI verb.
+    std::thread::spawn(move || match crate::screen_control::send(action) {
+        Ok(note) => desktop_notify("Jarvis screen voice", note),
+        Err(note) => desktop_notify("Jarvis screen control", &note),
+    });
+}
+
+fn native_watch_control(text: &'static str) {
+    // Physical tray menu only; no model/webview command can confirm disclosure.
+    std::thread::spawn(move || {
+        let result = crate::health::http_post_json_on(
+            &crate::env_cfg::bridge_host(),
+            std::env::var("JARVIS_BRIDGE_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(crate::env_cfg::BRIDGE_PORT_DEFAULT),
+            "/watch-control",
+            &serde_json::json!({"text": text, "session_id": format!("native-tray-{}", std::process::id())}),
+            crate::env_cfg::bridge_token().as_deref(),
+        );
+        let note = match result {
+            Ok(value) => value.get("say").or_else(|| value.get("error")).and_then(|v| v.as_str()).unwrap_or("Watch Mode status unavailable.").to_string(),
+            Err(_) => "Watch Mode bridge is unavailable.".to_string(),
+        };
+        if text == "watch briefing" || text == "watch the computer" {
+            // Explicit owner click opens an ordinary dismissible native dialog;
+            // private derived text never enters notifications or model context.
+            let title = if text == "watch briefing" { "Jarvis Watch Mode briefing" } else { "Jarvis Watch Mode screenshot disclosure" };
+            if std::process::Command::new("kdialog").args(["--title", title, "--msgbox", &note]).status().is_err() {
+                desktop_notify("Jarvis Watch Mode", "The private briefing window could not open. Read the briefing through the authenticated owner controls.");
+            }
+        } else {
+            desktop_notify("Jarvis Watch Mode", &note);
+        }
+    });
+}
+
 /// Show + focus the overlay window. No-op when it is already visible.
-/// Also enforces the 16:9 HUD size: a stale portrait geometry (or a user
-/// resize below usability) grows back to 1280x720 in place. Fail-soft.
-/// A never-placed window (persisted position still 0,0 — nobody dragged
-/// it yet) is centered on the current screen instead: (0,0) hides under
-/// panels on some KWin layouts and Wayland gives clients no say anyway.
+/// Startup restores/migrates geometry; summoning must not queue a second
+/// resize from GTK's not-yet-mapped outer-size cache.
+/// Center only the first summon with no saved placement. (0,0) is a valid
+/// user-chosen position, and failed persistence must not recenter later summons.
+static INITIAL_PLACEMENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn show_overlay(app: &AppHandle) {
     if crate::school::is_school() {
         // The strip: shown without focus, click-through, docked.
@@ -120,19 +201,9 @@ pub fn show_overlay(app: &AppHandle) {
         return;
     }
     if let Some(win) = app.get_webview_window("overlay") {
-        if let Ok(size) = win.outer_size() {
-            if size.width < 1000 || size.height < 600 {
-                let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                    width: crate::overlay::OVERLAY_WIDTH,
-                    height: crate::overlay::OVERLAY_HEIGHT,
-                }));
-            }
-        }
         let path = crate::overlay::geometry_path(&crate::env_cfg::jarvis_home());
-        let never_placed = match crate::overlay::load_geometry(&path) {
-            Some(g) => g.x == 0 && g.y == 0,
-            None => true,
-        };
+        let first_show = !INITIAL_PLACEMENT.swap(true, std::sync::atomic::Ordering::SeqCst);
+        let never_placed = first_show && crate::overlay::load_geometry(&path).is_none();
         let _ = win.show();
         if never_placed {
             let _ = win.center();
@@ -172,29 +243,6 @@ pub fn toggle_overlay(app: &AppHandle) {
     }
 }
 
-/// Toggle the God's-Eye globe window (`jarvis globe` / voice "launch
-/// gods eye view"). Display-only: the page itself runs ?ambient=1
-/// (auto-spin, pointer-events off), so show/hide is the only control.
-pub fn toggle_globe(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("globe") {
-        match win.is_visible() {
-            Ok(true) => {
-                let _ = win.hide();
-            }
-            _ => show_globe(app),
-        }
-    }
-}
-
-/// Show + focus the globe window (voice launch is show-only: saying
-/// "launch" twice must never hide it out from under Sir).
-pub fn show_globe(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("globe") {
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
-}
-
 /// Toggle the project archive window (`jarvis projects`): research and
 /// coding jobs the bridge runs in the background.
 pub fn toggle_projects(app: &AppHandle) {
@@ -209,7 +257,7 @@ pub fn toggle_projects(app: &AppHandle) {
 }
 
 /// Show + focus the project archive (voice "open my projects" is
-/// show-only, like the globe: asking twice never hides it).
+/// show-only, like the overlay: asking twice never hides it).
 pub fn show_projects(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("projects") {
         let _ = win.show();
@@ -236,6 +284,23 @@ pub fn show_drafts(app: &AppHandle) {
 /// Hide the drafts window ("close drafts", or the last draft was handled).
 pub fn hide_drafts(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("drafts") {
+        let _ = win.hide();
+    }
+}
+
+/// Show + focus the chess board (`jarvis chess`, started by the `chess`
+/// command or by "Jarvis, let's play chess").
+pub fn show_chess(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("chess") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Hide the chess board window.
+pub fn hide_chess(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("chess") {
         let _ = win.hide();
     }
 }

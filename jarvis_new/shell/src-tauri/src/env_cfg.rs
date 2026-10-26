@@ -35,15 +35,21 @@ pub fn mic_host() -> String {
         .unwrap_or_else(|| "127.0.0.1".to_string())
 }
 
-/// Bridge Bearer token when `JARVIS_BRIDGE_TOKEN` is set (presence only —
-/// never logged; passed straight into the Authorization header). The bridge
-/// gates every route when a token is set, including reads like `/health`,
-/// so tokenless probes 401 and read as "down".
+/// Read the same existing credential as Python's `bridge.resolve_token`:
+/// a nonblank environment value, otherwise `$JARVIS_HOME/bridge_token`.
+/// Every bridge route requires it, including readiness and HUD `/room`.
+/// Never create, persist, or log a credential; malformed values fail closed.
 pub fn bridge_token() -> Option<String> {
-    std::env::var("JARVIS_BRIDGE_TOKEN")
+    let token = std::env::var("JARVIS_BRIDGE_TOKEN")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::fs::read_to_string(jarvis_home().join("bridge_token"))
+                .ok()
+                .map(|s| s.trim().to_string())
+        });
+    token.filter(|s| !s.is_empty() && !s.chars().any(char::is_whitespace))
 }
 
 /// Locate the `jarvis_new` repo checkout.
@@ -236,6 +242,71 @@ fn which_on_path(name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    struct BridgeTokenEnv {
+        home: PathBuf,
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl BridgeTokenEnv {
+        fn new(name: &str) -> Self {
+            let home =
+                std::env::temp_dir().join(format!("jarvis-token-{name}-{}", std::process::id()));
+            std::fs::create_dir_all(&home).unwrap();
+            let saved = ["JARVIS_HOME", "JARVIS_BRIDGE_TOKEN"]
+                .into_iter()
+                .map(|key| (key, std::env::var_os(key)))
+                .collect();
+            std::env::set_var("JARVIS_HOME", &home);
+            std::env::remove_var("JARVIS_BRIDGE_TOKEN");
+            Self { home, saved }
+        }
+    }
+
+    impl Drop for BridgeTokenEnv {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+            std::fs::remove_dir_all(&self.home).unwrap();
+        }
+    }
+
+    #[test]
+    fn bridge_uses_existing_file_token_for_readiness_and_webview() {
+        let env = BridgeTokenEnv::new("existing");
+        std::fs::write(env.home.join("bridge_token"), "existing-test-token\n").unwrap();
+        assert_eq!(bridge_token().as_deref(), Some("existing-test-token"));
+        for blank in ["", " \n\t"] {
+            std::env::set_var("JARVIS_BRIDGE_TOKEN", blank);
+            assert_eq!(bridge_token().as_deref(), Some("existing-test-token"));
+        }
+        std::env::set_var("JARVIS_BRIDGE_TOKEN", "  environment-test-token\n");
+        assert_eq!(bridge_token().as_deref(), Some("environment-test-token"));
+    }
+
+    #[test]
+    fn bridge_token_fails_closed_without_creating_or_replacing_credentials() {
+        let env = BridgeTokenEnv::new("invalid");
+        let file = env.home.join("bridge_token");
+        assert_eq!(bridge_token(), None);
+        assert!(!file.exists());
+        for content in ["", " \n", "invalid token", "invalid\nheader"] {
+            std::fs::write(&file, content).unwrap();
+            assert_eq!(bridge_token(), None);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), content);
+        }
+        std::fs::write(&file, "existing-test-token").unwrap();
+        std::env::set_var("JARVIS_BRIDGE_TOKEN", "invalid token");
+        assert_eq!(bridge_token(), None, "malformed env must not fall back");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "existing-test-token"
+        );
+    }
+
     #[test]
     fn sidecar_env_sets_the_contract() {
         let env = sidecar_env(Path::new("/repo"));
@@ -309,6 +380,7 @@ mod tests {
 
     #[test]
     fn bind_hosts_default_to_loopback() {
+        let _token_env = BridgeTokenEnv::new("bind");
         let vars = [
             "JARVIS_BRIDGE_BIND",
             "JARVIS_MIC_BIND",

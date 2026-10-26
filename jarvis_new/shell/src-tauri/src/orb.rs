@@ -158,7 +158,9 @@ mod tests {
     fn rule_is_exact_title_and_forced() {
         let rule = rule_entries();
         assert!(rule.contains(&("title", ORB_TITLE)) && rule.contains(&("titlematch", "1")));
-        assert!(rule.contains(&("acceptfocus", "false")) && rule.contains(&("acceptfocusrule", "2")));
+        assert!(
+            rule.contains(&("acceptfocus", "false")) && rule.contains(&("acceptfocusrule", "2"))
+        );
     }
 
     #[test]

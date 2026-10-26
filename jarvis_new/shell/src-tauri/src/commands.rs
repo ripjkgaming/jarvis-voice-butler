@@ -321,6 +321,36 @@ pub async fn mint_token(room_name: Option<String>) -> Result<serde_json::Value, 
     Err(last_err)
 }
 
+/// Window label of the chess board (must match `tauri.conf.json`).
+pub const CHESS_LABEL: &str = "chess";
+
+/// Show + focus the chess board window. The board talks to the games server
+/// (ws://127.0.0.1:4320) itself; the shell only owns the window. On KDE
+/// Wayland focus-stealing prevention may keep it behind: see docs/CHESS.md
+/// for the KWin rule fallback.
+#[tauri::command]
+pub fn open_chess_window(app: AppHandle) -> Result<(), String> {
+    match app.get_webview_window(CHESS_LABEL) {
+        Some(win) => {
+            let _ = win.unminimize();
+            win.show().map_err(|e| format!("show chess: {e}"))?;
+            let _ = win.set_focus();
+            Ok(())
+        }
+        None => Err("chess window is not configured".to_string()),
+    }
+}
+
+/// Hide the chess board window (the games server keeps running until
+/// `quit chess`). Missing window = no-op success.
+#[tauri::command]
+pub fn close_chess_window(app: AppHandle) -> Result<(), String> {
+    match app.get_webview_window(CHESS_LABEL) {
+        Some(win) => win.hide().map_err(|e| format!("hide chess: {e}")),
+        None => Ok(()),
+    }
+}
+
 /// Hide the overlay window. Called by the HUD on Esc (blur-hide is handled
 /// shell-side via `WindowEvent::Focused`). Missing window = no-op success.
 #[tauri::command]
