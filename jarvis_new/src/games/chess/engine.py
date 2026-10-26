@@ -101,6 +101,10 @@ class StockfishEngine(BaseEngine):
         assert self._engine
         elo = elo_of(preset)
         opts = self._engine.options
+        # UCI options persist across searches. Clear the weak-play skill cap
+        # before switching back to Elo-limited or full-strength play.
+        if elo >= 1350 and "Skill Level" in opts:
+            await self._engine.configure({"Skill Level": opts["Skill Level"].default})
         if preset == "full" or elo >= 3000:
             if "UCI_LimitStrength" in opts:
                 await self._engine.configure({"UCI_LimitStrength": False})
@@ -138,6 +142,10 @@ class StockfishEngine(BaseEngine):
         if not self._engine:
             raise RuntimeError("stockfish unavailable")
         async with self._lock:
+            if "Skill Level" in self._engine.options:
+                await self._engine.configure(
+                    {"Skill Level": self._engine.options["Skill Level"].default}
+                )
             if "UCI_LimitStrength" in self._engine.options:
                 await self._engine.configure({"UCI_LimitStrength": False})
             info = await self._engine.analyse(
