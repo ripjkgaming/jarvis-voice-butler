@@ -43,6 +43,34 @@ class BridgeClientTest {
         throw AssertionError("expected BridgeException")
     }
 
+    @Test
+    fun negotiatedCommandHasBearerGuestAndNoActionReplay() {
+        server.enqueue(json("""{"api_version":1,"min_client_api":1,"max_client_api":1,"features":{"command":true}}"""))
+        server.enqueue(json("""{"error":"failed"}""", 503))
+        cfg = cfg.copy(guest = true)
+        assertTrue(failure { client.command("lock", emptyList(), true) } is BridgeError.Server)
+        assertEquals(2, server.requestCount)
+        assertEquals("/phone/v1/capabilities", server.takeRequest().path)
+        val command = server.takeRequest()
+        assertEquals("/phone/v1/command", command.path)
+        assertEquals("Bearer s3cret", command.getHeader("Authorization"))
+        assertTrue(JSONObject(command.body.readUtf8()).getBoolean("guest"))
+    }
+
+    @Test
+    fun oldBridgeNegotiationReturnsLegacyWithoutPosting() {
+        server.enqueue(json("""{"error":"unknown route"}""", 404))
+        assertNull(client.command("hi", emptyList(), true))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun incompatibleApiIsExplicitFailure() {
+        server.enqueue(json("""{"api_version":2}"""))
+        assertTrue(failure { client.session(false) } is BridgeError.BadRequest)
+        assertEquals(1, server.requestCount)
+    }
+
     // ── auth, config, offline ────────────────────────────────────
 
     @Test

@@ -29,6 +29,21 @@ class MemoryStore : KeyValueStore {
 
 /** All persisted settings. Setters sanitize; getters never throw. */
 class Prefs(private val s: KeyValueStore) {
+    var incomingCalls: Boolean
+        get() = s.getBoolean("incoming_calls", false)
+        set(v) = s.putBoolean("incoming_calls", v)
+    var calendarCalls: Boolean
+        get() = s.getBoolean("calendar_calls", true)
+        set(v) = s.putBoolean("calendar_calls", v)
+    var updateCalls: Boolean
+        get() = s.getBoolean("update_calls", true)
+        set(v) = s.putBoolean("update_calls", v)
+    var presentedCall: String
+        get() = s.getString("presented_call", "") ?: ""
+        set(v) = s.putString("presented_call", v)
+    var handledCall: String
+        get() = s.getString("handled_call", "") ?: ""
+        set(v) = s.putString("handled_call", v)
     var host: String
         get() = s.getString("host", "") ?: ""
         set(v) = s.putString("host", v.trim())

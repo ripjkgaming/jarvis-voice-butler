@@ -34,6 +34,19 @@ class BridgeClient(
         val ok: Boolean get() = code in 200..299
     }
 
+    override fun incomingCalls(): JSONObject? {
+        val r = exec("GET", "/phone/v1/calls", readTimeoutS = 8, retries = 0)
+        if (r.code == 404) return null
+        if (!r.ok) throw BridgeException(errorFor(r))
+        return r.json ?: throw BridgeException(BridgeError.Server(503, "Invalid calls response"))
+    }
+    override fun pollCalls(body: JSONObject): JSONObject {
+        val cap=capabilities()
+        if (cap?.optJSONObject("features")?.optBoolean("incoming_calls")!=true) throw BridgeException(BridgeError.NotFound("Incoming calls need an active updated laptop bridge"))
+        return callAction(body.put("action",if (cap.optJSONObject("features")?.optBoolean("incoming_monitor")==true) "poll" else "configure"))
+    }
+    override fun callAction(body: JSONObject): JSONObject = post("/phone/v1/calls", stamp(cfg(), body.put("api_version", 1)), 10)
+
     private fun cfg(): BridgeConfig {
         val c = config()
         if (c.offline) throw BridgeException(BridgeError.Offline)
@@ -152,6 +165,47 @@ class BridgeClient(
     }
 
     // ── Bridge ───────────────────────────────────────────────────
+
+    private var capabilityConfig: BridgeConfig? = null
+    private var capabilityUntil = 0L
+    private var capabilityValue: JSONObject? = null
+
+    @Synchronized
+    private fun capabilities(): JSONObject? {
+        val c = cfg()
+        val now = System.nanoTime()
+        if (c == capabilityConfig && now < capabilityUntil) return capabilityValue
+        val raw = exec("GET", "/phone/v1/capabilities", readTimeoutS = 8)
+        val value = if (raw.code == 404) null else ok(raw)
+        if (value != null && (value.optInt("api_version") != 1 ||
+                value.optInt("min_client_api", 1) > 1 || value.optInt("max_client_api", 1) < 1)) {
+            throw BridgeException(BridgeError.BadRequest("Laptop phone API is incompatible. Update the app or laptop bridge."))
+        }
+        capabilityConfig = c
+        capabilityUntil = now + TimeUnit.SECONDS.toNanos(60)
+        capabilityValue = value
+        return value
+    }
+
+    override fun command(text: String, history: List<List<String>>, instant: Boolean): ChatReply? {
+        val cap = capabilities() ?: return null
+        if (cap.optJSONObject("features")?.optBoolean("command") != true) return null
+        val arr = JSONArray()
+        history.takeLast(20).forEach { turn ->
+            if (turn.size == 2) arr.put(JSONArray().put(turn[0]).put(turn[1].take(1000)))
+        }
+        val o = post("/phone/v1/command", JSONObject().put("api_version", 1)
+            .put("text", text).put("history", arr).put("instant", instant), 120)
+        return ChatReply(o.optString("reply"), o.optString("warning").ifEmpty { null },
+            o.optString("voice") == "summoned", parseAction(o.optJSONObject("action")))
+    }
+
+    override fun session(laptop: Boolean): CallToken? {
+        val cap = capabilities() ?: return null
+        if (cap.optJSONObject("features")?.optBoolean("session") != true) return null
+        return parseToken(post("/phone/v1/session", JSONObject().put("api_version", 1)
+            .put("mode", if (laptop) "laptop" else "new"), 25))
+    }
 
     override fun health(): JSONObject = get("/health", 8)
 

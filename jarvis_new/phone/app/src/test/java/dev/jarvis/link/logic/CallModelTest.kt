@@ -15,6 +15,8 @@ class FakeEngine : CallEngine {
     var connected: Pair<String, String>? = null
     var failWith: Exception? = null
     var gate: CompletableDeferred<Unit>? = null
+    var speaker = false
+    override suspend fun setSpeakerEnabled(enabled: Boolean) { speaker = enabled }
     var mic = true
     var disconnects = 0
     override suspend fun connect(url: String, token: String) {
@@ -37,6 +39,28 @@ class CallModelTest {
     private val engine = FakeEngine()
     private val host = FakeHost()
     private fun model() = CallModel(env.bridge, env.config, engine, host, env.messenger, env.scope, env.dispatcher, 30_000, 3_000)
+
+    @Test
+    fun speakerRouteDoesNotChangeMuteAndResetsOnNewCall() {
+        val m = model()
+        m.toggleSpeaker()
+        assertFalse(engine.speaker)
+        m.join()
+        m.setMuted(true)
+        m.toggleSpeaker()
+        assertTrue(engine.speaker)
+        assertTrue(m.state.value.speaker)
+        assertFalse(engine.mic)
+        m.onAudioRoute("Earpiece")
+        m.onAudioStatus("Remote audio connected")
+        assertEquals("Remote audio connected", m.state.value.audioStatus)
+        m.hangup()
+        m.onAudioStatus("stale")
+        assertEquals("Remote audio connected", m.state.value.audioStatus)
+        m.join()
+        assertFalse(m.state.value.speaker)
+        assertEquals("Waiting for remote audio", m.state.value.audioStatus)
+    }
 
     @Test
     fun joinMintsTokenConnectsAndGoesLive() {
@@ -80,13 +104,13 @@ class CallModelTest {
     }
 
     @Test
-    fun transientTokenFailureIsRetriedOnce() {
+    fun transientTokenFailureIsNotReplayed() {
         var n = 0
-        env.bridge.onToken = { _, _ -> if (n++ == 0) bridgeFail(BridgeError.Timeout("h:1")) else dev.jarvis.link.net.CallToken("u", "t") }
+        env.bridge.onToken = { _, _ -> if (n++ == 0) bridgeFail(BridgeError.Timeout("h:1")) else dev.jarvis.link.net.CallToken("wss://lk", "t") }
         val m = model()
         m.join()
-        assertEquals(CallPhase.LIVE, m.state.value.phase)
-        assertEquals(2, n)
+        assertEquals(CallPhase.ERROR, m.state.value.phase)
+        assertEquals(1, n)
     }
 
     @Test
@@ -257,5 +281,30 @@ class CallModelTest {
         env.bridge.onSummon = { Ack(false, "not listening") }
         m.summon()
         assertEquals("not listening", m.state.value.notice)
+    }
+
+    @Test
+    fun reconnectingKeepsTheCallActiveAndHangupWins() {
+        val m = model()
+        m.join()
+        engine.listener!!.onReconnecting()
+        assertEquals(CallPhase.RECONNECTING, m.state.value.phase)
+        assertTrue(m.active)
+        engine.listener!!.onReconnected()
+        assertEquals(CallPhase.LIVE, m.state.value.phase)
+        engine.listener!!.onReconnecting()
+        m.hangup()
+        engine.listener!!.onReconnected()
+        assertEquals(CallPhase.IDLE, m.state.value.phase)
+    }
+
+    @Test
+    fun insecureTokenCannotOpenAMicrophoneSession() {
+        env.bridge.onToken = { _, _ -> dev.jarvis.link.net.CallToken("ws://lk", "t") }
+        val m = model()
+        m.join()
+        assertEquals(CallPhase.ERROR, m.state.value.phase)
+        assertEquals(null, engine.connected)
+        assertEquals(host.starts, host.ends)
     }
 }

@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         // A visible activity may start the microphone services (also covers "tap to start" after boot).
         JarvisApp.graph(this).services.ensureRunning()
+        if (JarvisApp.graph(this).prefs.incomingCalls) dev.jarvis.link.svc.IncomingCallService.start(this)
         JarvisApp.graph(this).telemetry.acquire()
     }
 
@@ -103,6 +104,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
+            "dev.jarvis.link.CALL" -> selectTab(Tab.VOICE)
             LinkService.ACTION_WAKE -> {
                 selectTab(Tab.HOME)
                 if (intent.getBooleanExtra(WakeRouter.EXTRA_AUTO_TALK, false)) {
@@ -110,6 +112,12 @@ class MainActivity : AppCompatActivity() {
                     requirePermissions(arrayOf(Manifest.permission.RECORD_AUDIO)) { ok ->
                         if (ok) JarvisApp.graph(this).home.startTalk()
                     }
+                }
+            }
+            Intent.ACTION_ASSIST -> {
+                selectTab(Tab.HOME)
+                requirePermissions(arrayOf(Manifest.permission.RECORD_AUDIO)) { ok ->
+                    if (ok) JarvisApp.graph(this).home.startTalk()
                 }
             }
             LinkService.ACTION_START_SERVICES -> selectTab(Tab.SETTINGS)

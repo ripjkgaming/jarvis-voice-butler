@@ -38,6 +38,10 @@ class Conversation(
     }
 
     /** Last 10 exchanges as [role, text] pairs for `POST /chat`. */
+    /** Transport snapshot; the laptop chooses the conversation context window. */
+    fun transportHistory(): List<List<String>> =
+        _messages.value.map { listOf(it.role.name.lowercase(), it.text) }
+
     fun history(): List<List<String>> =
         ChatHistory.historyOf(_messages.value.map { it.role.name to it.text })
 

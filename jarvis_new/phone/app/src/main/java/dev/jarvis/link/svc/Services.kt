@@ -64,6 +64,9 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val graph = JarvisApp.graph(context)
         if (!graph.prefs.autostart) return
+        // Incoming availability has no microphone permission requirement and
+        // must survive a reboot even when both microphone features are off.
+        if (graph.prefs.incomingCalls) IncomingCallService.start(context)
         if (!graph.prefs.micUplink && !graph.prefs.hotwordEnabled) return
         // Android 14/15 forbid starting microphone foreground services from
         // BOOT_COMPLETED. Try; if refused, ask the user with one tap.

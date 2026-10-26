@@ -3,12 +3,12 @@
 <resources>
     <color name="ic_launcher_background">#05070D</color>
 
-    <color name="hud_bg">#010409</color>
-    <color name="hud_bg_raised">#020C16</color>
+    <color name="hud_bg">#050D20</color>
+    <color name="hud_bg_raised">#0A1936</color>
     <color name="hud_panel">#A6010A14</color>
     <color name="hud_field">#CC000A12</color>
 
-    <color name="hud_text">#D9F6FF</color>
+    <color name="hud_text">#EAF4FF</color>
     <color name="hud_text_bright">#E0FBFF</color>
     <color name="hud_text_dim">#7DD3FC</color>
     <color name="hud_text_faint">#6B8FA3</color>

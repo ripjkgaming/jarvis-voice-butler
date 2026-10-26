@@ -28,8 +28,21 @@ class Messenger(
         if (text.length > Limits.CHAT_MAX) {
             return Outcome.Fail("That is ${text.length} characters; the limit is ${Limits.CHAT_MAX}.")
         }
-        val history = conversation.history() // before this turn
+        val history = conversation.history() // legacy bridge only
+        val snapshot = conversation.transportHistory()
         conversation.add(Role.USER, text)
+
+        when (val result = attempt { bridge.command(text, snapshot, instant) }) {
+            is Outcome.Fail -> return result
+            is Outcome.Ok -> result.value?.let { reply ->
+                actions.handleAction(reply.action)
+                if (reply.reply.isNotEmpty()) {
+                    conversation.add(Role.JARVIS, reply.reply)
+                    speaker.speak(reply.reply)
+                }
+                return Outcome.Ok(Reply(reply.reply, reply.warning, reply.summoned))
+            }
+        }
 
         if (instant && text.length <= Limits.ROUTE_MAX) {
             when (val r = attempt { bridge.route(text) }) {

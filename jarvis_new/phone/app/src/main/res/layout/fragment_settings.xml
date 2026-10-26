@@ -43,6 +43,9 @@
         </LinearLayout>
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/hud_panel" android:padding="14dp" android:layout_marginTop="12dp">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Permissions" android:textAppearance="@style/TextAppearance.Hud.Label" android:drawableStart="@drawable/hud_label_tick" android:drawablePadding="8dp" android:gravity="center_vertical" android:layout_marginBottom="8dp" />
+            <Button android:id="@+id/settings_btn_bluetooth" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Allow Bluetooth call headset" />
+            <Button android:id="@+id/settings_btn_assistant" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Choose default assistant" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Choose JarvisLink in Android’s assistant picker. Invoke it with your phone’s assistant gesture. Microphone access and a working laptop link are needed. Always-on wake words and Gemini features depend on Android and are not provided by this setting." />
             <Button android:id="@+id/settings_btn_permissions" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Request permissions" />
             <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/settings_session" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />
             <TextView android:textAppearance="@style/TextAppearance.Hud.Detail" android:id="@+id/settings_version" android:layout_width="match_parent" android:layout_height="wrap_content" android:textIsSelectable="true" />

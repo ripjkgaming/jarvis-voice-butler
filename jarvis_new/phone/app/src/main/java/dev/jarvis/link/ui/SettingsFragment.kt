@@ -1,6 +1,11 @@
 package dev.jarvis.link.ui
 
 import android.os.Bundle
+import android.os.Build
+import android.app.role.RoleManager
+import android.content.Intent
+import android.provider.Settings
+import android.widget.Toast
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -29,6 +34,24 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         v.button(R.id.settings_btn_save).emphasis(Emphasis.PRIMARY)
         v.onClick(R.id.settings_btn_save) { val f = fields(); m.save(f[0], f[1], f[2], f[3]) }
         v.onClick(R.id.settings_btn_test) { val f = fields(); m.saveAndTest(f[0], f[1], f[2], f[3]) }
+        v.onClick(R.id.settings_btn_bluetooth) {
+            if (Build.VERSION.SDK_INT >= 31) {
+                (requireActivity() as MainActivity).requirePermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT)) { ok ->
+                    Toast.makeText(requireContext(), if (ok) "Reconnect the call to use your Bluetooth headset" else "Bluetooth access was not granted", Toast.LENGTH_LONG).show()
+                }
+            } else Toast.makeText(requireContext(), "Connect a Bluetooth headset in Android Settings", Toast.LENGTH_LONG).show()
+        }
+        v.onClick(R.id.settings_btn_assistant) {
+            try {
+                val roles = if (Build.VERSION.SDK_INT >= 29) requireContext().getSystemService(RoleManager::class.java) else null
+                val intent = if (Build.VERSION.SDK_INT >= 29 && roles != null && roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roles.isRoleHeld(RoleManager.ROLE_ASSISTANT))
+                    roles.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                else Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+                startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                Toast.makeText(requireContext(), "Open Android Settings → Apps → Default apps → Digital assistant app → JarvisLink", Toast.LENGTH_LONG).show()
+            }
+        }
         v.onClick(R.id.settings_btn_remote) { m.startRemote() }
         v.onClick(R.id.settings_btn_permissions) {
             (requireActivity() as MainActivity).requestAllPermissions { ok ->

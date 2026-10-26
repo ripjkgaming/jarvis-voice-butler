@@ -34,6 +34,7 @@ class JarvisApp : Application() {
         Notifs.createChannels(this)
         // A restarted process has no call: make sure no stale call notification lingers.
         VoiceCallService.stop(this)
+        dev.jarvis.link.svc.IncomingCalls.cancel(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: Activity) { resumed = WeakReference(a) }
             override fun onActivityPaused(a: Activity) { if (resumed?.get() === a) resumed = null }

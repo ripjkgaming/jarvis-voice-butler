@@ -21,7 +21,7 @@
             android:drawableStart="@drawable/hud_label_tick"
             android:drawablePadding="10dp"
             android:gravity="center_vertical"
-            android:text="J.A.R.V.I.S  LINK"
+            android:text="J A R V I S"
             android:textAppearance="@style/TextAppearance.Hud.Brand" />
         <TextView
             android:id="@+id/main_status"

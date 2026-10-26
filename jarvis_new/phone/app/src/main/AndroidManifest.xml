@@ -5,9 +5,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <!-- Voice: push-to-talk + background mic uplink for remote hotword -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -66,6 +69,13 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".ui.CallActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true" />
+        <activity android:name=".ui.IncomingCallActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true" />
+        <receiver android:name=".svc.CallEndReceiver" android:exported="false" />
+        <receiver android:name=".svc.CallDeclineReceiver" android:exported="false" />
+        <service android:name=".svc.IncomingCallService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-enabled incoming VoIP invitation monitoring over private authenticated laptop bridge" />
+        </service>
         <service
             android:name=".svc.LinkService"
             android:exported="false"

@@ -11,8 +11,8 @@ android {
         applicationId = "dev.jarvis.link"
         minSdk = 28
         targetSdk = 35
-        versionCode = 12
-        versionName = "3.0"
+        versionCode = 19
+        versionName = "3.6.1"
     }
 
     buildTypes {

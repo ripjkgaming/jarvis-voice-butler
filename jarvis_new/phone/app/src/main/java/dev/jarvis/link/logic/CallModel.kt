@@ -11,7 +11,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 
-enum class CallPhase { IDLE, JOINING, LIVE, ERROR }
+enum class CallPhase { IDLE, JOINING, LIVE, RECONNECTING, ERROR }
 
 /** The LiveKit room, behind a seam so the call state machine is testable. */
 interface CallEngine {
@@ -19,12 +19,18 @@ interface CallEngine {
         fun onSpeaking(speaking: Boolean)
         /** The room ended without us asking (network drop, agent kicked us, server closed). */
         fun onLost(reason: String?)
+        fun onAudioRoute(route: String) {}
+        fun onAudioStatus(status: String) {}
+        fun onReconnecting() {}
+        fun onReconnected() {}
     }
 
     var listener: Listener?
 
     /** Connect and publish the mic. Throws on failure. */
     suspend fun connect(url: String, token: String)
+
+    suspend fun setSpeakerEnabled(enabled: Boolean) {}
 
     suspend fun setMicEnabled(enabled: Boolean)
 
@@ -42,11 +48,16 @@ data class CallState(
     val phase: CallPhase = CallPhase.IDLE,
     val detail: String = "",
     val muted: Boolean = false,
+    val speaker: Boolean = false,
+    val audioRoute: String = "",
+    val audioStatus: String = "Waiting for remote audio",
     val agentSpeaking: Boolean = false,
     /** Transcript, oldest first (newest last). */
     val captions: List<Caption> = emptyList(),
     val guest: Boolean = false,
     val notice: String = "",
+    val purpose: String = "",
+    val incomingCallId: String = "",
 )
 
 /** Voice tab: LiveKit call state machine + live captions. */
@@ -60,29 +71,60 @@ class CallModel(
     io: CoroutineDispatcher,
     private val joinTimeoutMs: Long = JOIN_TIMEOUT_MS,
     private val captionPollMs: Long = CAPTION_POLL_MS,
+    private val wallClock: () -> Long = System::currentTimeMillis,
 ) : Model<CallState>(CallState(), scope, io), CallEngine.Listener {
 
     private var joinJob: Job? = null
     private var poller: Job? = null
+    private val pollingOwners=mutableMapOf<Any,Long>()
+    private var pollingInterval=0L
+    private var laptopJob: Job? = null
+    private var teardown: Job? = null
+    private var generation = 0L
+    private var preparedToken: CallToken? = null
+    private var schoolGuard: Job? = null
     /** Set while we are the ones tearing the room down. */
     private var hangingUp = false
 
     init { engine.listener = this }
 
-    val active: Boolean get() = current.phase == CallPhase.JOINING || current.phase == CallPhase.LIVE
+    val active: Boolean get() = current.phase == CallPhase.JOINING || current.phase == CallPhase.LIVE || current.phase == CallPhase.RECONNECTING
+
+    /** Only a visible accept action may provide a server-claimed incoming token. */
+    fun joinAccepted(token: CallToken, purpose: String = "", callId: String = "") {
+        if (active) return
+        preparedToken = token
+        join()
+        update { it.copy(purpose=purpose.take(300), incomingCallId=callId) }
+        schoolGuard?.cancel()
+        schoolGuard = launch {
+            while (active) {
+                if (IncomingPolicy.quiet(wallClock())) { hangup(); return@launch }
+                delay(250)
+            }
+        }
+    }
 
     fun join(room: String = "", dispatch: Boolean = true) {
         if (active) return
         val c = config()
         if (c.offline) { fail("Offline mode is on, so calls are unavailable."); return }
         c.problem()?.let { fail(it.message); return }
+        val attemptId = ++generation
         hangingUp = false
-        update { it.copy(phase = CallPhase.JOINING, detail = "Requesting a call token...", muted = false, guest = c.guest, notice = "") }
+        update { it.copy(incomingCallId = "", captions=emptyList(), phase = CallPhase.JOINING, detail = "Requesting a call token...", muted = false, speaker = false, audioRoute = "", audioStatus = "Waiting for remote audio", guest = c.guest, notice = "") }
         host.onCallStarting()
         joinJob = launch {
-            val token: CallToken = when (val r = io { attempt { retryOnce { bridge.token(room, dispatch) } } }) {
+            teardown?.join()
+            if (attemptId != generation) return@launch
+            val token: CallToken = when (val r = io { attempt { preparedToken?.also { preparedToken = null } ?: if (room.isEmpty() && dispatch) (bridge.session(false) ?: bridge.token(room, dispatch)) else bridge.token(room, dispatch) } }) {
                 is Outcome.Ok -> r.value
                 is Outcome.Fail -> { fail(r.message); return@launch }
+            }
+            if (attemptId != generation) return@launch
+            if (!token.url.startsWith("wss://") || token.token.isBlank()) {
+                fail("The bridge returned an invalid secure call token.")
+                return@launch
             }
             update { it.copy(detail = "Joining the room...") }
             try {
@@ -98,7 +140,7 @@ class CallModel(
                 fail(e.message?.ifEmpty { null } ?: "Could not join the call.")
                 return@launch
             }
-            if (hangingUp) { safeDisconnect(); return@launch }
+            if (hangingUp || attemptId != generation) { return@launch }
             update { it.copy(phase = CallPhase.LIVE, detail = "Live", notice = "") }
         }
     }
@@ -107,8 +149,22 @@ class CallModel(
     fun joinLaptop() {
         if (active) return
         update { it.copy(notice = "Checking the laptop...") }
-        launch {
-            when (val r = io { attempt { bridge.room() } }) {
+        val requestId = ++generation
+        laptopJob?.let { it.cancel() }
+        laptopJob = launch {
+            val negotiated = io { attempt { bridge.session(true) } }
+            if (requestId != generation) return@launch
+            when (negotiated) {
+                is Outcome.Fail -> { update { it.copy(notice = negotiated.message) }; return@launch }
+                is Outcome.Ok -> negotiated.value?.let {
+                    preparedToken = it
+                    join()
+                    return@launch
+                }
+            }
+            val result = io { attempt { bridge.room() } }
+            if (requestId != generation) return@launch
+            when (val r = result) {
                 is Outcome.Fail -> update { it.copy(notice = r.message) }
                 is Outcome.Ok -> {
                     val room = r.value.room
@@ -128,16 +184,21 @@ class CallModel(
     }
 
     fun hangup() {
+        schoolGuard?.cancel(); schoolGuard=null
         hangingUp = true
+        ++generation
+        preparedToken = null
+        laptopJob?.cancel(); laptopJob = null
         joinJob?.cancel()
         joinJob = null
-        launch { safeDisconnect() }
+        teardown = launch { safeDisconnect() }
         host.onCallEnded()
-        update { it.copy(phase = CallPhase.IDLE, detail = "", agentSpeaking = false, muted = false, notice = "Call ended.") }
+        update { it.copy(incomingCallId = "", phase = CallPhase.IDLE, detail = "", agentSpeaking = false, muted = false, notice = "Call ended.") }
     }
 
     fun setMuted(muted: Boolean) {
         if (current.phase != CallPhase.LIVE) return
+        val callId = generation
         update { it.copy(muted = muted) }
         launch {
             try {
@@ -145,12 +206,28 @@ class CallModel(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                update { it.copy(muted = !muted, notice = "Could not change the mic: ${e.message}") }
+                if (callId == generation && active) update { it.copy(muted = !muted, notice = "Could not change the mic: ${e.message}") }
             }
         }
     }
 
     fun toggleMute() = setMuted(!current.muted)
+
+    fun toggleSpeaker() {
+        if (!active) return
+        val callId = generation
+        val enabled = !current.speaker
+        launch {
+            try {
+                engine.setSpeakerEnabled(enabled)
+                if (callId == generation && active) update { it.copy(speaker = enabled) }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { if (callId == generation) update { it.copy(notice = "Could not change audio route") } }
+        }
+    }
+
+    override fun onAudioRoute(route: String) { if (active) update { it.copy(audioRoute = route) } }
+    override fun onAudioStatus(status: String) { if (active) update { it.copy(audioStatus = status) } }
 
     /** Wake the laptop agent (`POST /summon`). */
     fun summon() {
@@ -173,25 +250,27 @@ class CallModel(
     private suspend fun pullCaptions() {
         when (val r = io { attempt { bridge.captions(8) } }) {
             // The bridge returns a chronological tail: oldest first, newest last.
-            is Outcome.Ok -> update { it.copy(captions = r.value) }
+            is Outcome.Ok -> update { it.copy(captions = CaptionTurns.coalesce(r.value)) }
             is Outcome.Fail -> update { it.copy(notice = r.message) }
         }
     }
 
     /** Poll captions every [captionPollMs] while the screen is visible. */
-    fun startPolling() {
-        if (poller?.isActive == true) return
-        poller = launch {
-            while (true) {
-                pullCaptions()
-                delay(captionPollMs)
-            }
-        }
+    fun startPolling(owner: Any = this, intervalMs: Long = captionPollMs) {
+        if (pollingOwners[owner]==intervalMs) return
+        pollingOwners[owner]=intervalMs.coerceAtLeast(800)
+        restartPolling()
     }
-
-    fun stopPolling() {
-        poller?.cancel()
-        poller = null
+    fun stopPolling(owner: Any = this) {
+        pollingOwners.remove(owner)
+        restartPolling()
+    }
+    private fun restartPolling() {
+        val interval=pollingOwners.values.minOrNull() ?: 0L
+        if (interval==pollingInterval && poller?.isActive==true) return
+        poller?.cancel();poller=null;pollingInterval=interval
+        if (interval==0L) return
+        poller=launch { while(true) { pullCaptions();delay(interval) } }
     }
 
     // ── Engine callbacks ─────────────────────────────────────────
@@ -200,9 +279,19 @@ class CallModel(
         update { if (it.phase == CallPhase.LIVE) it.copy(agentSpeaking = speaking) else it }
     }
 
+    override fun onReconnecting() {
+        if (current.phase == CallPhase.LIVE) update { it.copy(phase = CallPhase.RECONNECTING, detail = "Reconnecting…", agentSpeaking = false) }
+    }
+
+    override fun onReconnected() {
+        if (current.phase == CallPhase.RECONNECTING) update { it.copy(phase = CallPhase.LIVE, detail = "Live") }
+    }
+
     override fun onLost(reason: String?) {
         if (hangingUp || !active) return
-        launch { safeDisconnect() }
+        ++generation
+        joinJob?.cancel(); joinJob = null
+        teardown = launch { safeDisconnect() }
         host.onCallEnded()
         update {
             it.copy(
@@ -222,12 +311,6 @@ class CallModel(
 
     private suspend fun safeDisconnect() {
         try { engine.disconnect() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { }
-    }
-
-    private fun <T> retryOnce(block: () -> T): T = try {
-        block()
-    } catch (e: dev.jarvis.link.net.BridgeException) {
-        if (e.error.transient) block() else throw e
     }
 
     companion object {

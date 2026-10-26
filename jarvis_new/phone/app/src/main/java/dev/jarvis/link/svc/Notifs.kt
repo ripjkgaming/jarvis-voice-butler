@@ -49,14 +49,17 @@ object Notifs {
         return PendingIntent.getActivity(ctx, action.hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun ongoing(ctx: Context, channel: String, title: String, text: String): Notification =
-        NotificationCompat.Builder(ctx, channel)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setContentIntent(openApp(ctx))
-            .setOngoing(true)
-            .build()
+    fun ongoing(ctx: Context, channel: String, title: String, text: String): Notification {
+        val builder=NotificationCompat.Builder(ctx,channel)
+            .setSmallIcon(R.drawable.ic_launcher_foreground).setContentTitle(title).setContentText(text)
+            .setContentIntent(if(channel==CH_CALL) PendingIntent.getActivity(ctx,4,Intent(ctx,dev.jarvis.link.ui.CallActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) else openApp(ctx))
+            .setOngoing(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        if(channel==CH_CALL) {
+            val end=PendingIntent.getBroadcast(ctx,4,Intent(ctx,CallEndReceiver::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.setStyle(NotificationCompat.CallStyle.forOngoingCall(androidx.core.app.Person.Builder().setName("Jarvis").setImportant(true).build(),end))
+        }
+        return builder.build()
+    }
 
     /**
      * Enter the foreground as a microphone service. False when the system

@@ -80,6 +80,12 @@ data class BatterySample(val percent: Int, val charging: Boolean)
  * main thread.
  */
 interface Bridge {
+    /** Null means an older bridge; errors must never trigger a replay. */
+    fun command(text: String, history: List<List<String>>, instant: Boolean): ChatReply? = null
+    fun session(laptop: Boolean): CallToken? = null
+    fun incomingCalls(): JSONObject? = null
+    fun pollCalls(body: JSONObject): JSONObject = callAction(body.put("action","configure"))
+    fun callAction(body: JSONObject): JSONObject = throw UnsupportedOperationException("Incoming calls unavailable")
     fun health(): JSONObject
     fun status(): JSONObject
     fun captions(limit: Int = 20): List<Caption>
