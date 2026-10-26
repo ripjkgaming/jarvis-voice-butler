@@ -224,20 +224,27 @@ def _run_cli(tmp_path, *args):
 
 def test_real_process_ctrl_c_is_clean(tmp_path):
     p = _run_cli(tmp_path, "--no-intro", "--no-window", "--port", "0", "--ui-port", "0")
-    out = ""
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        line = p.stdout.readline()
-        out += line
-        if "Jarvis Chess running" in line:
-            break
-    assert "Jarvis Chess running — press Ctrl+C here to quit." in out
-    p.send_signal(signal.SIGINT)
-    code = p.wait(timeout=20)
-    err = p.stderr.read()
-    assert "Traceback" not in err, err
-    assert code == cli.EXIT_INTERRUPTED
-    assert not (tmp_path / "games" / "chess.lock").exists()  # lock released
+    try:
+        out = ""
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            line = p.stdout.readline()
+            out += line
+            if "Jarvis Chess running" in line:
+                break
+        assert "Jarvis Chess running — press Ctrl+C here to quit." in out
+        p.send_signal(signal.SIGINT)
+        code = p.wait(timeout=20)
+        err = p.stderr.read()
+        assert "Traceback" not in err, err
+        assert code == cli.EXIT_INTERRUPTED
+        assert not (tmp_path / "games" / "chess.lock").exists()  # lock released
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait(timeout=20)
+        p.stdout.close()
+        p.stderr.close()
 
 
 def test_real_process_help_and_bad_flag(tmp_path):
