@@ -138,8 +138,12 @@ async def test_scripted_twenty_move_voice_game_uses_no_network(tmp_path, monkeyp
             if game.state.board.turn == game.state.human_colour and not game.thinking:
                 break
             await asyncio.sleep(0.02)
-        for _ in range(200):  # let Jarvis finish his one-line announcement first
-            if not speaker.speaking and eng._speech_q.empty():
+        # Applying the AI move can yield before its announcement is queued;
+        # synthesis also starts before Piper reports actual audio playback.
+        # Wait for both stages before injecting the next user's utterance.
+        await game.drain(5)
+        for _ in range(200):
+            if not game.speaking and eng._speech_q.empty():
                 break
             await asyncio.sleep(0.02)
         await asyncio.sleep(0.3)
