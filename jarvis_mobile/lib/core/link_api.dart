@@ -127,6 +127,8 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
     'idem_key': '$clientId:$turnId',
   });
 
+  /// History items are [role, text] or [role, text, speaker]. The reply map
+  /// keeps character/char_turn/speaker/switched/target as sent by the bridge.
   Future<Map<String, dynamic>> chat(
     String text, [
     List<List<String>>? history,
@@ -136,6 +138,13 @@ class LinkApi implements ControlBackend, PhoneTelemetryTarget {
     if (h != null) body['history'] = h;
     return _post('/chat', body);
   }
+
+  Future<Map<String, dynamic>> characters() => _get('/characters');
+  Future<Map<String, dynamic>> character() => _get('/character');
+  Future<Map<String, dynamic>> characterSwitch(
+    String target, [
+    String source = 'ui',
+  ]) => _post('/character/switch', {'target': target, 'source': source});
 
   /// Mint a 15-minute LiveKit join token (remote voice phase).
   Future<Map<String, dynamic>> livekitToken({

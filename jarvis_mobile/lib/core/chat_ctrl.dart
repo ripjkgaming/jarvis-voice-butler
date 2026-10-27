@@ -11,7 +11,8 @@ import 'prefs.dart';
 class ChatMsg {
   final String role; // 'user' | 'jarvis'
   final String text;
-  const ChatMsg(this.role, this.text);
+  final String speaker; // character id; 'jarvis' by default
+  const ChatMsg(this.role, this.text, [this.speaker = 'jarvis']);
 }
 
 typedef ChatSender = Future<Map<String, dynamic>> Function(
@@ -32,9 +33,18 @@ class ChatCtrl extends ChangeNotifier {
   http.Client? _client;
   http.Client get _shared => _client ??= http.Client();
 
-  ChatCtrl({ChatSender? sender}) : _send = sender ?? _noSender {
+  /// Active character id at send time (tags the user message).
+  final String Function() activeId;
+
+  /// Called when a reply says the bridge switched character.
+  final void Function(String target, int turn, String source)? onSwitch;
+
+  ChatCtrl({ChatSender? sender, String Function()? activeId, this.onSwitch})
+    : activeId = activeId ?? _jarvis,
+      _send = sender ?? _noSender {
     if (sender == null) _live = true;
   }
+  static String _jarvis() => 'jarvis';
   bool _live = false;
 
   static Future<Map<String, dynamic>> _noSender(
@@ -73,7 +83,13 @@ class ChatCtrl extends ChangeNotifier {
   /// Last 10 exchanges as [role, text] pairs the bridge expects. Pure.
   static List<List<String>> historyOf(List<ChatMsg> log) => log
       .sublist(log.length > 20 ? log.length - 20 : 0)
-      .map((m) => [m.role == 'jarvis' ? 'jarvis' : 'user', m.text])
+      .map(
+        (m) => [
+          m.role == 'jarvis' ? 'jarvis' : 'user',
+          m.text,
+          if (m.speaker != 'jarvis') m.speaker,
+        ],
+      )
       .toList();
 
   Future<void> send(String text) async {
@@ -96,12 +112,12 @@ class ChatCtrl extends ChangeNotifier {
     if (continuation) text = '$_pending\n$text';
     _pending = text;
     if (stop) {
-      messages.add(ChatMsg('user', text));
+      messages.add(ChatMsg('user', text, activeId()));
       typing = false;
       notifyListeners();
       return;
     }
-    messages.add(ChatMsg('user', text));
+    messages.add(ChatMsg('user', text, activeId()));
     typing = true;
     notifyListeners();
     try {
@@ -130,12 +146,24 @@ class ChatCtrl extends ChangeNotifier {
         return;
       }
       final reply = res['reply'];
+      final target = res['target'];
+      final switched =
+          res['switched'] == true && target is String && target.isNotEmpty;
+      final sp = res['speaker'];
+      final speaker = sp is String && sp.isNotEmpty
+          ? sp
+          : (switched ? target : activeId());
       messages.add(
         ChatMsg(
           'jarvis',
           reply is String && reply.isNotEmpty ? reply : errorText(res),
+          speaker,
         ),
       );
+      final turn = res['char_turn'];
+      if (switched && turn is num) {
+        onSwitch?.call(target, turn.toInt(), 'text');
+      }
     } catch (_) {
       if (_disposed || id != _turnId) return;
       messages.add(const ChatMsg('jarvis', 'Link failed, Sir. Try again.'));
