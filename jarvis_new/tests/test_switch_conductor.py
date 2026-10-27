@@ -80,7 +80,7 @@ def test_full_timeline_for_each_directed_pair(mk, a, b):
                      ("greet_say", 1100), ("settling", 1100), ("complete", 1800)]:
         assert m[ev] == pytest.approx(want, abs=2), ev
     order = [e for e, _t, _m in w.cond.log]
-    assert order == ["exiting", "exit_say", "signature", "entering", "greet_say", "settling", "complete"]
+    assert order == ["exiting", "exit_say", "ready", "signature", "entering", "greet_say", "settling", "complete"]
     s = w.says()
     assert [x[1]["character"] for x in s] == [a, b]
     assert s[0][1]["whoosh"] is False and s[1][1]["whoosh"] is True

@@ -1952,16 +1952,61 @@ def _is_mirror() -> bool:
         return False
 
 
+def _prewarm_voice_bg(rt, char_id: str) -> None:
+    """One executor job warming this worker's voice bank for the switch target."""
+    try:
+        try:
+            import character_voice as cv
+        except ImportError:
+            from src import character_voice as cv
+        char = rt.chars.get(char_id)
+        if char is None or cv.is_passthrough(char):
+            return
+        asyncio.get_running_loop().run_in_executor(None, cv.prewarm, char)
+    except Exception:
+        pass
+
+
+def _start_idle_warm(session) -> None:
+    """Warm every non-jarvis voice in this worker once, when the session is quiet."""
+    rt = _char_runtime()
+    if rt is None:
+        return
+    try:
+        try:
+            import character_voice as cv
+        except ImportError:
+            from src import character_voice as cv
+
+        def busy() -> bool:
+            return (
+                getattr(session, "agent_state", "") == "speaking"
+                or getattr(session, "user_state", "") == "speaking"
+            )
+
+        cv.start_idle_warm(list(rt.chars.values()), busy)
+    except Exception:
+        pass
+
+
 async def _follow_character(assistant, session, interval: float = 0.2) -> None:
     """Follow switches made by the bridge authority (one task per session)."""
     rt = _char_runtime()
     if rt is None:
         return
     seen = rt.active_id()
+    warmed: set[str] = set()
     while True:
         await asyncio.sleep(interval)
         try:
             snap = rt.snapshot()
+            if snap["phase"] != "idle":
+                tgt = snap.get("target")
+                if tgt and tgt != snap["active"] and tgt not in warmed:
+                    warmed.add(tgt)
+                    _prewarm_voice_bg(rt, tgt)
+            else:
+                warmed.clear()
             if snap["phase"] != "idle" or snap["active"] == seen:
                 continue
             seen = snap["active"]
@@ -3294,6 +3339,7 @@ async def my_agent(ctx: JobContext):
     )
 
     session._jarvis_models_ready = True
+    _start_idle_warm(session)
     if not getattr(session, "_jarvis_startup_audio_pending", False):
         _voice_turns.ready()
 

@@ -3,7 +3,8 @@
 total_ms: 1800          # whole switch, tunable
 beat_ms: 700            # signature moment, max
 reduced_ms: 200         # reduced-motion cross-fade
-ready_gate_ms: 1000     # trigger-to-ready budget
+ready_gate_ms: 1000     # trigger-to-ready TARGET (measured and logged, not a rollback line)
+prewarm_timeout_ms: 3000  # rollback only if prewarm fails or is still not done by here
 fast_forward_ms: 150    # finish-up when user input arrives mid-switch
 exit_line_max_ms: 1500
 audio_crossfade_ms: 120

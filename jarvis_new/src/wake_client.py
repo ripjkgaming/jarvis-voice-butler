@@ -663,6 +663,17 @@ class WakeClient:
                     elif isinstance(msg, dict) and "character_say" in msg:
                         reply = self._character_say(msg["character_say"])
                         new_muted = None
+                    elif isinstance(msg, dict) and "character_prewarm" in msg:
+                        # Slow (cold model load): answer from a worker thread on
+                        # a dup'd fd so the serial listener keeps serving
+                        # character_say (the exit line) meanwhile.
+                        threading.Thread(
+                            target=self._prewarm_reply,
+                            args=(conn.dup(), msg["character_prewarm"]),
+                            name="jarvis-char-prewarm",
+                            daemon=True,
+                        ).start()
+                        continue
                     elif isinstance(msg, dict) and "voice_output" in msg:
                         if isinstance(msg["voice_output"], bool):
                             self._voice_output = msg["voice_output"]
@@ -738,6 +749,46 @@ class WakeClient:
             ).start()
             self._say_loop = loop
         return loop
+
+    def _prewarm_reply(self, conn: socket.socket, cid: object) -> None:
+        with conn:
+            reply = self._character_prewarm(cid)
+            with contextlib.suppress(OSError):
+                conn.sendall(json.dumps(reply).encode())
+
+    def _character_prewarm(self, cid: object) -> dict:
+        """Warm this process's voice bank for ``cid`` (blocking, worker thread)."""
+        t0 = time.monotonic()
+        if not isinstance(cid, str) or not cid.strip():
+            return {"ok": False, "error": "bad character", "ms": 0}
+        try:
+            import character_voice
+            from character_runtime import get_runtime
+
+            char = get_runtime().chars.get(cid.strip().lower())
+            if char is None:
+                return {"ok": False, "error": f"unknown character {cid!r}", "ms": 0}
+            ok = bool(character_voice.prewarm(char))
+        except Exception as exc:
+            logger.warning("character_prewarm failed: %s", exc)
+            ok = False
+        return {"ok": ok, "ms": int((time.monotonic() - t0) * 1000)}
+
+    def _idle_warm_busy(self) -> bool:
+        return self._mic_snapshot()[2] or bool(getattr(self, "_say_active", False))
+
+    def start_idle_warm(self, delay_s: float = 20.0):
+        """Warm all non-jarvis voices once, low priority, only while idle."""
+        try:
+            import character_voice
+            from character_runtime import get_runtime
+
+            return character_voice.start_idle_warm(
+                list(get_runtime().chars.values()), self._idle_warm_busy, delay_s=delay_s
+            )
+        except Exception as exc:
+            logger.debug("idle warm unavailable: %s", exc)
+            return None
 
     def _character_say(self, req: object) -> dict:
         """Render a character line (blocking, socket thread) and queue playback."""
@@ -856,6 +907,7 @@ class WakeClient:
         logger.warning("mic: %s", await asyncio.to_thread(audio_aec.set_mic_headroom))
         logger.warning("aec: %s", await asyncio.to_thread(audio_aec.engage))
         self.start_mic_control()
+        self.start_idle_warm()
         self._events.start()
         await self._listen_loop(None)
 

@@ -1,0 +1,48 @@
+{
+  "ready_gate_ms": 1000,
+  "prewarm_timeout_ms": 3000,
+  "pairs": {
+    "jarvis->ultron": {
+      "cold": {
+        "ready_ms": 1725,
+        "ok": true,
+        "exit_and_ready_ms": 1821
+      },
+      "warm": {
+        "ready_ms": 286,
+        "ok": true,
+        "exit_and_ready_ms": 286
+      },
+      "cold_within_gate": false,
+      "cold_within_timeout": true
+    },
+    "jarvis->friday": {
+      "cold": {
+        "ready_ms": 1663,
+        "ok": true,
+        "exit_and_ready_ms": 1735
+      },
+      "warm": {
+        "ready_ms": 70,
+        "ok": true,
+        "exit_and_ready_ms": 140
+      },
+      "cold_within_gate": false,
+      "cold_within_timeout": true
+    },
+    "ultron->friday": {
+      "cold": {
+        "ready_ms": 1549,
+        "ok": true,
+        "exit_and_ready_ms": 2068
+      },
+      "warm": {
+        "ready_ms": 77,
+        "ok": true,
+        "exit_and_ready_ms": 566
+      },
+      "cold_within_gate": false,
+      "cold_within_timeout": true
+    }
+  }
+}

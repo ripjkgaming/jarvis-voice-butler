@@ -8,8 +8,12 @@ work. Every other character gets its own warm Piper voice plus
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import threading
+import time
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import numpy as np
@@ -72,16 +76,31 @@ class VoiceBank:
 
     def __init__(self) -> None:
         self._voices: dict[Path, object] = {}
-        self._lock = threading.Lock()
-        self._synth_lock = threading.Lock()  # one native synth at a time
+        self._lock = threading.Lock()  # guards the two dicts below only
+        self._load_locks: dict[Path, threading.Lock] = {}
+        self._synth_locks: dict[Path, threading.Lock] = {}
+
+    def _path_lock(self, table: dict, path: Path) -> threading.Lock:
+        with self._lock:
+            lock = table.get(path)
+            if lock is None:
+                lock = table[path] = threading.Lock()
+            return lock
 
     def get_voice(self, char):
+        """Load once per model; distinct models load concurrently."""
         path = resolve_model_path(char)
         with self._lock:
             voice = self._voices.get(path)
+        if voice is not None:
+            return voice
+        with self._path_lock(self._load_locks, path):
+            with self._lock:
+                voice = self._voices.get(path)
             if voice is None:
                 voice = load_piper_voice(path)
-                self._voices[path] = voice
+                with self._lock:
+                    self._voices[path] = voice
         return voice
 
     def sample_rate(self, char) -> int:
@@ -94,7 +113,9 @@ class VoiceBank:
     def render_pcm(self, text: str, char) -> tuple[np.ndarray, int]:
         voice = self.get_voice(char)
         sr = self.sample_rate(char)
-        with self._synth_lock:
+        # Serialize per voice instance only: different voices synthesize in
+        # parallel (an exit line never waits on the target's prewarm).
+        with self._path_lock(self._synth_locks, resolve_model_path(char)):
             raw = render_sentence_pcm(
                 voice, text, length_scale=length_scale_for(char)
             )
@@ -113,6 +134,55 @@ class VoiceBank:
     def whoosh_pcm(self, char, sr: int, dur_ms: float = 800) -> np.ndarray:
         kind = char.voice.get("whoosh")
         return voice_fx.synth_whoosh(kind, sr, dur_ms)
+
+
+def idle_warm_enabled() -> bool:
+    return os.environ.get("JARVIS_CHARACTER_IDLE_WARM", "1").strip() != "0"
+
+
+def start_idle_warm(
+    chars: Iterable,
+    busy: Callable[[], bool],
+    *,
+    delay_s: float = 20.0,
+    bank: VoiceBank | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    retry_s: float = 5.0,
+    max_retries: int = 12,
+    background: bool = True,
+) -> threading.Thread | None:
+    """Warm every non-jarvis voice once, low priority, only while idle.
+
+    Jarvis is never touched. Returns the daemon thread (None when disabled).
+    """
+    if not idle_warm_enabled():
+        return None
+    targets = [c for c in chars if not is_passthrough(c)]
+    use = bank or _bank
+
+    def run() -> None:
+        if background:
+            with contextlib.suppress(Exception):
+                os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
+        sleep(delay_s)
+        for char in targets:
+            tries = 0
+            while True:
+                try:
+                    is_busy = bool(busy())
+                except Exception:
+                    is_busy = True
+                if not is_busy:
+                    break
+                tries += 1
+                if tries > max_retries:
+                    return
+                sleep(retry_s)
+            use.prewarm(char)
+
+    t = threading.Thread(target=run, name="char-idle-warm", daemon=True)
+    t.start()
+    return t
 
 
 _bank = VoiceBank()

@@ -82,6 +82,17 @@ def _validate_motion(data: dict[str, Any], path: Path) -> dict[str, Any]:
     total = data["total_ms"]
     if not isinstance(total, (int, float)) or total <= 0:
         raise _fail(path, "total_ms must be positive")
+    for key in ("ready_gate_ms", "prewarm_timeout_ms"):
+        if key in data and (
+            not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or data[key] <= 0
+        ):
+            raise _fail(path, f"{key} must be positive")
+    if (
+        "prewarm_timeout_ms" in data
+        and isinstance(data.get("ready_gate_ms"), (int, float))
+        and data["prewarm_timeout_ms"] < data["ready_gate_ms"]
+    ):
+        raise _fail(path, "prewarm_timeout_ms must be >= ready_gate_ms")
     beat = data["beat_ms"]
     if not isinstance(beat, (int, float)) or not 0 < beat <= _MAX_BEAT_MS:
         raise _fail(path, f"beat_ms must be in (0, {_MAX_BEAT_MS}]")

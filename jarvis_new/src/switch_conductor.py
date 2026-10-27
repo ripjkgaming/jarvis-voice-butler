@@ -120,6 +120,8 @@ class Conductor:
         self._complete_cbs: list[Callable[[Any], None]] = []
         self._installed = False
         self.log: list[tuple[str, int, float]] = []  # (event, turn, elapsed_ms)
+        self._pw: Any = None
+        self._ready_marked = -1
 
     # -- wiring -----------------------------------------------------
     def install(self) -> Conductor:
@@ -139,13 +141,24 @@ class Conductor:
             self._motion = _chars.motion()
         return self._motion
 
-    @staticmethod
-    def _prewarm_hook(char: Any) -> bool:
-        cv = _cv()
-        fn = getattr(cv, "prewarm", None) if cv else None
-        if fn is None:
-            return True  # voice agent absent: nothing to warm
-        return bool(fn(char))
+    def _prewarm_hook(self, char: Any) -> bool:
+        """Warm the voice where it is rendered: the wake client process.
+
+        No wake socket (None reply) means nothing renders there: ok.
+        """
+        payload = {"character_prewarm": char.id}
+        try:
+            timeout = float(self.motion().get("prewarm_timeout_ms", 3000)) / 1000.0 + 1.0
+            try:
+                reply = self._rpc(payload, timeout=timeout)  # type: ignore[call-arg]
+            except TypeError:
+                reply = self._rpc(payload)
+        except Exception:
+            logger.exception("character_prewarm rpc failed")
+            return False
+        if not isinstance(reply, dict):
+            return True
+        return bool(reply.get("ok"))
 
     def note_user_interrupt(self) -> None:
         """The user spoke over us: the pending exit line is skipped."""
@@ -227,10 +240,20 @@ class Conductor:
                 return False
             if self.rt.machine.phase is Phase.ROLLBACK:
                 raise _RollbackNowError
+            self._note_ready(turn, t0)
             left = self._eff(ms, t0, total) - self._clock()
             if left <= 0:
                 return True
             self._sleep(min(left, _SLICE_S))
+
+    def _note_ready(self, turn: int, t0: float) -> None:
+        pw = self._pw
+        if pw is None or self._ready_marked == turn:
+            return
+        done = not pw.is_alive() if hasattr(pw, "is_alive") else True
+        if done and self.rt.machine._prewarm.get(turn) is True:
+            self._ready_marked = turn
+            self._mark("ready", turn, t0)
 
     def _advance(self, target: Phase) -> bool:
         cur = self.rt.machine.phase
@@ -267,7 +290,8 @@ class Conductor:
         sig_at = float(ph["signature"][0])
         chrome_at = float(ph["in_chrome"][0])
         greet_at = float(ph["greeting_at"])
-        gate_ms = float(mo.get("ready_gate_ms", 1000))
+        gate_ms = float(mo.get("ready_gate_ms", 1000))  # target, logged only
+        timeout_ms = max(gate_ms, float(mo.get("prewarm_timeout_ms", 3000)))
         self._t0_cur = t0
         chars = self.rt.chars
         active = chars[self.rt.active_id()]
@@ -291,23 +315,36 @@ class Conductor:
 
             exit_thread = self._spawn(speak_exit)
         prewarm = self.rt.run_prewarm(turn)
+        self._pw = prewarm
+        self._ready_marked = -1
 
         if not self._wait(sig_at, t0, total, turn, gen):
             return
         if self._advance(Phase.SIGNATURE):
             self._mark("signature", turn, t0)
 
-        # ready gate: wait (bounded by ready_gate_ms) for prewarm
+        # ready gate: ENTERING at in_chrome[0] when prewarm is ok, else as soon
+        # as it is ok. Rollback only on failure or after prewarm_timeout_ms.
         if not self._wait(chrome_at, t0, total, turn, gen):
             return
-        remaining = gate_ms / 1000.0 - (self._clock() - t0)
-        if prewarm is not None and hasattr(prewarm, "join"):
-            prewarm.join(timeout=max(0.0, remaining))
+        while hasattr(prewarm, "is_alive") and prewarm.is_alive():
+            if (self._clock() - t0) * 1000.0 >= timeout_ms:
+                break
+            if not self._live(turn, gen):
+                return
+            if self.rt.machine.phase is Phase.ROLLBACK:
+                raise _RollbackNowError
+            self._sleep(_SLICE_S)
+            prewarm.join(timeout=0.002)
+        self._note_ready(turn, t0)
         if not self._live(turn, gen):
             return
         if not self._gate(turn):
             self._rollback(turn, gen, t0, active, exit_thread)
             return
+        elapsed = (self._clock() - t0) * 1000.0
+        if elapsed > gate_ms:
+            logger.info("switch ready %.0f ms (target %.0f ms)", elapsed, gate_ms)
         if not self._advance(Phase.ENTERING):
             return
         self._mark("entering", turn, t0)
