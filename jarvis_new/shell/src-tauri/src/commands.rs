@@ -233,6 +233,20 @@ pub fn bridge_info() -> serde_json::Value {
     serde_json::json!({ "url": format!("http://{host}:{}", bridge_port()), "token": token })
 }
 
+/// Hard kill switch for the WebGL glow layer: `JARVIS_FX_GL=0` (or false/off)
+/// keeps the HUD on the 2D canvas path. WebKitGTK GPU problems stay opt-out.
+pub fn fx_gl_enabled_from(value: Option<&str>) -> bool {
+    !matches!(
+        value.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+        Some("0" | "false" | "off" | "no")
+    )
+}
+
+#[tauri::command]
+pub fn fx_gl_enabled() -> bool {
+    fx_gl_enabled_from(std::env::var("JARVIS_FX_GL").ok().as_deref())
+}
+
 #[tauri::command]
 pub fn app_config() -> serde_json::Value {
     let agent_name = std::env::var("AGENT_NAME")
@@ -419,6 +433,16 @@ mod tests {
         let v = app_config();
         let name = v.get("agentName").and_then(|n| n.as_str()).unwrap();
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn fx_gl_kill_switch_parses_off_values() {
+        assert!(fx_gl_enabled_from(None));
+        assert!(fx_gl_enabled_from(Some("1")));
+        assert!(fx_gl_enabled_from(Some("")));
+        for off in ["0", "false", "OFF", " no "] {
+            assert!(!fx_gl_enabled_from(Some(off)), "{off}");
+        }
     }
 
     #[test]

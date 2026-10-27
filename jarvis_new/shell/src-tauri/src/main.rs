@@ -99,6 +99,7 @@ fn main() {
         app.invoke_handler(tauri::generate_handler![
             commands::app_config,
             commands::bridge_info,
+            commands::fx_gl_enabled,
             commands::mint_token,
             commands::hide_overlay,
             commands::open_chess_window,
