@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../character/skin_tokens.dart';
+import '../character/transition.dart';
 import '../core/theme.dart';
 
 /// Shared cinematic HUD chrome: background, glass panel with bracket
@@ -14,7 +16,7 @@ class HudBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
@@ -90,7 +92,8 @@ class HudPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = CustomPaint(
+    final cut = Skin.current.cut;
+    Widget body = CustomPaint(
       painter: _BracketPainter(
         color: JarvisTheme.cyan.withValues(alpha: glow ? 0.9 : 0.45),
       ),
@@ -100,13 +103,35 @@ class HudPanel extends StatelessWidget {
         child: child,
       ),
     );
-    if (onTap == null) return body;
-    return InkWell(
-      borderRadius: BorderRadius.circular(JarvisTheme.rPanel),
-      onTap: onTap,
-      child: body,
-    );
+    // Angular skins chamfer the panel corners (clip only; no layout change).
+    if (cut > 0) body = ClipPath(clipper: _ChamferClipper(cut), child: body);
+    if (onTap != null) {
+      body = InkWell(
+        borderRadius: BorderRadius.circular(JarvisTheme.rPanel),
+        onTap: onTap,
+        child: body,
+      );
+    }
+    return CxGroup(group: CxGroupId.panels, child: body);
   }
+}
+
+class _ChamferClipper extends CustomClipper<Path> {
+  final double cut;
+  _ChamferClipper(this.cut);
+
+  @override
+  Path getClip(Size s) => Path()
+    ..moveTo(cut, 0)
+    ..lineTo(s.width, 0)
+    ..lineTo(s.width, s.height - cut)
+    ..lineTo(s.width - cut, s.height)
+    ..lineTo(0, s.height)
+    ..lineTo(0, cut)
+    ..close();
+
+  @override
+  bool shouldReclip(covariant _ChamferClipper old) => old.cut != cut;
 }
 
 class _BracketPainter extends CustomPainter {
@@ -139,12 +164,14 @@ class _BracketPainter extends CustomPainter {
 /// Monospaced uppercase section header with rule line.
 class SectionLabel extends StatelessWidget {
   final String text;
-  final Color accent;
-  const SectionLabel(this.text, {super.key, this.accent = JarvisTheme.cyan});
+  final Color? accentOverride;
+  const SectionLabel(this.text, {super.key, Color? accent})
+      : accentOverride = accent;
+  Color get accent => accentOverride ?? JarvisTheme.cyan;
 
   @override
   Widget build(BuildContext context) {
-    return Row(children: [
+    return CxGroup(group: CxGroupId.text, child: Row(children: [
       Container(width: 3, height: 12, color: accent),
       const SizedBox(width: 8),
       Text(text.toUpperCase(), style: JarvisTheme.label(accent)),
@@ -160,7 +187,7 @@ class SectionLabel extends StatelessWidget {
           ),
         ),
       ),
-    ]);
+    ]));
   }
 }
 
@@ -356,7 +383,7 @@ class HudError extends StatelessWidget {
             Border.all(color: JarvisTheme.amber.withValues(alpha: 0.5)),
       ),
       child: Row(children: [
-        const Icon(Icons.warning_amber_rounded,
+        Icon(Icons.warning_amber_rounded,
             color: JarvisTheme.amber, size: 20),
         const SizedBox(width: 10),
         Expanded(
@@ -368,7 +395,7 @@ class HudError extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(message,
                     style:
-                        const TextStyle(color: JarvisTheme.text, fontSize: 13)),
+                        TextStyle(color: JarvisTheme.text, fontSize: 13)),
               ]),
         ),
         if (onRetry != null)

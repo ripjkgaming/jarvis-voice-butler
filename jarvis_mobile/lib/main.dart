@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dart:io' show Platform;
+
+import 'character/character_ctrl.dart';
+import 'character/skin_tokens.dart';
+import 'character/transition.dart';
 import 'core/theme.dart';
 import 'core/voice_ctrl.dart';
 import 'screens/chat_screen.dart';
@@ -14,8 +19,54 @@ import 'widgets/hud.dart';
 /// glowing bottom command bar. Tab logic unchanged.
 void main() => runApp(const JarvisApp());
 
-class JarvisApp extends StatelessWidget {
-  const JarvisApp({super.key});
+class JarvisApp extends StatefulWidget {
+  /// Characters poll the bridge; widget tests run without them.
+  final bool enableCharacters;
+  const JarvisApp({super.key, this.enableCharacters = true});
+
+  @override
+  State<JarvisApp> createState() => _JarvisAppState();
+}
+
+class _JarvisAppState extends State<JarvisApp>
+    with SingleTickerProviderStateMixin {
+  late final CharacterCtrl _chars = CharacterCtrl();
+  late final CxEngine _engine;
+  bool _live = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _live = widget.enableCharacters && !Platform.environment.containsKey('FLUTTER_TEST');
+    _engine = CxEngine(_chars, this, () {
+      final v = WidgetsBinding.instance.platformDispatcher.accessibilityFeatures;
+      return v.disableAnimations || _chars.reducedSetting;
+    });
+    Skin.changes.addListener(_onSkin);
+    if (_live) _chars.start();
+  }
+
+  /// Themed widgets read [JarvisTheme] statics, so a skin change re-builds the
+  /// subtree (colour/opacity only; no layout work) at most once per frame.
+  void _onSkin() {
+    if (!mounted) return;
+    setState(() {});
+    (context as Element).visitChildren(_markAll);
+  }
+
+  static void _markAll(Element e) {
+    e.markNeedsBuild();
+    e.visitChildren(_markAll);
+  }
+
+  @override
+  void dispose() {
+    Skin.changes.removeListener(_onSkin);
+    _chars.stop();
+    _engine.dispose();
+    _chars.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +74,12 @@ class JarvisApp extends StatelessWidget {
       title: 'Jarvis',
       debugShowCheckedModeBanner: false,
       theme: JarvisTheme.dark,
+      themeAnimationDuration: Duration.zero,
+      builder: (context, child) => CxScope(
+        engine: _engine,
+        ctrl: _chars,
+        child: CxOverlay(engine: _engine, child: child ?? const SizedBox()),
+      ),
       home: const _Tabs(),
     );
   }
@@ -78,7 +135,10 @@ class _TabsState extends State<_Tabs> {
           ),
         ),
       ),
-      bottomNavigationBar: _CommandBar(index: _i, onTap: _select),
+      bottomNavigationBar: CxGroup(
+        group: CxGroupId.chrome,
+        child: _CommandBar(index: _i, onTap: _select),
+      ),
     );
   }
 }

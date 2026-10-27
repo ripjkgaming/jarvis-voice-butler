@@ -48,7 +48,7 @@ class _ControlScreenState extends State<ControlScreen> {
           title:
               Text(title.toUpperCase(), style: JarvisTheme.label(JarvisTheme.amber, 12)),
           content: Text(body,
-              style: const TextStyle(color: JarvisTheme.text, fontSize: 14)),
+              style: TextStyle(color: JarvisTheme.text, fontSize: 14)),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -88,7 +88,7 @@ class _ControlScreenState extends State<ControlScreen> {
                   _c.muted
                       ? 'Audio muted · ${_c.volume}%'
                       : 'Audio live · ${_c.volume}%',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JarvisTheme.muted, fontSize: 12)),
             ]),
         actions: [
@@ -166,7 +166,7 @@ class _ControlScreenState extends State<ControlScreen> {
                     child: Center(
                       child: Text('♪ ${_c.nowPlaying!}',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: JarvisTheme.muted, fontSize: 12)),
                     ),
                   ),
@@ -254,7 +254,7 @@ class _ControlScreenState extends State<ControlScreen> {
                     padding: const EdgeInsets.all(4),
                     onTap: () async =>
                         _say(await _c.pressEnter()),
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.all(10),
                       child: Icon(Icons.keyboard_return,
                           color: JarvisTheme.cyan, size: 20),

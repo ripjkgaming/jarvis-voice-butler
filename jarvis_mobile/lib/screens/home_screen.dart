@@ -1,3 +1,4 @@
+import '../character/ui.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -115,7 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const InputDecoration(labelText: 'Bearer token'),
               obscureText: true),
           const SizedBox(height: 8),
-          const Text(
+          Text(
               'Token lives in ~/.jarvis/bridge_token on the laptop.',
               style: TextStyle(color: JarvisTheme.muted, fontSize: 12)),
         ]),
@@ -144,18 +145,20 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('JARVIS',
-                  style: TextStyle(
+              Text(brandName(context),
+                  style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       letterSpacing: 4,
                       fontSize: 18)),
-              Text('MARK II // COMPANION',
+              Text(tagline(context, 'MARK II // COMPANION'),
                   style: JarvisTheme.label(JarvisTheme.cyanDim, 9)),
             ]),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Row(children: [
+              const CharacterChip(),
+              const SizedBox(width: 8),
               PulseDot(online: _online),
               IconButton(
                   icon: const Icon(Icons.link),
@@ -169,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
             if (widget.onCall != null) ...[
-              FilledButton.icon(onPressed: widget.onCall, icon: const Icon(Icons.call), label: const Text('CALL JARVIS')),
+              FilledButton.icon(onPressed: widget.onCall, icon: const Icon(Icons.call), label: Text('CALL ${brandName(context)}')),
               const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Start a voice session through your linked home bridge.', textAlign: TextAlign.center)),
             ],
             const HudScanline(),
@@ -244,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
               index: 4,
               child: HudPanel(
                 child: _captions.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                             'Nothing yet — captions appear here.',
                             style: TextStyle(
@@ -307,12 +310,14 @@ class _QuickTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final Color accent;
+  final Color? accentOverride;
   const _QuickTile(
       {required this.icon,
       required this.label,
       required this.onTap,
-      this.accent = JarvisTheme.cyan});
+      Color? accent})
+      : accentOverride = accent;
+  Color get accent => accentOverride ?? JarvisTheme.cyan;
 
   @override
   Widget build(BuildContext context) {
@@ -363,7 +368,7 @@ class _CaptionRow extends StatelessWidget {
                         9)),
                 const SizedBox(height: 2),
                 Text(caption['text'] ?? '',
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: JarvisTheme.text, fontSize: 13, height: 1.45)),
               ]),
         ),

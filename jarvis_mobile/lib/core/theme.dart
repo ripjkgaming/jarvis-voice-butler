@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../character/skin_tokens.dart';
+
 /// J.A.R.V.I.S. cinematic design system — Iron Man 1-2 HUD.
 ///
 /// Near-black deep-navy base, cyan signal glow (#5FE3FF), amber warnings,
@@ -7,21 +9,21 @@ import 'package:flutter/material.dart';
 /// [HudPanel] in widgets/hud.dart), mono uppercase telemetry labels.
 class JarvisTheme {
   // ── Palette ──────────────────────────────────────────────
-  static const cyan = Color(0xFF5FE3FF);
-  static const cyanBright = Color(0xFFBDF3FF);
-  static const cyanDeep = Color(0xFF0E7E96);
-  static const cyanDim = Color(0xFF2A7E96);
-  static const bg = Color(0xFF04070D);
-  static const bg2 = Color(0xFF070D16);
-  static const panel = Color(0xFF0B1420);
-  static const panelHi = Color(0xFF101C2C);
-  static const line = Color(0xFF1B2A35);
-  static const lineCyan = Color(0xFF2B4A5E);
-  static const text = Color(0xFFE8F6FC);
-  static const muted = Color(0xFF7B93A3);
-  static const amber = Color(0xFFFFB648);
-  static const danger = Color(0xFFFF5D5D);
-  static const ok = Color(0xFF5DF2B8);
+  static Color get cyan => Skin.current.cyan;
+  static Color get cyanBright => Skin.current.cyanBright;
+  static Color get cyanDeep => Skin.current.cyanDeep;
+  static Color get cyanDim => Skin.current.cyanDim;
+  static Color get bg => Skin.current.bg;
+  static Color get bg2 => Skin.current.bg2;
+  static Color get panel => Skin.current.panel;
+  static Color get panelHi => Skin.current.panelHi;
+  static Color get line => Skin.current.line;
+  static Color get lineCyan => Skin.current.lineCyan;
+  static Color get text => Skin.current.text;
+  static Color get muted => Skin.current.muted;
+  static Color get amber => Skin.current.amber;
+  static Color get danger => Skin.current.danger;
+  static Color get ok => Skin.current.ok;
 
   // ── Spacing scale ────────────────────────────────────────
   static const s4 = 4.0;
@@ -33,31 +35,33 @@ class JarvisTheme {
   static const s32 = 32.0;
 
   // ── Radii (rounded-but-sharp) ────────────────────────────
-  static const rPanel = 10.0;
+  static double get rPanel => Skin.current.radius;
   static const rBubble = 14.0;
   static const rPill = 999.0;
 
   // ── Type ─────────────────────────────────────────────────
   /// Monospaced uppercase telemetry label.
-  static TextStyle label([Color color = muted, double size = 11]) =>
+  static TextStyle label([Color? color, double size = 11]) =>
       TextStyle(
-        color: color,
+        color: color ?? muted,
         fontSize: size,
         letterSpacing: 2.2,
         fontWeight: FontWeight.w600,
-        fontFamily: 'monospace',
-        fontFamilyFallback: const ['Menlo', 'Consolas', 'monospace'],
+        fontFamily: Skin.current.mono ? 'monospace' : null,
+        fontFamilyFallback: Skin.current.mono
+            ? const ['Menlo', 'Consolas', 'monospace']
+            : null,
       );
 
-  static const title = TextStyle(
+  static TextStyle get title => TextStyle(
     color: text,
     fontSize: 20,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.4,
   );
-  static const subtitle = TextStyle(color: muted, fontSize: 13, height: 1.45);
-  static const body = TextStyle(color: text, fontSize: 14, height: 1.5);
-  static const caption = TextStyle(color: muted, fontSize: 12, height: 1.4);
+  static TextStyle get subtitle => TextStyle(color: muted, fontSize: 13, height: 1.45);
+  static TextStyle get body => TextStyle(color: text, fontSize: 14, height: 1.5);
+  static TextStyle get caption => TextStyle(color: muted, fontSize: 12, height: 1.4);
 
   static BoxDecoration panelDeco({bool glow = false}) => BoxDecoration(
         color: panel.withValues(alpha: 0.72),
@@ -75,21 +79,26 @@ class JarvisTheme {
       );
 
   static ThemeData get dark {
-    final scheme = const ColorScheme.dark(
+    final k = Skin.current;
+    final scheme = ColorScheme(
+      brightness: k.light ? Brightness.light : Brightness.dark,
       primary: cyan,
+      onPrimary: k.onAccent,
       secondary: cyanDeep,
+      onSecondary: k.onAccent,
       tertiary: amber,
       error: danger,
+      onError: Colors.white,
       surface: panel,
       onSurface: text,
     );
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Skin.current.light ? Brightness.light : Brightness.dark,
       scaffoldBackgroundColor: bg,
       colorScheme: scheme,
       splashFactory: InkSparkle.splashFactory,
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         foregroundColor: text,
         elevation: 0,
@@ -110,21 +119,21 @@ class JarvisTheme {
           borderRadius: BorderRadius.circular(rPanel),
           side: BorderSide(color: lineCyan.withValues(alpha: 0.7)),
         ),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
             color: text, fontSize: 16, fontWeight: FontWeight.w700),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: panel.withValues(alpha: 0.8),
-        hintStyle: const TextStyle(color: muted, fontSize: 14),
-        labelStyle: const TextStyle(color: muted, fontSize: 13),
+        hintStyle: TextStyle(color: muted, fontSize: 14),
+        labelStyle: TextStyle(color: muted, fontSize: 13),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rPanel),
           borderSide: BorderSide(color: lineCyan.withValues(alpha: 0.5)),
         ),
-        focusedBorder: const OutlineInputBorder(
+        focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(rPanel)),
           borderSide: BorderSide(color: cyan, width: 1.2),
         ),
@@ -132,7 +141,7 @@ class JarvisTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: cyan,
-          foregroundColor: const Color(0xFF031018),
+          foregroundColor: Skin.current.onAccent,
           textStyle:
               const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
           shape: RoundedRectangleBorder(
@@ -149,7 +158,7 @@ class JarvisTheme {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: panel.withValues(alpha: 0.8),
-        labelStyle: const TextStyle(color: text, fontSize: 13),
+        labelStyle: TextStyle(color: text, fontSize: 13),
         side: BorderSide(color: lineCyan.withValues(alpha: 0.6)),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8)),
@@ -161,15 +170,15 @@ class JarvisTheme {
         thumbColor: cyanBright,
         overlayColor: cyan.withValues(alpha: 0.15),
         valueIndicatorColor: panelHi,
-        valueIndicatorTextStyle: const TextStyle(color: text, fontSize: 12),
+        valueIndicatorTextStyle: TextStyle(color: text, fontSize: 12),
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: cyan,
         linearTrackColor: line,
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: panelHi,
-        contentTextStyle: const TextStyle(color: text, fontSize: 13),
+        contentTextStyle: TextStyle(color: text, fontSize: 13),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rPanel),
           side: BorderSide(color: lineCyan.withValues(alpha: 0.6)),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import '../character/skin_tokens.dart';
 import '../core/link_api.dart';
 import '../core/prefs.dart';
 import '../core/theme.dart';
@@ -145,7 +146,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   style: JarvisTheme.label(JarvisTheme.cyan, 12),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                Text(
                   'LiveKit · low-latency channel',
                   style: TextStyle(color: JarvisTheme.muted, fontSize: 12),
                 ),
@@ -248,7 +249,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
               const SizedBox(height: 10),
               HudPanel(
                 child: _captions.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'No transcript yet — it streams here while live.',
                           style: TextStyle(
@@ -278,7 +279,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                   Expanded(
                                     child: Text(
                                       _captions[i]['text'] ?? '',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: JarvisTheme.text,
                                         fontSize: 13,
                                         height: 1.45,
@@ -334,7 +335,7 @@ class _TalkButton extends StatelessWidget {
           children: [
             Icon(
               live ? Icons.call_end : Icons.mic,
-              color: const Color(0xFF031018),
+              color: Skin.current.onAccent,
               size: 20,
             ),
             const SizedBox(width: 10),
@@ -345,8 +346,8 @@ class _TalkButton extends StatelessWidget {
                       ? 'CANCEL'
                       : 'CALL JARVIS')
                   .toUpperCase(),
-              style: const TextStyle(
-                color: Color(0xFF031018),
+              style: TextStyle(
+                color: Skin.current.onAccent,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 2,
                 fontSize: 14,

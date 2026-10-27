@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../character/transition.dart';
+import '../character/skin_tokens.dart';
+import '../character/ui.dart';
 import '../core/chat_ctrl.dart';
 import '../core/theme.dart';
 import '../widgets/hud.dart';
@@ -26,7 +29,12 @@ class _ChatScreenState extends State<ChatScreen>
   @override
   void initState() {
     super.initState();
-    _chat = widget.ctrl ?? ChatCtrl();
+    _chat = widget.ctrl ??
+        ChatCtrl(
+          activeId: () => CxScope.peek(context)?.ctrl.active ?? 'jarvis',
+          onSwitch: (t, n, src) =>
+              CxScope.peek(context)?.ctrl.noteSwitch(t, n, src),
+        );
     _chat.addListener(_jump);
     _pulse = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1000))
@@ -72,14 +80,15 @@ class _ChatScreenState extends State<ChatScreen>
               const SizedBox(height: 2),
               Text(
                   _chat.typing
-                      ? 'Jarvis is thinking…'
+                      ? '${spokenName(context)} is thinking…'
                       : '${_chat.messages.length} MESSAGES',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: JarvisTheme.muted, fontSize: 12)),
             ]),
         actions: [
+          const CharacterChip(),
           Padding(
-            padding: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.only(left: 12, right: 12),
             child: Center(
               child: FadeTransition(
                 opacity: Tween(begin: 0.5, end: 1.0).animate(_pulse),
@@ -117,7 +126,7 @@ class _ChatScreenState extends State<ChatScreen>
               ? Center(
                   child: HudEmpty(
                     icon: Icons.chat_bubble_outline,
-                    title: 'Ask Jarvis anything.',
+                    title: 'Ask ${spokenName(context)} anything.',
                     hint:
                         'Long-press a Jarvis reply to speak it aloud via Voice.',
                   ),
@@ -133,6 +142,11 @@ class _ChatScreenState extends State<ChatScreen>
                     }
                     final m = _chat.messages[i];
                     final mine = m.role == 'user';
+                    // Each message keeps the skin of whoever said it.
+                    final info = CxScope.maybeOf(context)
+                        ?.ctrl
+                        .characters[m.speaker];
+                    final tk = skinFor(info);
                     return Stagger(
                       index: 0,
                       child: Align(
@@ -163,10 +177,8 @@ class _ChatScreenState extends State<ChatScreen>
                                         0.78),
                             decoration: BoxDecoration(
                               color: mine
-                                  ? JarvisTheme.cyan
-                                      .withValues(alpha: 0.16)
-                                  : JarvisTheme.panel
-                                      .withValues(alpha: 0.85),
+                                  ? tk.cyan.withValues(alpha: 0.16)
+                                  : tk.panel.withValues(alpha: 0.85),
                               borderRadius: BorderRadius.only(
                                 topLeft: const Radius.circular(
                                     JarvisTheme.rBubble),
@@ -179,15 +191,13 @@ class _ChatScreenState extends State<ChatScreen>
                               ),
                               border: Border.all(
                                 color: mine
-                                    ? JarvisTheme.cyan
-                                        .withValues(alpha: 0.55)
-                                    : JarvisTheme.lineCyan
-                                        .withValues(alpha: 0.55),
+                                    ? tk.cyan.withValues(alpha: 0.55)
+                                    : tk.lineCyan.withValues(alpha: 0.55),
                               ),
                               boxShadow: mine
                                   ? [
                                       BoxShadow(
-                                        color: JarvisTheme.cyan
+                                        color: tk.cyan
                                             .withValues(alpha: 0.12),
                                         blurRadius: 14,
                                       )
@@ -198,16 +208,18 @@ class _ChatScreenState extends State<ChatScreen>
                                 crossAxisAlignment:
                                     CrossAxisAlignment.start,
                                 children: [
-                                  Text(mine ? 'YOU' : 'J.A.R.V.I.S.',
+                                  Text(
+                                      mine
+                                          ? 'YOU'
+                                          : (m.speaker == 'jarvis' || info == null
+                                              ? 'J.A.R.V.I.S.'
+                                              : info.displayName.toUpperCase()),
                                       style: JarvisTheme.label(
-                                          mine
-                                              ? JarvisTheme.cyan
-                                              : JarvisTheme.muted,
-                                          8)),
+                                          mine ? tk.cyan : tk.muted, 8)),
                                   const SizedBox(height: 3),
                                   Text(m.text,
-                                      style: const TextStyle(
-                                          color: JarvisTheme.text,
+                                      style: TextStyle(
+                                          color: tk.text,
                                           fontSize: 14,
                                           height: 1.5)),
                                 ]),
@@ -229,6 +241,8 @@ class _ChatScreenState extends State<ChatScreen>
             ),
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Row(children: [
+              const CharacterChip(),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -236,8 +250,9 @@ class _ChatScreenState extends State<ChatScreen>
                   maxLines: 4,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
-                  decoration: const InputDecoration(
-                      hintText: 'Message Jarvis…'),
+                  decoration: InputDecoration(
+                      hintText:
+                          'Message ${spokenName(context)}… or "switch to Ultron"'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -257,8 +272,8 @@ class _ChatScreenState extends State<ChatScreen>
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.send,
-                      color: Color(0xFF031018), size: 20),
+                  child: Icon(Icons.send,
+                      color: Skin.current.onAccent, size: 20),
                 ),
               ),
             ]),

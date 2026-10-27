@@ -1,3 +1,5 @@
+import '../character/transition.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -67,19 +69,24 @@ class _JarvisOrbState extends State<JarvisOrb>
   }
 
   @override
-  Widget build(BuildContext context) => RepaintBoundary(
-    child: CustomPaint(
-      size: Size.square(widget.size),
-      painter: null,
-      foregroundPainter: null,
-      child: SizedBox.square(
-        dimension: widget.size,
-        child: AnimatedBuilder(
-          animation: _frame,
-          builder: (context, _) => CustomPaint(
-            painter: _ReactorPainter(
-              t: _t,
-              energy: _reduced ? widget.energy : _smooth.clamp(0.0, 1.0),
+  Widget build(BuildContext context) => CxGroup(
+    group: CxGroupId.orb,
+    child: CxAnchor(
+      child: RepaintBoundary(
+        child: CustomPaint(
+          size: Size.square(widget.size),
+          painter: null,
+          foregroundPainter: null,
+          child: SizedBox.square(
+            dimension: widget.size,
+            child: AnimatedBuilder(
+              animation: _frame,
+              builder: (context, _) => CustomPaint(
+                painter: _ReactorPainter(
+                  t: _t,
+                  energy: _reduced ? widget.energy : _smooth.clamp(0.0, 1.0),
+                ),
+              ),
             ),
           ),
         ),
