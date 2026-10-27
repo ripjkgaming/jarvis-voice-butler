@@ -227,6 +227,12 @@ export function useCharacters(): CharacterState {
   );
 }
 
+/** Non-React subscription (canvas layers). Returns the unsubscribe. */
+export function subscribeCharacters(f: () => void): () => void {
+  subs.add(f);
+  return () => subs.delete(f);
+}
+
 export function getCharacterState(): CharacterState {
   return state;
 }

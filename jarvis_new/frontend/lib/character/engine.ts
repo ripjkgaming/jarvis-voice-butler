@@ -15,6 +15,7 @@ import {
   mixScalars,
   scalarsOf,
   skinCss,
+  syncParticles,
 } from './skin';
 import {
   type SwitchEvent,
@@ -240,6 +241,7 @@ export class CharacterEngine {
     if (!root) {
       // No HUD mounted (taskbar orb, school bar): switch the skin silently.
       this.visual = ev.to;
+      syncParticles(colorsOf(to), scalarsOf(to));
       setVisualId(ev.to);
       commitVisual(ev.to);
       return;
@@ -585,8 +587,10 @@ export class CharacterEngine {
     if (root && root.isConnected && !aborted) {
       this.clearInline();
       if (!this.swapped) this.doSwap();
-      if (this.toId === 'jarvis') clearPalette(root);
-      else if (this.toCol && this.toSc) applyPalette(root, this.toCol, this.toSc);
+      if (this.toId === 'jarvis') {
+        clearPalette(root);
+        if (this.toCol && this.toSc) syncParticles(this.toCol, this.toSc);
+      } else if (this.toCol && this.toSc) applyPalette(root, this.toCol, this.toSc);
       root.removeAttribute('data-cx');
       this.cur = this.toCol;
       this.curSc = this.toSc;

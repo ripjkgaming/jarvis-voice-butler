@@ -61,9 +61,18 @@ function fixture() {
     }).outputText,
     paletteScope
   );
+  const skinScope = { exports: {}, navigator: { hardwareConcurrency: 8 } };
+  vm.runInNewContext(
+    ts.transpileModule(
+      fs.readFileSync(path.join(__dirname, '../lib/character/particle-skin.ts'), 'utf8'),
+      { compilerOptions: { module: ts.ModuleKind.CommonJS } }
+    ).outputText,
+    skinScope
+  );
   const scope = {
     exports: {},
     require: (name) => {
+      if (name === './character/particle-skin') return skinScope.exports;
       assert.equal(name, './jarvis-palette');
       return paletteScope.exports;
     },

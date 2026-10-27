@@ -1,6 +1,7 @@
 import g from '@/components/ascii/glyphs.module.css';
 import s from '@/components/stark/stark.module.css';
 import { type RGBA, css, lerpColor, parseColor } from './color';
+import { setParticleSkin } from './particle-skin';
 import type { CharacterPublic } from './types';
 
 /** Design-token key -> CSS custom property on the HUD root. */
@@ -32,7 +33,16 @@ const RGB_VARS: Record<string, string> = {
 };
 
 export type ColorSet = Record<string, RGBA>;
-export type Scalars = { glow: number; scan: number; edge: number; radius: number; cut: number };
+export type Scalars = {
+  glow: number;
+  scan: number;
+  edge: number;
+  radius: number;
+  cut: number;
+  pcount: number;
+  psize: number;
+  pdrift: number;
+};
 
 const SANS = `'Inter', 'Segoe UI', 'Noto Sans', system-ui, sans-serif`;
 
@@ -50,6 +60,9 @@ export function scalarsOf(c: CharacterPublic): Scalars {
     edge: Number(t.edge_refract ?? 0),
     radius: Number(t.radius_panel ?? 10),
     cut: Number(t.cut_angle ?? 0),
+    pcount: Number(t.particle_count ?? 1),
+    psize: Number(t.particle_size ?? 1),
+    pdrift: Number(t.particle_drift ?? 1),
   };
 }
 
@@ -67,6 +80,9 @@ export function mixScalars(a: Scalars, b: Scalars, t: number): Scalars {
     edge: m(a.edge, b.edge),
     radius: m(a.radius, b.radius),
     cut: m(a.cut, b.cut),
+    pcount: m(a.pcount, b.pcount),
+    psize: m(a.psize, b.psize),
+    pdrift: m(a.pdrift, b.pdrift),
   };
 }
 
@@ -84,6 +100,19 @@ export function applyPalette(root: HTMLElement, col: ColorSet, sc: Scalars) {
   st.setProperty('--cx-edge', String(+sc.edge.toFixed(3)));
   st.setProperty('--cx-radius', `${sc.radius.toFixed(1)}px`);
   st.setProperty('--cx-cut', `${sc.cut.toFixed(1)}px`);
+  st.setProperty('--cx-pcount', String(+sc.pcount.toFixed(3)));
+  st.setProperty('--cx-psize', String(+sc.psize.toFixed(3)));
+  st.setProperty('--cx-pdrift', String(+sc.pdrift.toFixed(3)));
+  syncParticles(col, sc);
+}
+
+/** Pushes the skin's particle look to the shared particle state. */
+export function syncParticles(col: ColorSet, sc: Scalars) {
+  setParticleSkin(col.accent, col.accent_hot, col.ink, {
+    count: sc.pcount,
+    size: sc.psize,
+    drift: sc.pdrift,
+  });
 }
 
 const VARS = [
@@ -94,6 +123,9 @@ const VARS = [
   '--cx-edge',
   '--cx-radius',
   '--cx-cut',
+  '--cx-pcount',
+  '--cx-psize',
+  '--cx-pdrift',
   '--f-label',
   '--f-brand',
 ];

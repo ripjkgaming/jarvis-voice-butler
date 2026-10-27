@@ -26,6 +26,16 @@ export type CharacterPublic = {
 export type Range = [number, number];
 
 /** characters/_motion.yaml. Every duration and easing the UI uses. */
+export type LayoutSpec = {
+  flow: 'columns' | 'cards';
+  columns?: [number, number, number];
+  cards?: number;
+  top_h: number;
+  gap: number;
+  reactor_scale: number;
+  summary: boolean;
+};
+
 export type Motion = {
   total_ms: number;
   beat_ms: number;
@@ -38,6 +48,21 @@ export type Motion = {
   easing: Record<string, [number, number, number, number]>;
   phases: Record<string, Range | number>;
   signatures: Record<string, Record<string, Range>>;
+  particles?: {
+    cap_desktop: number;
+    cap_low: number;
+    low_cores: number;
+    retint_ms: number;
+    size_steps: number;
+  };
+  glow?: {
+    buffer_scale: number;
+    budget_ms: number;
+    budget_frames: number;
+    env_kill: string;
+    setting_kill: string;
+  };
+  layouts?: Record<string, LayoutSpec>;
 };
 
 export type Snapshot = {

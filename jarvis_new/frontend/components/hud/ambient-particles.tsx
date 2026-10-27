@@ -7,6 +7,7 @@ import {
   subscribeAmbientFrame,
 } from '@/lib/ambient-particles';
 import { createAsciiAmbientScene } from '@/lib/ascii-ambient';
+import { getCharacterState, prefersReduced, subscribeCharacters } from '@/lib/character/store';
 
 /** Decorative light field. Resizing is observer-driven; animation never
  * updates React state or reads layout. Hidden, offscreen, transition-owned,
@@ -47,6 +48,8 @@ export const AmbientParticles = memo(function AmbientParticles({
         visible &&
         settings.current.active &&
         !reduced.matches &&
+        !prefersReduced() &&
+        getCharacterState().effects &&
         !root.classList.contains('school-tx') &&
         !root.classList.contains('suit-open');
       if (running && !unsubscribe) unsubscribe = subscribeAmbientFrame(scene.draw);
@@ -96,6 +99,7 @@ export const AmbientParticles = memo(function AmbientParticles({
     document.addEventListener('visibilitychange', sync);
     window.addEventListener('resize', resize);
     reduced.addEventListener('change', sync);
+    const unstore = subscribeCharacters(sync);
     update.current = sync;
     densityChanged();
     return () => {
@@ -107,6 +111,7 @@ export const AmbientParticles = memo(function AmbientParticles({
       document.removeEventListener('visibilitychange', sync);
       window.removeEventListener('resize', resize);
       reduced.removeEventListener('change', sync);
+      unstore();
       resolution?.removeEventListener('change', densityChanged);
       scene.dispose();
     };

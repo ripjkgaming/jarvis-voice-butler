@@ -1,8 +1,15 @@
 import type { AmbientAnchor, AmbientState, AmbientVariant } from './ambient-particles';
 import { NOISE, RAMP, glyphAtlas, hash } from './ascii';
-import { JARVIS_COLORS, MUTED_COLOR } from './jarvis-palette';
+import { particleCap, particleHex, particleSkin, quantSize } from './character/particle-skin';
+import { getCharacterState } from './character/store';
+import { MUTED_COLOR } from './jarvis-palette';
 
-const ACCENT: Record<AmbientState, string> = { ...JARVIS_COLORS, muted: MUTED_COLOR };
+/** Skin accent for every state (hot accent while listening); only the muted
+ *  grey is state-owned. Called on re-bake, never per frame. */
+function tint(state: AmbientState): string {
+  if (state === 'muted') return MUTED_COLOR;
+  return particleHex(state === 'listening');
+}
 const SPEED: Record<AmbientState, number> = {
   idle: 1,
   listening: 1.2,
@@ -26,14 +33,28 @@ export function createAsciiAmbientScene(
   let height = 0;
   let dpr = 1;
   let time = 0;
-  const cw = variant === 'hud' ? 10 : 8;
-  const ch = Math.round(cw * 1.6);
-  let atlas = glyphAtlas(cw, ch, 1, ACCENT[state]);
+  const baseCw = variant === 'hud' ? 10 : 8;
+  let cw = baseCw;
+  let ch = Math.round(cw * 1.6);
+  let atlas = glyphAtlas(cw, ch, 1, tint(state));
+  let seen = particleSkin.version;
+  let lastBake = 0;
+  let sinceBake = 0;
+  let steps = 4;
+  let scan = 'rgba(168,235,255,0.035)';
   const lattice = document.createElement('canvas');
   let streams: Float32Array = new Float32Array(0);
 
   const bake = () => {
-    atlas = glyphAtlas(cw, ch, dpr, ACCENT[state]);
+    const mo = getCharacterState().motion;
+    steps = mo?.particles?.size_steps ?? steps;
+    cw = Math.max(5, Math.round(baseCw * quantSize(particleSkin.size, steps)));
+    ch = Math.round(cw * 1.6);
+    seen = particleSkin.version;
+    lastBake = sinceBake;
+    atlas = glyphAtlas(cw, ch, dpr, tint(state));
+    scan = `rgba(${particleSkin.rgb[0] | 0},${particleSkin.rgb[1] | 0},${particleSkin.rgb[2] | 0},0.035)`;
+    const keep = Math.min(1, particleSkin.count * particleCap(mo));
     lattice.width = Math.max(1, Math.round(width * dpr));
     lattice.height = Math.max(1, Math.round(height * dpr));
     const l = lattice.getContext('2d');
@@ -43,10 +64,12 @@ export function createAsciiAmbientScene(
     const step = variant === 'hud' ? 4 : 3;
     for (let y = 0; y * ch < height; y++) {
       for (let x = (y % 2) * 2; x * cw < width; x += step) {
+        if (hash(x + 5, y + 9) > keep) continue;
         atlas.draw(l, 2, 0.08 + hash(x, y) * 0.1, x * cw, y * ch);
       }
     }
-    const count = variant === 'hud' ? Math.round(width / 140) : variant === 'bar' ? 6 : 5;
+    const base = variant === 'hud' ? width / 140 : variant === 'bar' ? 6 : 5;
+    const count = Math.max(1, Math.round(base * keep));
     streams = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       streams[i * 3] = Math.floor(hash(i, 1) * Math.max(1, width / cw));
@@ -57,7 +80,14 @@ export function createAsciiAmbientScene(
 
   const draw = (delta = 0) => {
     if (!width || !height) return;
-    time += (delta / 1000) * SPEED[state];
+    sinceBake += delta;
+    if (seen !== particleSkin.version) {
+      // Skin changed (cross-fade frame): re-bake at a capped rate.
+      const gap = getCharacterState().motion?.particles?.retint_ms ?? 120;
+      if (sinceBake - lastBake >= gap) bake();
+    }
+    const drift = SPEED[state] * particleSkin.drift;
+    time += (delta / 1000) * drift;
     ctx.clearRect(0, 0, width, height);
     ctx.globalAlpha = 0.85;
     ctx.drawImage(lattice, 0, 0, width, height);
@@ -77,7 +107,7 @@ export function createAsciiAmbientScene(
     for (let i = 0; i < streams.length; i += 3) {
       const col = streams[i];
       const speed = streams[i + 2];
-      let head = streams[i + 1] + (delta / 1000) * speed * SPEED[state];
+      let head = streams[i + 1] + (delta / 1000) * speed * drift;
       if (head - 12 > rows) head = -2 - hash(i, Math.floor(time)) * 10;
       streams[i + 1] = head;
       for (let k = 0; k < 10; k++) {
@@ -89,7 +119,7 @@ export function createAsciiAmbientScene(
     }
     // scanline
     const sy = ((time * 40) % (height + 40)) - 20;
-    ctx.fillStyle = 'rgba(168,235,255,0.035)';
+    ctx.fillStyle = scan;
     ctx.fillRect(0, sy, width, 2);
   };
 

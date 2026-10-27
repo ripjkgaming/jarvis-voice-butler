@@ -1,3 +1,4 @@
+import { particleHex, particleSkin } from './character/particle-skin';
 import { JARVIS_COLORS, MUTED_COLOR } from './jarvis-palette';
 
 /** Small, additive light sprites: generated once at native DPR, then reused.
@@ -90,12 +91,20 @@ export function createAmbientScene(
   let count = 0;
   let data = new Float32Array(0);
   let drawBudgetMs = 0;
+  let stroke = '#a8ebff';
+  let seen = particleSkin.version;
 
   const buildAtlas = () => {
+    seen = particleSkin.version;
+    stroke = particleHex();
     atlas.width = Math.ceil(CELL * 3 * dpr);
     atlas.height = Math.ceil(CELL * 3 * dpr);
     glow.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const colors = [state === 'muted' ? '#7294a5' : '#5fe3ff', '#e1fbff', ACCENT[state]];
+    const colors = [
+      state === 'muted' ? '#7294a5' : particleHex(),
+      particleHex(true),
+      state === 'muted' ? ACCENT.muted : particleHex(state === 'listening'),
+    ];
     colors.forEach((color, row) => {
       for (let shape = 0; shape < 3; shape++) {
         const x = shape * CELL + CELL / 2;
@@ -193,11 +202,15 @@ export function createAmbientScene(
   const draw = (delta = 0) => {
     if (!width || !height) return;
     const dt = Math.min(34, Math.max(0, delta));
+    if (seen !== particleSkin.version) {
+      buildAtlas();
+      bakeBackground();
+    }
     speed += (SPEED[state] - speed) * (1 - Math.exp(-dt / 600));
     const targetStrength =
       state === 'muted' ? 0.55 : state === 'speaking' ? 1.35 : state === 'listening' ? 1.15 : 1;
     strength += (targetStrength - strength) * (1 - Math.exp(-dt / 350));
-    time += (dt / 1000) * speed;
+    time += (dt / 1000) * speed * particleSkin.drift;
     // Keep the low idle raster budget; fluid 60 FPS is reserved for active
     // voice states on the main reactor. Small bar/menu surfaces stay at 30.
     const fps = variant === 'hud' && state !== 'idle' && state !== 'muted' ? 60 : 30;
@@ -232,7 +245,7 @@ export function createAmbientScene(
         const alpha = (0.34 + 0.38 * Math.pow(Math.sin(time * 0.55 + i), 2)) * strength;
         if (i % 4 === 0) {
           ctx.globalAlpha = alpha * 0.35;
-          ctx.strokeStyle = '#5fe3ff';
+          ctx.strokeStyle = stroke;
           ctx.lineWidth = 0.8;
           ctx.beginPath();
           ctx.arc(cx, cy, r, angle - 0.065, angle);
@@ -257,7 +270,7 @@ export function createAmbientScene(
         const x = upper ? travel : width - travel;
         const y = upper ? 2.5 : height - 2.5;
         ctx.globalAlpha = 0.3 * strength;
-        ctx.strokeStyle = '#5fe3ff';
+        ctx.strokeStyle = stroke;
         ctx.lineWidth = 0.8;
         ctx.beginPath();
         ctx.moveTo(x, y);

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { NOISE, RAMP, glyphAtlas, hash, prefersReducedMotion } from '@/lib/ascii';
+import { particleHex, particleSkin } from '@/lib/character/particle-skin';
 
 /** One-shot glyph mosaic over a surface: ink cells full of scrambling glyphs
  * dissolve diagonally to reveal what is underneath, then the canvas is
@@ -9,12 +10,13 @@ import { NOISE, RAMP, glyphAtlas, hash, prefersReducedMotion } from '@/lib/ascii
 export function AsciiWipe({
   delay = 0,
   duration = 620,
-  color = '#5fe3ff',
+  color,
   reverse = false,
   onDone,
 }: {
   delay?: number;
   duration?: number;
+  /** Defaults to the active skin's accent. */
   color?: string;
   reverse?: boolean;
   onDone?: () => void;
@@ -41,7 +43,8 @@ export function AsciiWipe({
     const ch = 14;
     const cols = Math.ceil(w / cw);
     const rows = Math.ceil(h / ch);
-    const atlas = glyphAtlas(cw, ch, dpr, color);
+    const atlas = glyphAtlas(cw, ch, dpr, color ?? particleHex());
+    const ink = `${particleSkin.ink[0] | 0},${particleSkin.ink[1] | 0},${particleSkin.ink[2] | 0}`;
     const t0 = performance.now() + delay;
     let raf = 0;
     const step = (now: number) => {
@@ -55,7 +58,7 @@ export function AsciiWipe({
           const order = ((x / cols) * 0.55 + (y / rows) * 0.45) * 0.78 + n * 0.22;
           const lp = Math.min(1, Math.max(0, (p * 1.35 - order) / 0.35));
           if (lp >= 1) continue;
-          ctx.fillStyle = `rgba(2,9,15,${(0.94 * (1 - lp)).toFixed(3)})`;
+          ctx.fillStyle = `rgba(${ink},${(0.94 * (1 - lp)).toFixed(3)})`;
           ctx.fillRect(x * cw, y * ch, cw, ch);
           if (n > 0.62 && lp === 0) continue;
           const g = RAMP.length + Math.floor(hash(x + tick, y - tick) * NOISE.length);
