@@ -15,13 +15,13 @@
   --ab-amber: #ffb347;
   --ab-red: #ff4d5e;
   --ab-green: #6dffb3;
-  --ab-dim: rgba(95, 227, 255, 0.3);
+  --ab-dim: rgba(var(--acc, 95, 227, 255), 0.3);
 }
 
 .box {
   --ab-fs: 11px;
   --ab-lh: 18px;
-  --ab-line: rgba(95, 227, 255, 0.34);
+  --ab-line: rgba(var(--acc, 95, 227, 255), 0.34);
   --ab-title: var(--ab-cyan);
   position: relative;
   display: flex;
@@ -34,11 +34,11 @@
   background: linear-gradient(180deg, rgba(4, 18, 30, 0.72), rgba(2, 10, 18, 0.6));
 }
 .box[data-live] {
-  --ab-line: rgba(95, 227, 255, 0.62);
+  --ab-line: rgba(var(--acc, 95, 227, 255), 0.62);
 }
 .box[data-tone='warn'],
 .box[data-tone='amber'] {
-  --ab-line: rgba(255, 179, 71, 0.55);
+  --ab-line: rgba(var(--warn-rgb, 255, 179, 71), 0.55);
   --ab-title: var(--ab-amber);
 }
 .box[data-tone='bad'] {
@@ -104,7 +104,7 @@
   color: var(--ab-title);
   font-weight: 700;
   letter-spacing: 0.12em;
-  text-shadow: 0 0 8px rgba(95, 227, 255, 0.35);
+  text-shadow: 0 0 8px rgba(var(--acc, 95, 227, 255), 0.35);
 }
 .title > span {
   color: var(--ab-line);
@@ -148,7 +148,7 @@
 }
 .barOn {
   color: var(--ab-cyan);
-  text-shadow: 0 0 6px rgba(95, 227, 255, 0.45);
+  text-shadow: 0 0 6px rgba(var(--acc, 95, 227, 255), 0.45);
 }
 .barOff {
   color: var(--ab-dim);
@@ -156,7 +156,7 @@
 .bar[data-tone='warn'] .barOn,
 .bar[data-tone='amber'] .barOn {
   color: var(--ab-amber);
-  text-shadow: 0 0 6px rgba(255, 179, 71, 0.45);
+  text-shadow: 0 0 6px rgba(var(--warn-rgb, 255, 179, 71), 0.45);
 }
 .bar[data-tone='bad'] .barOn,
 .bar[data-tone='down'] .barOn {
@@ -179,7 +179,7 @@
   left: 0;
   top: 0;
   color: var(--ab-cyan);
-  text-shadow: 0 0 6px rgba(95, 227, 255, 0.6);
+  text-shadow: 0 0 6px rgba(var(--acc, 95, 227, 255), 0.6);
   animation: ab-scan 1.6s steps(26) infinite;
 }
 @keyframes ab-scan {
@@ -199,7 +199,7 @@
   line-height: 1;
   white-space: pre;
   color: var(--ab-cyan);
-  text-shadow: 0 0 6px rgba(95, 227, 255, 0.35);
+  text-shadow: 0 0 6px rgba(var(--acc, 95, 227, 255), 0.35);
 }
 .spark[data-tone='warn'],
 .spark[data-tone='amber'] {
@@ -221,7 +221,7 @@
   line-height: 1;
   white-space: pre;
   color: var(--ab-cyan);
-  text-shadow: 0 0 6px rgba(95, 227, 255, 0.3);
+  text-shadow: 0 0 6px rgba(var(--acc, 95, 227, 255), 0.3);
 }
 .chartBase {
   color: var(--ab-dim);
@@ -246,11 +246,11 @@
 }
 .lamp[data-state='on'] {
   color: var(--ab-cyan);
-  text-shadow: 0 0 6px rgba(95, 227, 255, 0.5);
+  text-shadow: 0 0 6px rgba(var(--acc, 95, 227, 255), 0.5);
 }
 .lamp[data-state='warn'] {
   color: var(--ab-amber);
-  text-shadow: 0 0 6px rgba(255, 179, 71, 0.5);
+  text-shadow: 0 0 6px rgba(var(--warn-rgb, 255, 179, 71), 0.5);
 }
 
 .say {
