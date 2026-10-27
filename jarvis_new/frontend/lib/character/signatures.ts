@@ -77,7 +77,14 @@ function holoParticles(c: FxCtx): Particle[] {
     const ty = p.y + c.rand() * p.h;
     const a = c.rand() * TAU;
     const d = 70 + c.rand() * 230;
-    list.push({ sx: tx + Math.cos(a) * d, sy: ty + Math.sin(a) * d, tx, ty, d: c.rand() * 0.25, z: 1 + c.rand() });
+    list.push({
+      sx: tx + Math.cos(a) * d,
+      sy: ty + Math.sin(a) * d,
+      tx,
+      ty,
+      d: c.rand() * 0.25,
+      z: 1 + c.rand(),
+    });
   }
   c.scratch.p = list;
   return list;
@@ -176,7 +183,8 @@ function sweepMotes(c: FxCtx): Mote[] {
   return out;
 }
 
-const waveX = (u: number, c: FxCtx) => -c.w * 0.18 + (c.w * 1.36 + 0) * easeGlide(smooth(0, 0.82, u));
+const waveX = (u: number, c: FxCtx) =>
+  -c.w * 0.18 + (c.w * 1.36 + 0) * easeGlide(smooth(0, 0.82, u));
 const easeGlide = (t: number) => 1 - (1 - clamp01(t)) ** 2.4;
 
 export const luminousSweep: Signature = {
@@ -225,7 +233,10 @@ export const luminousSweep: Signature = {
       const t = easeOut(smooth(0.2, 0.95, u) * born);
       const px = m.x0 + m.vx * c.sec * (1 - t) + (m.tx - m.x0) * t;
       const py = m.y0 + m.vy * c.sec * (1 - t) + (m.ty - m.y0) * t;
-      g.fillStyle = css(t > 0.8 ? cool : warm, Math.sin(Math.min(1, born) * Math.PI * 0.5) * (1 - 0.7 * t));
+      g.fillStyle = css(
+        t > 0.8 ? cool : warm,
+        Math.sin(Math.min(1, born) * Math.PI * 0.5) * (1 - 0.7 * t)
+      );
       g.fillRect(px, py, m.z, m.z);
     }
     // glass-like bevel highlight on panel edges once revealed
@@ -248,7 +259,16 @@ export const luminousSweep: Signature = {
 
 /* ------------------------------------------------------------ ULTRON */
 
-type Shard = { x: number; y: number; len: number; th: number; horiz: boolean; ox: number; oy: number; d: number };
+type Shard = {
+  x: number;
+  y: number;
+  len: number;
+  th: number;
+  horiz: boolean;
+  ox: number;
+  oy: number;
+  d: number;
+};
 
 function shards(c: FxCtx): Shard[] {
   if (c.scratch.s) return c.scratch.s as Shard[];
@@ -264,7 +284,16 @@ function shards(c: FxCtx): Shard[] {
       const y = horiz ? (side ? p.y : p.y + p.h - 4) : p.y + c.rand() * Math.max(1, p.h - len);
       const a = c.rand() * TAU;
       const d = far * (0.35 + c.rand() * 0.5);
-      list.push({ x, y, len, th: 3 + c.rand() * 3, horiz, ox: Math.cos(a) * d, oy: Math.sin(a) * d, d: c.rand() * 0.12 });
+      list.push({
+        x,
+        y,
+        len,
+        th: 3 + c.rand() * 3,
+        horiz,
+        ox: Math.cos(a) * d,
+        oy: Math.sin(a) * d,
+        d: c.rand() * 0.12,
+      });
     }
   }
   c.scratch.s = list;

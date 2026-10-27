@@ -87,14 +87,22 @@ export function CharacterChip({ up = false, className }: Props) {
           setOpen((o) => !o);
         }}
       >
-        <i className={s.swatch} style={{ background: swatch(cur.theme_tokens) }} aria-hidden="true" />
+        <i
+          className={s.swatch}
+          style={{ background: swatch(cur.theme_tokens) }}
+          aria-hidden="true"
+        />
         {cur.display_name}
         <span className={s.caret} aria-hidden="true">
           {busy ? '…' : '▾'}
         </span>
       </button>
       {open ? (
-        <ul className={`${s.picker} ${up ? s.pickerUp : ''}`} role="listbox" aria-label="Characters">
+        <ul
+          className={`${s.picker} ${up ? s.pickerUp : ''}`}
+          role="listbox"
+          aria-label="Characters"
+        >
           {st.order.map((id, i) => {
             const c = st.characters[id];
             if (!c) return null;
@@ -109,7 +117,10 @@ export function CharacterChip({ up = false, className }: Props) {
                   onMouseEnter={() => setFocus(i)}
                   onClick={() => void pick(id)}
                 >
-                  <i className={s.swatch} style={{ background: swatch(c.theme_tokens), width: 14, height: 14 }} />
+                  <i
+                    className={s.swatch}
+                    style={{ background: swatch(c.theme_tokens), width: 14, height: 14 }}
+                  />
                   <span>
                     <span className={s.rowName}>{c.display_name}</span>
                     <span className={s.rowSub}>Calls you “{c.address}”</span>

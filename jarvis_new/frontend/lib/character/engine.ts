@@ -3,6 +3,7 @@
 import s from '@/components/stark/stark.module.css';
 import { css } from './color';
 import { type Ease, clamp01, easings, smooth } from './ease';
+import { type Anchor, type FxCtx, type Rect, SIGNATURES, mulberry32 } from './signatures';
 import {
   type ColorSet,
   type Scalars,
@@ -15,7 +16,6 @@ import {
   scalarsOf,
   skinCss,
 } from './skin';
-import { type Anchor, type FxCtx, type Rect, SIGNATURES, mulberry32 } from './signatures';
 import {
   type SwitchEvent,
   commitVisual,
@@ -36,7 +36,13 @@ type Group = (typeof GROUPS)[number];
 type Seg = { t0: number; t1: number; from: number; to: number; ease: Ease };
 type Shape = { sides: number; rings: number };
 
-export type FrameStats = { frames: number; worst: number; over20: number; over34: number; total: number };
+export type FrameStats = {
+  frames: number;
+  worst: number;
+  over20: number;
+  over34: number;
+  total: number;
+};
 
 const rangeOf = (m: Motion, k: string): Range => m.phases[k] as Range;
 const numOf = (m: Motion, k: string): number => m.phases[k] as number;
@@ -177,7 +183,11 @@ export class CharacterEngine {
     const el = this.root?.querySelector<HTMLElement>(`.${s.reactor}`);
     const r = el?.getBoundingClientRect();
     if (!r || r.width < 40) return { x: innerWidth / 2, y: innerHeight / 2, r: 110 };
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: Math.min(r.width, r.height) * 0.36 };
+    return {
+      x: r.left + r.width / 2,
+      y: r.top + r.height / 2,
+      r: Math.min(r.width, r.height) * 0.36,
+    };
   }
 
   private paint() {
@@ -282,7 +292,14 @@ export class CharacterEngine {
 
   private buildTimeline(m: Motion, retarget: boolean) {
     const E = this.ease;
-    const seg = (grp: Group, t0: number, t1: number, from: number, to: number, ease: Ease): Seg => ({
+    const seg = (
+      grp: Group,
+      t0: number,
+      t1: number,
+      from: number,
+      to: number,
+      ease: Ease
+    ): Seg => ({
       t0,
       t1,
       from,
@@ -432,7 +449,15 @@ export class CharacterEngine {
 
     const root = this.root;
     const m = this.motion;
-    if (!root || !root.isConnected || !m || !this.toCol || !this.fromCol || !this.fromSc || !this.toSc) {
+    if (
+      !root ||
+      !root.isConnected ||
+      !m ||
+      !this.toCol ||
+      !this.fromCol ||
+      !this.fromSc ||
+      !this.toSc
+    ) {
       this.finish(true);
       return;
     }
@@ -493,7 +518,8 @@ export class CharacterEngine {
 
     this.paint();
     if (shake[0] !== 0 || shake[1] !== 0 || this.lastShake[0] !== 0 || this.lastShake[1] !== 0) {
-      root.style.transform = shake[0] || shake[1] ? `translate3d(${shake[0]}px,${shake[1]}px,0)` : '';
+      root.style.transform =
+        shake[0] || shake[1] ? `translate3d(${shake[0]}px,${shake[1]}px,0)` : '';
     }
     this.lastShake = shake;
 
@@ -508,7 +534,9 @@ export class CharacterEngine {
     const a = fx.anchor;
     const k = this.ease.in_out_cubic(smooth(0.2, 0.62, u));
     const sides = k < 0.5 ? this.fromShape.sides : this.toShape.sides;
-    const rings = Math.round(this.fromShape.rings + (this.toShape.rings - this.fromShape.rings) * k);
+    const rings = Math.round(
+      this.fromShape.rings + (this.toShape.rings - this.fromShape.rings) * k
+    );
     const blend = (th: number) => {
       const r0 = polyR(th, this.fromShape.sides);
       const r1 = polyR(th, this.toShape.sides);

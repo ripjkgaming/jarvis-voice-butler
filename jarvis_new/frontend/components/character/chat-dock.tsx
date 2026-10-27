@@ -86,7 +86,8 @@ export function ChatDock() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      const typing =
+        !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
       if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         setOpen(true);
@@ -113,7 +114,13 @@ export function ChatDock() {
     const r = await bridgeChatFull(msg, turns.slice(0, -1));
     setBusy(false);
     if (!r) {
-      push({ id: `e-${Date.now()}`, who: 'char', speaker: before, text: '(bridge unreachable)', ts: Date.now() });
+      push({
+        id: `e-${Date.now()}`,
+        who: 'char',
+        speaker: before,
+        text: '(bridge unreachable)',
+        ts: Date.now(),
+      });
       return;
     }
     const answered = r.switched && r.target ? r.target : (r.speaker ?? getCharacterState().active);
@@ -135,7 +142,12 @@ export function ChatDock() {
   if (!open) {
     return (
       <div className={s.dock} data-open="false" data-tauri-drag-region="false">
-        <button type="button" className={s.pill} onClick={() => setOpen(true)} aria-label="Open chat">
+        <button
+          type="button"
+          className={s.pill}
+          onClick={() => setOpen(true)}
+          aria-label="Open chat"
+        >
           <span aria-hidden="true">›</span> CHAT <span className={s.kbd}>/</span>
         </button>
       </div>
@@ -146,7 +158,12 @@ export function ChatDock() {
     <div className={s.dock} data-open="true" role="dialog" aria-label="Chat">
       <div className={s.head}>
         <span>SECURE CHANNEL · {history.length}</span>
-        <button type="button" className={s.close} onClick={() => setOpen(false)} aria-label="Close chat">
+        <button
+          type="button"
+          className={s.close}
+          onClick={() => setOpen(false)}
+          aria-label="Close chat"
+        >
           ✕
         </button>
       </div>
@@ -156,8 +173,13 @@ export function ChatDock() {
           const ch = st.characters[m.speaker];
           return (
             <div className={s.msg} data-who={m.who} key={m.id}>
-              <span className={s.tag} style={{ color: String(ch?.theme_tokens.accent ?? 'inherit') }}>
-                {m.who === 'user' ? `YOU · ${(ch?.display_name ?? '').toUpperCase()}` : (ch?.display_name ?? m.speaker).toUpperCase()}
+              <span
+                className={s.tag}
+                style={{ color: String(ch?.theme_tokens.accent ?? 'inherit') }}
+              >
+                {m.who === 'user'
+                  ? `YOU · ${(ch?.display_name ?? '').toUpperCase()}`
+                  : (ch?.display_name ?? m.speaker).toUpperCase()}
               </span>
               <div className={s.bubble} style={bubbleStyle(ch, m.who)}>
                 {m.text}

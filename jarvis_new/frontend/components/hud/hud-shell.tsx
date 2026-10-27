@@ -1,8 +1,8 @@
 'use client';
 
-import { CharacterHost } from '@/components/character/character-host';
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { CharacterHost } from '@/components/character/character-host';
 import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
 import { SchoolStrip } from '@/components/hud/school-strip';
 import { SchoolTransition, useSchoolTransition } from '@/components/hud/school-transition';

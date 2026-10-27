@@ -22,7 +22,9 @@
   letter-spacing: 0.16em;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 160ms ease, border-color 160ms ease;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
 }
 
 .chip:hover,
@@ -139,7 +141,9 @@
   flex-direction: column;
   border: 1px solid var(--line-strong, rgba(95, 227, 255, 0.42));
   background: rgba(var(--ink-rgb, 3, 16, 26), 0.9);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), var(--glow, 0 0 10px rgba(95, 227, 255, 0.35));
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.5),
+    var(--glow, 0 0 10px rgba(95, 227, 255, 0.35));
   backdrop-filter: blur(12px);
   font-family: var(--f-label, inherit);
   color: var(--text, #d9f4ff);
