@@ -9,9 +9,14 @@ export type ParticleSkin = {
   rgb: [number, number, number];
   hot: [number, number, number];
   ink: [number, number, number];
+  /** Draw alpha: light skins get softer particles. */
+  alpha: number;
   count: number;
   size: number;
   drift: number;
+  /** Glow layer inputs, from the same skin tokens (glow, edge_refract). */
+  glow: number;
+  edge: number;
   version: number;
 };
 
@@ -20,13 +25,24 @@ export const particleSkin: ParticleSkin = {
   rgb: [168, 235, 255],
   hot: [244, 253, 255],
   ink: [3, 16, 26],
+  alpha: 1,
   count: 1,
   size: 1,
   drift: 1,
+  glow: 1,
+  edge: 0,
   version: 0,
 };
 
-export type ParticleParams = { count: number; size: number; drift: number };
+export type ParticleParams = {
+  count: number;
+  size: number;
+  drift: number;
+  glow: number;
+  edge: number;
+};
+
+const LIGHT_ALPHA = 0.5;
 
 export function setParticleSkin(accent: RGBA, hot: RGBA, ink: RGBA, p: ParticleParams) {
   const k = particleSkin;
@@ -39,9 +55,12 @@ export function setParticleSkin(accent: RGBA, hot: RGBA, ink: RGBA, p: ParticleP
   k.ink[0] = ink[0];
   k.ink[1] = ink[1];
   k.ink[2] = ink[2];
+  k.alpha = 0.299 * ink[0] + 0.587 * ink[1] + 0.114 * ink[2] > 128 ? LIGHT_ALPHA : 1;
   k.count = p.count;
   k.size = p.size;
   k.drift = p.drift;
+  k.glow = p.glow;
+  k.edge = p.edge;
   k.version++;
 }
 

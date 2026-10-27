@@ -88,5 +88,5 @@ layouts:
     cards: 4
     top_h: 60
     gap: 14
-    reactor_scale: 0.72
+    reactor_scale: 0.85
     summary: true

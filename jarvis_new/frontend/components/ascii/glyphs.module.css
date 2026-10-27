@@ -10,8 +10,8 @@
 .say,
 .cell {
   --ab-font: var(--font-commit-mono), 'Commit Mono', ui-monospace, monospace;
-  --ab-cyan: #a8ebff;
-  --ab-ice: #f4fdff;
+  --ab-cyan: var(--cyan, #a8ebff);
+  --ab-ice: var(--cyan-hot, #f4fdff);
   --ab-amber: #ffb347;
   --ab-red: #ff4d5e;
   --ab-green: #6dffb3;

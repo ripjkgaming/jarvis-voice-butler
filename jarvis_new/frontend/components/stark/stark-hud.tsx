@@ -118,6 +118,48 @@ function TopBar({
   );
 }
 
+/** Short status cards for the glass layout. Always rendered (content is never
+ *  skin-dependent); the stylesheet shows it only where the layout asks. */
+function Summary({
+  m,
+  jarvis,
+  muted,
+  activity,
+}: {
+  m: ReturnType<typeof metricsFrom>;
+  jarvis: JarvisState;
+  muted: boolean | null;
+  activity: ReturnType<typeof useActivity>;
+}) {
+  const running = activity.filter((a) => a.status === 'running').length;
+  const done = activity.filter((a) => a.status === 'done').length;
+  const health = healthLine(m);
+  const cards: [string, string, string | undefined][] = [
+    ['STATUS', muted === true ? 'MUTED' : STATE_CHIP[jarvis], undefined],
+    [
+      'TASKS',
+      running ? `${running} RUNNING` : done ? `${done} DONE` : 'ALL CLEAR',
+      running ? 'live' : undefined,
+    ],
+    [
+      'SYSTEM',
+      m.has ? `CPU ${Math.round(m.cpuPct)}% · MEM ${Math.round(m.memPct)}%` : 'SYNCING',
+      undefined,
+    ],
+    ['HEALTH', health.text, health.warn ? 'warn' : undefined],
+  ];
+  return (
+    <section className={s.summary} aria-label="Summary" data-summary="true">
+      {cards.map(([k, v, tone]) => (
+        <div key={k} className={s.summaryCard} data-tone={tone}>
+          <small>{k}</small>
+          <strong>{v}</strong>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function Footer({ m }: { m: ReturnType<typeof metricsFrom> }) {
   const health = healthLine(m);
   if (health.text !== 'ALL SYSTEMS NOMINAL') return null;
@@ -238,6 +280,7 @@ export function StarkHud({
         </main>
       ) : (
         <main className={s.grid}>
+          <Summary m={m} jarvis={jarvis} muted={muted} activity={activity} />
           <aside className={s.left} aria-label="Vitals">
             <Frame label="VITALS" index={1} aside="2 MIN">
               <Trends m={m} history={history} />

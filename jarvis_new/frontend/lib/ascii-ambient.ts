@@ -89,7 +89,7 @@ export function createAsciiAmbientScene(
     const drift = SPEED[state] * particleSkin.drift;
     time += (delta / 1000) * drift;
     ctx.clearRect(0, 0, width, height);
-    ctx.globalAlpha = 0.85;
+    ctx.globalAlpha = 0.85 * particleSkin.alpha;
     ctx.drawImage(lattice, 0, 0, width, height);
     ctx.globalAlpha = 1;
     const rows = height / ch;
@@ -100,7 +100,8 @@ export function createAsciiAmbientScene(
       const by = band * (rows + width / cw) - y;
       for (let x = (y % 2) * 2; x * cw < width; x += step) {
         const d = Math.abs(x * 0.5 - by);
-        if (d < 3) atlas.draw(ctx, d < 1 ? 4 : 2, 0.45 - d * 0.12, x * cw, y * ch);
+        if (d < 3)
+          atlas.draw(ctx, d < 1 ? 4 : 2, (0.45 - d * 0.12) * particleSkin.alpha, x * cw, y * ch);
       }
     }
     // falling glyph streams
@@ -114,7 +115,13 @@ export function createAsciiAmbientScene(
         const y = Math.floor(head) - k;
         if (y < 0 || y > rows) continue;
         const g = RAMP.length + Math.floor(hash(col + k, Math.floor(time * 6) + y) * NOISE.length);
-        atlas.draw(ctx, g, k === 0 ? 0.6 : 0.36 - k * 0.03, col * cw, y * ch);
+        atlas.draw(
+          ctx,
+          g,
+          (k === 0 ? 0.6 : 0.36 - k * 0.03) * particleSkin.alpha,
+          col * cw,
+          y * ch
+        );
       }
     }
     // scanline

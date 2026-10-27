@@ -265,6 +265,41 @@
   padding: 16px 20px 14px;
 }
 
+.summary {
+  display: none;
+}
+
+.summaryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 14px;
+}
+
+.summaryCard small {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+
+.summaryCard strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summaryCard[data-tone='live'] strong {
+  color: var(--cyan);
+}
+
+.summaryCard[data-tone='warn'] strong {
+  color: var(--amber);
+}
+
 .left,
 .right {
   display: flex;

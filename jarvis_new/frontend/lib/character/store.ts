@@ -9,6 +9,7 @@ const POLL_IDLE_MS = 1500;
 const POLL_BUSY_MS = 250;
 const LS_EFFECTS = 'jarvis.cx.effects';
 const LS_REDUCED = 'jarvis.cx.reduced';
+const LS_GL = 'jarvis.cx.gl';
 
 export type SwitchEvent = { to: string; from: string; turn: number; source: string };
 
@@ -26,6 +27,8 @@ export type CharacterState = {
   motion: Motion | null;
   effects: boolean;
   reducedSetting: boolean;
+  /** WebGL glow layer allowed (setting; JARVIS_FX_GL=0 in the shell overrides). */
+  gl: boolean;
   /** Last user-facing line (already-active, unknown name, rollback reason). */
   notice: string | null;
 };
@@ -42,6 +45,7 @@ let state: CharacterState = {
   motion: null,
   effects: true,
   reducedSetting: false,
+  gl: true,
   notice: null,
 };
 
@@ -83,6 +87,15 @@ export function setReducedSetting(on: boolean) {
     /* ignore */
   }
   set({ reducedSetting: on });
+}
+
+export function setGlSetting(on: boolean) {
+  try {
+    localStorage.setItem(LS_GL, on ? '1' : '0');
+  } catch {
+    /* private mode: setting is per session */
+  }
+  set({ gl: on });
 }
 
 export function prefersReduced(): boolean {
@@ -156,6 +169,7 @@ export function startCharacterStore() {
   set({
     effects: readLs(LS_EFFECTS, true),
     reducedSetting: readLs(LS_REDUCED, false),
+    gl: readLs(LS_GL, true),
   });
   void (async () => {
     for (let i = 0; i < 20 && !state.ready; i++) {

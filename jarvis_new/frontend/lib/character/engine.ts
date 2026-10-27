@@ -95,7 +95,14 @@ export class CharacterEngine {
   private toShape: Shape = { sides: 0, rings: 3 };
   private fx: FxCtx | null = null;
   private flashLog: number[] = [];
-  private flip: { el: HTMLElement; dx: number; dy: number; sx: number; sy: number }[] = [];
+  private flip: {
+    el: HTMLElement;
+    dx: number;
+    dy: number;
+    sx: number;
+    sy: number;
+    free: boolean;
+  }[] = [];
   private flipFirst = new Map<HTMLElement, DOMRect>();
   private flipPending = 0;
   private lastShake: [number, number] = [0, 0];
@@ -131,7 +138,7 @@ export class CharacterEngine {
     if (this.style) return;
     this.style = document.createElement('style');
     this.style.dataset.cx = 'skins';
-    this.style.textContent = skinCss();
+    this.style.textContent = skinCss(getCharacterState().motion?.layouts);
     document.head.appendChild(this.style);
   }
 
@@ -191,6 +198,13 @@ export class CharacterEngine {
     };
   }
 
+  /** FLIP targets outside the fade groups: the reactor glides to its new slot
+   *  (uniform scale, so the orb never distorts). */
+  private freeEls(): HTMLElement[] {
+    const el = this.root?.querySelector<HTMLElement>(`.${s.reactor}`);
+    return el ? [el] : [];
+  }
+
   private paint() {
     for (const grp of GROUPS) {
       const v = this.vals[grp];
@@ -209,6 +223,14 @@ export class CharacterEngine {
         el.style.willChange = 'opacity, transform';
       }
     }
+    const k = 1 - this.flipProgress();
+    for (const f of this.flip) {
+      if (!f.free) continue;
+      f.el.style.transformOrigin = '0 0';
+      f.el.style.willChange = 'transform';
+      f.el.style.transform =
+        k <= 0.001 ? '' : `translate3d(${f.dx * k}px,${f.dy * k}px,0) scale(${1 + (f.sx - 1) * k})`;
+    }
   }
 
   private flipProgress(): number {
@@ -226,6 +248,11 @@ export class CharacterEngine {
         el.style.transformOrigin = '';
         el.style.willChange = '';
       }
+    }
+    for (const el of this.freeEls()) {
+      el.style.transform = '';
+      el.style.transformOrigin = '';
+      el.style.willChange = '';
     }
     if (this.root) this.root.style.transform = '';
   }
@@ -374,7 +401,7 @@ export class CharacterEngine {
     if (!root || !to) return;
     this.swapped = true;
     // FIRST: capture rects before the skin changes.
-    for (const el of this.els('panels')) {
+    for (const el of [...this.els('panels'), ...this.freeEls()]) {
       this.flipFirst.set(el, el.getBoundingClientRect());
     }
     if (this.toId === 'jarvis') root.removeAttribute('data-skin');
@@ -395,12 +422,20 @@ export class CharacterEngine {
       if (last.width < 1 || first.width < 1) continue;
       // Remove our own transform from the measurement: it is identity-free here
       // because panels are at opacity 0 and transform-only offsets are small.
-      const dx = first.left - last.left;
-      const dy = first.top - last.top;
-      const sx = first.width / last.width;
-      const sy = first.height / last.height;
+      const free = el.classList.contains(s.reactor);
+      let dx = first.left - last.left;
+      let dy = first.top - last.top;
+      let sx = first.width / last.width;
+      let sy = first.height / last.height;
+      if (free) {
+        // Uniform scale about the centre: translate the centres, scale by width.
+        const u = sx;
+        dx = first.left + first.width / 2 - (last.left + (last.width * u) / 2);
+        dy = first.top + first.height / 2 - (last.top + (last.height * u) / 2);
+        sx = sy = u;
+      }
       if (Math.abs(dx) + Math.abs(dy) + Math.abs(sx - 1) + Math.abs(sy - 1) < 0.5) continue;
-      this.flip.push({ el, dx, dy, sx, sy });
+      this.flip.push({ el, dx, dy, sx, sy, free });
     }
     this.flipFirst.clear();
   }

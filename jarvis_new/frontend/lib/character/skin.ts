@@ -2,7 +2,7 @@ import g from '@/components/ascii/glyphs.module.css';
 import s from '@/components/stark/stark.module.css';
 import { type RGBA, css, lerpColor, parseColor } from './color';
 import { setParticleSkin } from './particle-skin';
-import type { CharacterPublic } from './types';
+import type { CharacterPublic, LayoutSpec } from './types';
 
 /** Design-token key -> CSS custom property on the HUD root. */
 const COLOR_VARS: Record<string, string> = {
@@ -112,6 +112,8 @@ export function syncParticles(col: ColorSet, sc: Scalars) {
     count: sc.pcount,
     size: sc.psize,
     drift: sc.pdrift,
+    glow: sc.glow,
+    edge: sc.edge,
   });
 }
 
@@ -149,14 +151,13 @@ export function applyTypography(root: HTMLElement, c: CharacterPublic) {
 /** Layout and surface rules that tokens alone cannot express. Built from the
  *  real (hashed) module class names; every rule needs a data-skin, so Jarvis
  *  matches none of them. */
-export function skinCss(): string {
+export function skinCss(layouts?: Record<string, LayoutSpec>): string {
   const r = `.${s.root}:global(.hud)`;
   const root = (id: string) => `.${s.root}[data-skin='${id}']`;
   const U = root('ultron');
   const F = root('friday');
   void r;
   return `
-${U} { --top-h: 56px; }
 ${U} .${s.frame}, ${U} .${g.box} {
   clip-path: polygon(var(--cx-cut) 0, 100% 0, 100% calc(100% - var(--cx-cut)),
     calc(100% - var(--cx-cut)) 100%, 0 100%, 0 var(--cx-cut));
@@ -180,7 +181,6 @@ ${U}::after {
 }
 ${U} .${s.chip} { text-transform: uppercase; }
 
-${F} { --top-h: 60px; }
 ${F} .${s.frame} {
   border-radius: var(--cx-radius);
   background: linear-gradient(160deg, rgba(255,255,255,0.78), rgba(255,255,255,0.46));
@@ -203,5 +203,70 @@ ${F} .${s.backdrop} {
 }
 ${F} .${s.chip} { border-radius: 999px; padding: 0 10px; background: rgba(var(--acc), 0.1); }
 ${F} .${s.chip}::before, ${F} .${s.chip}::after { content: none; }
+${layoutCss(layouts)}
 `;
+}
+
+/** Grid-template / ordering presets per layout (characters/_motion.yaml
+ *  `layouts`). The same panels sit in new grid slots; no component forks.
+ *  Jarvis (hud_round) is the stock stylesheet and gets no rules. */
+export function layoutCss(layouts?: Record<string, LayoutSpec>): string {
+  if (!layouts) return '';
+  const R = (id: string) => `.${s.root}[data-skin='${id}']`;
+  const out: string[] = [];
+  const ang = layouts.hud_angular;
+  if (ang?.columns) {
+    const [l, c, r] = ang.columns;
+    const U = R('ultron');
+    // Mirrored: operations slabs left, wide reactor centre, vitals tight right.
+    out.push(`
+${U} { --top-h: ${ang.top_h}px; --rx-scale: ${ang.reactor_scale}; --slab: 20px; }
+${U} .${s.grid} {
+  grid-template-columns: minmax(250px, ${r}fr) minmax(0, ${c}fr) minmax(190px, ${l}fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: ${ang.gap}px; padding: ${ang.gap}px ${ang.gap + 4}px;
+}
+${U} .${s.right} { grid-column: 1; grid-row: 1; gap: ${Math.round(ang.gap / 2)}px; }
+${U} .${s.center} { grid-column: 2; grid-row: 1; }
+${U} .${s.left} { grid-column: 3; grid-row: 1; gap: ${Math.round(ang.gap / 2)}px; }
+${U} .${s.left} > * { padding-block: 0; }
+${U} .${s.right} > .${s.frame}:nth-child(odd) {
+  clip-path: polygon(0 0, calc(100% - var(--slab)) 0, 100% var(--slab), 100% 100%, var(--slab) 100%, 0 calc(100% - var(--slab)));
+}
+${U} .${s.right} > .${s.frame}:nth-child(even) {
+  margin-inline-start: var(--slab);
+  clip-path: polygon(var(--slab) 0, 100% 0, 100% calc(100% - var(--slab)), calc(100% - var(--slab)) 100%, 0 100%, 0 var(--slab));
+}
+${U} .${s.reactor} { width: calc(min(100cqw, 146.6cqh) * var(--rx-scale)); max-width: 100cqw; }
+`);
+  }
+  const gl = layouts.hud_glass;
+  if (gl?.cards) {
+    const F = R('friday');
+    // Summary strip on top, small raised reactor, panels as a card grid.
+    out.push(`
+${F} { --top-h: ${gl.top_h}px; --rx-scale: ${gl.reactor_scale}; }
+${F} .${s.grid} {
+  grid-template-columns: repeat(${gl.cards}, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1.3fr) repeat(2, minmax(0, 1fr));
+  gap: ${gl.gap}px; padding: ${gl.gap}px ${gl.gap + 6}px;
+}
+${F} .${s.summary} {
+  display: grid; grid-column: 1 / -1; grid-row: 1;
+  grid-template-columns: repeat(${gl.cards}, minmax(0, 1fr)); gap: ${gl.gap}px;
+}
+${F} .${s.summaryCard} {
+  border-radius: var(--cx-radius);
+  background: linear-gradient(160deg, rgba(255,255,255,0.8), rgba(255,255,255,0.5));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(var(--acc), 0.18);
+}
+${F} .${s.left}, ${F} .${s.right} { display: contents; }
+${F} .${s.center} { grid-column: 1 / -1; grid-row: 2; }
+${F} .${s.reactor} { width: calc(min(100cqw, 146.6cqh) * var(--rx-scale)); }
+${F} .${s.left} > *, ${F} .${s.right} > * { min-width: 0; min-height: 0; overflow: hidden; }
+${F} .${s.right} > .${s.panels} { display: contents; }
+${F} .${s.right} > :nth-child(3) { grid-column: span 2; }
+`);
+  }
+  return out.join('');
 }
