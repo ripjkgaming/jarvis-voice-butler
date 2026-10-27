@@ -206,7 +206,8 @@ def test_crossfade_single_writer_no_overlap(client):
     assert FakePlayback.cancels >= 1
 
 
-def test_play_agent_fade_noop_for_jarvis_only():
+def test_play_agent_fade_noop_for_jarvis_only(monkeypatch):
     import sys
-    sys.modules.pop("character_runtime", None)
+
+    monkeypatch.delitem(sys.modules, "character_runtime", raising=False)
     assert wake_client._character_changed() is False

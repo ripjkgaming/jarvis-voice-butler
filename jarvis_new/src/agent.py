@@ -1941,6 +1941,43 @@ class SystemAgent(_SpecialistAgent):
         )
 
 
+def _is_mirror() -> bool:
+    try:
+        try:
+            from character_runtime import is_authority
+        except ImportError:
+            from src.character_runtime import is_authority
+        return not is_authority()
+    except Exception:
+        return False
+
+
+async def _follow_character(assistant, session, interval: float = 0.2) -> None:
+    """Follow switches made by the bridge authority (one task per session)."""
+    rt = _char_runtime()
+    if rt is None:
+        return
+    seen = rt.active_id()
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            snap = rt.snapshot()
+            if snap["phase"] != "idle" or snap["active"] == seen:
+                continue
+            seen = snap["active"]
+            char = rt.chars[seen]
+            assistant._owner_instructions = _persona_instructions()
+            setter = getattr(getattr(session, "tts", None), "set_character", None)
+            if callable(setter):
+                setter(char)
+            if not phone_session.guest_required():
+                await assistant.update_instructions(assistant._owner_instructions)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+
+
 def _persona_instructions() -> str:
     """Owner instructions for the active character (Jarvis: unchanged bytes)."""
     ch = _active_character()
@@ -2313,6 +2350,12 @@ class Assistant(Agent):
             res = rt.handle_text(text, "voice")
             if res is None:
                 return False
+            if getattr(rt, "snapshot", None) and _is_mirror():
+                # The bridge conductor runs the switch; the watcher follows it.
+                if not res.get("switched") and res.get("reply"):
+                    with contextlib.suppress(Exception):
+                        await self.session.say(res["reply"], add_to_chat_ctx=False)
+                return True
             try:
                 from switch_conductor import get_conductor
             except ImportError:
@@ -3267,6 +3310,16 @@ async def my_agent(ctx: JobContext):
             if _wa_review_tts is not None:
                 await _wa_review_tts.aclose()
         ctx.add_shutdown_callback(_close_wa_approval)
+
+    if _is_mirror():
+        _follow_task = asyncio.ensure_future(_follow_character(assistant, session))
+        _background_tasks.add(_follow_task)
+        _follow_task.add_done_callback(_background_tasks.discard)
+
+        async def _stop_follow() -> None:
+            _follow_task.cancel()
+
+        ctx.add_shutdown_callback(_stop_follow)
 
     # Proactive pillar: background battery/climb watcher. Edge-triggered,
     # cooldown-gated, and fully swallowed on failure so sensors can never

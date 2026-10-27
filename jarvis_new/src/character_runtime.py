@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
 from typing import Any, Callable
 
 try:
@@ -20,6 +26,46 @@ BOOT_ID = "jarvis"
 
 Phase = _ss.Phase
 
+_AUTH_ENV = "JARVIS_CHARACTER_AUTHORITY"  # set only by the bridge; others mirror
+_STATE_POLL_S = 0.1
+_BRIDGE_TIMEOUT_S = 2.0
+_UNREACHABLE = "I could not reach the control bridge"
+
+
+def state_path() -> Path:
+    override = os.environ.get("JARVIS_CHARACTER_STATE", "").strip()
+    if override:
+        return Path(override)
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    return (Path(home) if home else Path.home() / ".jarvis") / "character_state.json"
+
+
+def set_authority(flag: bool = True) -> None:
+    """Mark this process as the single authority (bridge). Writes boot state."""
+    if flag:
+        os.environ[_AUTH_ENV] = "1"
+    else:
+        os.environ.pop(_AUTH_ENV, None)
+    if flag:
+        # Boot ALWAYS jarvis: a stale file from a previous run never leaks.
+        get_runtime()._write_state(boot=True)
+
+
+def is_authority() -> bool:
+    return os.environ.get(_AUTH_ENV) == "1"
+
+
+def _bridge_token() -> str:
+    token = os.environ.get("JARVIS_BRIDGE_TOKEN", "").strip()
+    if not token:
+        home = os.environ.get("JARVIS_HOME", "").strip()
+        base = Path(home) if home else Path.home() / ".jarvis"
+        try:
+            token = (base / "bridge_token").read_text().strip()
+        except (OSError, UnicodeError):
+            token = ""
+    return token
+
 
 class CharacterRuntime:
     def __init__(self) -> None:
@@ -30,9 +76,69 @@ class CharacterRuntime:
         self._lock = threading.RLock()
         self._listeners: list[Callable[[dict], None]] = []
         self._prewarm: list[Callable[[Any], bool]] = []
+        self._mirror_key: Any = None
+        self._mirror_state: dict[str, Any] | None = None
+        self._mirror_checked = 0.0
+
+    # -- shared state file -----------------------------------------
+    def _write_state(self, boot: bool = False) -> None:
+        with self._lock:
+            m = self.machine
+            data = {
+                "active": BOOT_ID if boot else m.active,
+                "target": None if boot else m.target,
+                "phase": "idle" if boot else m.phase.value,
+                "char_turn": 0 if boot else m.turn_id,
+                "ts": time.time(),
+            }
+            path = state_path()
+            tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_text(json.dumps(data))
+                os.replace(tmp, path)
+            except OSError:
+                logger.exception("character state write failed")
+
+    def _read_mirror(self) -> dict[str, Any]:
+        """Authority state from disk, cached by mtime (checked every 100 ms)."""
+        now = time.monotonic()
+        with self._lock:
+            if self._mirror_state is not None and now - self._mirror_checked < _STATE_POLL_S:
+                return self._mirror_state
+            self._mirror_checked = now
+            path = state_path()
+            try:
+                st = path.stat()
+                key = (st.st_mtime_ns, st.st_ino, st.st_size)
+            except OSError:
+                key = None
+            if key is not None and key == self._mirror_key and self._mirror_state:
+                return self._mirror_state
+            self._mirror_key = key
+            state = {"active": BOOT_ID, "target": None, "phase": "idle", "char_turn": 0}
+            if key is not None:
+                try:
+                    raw = json.loads(path.read_text())
+                    act = raw["active"]
+                    tgt = raw.get("target")
+                    phase = _ss.Phase(raw["phase"]).value
+                    if act in self.chars and (tgt is None or tgt in self.chars):
+                        state = {
+                            "active": act,
+                            "target": tgt,
+                            "phase": phase,
+                            "char_turn": int(raw.get("char_turn", 0)),
+                        }
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            self._mirror_state = state
+            return state
 
     # -- state ------------------------------------------------------
     def active_id(self) -> str:
+        if not is_authority():
+            return self._read_mirror()["active"]
         with self._lock:
             return self.machine.active
 
@@ -47,6 +153,8 @@ class CharacterRuntime:
         return out
 
     def snapshot(self) -> dict[str, Any]:
+        if not is_authority():
+            return {**self._read_mirror(), "characters": list(self.chars)}
         with self._lock:
             m = self.machine
             return {
@@ -63,6 +171,8 @@ class CharacterRuntime:
             self._listeners.append(cb)
 
     def _notify(self) -> None:
+        if is_authority():
+            self._write_state()
         snap = self.snapshot()
         with self._lock:
             cbs = list(self._listeners)
@@ -79,7 +189,47 @@ class CharacterRuntime:
         except (KeyError, IndexError):
             return ""
 
+    def _mirror_switch(self, target: str, source: str) -> dict:
+        active = self.chars[self.active_id()]
+        if target not in self.chars:
+            names = ", ".join(c.display_name for c in self.chars.values())
+            return {
+                "handled": True,
+                "switched": False,
+                "reply": self._line(active, "unknown_name", names=names),
+            }
+        if target == active.id and self._read_mirror()["phase"] == "idle":
+            return {
+                "handled": True,
+                "switched": False,
+                "reply": self._line(active, "already_active"),
+            }
+        port = os.environ.get("JARVIS_BRIDGE_PORT", "4317").strip() or "4317"
+        headers = {"Content-Type": "application/json"}
+        token = _bridge_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/character/switch",
+            data=json.dumps({"target": target, "source": "voice"}).encode(),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_BRIDGE_TIMEOUT_S) as resp:
+                res = json.load(resp)
+            if not isinstance(res, dict) or not res.get("ok"):
+                raise ValueError("bridge refused")
+        except (OSError, ValueError, urllib.error.URLError):
+            return {"handled": True, "switched": False, "reply": _UNREACHABLE}
+        res.pop("ok", None)
+        res.pop("character", None)
+        self._mirror_checked = 0.0
+        return res
+
     def switch(self, target: str, source: str = "ui") -> dict:
+        if not is_authority():
+            return self._mirror_switch(target, source)
         with self._lock:
             active = self.chars[self.machine.active]
             if target not in self.chars:

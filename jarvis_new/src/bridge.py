@@ -2554,7 +2554,7 @@ def _start_switch(res: dict, source: str) -> None:
             from switch_conductor import start_switch
         except ImportError:
             from src.switch_conductor import start_switch
-        start_switch(res, source)
+        start_switch(res, source, wake_rpc=_wake_rpc)
     except Exception:
         pass
 
@@ -3429,8 +3429,16 @@ def _handle_chat(body: dict) -> tuple[int, dict]:
         return 200, {"ok": True, "reply": reply, "action": action}
     # The runtime is authoritative: a client-sent body["character"] is ignored.
     rt = _runtime()
-    active_char = rt.active()
+    # Mid-switch message: buffer until the transition settles so the NEW
+    # character answers (poll 50 ms, max 2.5 s).
+    deadline = time.monotonic() + 2.5
+    while rt.snapshot()["phase"] != "idle" and time.monotonic() < deadline:
+        time.sleep(0.05)
     snap = rt.snapshot()
+    active_char = rt.chars.get(
+        (snap["target"] if snap["phase"] != "idle" else None) or snap["active"],
+        rt.active(),
+    )
     history = body.get("history", [])
     turns = []
     if isinstance(history, list):
@@ -4512,6 +4520,12 @@ def create_server(
 def serve_forever(
     port: int = DEFAULT_PORT, token: str = "", host: str = "127.0.0.1"
 ) -> None:
+    with contextlib.suppress(Exception):
+        try:
+            from character_runtime import set_authority
+        except ImportError:
+            from src.character_runtime import set_authority
+        set_authority(True)  # single authority; boots as jarvis
     server = create_server(port, token, host)
     # Crash recovery + reboot: the Meta shortcut must match the stored
     # mode (school -> Jarvis menu; stale backup in normal -> restore).

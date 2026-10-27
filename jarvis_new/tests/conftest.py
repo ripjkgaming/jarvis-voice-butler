@@ -222,3 +222,10 @@ def _no_live_security_guard(monkeypatch):
 def _no_live_mercury(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mercury Decide is a live OpenRouter call; tests opt in by clearing this."""
     monkeypatch.setenv("JARVIS_MERCURY", "0")
+
+
+@pytest.fixture(autouse=True)
+def _character_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """In-process tests act as the bridge (authority) with a private state file."""
+    monkeypatch.setenv("JARVIS_CHARACTER_STATE", str(tmp_path / "character_state.json"))
+    monkeypatch.setenv("JARVIS_CHARACTER_AUTHORITY", "1")

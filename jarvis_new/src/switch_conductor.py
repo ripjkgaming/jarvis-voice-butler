@@ -380,7 +380,15 @@ _conductor: Conductor | None = None
 _lock = threading.Lock()
 
 
-def get_conductor() -> Conductor:
+def _is_authority() -> bool:
+    try:
+        from character_runtime import is_authority
+    except ImportError:
+        from src.character_runtime import is_authority
+    return is_authority()
+
+
+def get_conductor(wake_rpc: Callable[[dict], dict | None] | None = None) -> Conductor:
     global _conductor
     with _lock:
         try:
@@ -389,7 +397,7 @@ def get_conductor() -> Conductor:
             from src.character_runtime import get_runtime
         rt = get_runtime()
         if _conductor is None or _conductor.rt is not rt:
-            _conductor = Conductor(rt).install()
+            _conductor = Conductor(rt, wake_rpc=wake_rpc).install()
         return _conductor
 
 
@@ -399,12 +407,16 @@ def reset_conductor() -> None:
         _conductor = None
 
 
-def start_switch(res: dict | None, source: str = "ui") -> bool:
+def start_switch(
+    res: dict | None, source: str = "ui", wake_rpc: Callable[[dict], dict | None] | None = None
+) -> bool:
     """Fire-and-forget hook for call sites. Never raises."""
     try:
         if not isinstance(res, dict) or not res.get("switched"):
             return False
-        return get_conductor().start(res, source=source)
+        if not _is_authority():
+            return False  # mirrors never run a conductor; the bridge does
+        return get_conductor(wake_rpc=wake_rpc).start(res, source=source)
     except Exception:
         logger.exception("could not start switch conductor")
         return False
