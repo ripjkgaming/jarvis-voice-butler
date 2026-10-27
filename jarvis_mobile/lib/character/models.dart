@@ -56,6 +56,93 @@ class CharacterInfo {
   }
 }
 
+/// _motion.yaml `particles`: device-class caps for the shared particle system.
+class ParticleTokens {
+  final double capDesktop, capLow, retintMs, sizeSteps;
+  final int lowCores;
+  const ParticleTokens({
+    this.capDesktop = 1,
+    this.capLow = .45,
+    this.lowCores = 4,
+    this.retintMs = 120,
+    this.sizeSteps = 4,
+  });
+
+  factory ParticleTokens.fromJson(Object? raw) {
+    final j = _map(raw);
+    const d = ParticleTokens();
+    return ParticleTokens(
+      capDesktop: _dbl(j['cap_desktop'], d.capDesktop),
+      capLow: _dbl(j['cap_low'], d.capLow),
+      lowCores: _int(j['low_cores'], d.lowCores),
+      retintMs: _dbl(j['retint_ms'], d.retintMs),
+      sizeSteps: _dbl(j['size_steps'], d.sizeSteps),
+    );
+  }
+
+  /// Count multiplier ceiling for a device with [cores] logical processors.
+  double cap(int cores) => cores <= lowCores ? capLow : capDesktop;
+}
+
+/// _motion.yaml `glow`: shader layer budget.
+class GlowTokens {
+  final double bufferScale, budgetMs;
+  final int budgetFrames;
+  const GlowTokens({this.bufferScale = .5, this.budgetMs = 2, this.budgetFrames = 90});
+
+  factory GlowTokens.fromJson(Object? raw) {
+    final j = _map(raw);
+    const d = GlowTokens();
+    return GlowTokens(
+      bufferScale: _dbl(j['buffer_scale'], d.bufferScale),
+      budgetMs: _dbl(j['budget_ms'], d.budgetMs),
+      budgetFrames: _int(j['budget_frames'], d.budgetFrames),
+    );
+  }
+}
+
+/// _motion.yaml `layouts[name]`: one HUD arrangement preset.
+class LayoutSpec {
+  final String flow; // 'columns' | 'cards'
+  final List<double> columns;
+  final int cards;
+  final double topH, gap, reactorScale;
+  final bool summary;
+  const LayoutSpec({
+    this.flow = 'columns',
+    this.columns = const [21, 54, 25],
+    this.cards = 0,
+    this.topH = 64,
+    this.gap = 18,
+    this.reactorScale = 1,
+    this.summary = false,
+  });
+
+  static const Map<String, LayoutSpec> defaults = {
+    'hud_round': LayoutSpec(),
+    'hud_angular': LayoutSpec(
+        columns: [15, 59, 26], topH: 48, gap: 8, reactorScale: 1.12),
+    'hud_glass': LayoutSpec(
+        flow: 'cards', cards: 4, topH: 60, gap: 14, reactorScale: .85, summary: true),
+  };
+
+  factory LayoutSpec.fromJson(Object? raw, LayoutSpec d) {
+    final j = _map(raw);
+    final cols = j['columns'];
+    return LayoutSpec(
+      flow: _str(j['flow'], d.flow),
+      columns: cols is List && cols.length == 3 && cols.every((e) => e is num)
+          ? cols.map((e) => (e as num).toDouble()).toList()
+          : d.columns,
+      cards: _int(j['cards'], d.cards),
+      topH: _dbl(j['top_h'], d.topH),
+      gap: _dbl(j['gap'], d.gap),
+      reactorScale: _dbl(j['reactor_scale'], d.reactorScale),
+      summary: j['summary'] is bool ? j['summary'] as bool : d.summary,
+    );
+  }
+}
+
 class MotionTokens {
   final int totalMs;
   final int beatMs;
@@ -70,6 +157,9 @@ class MotionTokens {
   /// Each value is [start,end] ms, or a single-element list for a point.
   final Map<String, List<double>> phases;
   final Map<String, Map<String, List<double>>> signatures;
+  final ParticleTokens particles;
+  final GlowTokens glow;
+  final Map<String, LayoutSpec> layouts;
 
   const MotionTokens({
     required this.totalMs,
@@ -83,6 +173,9 @@ class MotionTokens {
     required this.easing,
     required this.phases,
     required this.signatures,
+    this.particles = const ParticleTokens(),
+    this.glow = const GlowTokens(),
+    this.layouts = LayoutSpec.defaults,
   });
 
   static const Map<String, List<double>> _easing = {
@@ -166,6 +259,12 @@ class MotionTokens {
       easing: easing,
       phases: phases,
       signatures: sigs,
+      particles: ParticleTokens.fromJson(j['particles']),
+      glow: GlowTokens.fromJson(j['glow']),
+      layouts: {
+        for (final e in LayoutSpec.defaults.entries)
+          e.key: LayoutSpec.fromJson(_map(j['layouts'])[e.key], e.value),
+      },
     );
   }
 }

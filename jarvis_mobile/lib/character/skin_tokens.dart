@@ -9,6 +9,9 @@ class SkinTokens {
   final Color text, muted, textFaint, amber, danger, ok;
   final Color bubbleUser, bubbleChar, onAccent;
   final double glow, scan, edge, radius, cut;
+
+  /// Ambient particles: count multiplier, size multiplier, drift speed.
+  final double pCount, pSize, pDrift;
   final bool mono, light;
 
   const SkinTokens({
@@ -36,6 +39,9 @@ class SkinTokens {
     this.edge = 0,
     this.radius = 10,
     this.cut = 0,
+    this.pCount = 1,
+    this.pSize = 1,
+    this.pDrift = 1,
     this.mono = true,
     this.light = false,
   });
@@ -114,6 +120,9 @@ class SkinTokens {
       edge: d('edge_refract', 0),
       radius: d('radius_panel', 10),
       cut: d('cut_angle', 0),
+      pCount: d('particle_count', 1),
+      pSize: d('particle_size', 1),
+      pDrift: d('particle_drift', 1),
       mono: t['font_label'] != 'sans',
       light: c('void').computeLuminance() > 0.5,
     );
@@ -147,6 +156,9 @@ class SkinTokens {
       edge: n(a.edge, b.edge),
       radius: n(a.radius, b.radius),
       cut: n(a.cut, b.cut),
+      pCount: n(a.pCount, b.pCount),
+      pSize: n(a.pSize, b.pSize),
+      pDrift: n(a.pDrift, b.pDrift),
       mono: t < 0.5 ? a.mono : b.mono,
       light: t < 0.5 ? a.light : b.light,
     );

@@ -56,6 +56,14 @@ class CxEngine {
   };
   final Set<GlobalKey> _anchors = {};
 
+  /// HUD layout preset on screen (`hud_round` | `hud_angular` | `hud_glass`);
+  /// flips at the swap moment, like the desktop `data-skin` attribute.
+  final ValueNotifier<String> layoutId = ValueNotifier<String>('hud_round');
+
+  /// 0 -> 1 progress of the shared-element glide (in_panels phase, out_expo).
+  /// Panels fade in while they travel from their old slot to the new one.
+  final ValueNotifier<double> flip = ValueNotifier<double>(1);
+
   /// Repaints the overlay painter.
   final ValueNotifier<int> repaint = ValueNotifier<int>(0);
   final ValueNotifier<Offset> shake = ValueNotifier(Offset.zero);
@@ -108,6 +116,8 @@ class CxEngine {
   void dispose() {
     _ticker.dispose();
     repaint.dispose();
+    layoutId.dispose();
+    flip.dispose();
     for (final v in values.values) {
       v.dispose();
     }
@@ -125,6 +135,15 @@ class CxEngine {
     if (ro is! RenderBox || !ro.attached || !ro.hasSize) return null;
     final o = ro.localToGlobal(Offset.zero);
     return o & ro.size;
+  }
+
+  /// Global rect of the orb anchor (null off screen or unmounted).
+  Rect? anchorRect() {
+    for (final k in _anchors) {
+      final r = _rectOf(k);
+      if (r != null) return r;
+    }
+    return null;
   }
 
   List<Rect> _rects(CxGroupId g) => [
@@ -223,6 +242,9 @@ class CxEngine {
   void _swap() {
     _swapped = true;
     _visual = _toId;
+    layoutId.value = ctrl.characters[_toId]?.layout.isNotEmpty == true
+        ? ctrl.characters[_toId]!.layout
+        : 'hud_round';
     ctrl.commitVisual(_toId);
   }
 
@@ -284,6 +306,12 @@ class CxEngine {
     if (!_swapped && _t >= _swapAt) _swap();
     for (final g in CxGroupId.values) {
       _v[g] = _eval(g);
+    }
+    final fa = m.phaseStart('in_panels'), fb = m.phaseEnd('in_panels');
+    if (_reduced) {
+      flip.value = 1;
+    } else if (_swapped) {
+      flip.value = outExpo.transform(smooth(fa, fb, _t));
     }
 
     var sh = Offset.zero;
@@ -374,6 +402,7 @@ class CxEngine {
       values[g]!.value = 1;
     }
     shake.value = Offset.zero;
+    flip.value = 1;
     repaint.value++;
   }
 }

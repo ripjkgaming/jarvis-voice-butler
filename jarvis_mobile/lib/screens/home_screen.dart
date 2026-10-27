@@ -1,3 +1,6 @@
+import '../character/layout.dart';
+import '../character/models.dart';
+import '../character/skin_tokens.dart';
 import '../character/ui.dart';
 import 'dart:async';
 
@@ -168,102 +171,225 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: ListView(
+      body: CxLayout(
+        builder: (context, id, spec) => ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          children: [
-            if (widget.onCall != null) ...[
-              FilledButton.icon(onPressed: widget.onCall, icon: const Icon(Icons.call), label: Text('CALL ${brandName(context)}')),
-              const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Start a voice session through your linked home bridge.', textAlign: TextAlign.center)),
-            ],
-            const HudScanline(),
-            const SizedBox(height: 12),
-            Stagger(
-              index: 0,
-              child: Center(
-                child: Hero(
-                  tag: 'jarvis-orb',
-                  child: JarvisOrb(
-                      energy: _online ? 0.55 : 0.2, size: 230),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Stagger(
-              index: 1,
-              child: Center(
-                child: _loading
-                    ? const HudLoading(label: 'PROBING LINK')
-                    : StatusPill(
-                        _online
-                            ? 'LINKED${_version.isEmpty ? '' : ' · $_version'}'
-                            : 'NOT LINKED — TAP LINK ICON',
-                        good: _online,
-                      ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Stagger(
-              index: 1,
-              child: Center(
-                child: _SuitPowerPill(
-                    level: _suitPower, charging: _suitCharging),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Stagger(
-              index: 2,
-              child: Row(children: [
-                Expanded(
-                    child: _QuickTile(
-                        icon: Icons.sync,
-                        label: 'RESYNC',
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _loading = true);
-                          _refresh();
-                        })),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _QuickTile(
-                        icon: Icons.link,
-                        label: 'BRIDGE',
-                        onTap: _settings)),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _QuickTile(
-                        icon: Icons.mic_none,
-                        label: _online ? 'ONLINE' : 'STANDBY',
-                        accent: _online
-                            ? JarvisTheme.cyan
-                            : JarvisTheme.amber,
-                        onTap: () {})),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            const Stagger(
-                index: 3, child: SectionLabel('Latest transmissions')),
-            const SizedBox(height: 10),
-            Stagger(
-              index: 4,
-              child: HudPanel(
-                child: _captions.isEmpty
-                    ? Center(
-                        child: Text(
-                            'Nothing yet — captions appear here.',
-                            style: TextStyle(
-                                color: JarvisTheme.muted, fontSize: 13)),
-                      )
-                    : Column(children: [
-                        for (var i = 0; i < _captions.length; i++)
-                          _CaptionRow(
-                              caption: _captions[i],
-                              last: i == _captions.length - 1),
-                      ]),
-              ),
-            ),
-          ]),
+          children: _arrange(id, spec),
+        ),
+      ),
     );
   }
+
+  /// One GlobalKey per section so a layout change moves the same State (and
+  /// its FLIP record) to the new slot instead of rebuilding it.
+  final Map<String, GlobalKey> _slots = {};
+
+  Widget _slot(String id, Widget w, {bool uniform = false}) => KeyedSubtree(
+        key: _slots.putIfAbsent(id, () => GlobalKey()),
+        child: CxFlip(uniform: uniform, child: w),
+      );
+
+  /// Layout presets (characters/_motion.yaml `layouts`): the same sections,
+  /// different grid. hud_round is the reference.
+  List<Widget> _arrange(String id, LayoutSpec spec) {
+    final gap = spec.gap;
+    final orbSize = 230.0 * spec.reactorScale;
+    final call = widget.onCall == null
+        ? const <Widget>[]
+        : [
+            FilledButton.icon(
+                onPressed: widget.onCall,
+                icon: const Icon(Icons.call),
+                label: Text('CALL ${brandName(context)}')),
+            const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('Start a voice session through your linked home bridge.',
+                    textAlign: TextAlign.center)),
+          ];
+    final orb = _slot(
+      'orb',
+      Stagger(
+        index: 0,
+        child: Center(
+          child: Hero(
+            tag: 'jarvis-orb',
+            child: JarvisOrb(energy: _online ? 0.55 : 0.2, size: orbSize),
+          ),
+        ),
+      ),
+      uniform: true,
+    );
+    final link = _slot(
+      'link',
+      Stagger(
+        index: 1,
+        child: Center(
+          child: _loading
+              ? const HudLoading(label: 'PROBING LINK')
+              : StatusPill(
+                  _online
+                      ? 'LINKED${_version.isEmpty ? '' : ' · $_version'}'
+                      : 'NOT LINKED — TAP LINK ICON',
+                  good: _online,
+                ),
+        ),
+      ),
+    );
+    final suit = _slot(
+      'suit',
+      Stagger(
+        index: 1,
+        child: Center(
+          child: _SuitPowerPill(level: _suitPower, charging: _suitCharging),
+        ),
+      ),
+    );
+    final tiles = [
+      _QuickTile(
+          icon: Icons.sync,
+          label: 'RESYNC',
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _loading = true);
+            _refresh();
+          }),
+      _QuickTile(icon: Icons.link, label: 'BRIDGE', onTap: _settings),
+      _QuickTile(
+          icon: Icons.mic_none,
+          label: _online ? 'ONLINE' : 'STANDBY',
+          accent: _online ? JarvisTheme.cyan : JarvisTheme.amber,
+          onTap: () {}),
+    ];
+    final angular = id == 'hud_angular';
+    final tileSlot = _slot(
+      'tiles',
+      Stagger(
+        index: 2,
+        child: angular
+            // Angled stacked slabs: full-width, tight, alternating cut edge.
+            ? Column(children: [
+                for (var i = 0; i < tiles.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: i == tiles.length - 1 ? 0 : gap / 2),
+                    child: ClipPath(
+                      clipper: _SlabClipper(flip: i.isOdd, cut: Skin.current.cut),
+                      child: tiles[i],
+                    ),
+                  ),
+              ])
+            : Row(children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) SizedBox(width: gap * .55),
+                  Expanded(child: tiles[i]),
+                ],
+              ]),
+      ),
+    );
+    final captions = _slot(
+      'captions',
+      Column(children: [
+        const Stagger(index: 3, child: SectionLabel('Latest transmissions')),
+        const SizedBox(height: 10),
+        Stagger(
+          index: 4,
+          child: HudPanel(
+            child: _captions.isEmpty
+                ? Center(
+                    child: Text('Nothing yet — captions appear here.',
+                        style: TextStyle(color: JarvisTheme.muted, fontSize: 13)),
+                  )
+                : Column(children: [
+                    for (var i = 0; i < _captions.length; i++)
+                      _CaptionRow(caption: _captions[i], last: i == _captions.length - 1),
+                  ]),
+          ),
+        ),
+      ]),
+    );
+    final vitals = Row(children: [
+      Expanded(child: link),
+      SizedBox(width: gap / 2),
+      Expanded(child: suit),
+    ]);
+    final sp = SizedBox(height: gap * .55);
+    switch (id) {
+      case 'hud_angular':
+        // Dense and centre-weighted: vitals tight on top, big reactor, slabs.
+        return [
+          ...call,
+          const HudScanline(),
+          sp,
+          vitals,
+          sp,
+          orb,
+          sp,
+          tileSlot,
+          SizedBox(height: gap),
+          captions,
+        ];
+      case 'hud_glass':
+        // Airy: summary strip first, small raised reactor, card row below.
+        return [
+          ...call,
+          const HudScanline(),
+          sp,
+          vitals,
+          SizedBox(height: gap),
+          orb,
+          SizedBox(height: gap),
+          tileSlot,
+          SizedBox(height: gap * 1.2),
+          captions,
+        ];
+      default:
+        return [
+          ...call,
+          const HudScanline(),
+          const SizedBox(height: 12),
+          orb,
+          const SizedBox(height: 8),
+          link,
+          const SizedBox(height: 8),
+          suit,
+          const SizedBox(height: 16),
+          tileSlot,
+          const SizedBox(height: 16),
+          captions,
+        ];
+    }
+  }
+}
+
+/// Angular slab: two opposite corners cut by [cut] logical px.
+class _SlabClipper extends CustomClipper<Path> {
+  final bool flip;
+  final double cut;
+  const _SlabClipper({required this.flip, required this.cut});
+
+  @override
+  Path getClip(Size s) {
+    final c = cut <= 0 ? 12.0 : cut;
+    return flip
+        ? (Path()
+          ..moveTo(c, 0)
+          ..lineTo(s.width, 0)
+          ..lineTo(s.width, s.height - c)
+          ..lineTo(s.width - c, s.height)
+          ..lineTo(0, s.height)
+          ..lineTo(0, c)
+          ..close())
+        : (Path()
+          ..moveTo(0, 0)
+          ..lineTo(s.width - c, 0)
+          ..lineTo(s.width, c)
+          ..lineTo(s.width, s.height)
+          ..lineTo(c, s.height)
+          ..lineTo(0, s.height - c)
+          ..close());
+  }
+
+  @override
+  bool shouldReclip(covariant _SlabClipper old) => old.flip != flip || old.cut != cut;
 }
 
 /// Phone's own battery readout ("SUIT POWER 76% · CHARGING") in HUD chrome.

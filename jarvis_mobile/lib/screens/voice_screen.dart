@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import '../character/layout.dart';
 import '../character/skin_tokens.dart';
 import '../core/link_api.dart';
 import '../core/prefs.dart';
@@ -173,22 +174,23 @@ class _VoiceScreenState extends State<VoiceScreen> {
               ),
             ],
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            children: [
-              const HudScanline(),
-              const SizedBox(height: 12),
-              Center(
-                child: Hero(
-                  tag: 'jarvis-orb',
-                  child: JarvisOrb(
-                    energy: _call.energy,
-                    size: MediaQuery.sizeOf(context).height < 450 ? 110 : 250,
+          body: CxLayout(
+            builder: (context, id, spec) {
+              final gap = spec.gap;
+              final orbDim = MediaQuery.sizeOf(context).height < 450 ? 110.0 : 250.0 * spec.reactorScale;
+              final orb = _slot(
+                'orb',
+                Center(
+                  child: Hero(
+                    tag: 'jarvis-orb',
+                    child: JarvisOrb(energy: _call.energy, size: orbDim),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Center(
+                uniform: true,
+              );
+              final status = _slot(
+                'status',
+                Center(
                 child: joining
                     ? const HudLoading(label: 'ESTABLISHING UPLINK')
                     : Text(
@@ -200,8 +202,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         ),
                       ),
               ),
-              const SizedBox(height: 18),
-              Wrap(
+              );
+              final controls = _slot(
+                'controls',
+                Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 12,
                 runSpacing: 12,
@@ -235,19 +239,23 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   ],
                 ],
               ),
-              if (error) ...[
-                const SizedBox(height: 12),
-                HudError(
+              );
+              final errorBox = error
+                  ? _slot('error', HudError(
                   message: _call.detail.isEmpty
                       ? 'Uplink failed.'
                       : _call.detail,
                   onRetry: _call.join,
-                ),
-              ],
-              const SizedBox(height: 20),
-              const SectionLabel('Live transcript'),
-              const SizedBox(height: 10),
-              HudPanel(
+                ))
+                  : const SizedBox.shrink();
+              final transcript = _slot(
+                'transcript',
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SectionLabel('Live transcript'),
+                    const SizedBox(height: 10),
+                    HudPanel(
                 child: _captions.isEmpty
                     ? Center(
                         child: Text(
@@ -292,12 +300,34 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         ],
                       ),
               ),
-            ],
+                  ],
+                ),
+              );
+              final sp = SizedBox(height: gap * .7);
+              final List<Widget> rows = switch (id) {
+                // Dense, centre-weighted: reactor, status, transcript, then the call bar.
+                'hud_angular' => [orb, sp, status, sp, transcript, sp, errorBox, sp, controls],
+                // Airy: status card on top, smaller raised reactor, controls, transcript.
+                'hud_glass' => [status, SizedBox(height: gap), orb, SizedBox(height: gap), controls, errorBox, SizedBox(height: gap), transcript],
+                _ => [orb, const SizedBox(height: 12), status, const SizedBox(height: 18), controls, errorBox, const SizedBox(height: 20), transcript],
+              };
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                children: [const HudScanline(), const SizedBox(height: 12), ...rows],
+              );
+            },
           ),
         );
       },
     );
   }
+
+  final Map<String, GlobalKey> _slots = {};
+
+  Widget _slot(String id, Widget w, {bool uniform = false}) => KeyedSubtree(
+        key: _slots.putIfAbsent(id, () => GlobalKey()),
+        child: CxFlip(uniform: uniform, child: w),
+      );
 }
 
 class _TalkButton extends StatelessWidget {
