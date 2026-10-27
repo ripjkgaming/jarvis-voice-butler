@@ -133,3 +133,53 @@ def test_line_format():
     out = C.line(j, "unknown_name", names="Ultron, Friday")
     assert "Ultron, Friday" in out
     assert C.line(j, "greet") in j.lines["greet"]
+
+
+def _edit_motion(cdir: Path, edit) -> None:
+    p = cdir / "_motion.yaml"
+    d = yaml.safe_load(p.read_text())
+    edit(d)
+    p.write_text(yaml.safe_dump(d))
+
+
+def test_shipped_layouts_and_particles_valid():
+    chars = C.load_all()
+    lay = C.motion()["layouts"]
+    assert {c.layout for c in chars.values()} == {"hud_round", "hud_angular", "hud_glass"}
+    assert set(lay) >= {c.layout for c in chars.values()}
+    for c in chars.values():
+        for key, (lo, hi) in C.PARTICLE_TOKENS.items():
+            assert lo <= c.theme_tokens[key] <= hi
+    # Ultron sparse embers, Friday soft motes, Jarvis the dense reference.
+    t = {k: v.theme_tokens["particle_count"] for k, v in chars.items()}
+    assert t["ultron"] < t["friday"] < t["jarvis"]
+
+
+def test_unknown_layout_rejected(cdir):
+    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"].__setitem__("layout", "hud_nope")))
+    with pytest.raises(C.CharacterError, match="hud_nope"):
+        C.load_all(cdir)
+
+
+def test_layout_columns_must_sum_to_100(cdir):
+    _edit_motion(cdir, lambda d: d["layouts"]["hud_angular"].__setitem__("columns", [10, 50, 30]))
+    with pytest.raises(C.CharacterError, match="hud_angular.columns"):
+        C.load_all(cdir)
+
+
+def test_layout_reactor_scale_bounds(cdir):
+    _edit_motion(cdir, lambda d: d["layouts"]["hud_glass"].__setitem__("reactor_scale", 3))
+    with pytest.raises(C.CharacterError, match="reactor_scale"):
+        C.load_all(cdir)
+
+
+def test_particle_token_range(cdir):
+    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"]["tokens"].__setitem__("particle_count", 9)))
+    with pytest.raises(C.CharacterError, match="particle_count"):
+        C.load_all(cdir)
+
+
+def test_glow_budget_cap(cdir):
+    _edit_motion(cdir, lambda d: d["glow"].__setitem__("budget_ms", 5))
+    with pytest.raises(C.CharacterError, match="budget_ms"):
+        C.load_all(cdir)

@@ -48,3 +48,45 @@ signatures:
     shard_snap:   [700, 980]
     shake:        [760, 860]
     settle:       [980, 1200]
+# Ambient particles: shared system, only parameters differ per character
+# (theme.tokens particle_count / particle_size / particle_drift).
+particles:
+  cap_desktop: 1.0        # max count multiplier on a desktop-class device
+  cap_low: 0.45           # max count multiplier on a low-power device
+  low_cores: 4            # hardwareConcurrency at or below this = low-power
+  retint_ms: 120          # min gap between colour re-bakes during a cross-fade
+  size_steps: 4           # size is quantised so a cross-fade re-bakes at most this often
+# Glow / shader layer. Hard budget: if the measured cost passes budget_ms the
+# layer switches itself off for the session.
+glow:
+  buffer_scale: 0.5       # offscreen buffer vs the HUD canvas
+  budget_ms: 2.0
+  budget_frames: 90       # rolling window the budget is judged over
+  env_kill: JARVIS_FX_GL  # =0 disables the WebGL layer (read by the shell)
+  setting_kill: jarvis.cx.gl
+# HUD layout presets, selected by theme.layout. hud_round is the reference
+# (stock stylesheet); the others rearrange the same panels through grid areas.
+#   columns: [left, centre, right] percentages (flow: columns)
+#   cards:   cards per row on the panel rows (flow: cards)
+layouts:
+  hud_round:
+    flow: columns
+    columns: [21, 54, 25]
+    top_h: 64
+    gap: 18
+    reactor_scale: 1.0
+    summary: false
+  hud_angular:
+    flow: columns
+    columns: [15, 59, 26]
+    top_h: 48
+    gap: 8
+    reactor_scale: 1.12
+    summary: false
+  hud_glass:
+    flow: cards
+    cards: 4
+    top_h: 60
+    gap: 14
+    reactor_scale: 0.72
+    summary: true

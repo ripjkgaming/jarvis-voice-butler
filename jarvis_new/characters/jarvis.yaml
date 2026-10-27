@@ -54,6 +54,9 @@ theme:
     edge_refract: 0.0
     font_brand: mono
     font_label: mono
+    particle_count: 1.0
+    particle_size: 1.0
+    particle_drift: 1.0
 transition:
   signature: holo_reassembly
   intensity: 1.0

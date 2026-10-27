@@ -33,6 +33,8 @@ _COLOR_RE = re.compile(
 )
 _MOTION_REQUIRED = ("total_ms", "beat_ms", "phases", "signatures")
 _MAX_BEAT_MS = 700
+LAYOUT_FLOWS = ("columns", "cards")
+PARTICLE_TOKENS = {"particle_count": (0.1, 2.0), "particle_size": (0.5, 2.5), "particle_drift": (0.1, 3.0)}
 
 
 class CharacterError(ValueError):
@@ -117,7 +119,59 @@ def _validate_motion(data: dict[str, Any], path: Path) -> dict[str, Any]:
             raise _fail(path, f"signature {sig} must be a non-empty mapping")
         for name, span in parts.items():
             check_span(f"signature {sig}.{name}", span)
+    _validate_extras(data, path)
     return data
+
+
+def _num(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _validate_extras(data: dict[str, Any], path: Path) -> None:
+    """particles / glow / layouts blocks (optional so old files still load)."""
+    p = data.get("particles")
+    if p is not None:
+        if not isinstance(p, dict):
+            raise _fail(path, "particles must be a mapping")
+        for key in ("cap_desktop", "cap_low"):
+            if not _num(p.get(key)) or not 0 < p[key] <= 1:
+                raise _fail(path, f"particles.{key} must be in (0, 1]")
+        if p["cap_low"] > p["cap_desktop"]:
+            raise _fail(path, "particles.cap_low must be <= cap_desktop")
+        for key in ("low_cores", "retint_ms", "size_steps"):
+            if not _num(p.get(key)) or p[key] <= 0:
+                raise _fail(path, f"particles.{key} must be positive")
+    g = data.get("glow")
+    if g is not None:
+        if not isinstance(g, dict):
+            raise _fail(path, "glow must be a mapping")
+        if not _num(g.get("buffer_scale")) or not 0 < g["buffer_scale"] <= 0.5:
+            raise _fail(path, "glow.buffer_scale must be in (0, 0.5]")
+        if not _num(g.get("budget_ms")) or not 0 < g["budget_ms"] <= 2:
+            raise _fail(path, "glow.budget_ms must be in (0, 2]")
+    lay = data.get("layouts")
+    if lay is not None:
+        if not isinstance(lay, dict) or not lay:
+            raise _fail(path, "layouts must be a non-empty mapping")
+        for name, spec in lay.items():
+            if not isinstance(spec, dict) or spec.get("flow") not in LAYOUT_FLOWS:
+                raise _fail(path, f"layout {name}.flow must be one of {LAYOUT_FLOWS}")
+            if spec["flow"] == "columns":
+                cols = spec.get("columns")
+                if (
+                    not isinstance(cols, list) or len(cols) != 3
+                    or not all(_num(c) and c > 0 for c in cols) or sum(cols) != 100
+                ):
+                    raise _fail(path, f"layout {name}.columns must be 3 positive numbers summing to 100")
+            elif not isinstance(spec.get("cards"), int) or not 2 <= spec["cards"] <= 6:
+                raise _fail(path, f"layout {name}.cards must be an int in [2, 6]")
+            for key in ("top_h", "gap"):
+                if not _num(spec.get(key)) or spec[key] < 0:
+                    raise _fail(path, f"layout {name}.{key} must be a non-negative number")
+            if not _num(spec.get("reactor_scale")) or not 0.4 <= spec["reactor_scale"] <= 1.4:
+                raise _fail(path, f"layout {name}.reactor_scale must be in [0.4, 1.4]")
+            if not isinstance(spec.get("summary"), bool):
+                raise _fail(path, f"layout {name}.summary must be a bool")
 
 
 def motion(dir: Path | str | None = None) -> dict[str, Any]:  # noqa: A002
@@ -170,6 +224,9 @@ def _parse(path: Path, data: dict[str, Any], signatures: set[str]) -> Character:
     for key, value in tokens.items():
         if _is_color_key(key, value) and not _COLOR_RE.match(value):
             raise _fail(path, f"theme token '{key}' is not a valid color: {value!r}")
+    for key, (lo, hi) in PARTICLE_TOKENS.items():
+        if key in tokens and (not _num(tokens[key]) or not lo <= tokens[key] <= hi):
+            raise _fail(path, f"theme token '{key}' must be a number in [{lo}, {hi}]")
     if not isinstance(trans, dict) or trans.get("signature") not in signatures:
         raise _fail(path, f"transition.signature {trans.get('signature') if isinstance(trans, dict) else None!r} not in _motion.yaml")
     intensity = trans.get("intensity")
@@ -199,12 +256,16 @@ def _parse(path: Path, data: dict[str, Any], signatures: set[str]) -> Character:
 
 def load_all(dir: Path | str | None = None) -> dict[str, Character]:  # noqa: A002
     root = Path(dir or CHARACTERS_DIR)
-    signatures = set(motion(root)["signatures"])
+    mo = motion(root)
+    signatures = set(mo["signatures"])
+    layouts = set(mo.get("layouts", {}))
     out: dict[str, Character] = {}
     for path in sorted(root.glob("*.yaml")):
         if path.name.startswith("_"):
             continue
         char = _parse(path, _read_yaml(path), signatures)
+        if layouts and char.layout not in layouts:
+            raise _fail(path, f"theme.layout '{char.layout}' not in _motion.yaml layouts")
         if path.stem != char.id:
             raise _fail(path, f"id '{char.id}' must match filename")
         if char.id in out:

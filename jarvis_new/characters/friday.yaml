@@ -55,6 +55,9 @@ theme:
     edge_refract: 0.8
     font_brand: sans
     font_label: sans
+    particle_count: 0.8
+    particle_size: 1.5
+    particle_drift: 0.7
 transition:
   signature: luminous_sweep
   intensity: 0.9
