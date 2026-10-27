@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/theme.dart';
+import 'fx.dart';
 
 /// Arc-reactor hero orb: concentric rotating segmented rings, tick marks,
 /// sweeping radar line and a glow core that pulses with [energy] (0..1).
@@ -42,6 +43,7 @@ class _JarvisOrbState extends State<JarvisOrb>
       _previous = elapsed;
       _t += dt;
       _smooth += (widget.energy - _smooth) * (1 - math.exp(-dt / .18));
+      FxGlow.energy = _smooth.clamp(0.0, 1.0);
       _frame.value++;
     });
   }

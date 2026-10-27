@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../character/skin_tokens.dart';
 import '../character/transition.dart';
 import '../core/theme.dart';
+import 'fx.dart';
 
 /// Shared cinematic HUD chrome: background, glass panel with bracket
 /// corners, section labels, staggered entrance, state callouts.
@@ -26,6 +27,7 @@ class HudBackground extends StatelessWidget {
       ),
       child: Stack(children: [
         const Positioned.fill(child: _GridGlow()),
+        const Positioned.fill(child: SkinFx()),
         Positioned.fill(
           child: DecoratedBox(
             decoration: BoxDecoration(
