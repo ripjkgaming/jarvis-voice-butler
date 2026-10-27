@@ -57,6 +57,9 @@ fn main() {
                 "chess" | "chessshow" => tray::show_chess(app),
                 "chesshide" => tray::hide_chess(app),
                 "chessstate" => print_window_state(app, "chess"),
+                // `jarvis show`: bring the HUD forward without toggling it away
+                // (the character commands use this before they switch).
+                "show" => tray::show_overlay(app),
                 "suitshow" => tray::show_suit_overlay(app),
                 "state" => print_overlay_state(app),
                 "schoolon" => school::enter(app),
@@ -178,7 +181,10 @@ fn main() {
             // `visible: false` in tauri.conf.json, so without this the HUD
             // only lived in the tray until summoned. School mode already
             // re-docked the strip above, so leave that alone.
-            if std::env::args().nth(1).is_none() && !school::is_school() {
+            let first_verb = std::env::args().nth(1);
+            if (first_verb.is_none() || first_verb.as_deref() == Some("show"))
+                && !school::is_school()
+            {
                 tray::show_overlay(app.handle());
             }
 
