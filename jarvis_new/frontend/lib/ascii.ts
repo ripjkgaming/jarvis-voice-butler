@@ -27,7 +27,7 @@ export function hexRgb(hex: string): RGB {
   const h = hex.replace('#', '');
   const v = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.slice(0, 6);
   const n = parseInt(v, 16);
-  return Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [95, 227, 255];
+  return Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [168, 235, 255];
 }
 function mixRgb(a: RGB, b: RGB, t: number): RGB {
   const u = clamp(t);

@@ -89,7 +89,7 @@ export function createAsciiAmbientScene(
     }
     // scanline
     const sy = ((time * 40) % (height + 40)) - 20;
-    ctx.fillStyle = 'rgba(95,227,255,0.035)';
+    ctx.fillStyle = 'rgba(168,235,255,0.035)';
     ctx.fillRect(0, sy, width, 2);
   };
 

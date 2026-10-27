@@ -123,7 +123,7 @@ def test_public_dict_no_prompt():
     json.dumps(d)
     assert "prompt" not in d
     assert chars["jarvis"].prompt.strip()[:20] not in json.dumps(d)
-    assert d["theme_tokens"]["accent"] == "#5fe3ff"
+    assert d["theme_tokens"]["accent"] == "#a8ebff"
     assert d["wake_names"] == ["jarvis"]
 
 

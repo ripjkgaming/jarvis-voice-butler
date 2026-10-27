@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Design tokens for one character skin. A skin is a token set, never a
 /// forked widget: [JarvisTheme] reads [Skin.current], so every themed widget
-/// follows it. Jarvis is the original palette, byte for byte.
+/// follows it. Jarvis wears the icy-blue palette.
 class SkinTokens {
   final Color bg, bg2, panel, panelHi, line, lineCyan;
   final Color cyan, cyanBright, cyanDeep, cyanDim;
@@ -40,21 +40,21 @@ class SkinTokens {
     this.light = false,
   });
 
-  /// The shipped J.A.R.V.I.S. look. Do not edit: it is the regression baseline.
+  /// The J.A.R.V.I.S. look, icy-blue refresh. Must match characters/jarvis.yaml.
   static const jarvis = SkinTokens(
     bg: Color(0xFF04070D),
     bg2: Color(0xFF070D16),
     panel: Color(0xFF0B1420),
     panelHi: Color(0xFF101C2C),
-    line: Color(0xFF1B2A35),
-    lineCyan: Color(0xFF2B4A5E),
-    cyan: Color(0xFF5FE3FF),
-    cyanBright: Color(0xFFBDF3FF),
-    cyanDeep: Color(0xFF0E7E96),
-    cyanDim: Color(0xFF2A7E96),
-    text: Color(0xFFE8F6FC),
-    muted: Color(0xFF7B93A3),
-    textFaint: Color(0xFF46677A),
+    line: Color(0xFF203543),
+    lineCyan: Color(0xFF35607A),
+    cyan: Color(0xFFA8EBFF),
+    cyanBright: Color(0xFFF4FDFF),
+    cyanDeep: Color(0xFF3F9DB8),
+    cyanDim: Color(0xFF5DB8D6),
+    text: Color(0xFFEAFAFF),
+    muted: Color(0xFF93B8CA),
+    textFaint: Color(0xFF54788C),
     amber: Color(0xFFFFB648),
     danger: Color(0xFFFF5D5D),
     ok: Color(0xFF5DF2B8),

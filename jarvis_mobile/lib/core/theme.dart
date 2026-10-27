@@ -4,7 +4,7 @@ import '../character/skin_tokens.dart';
 
 /// J.A.R.V.I.S. cinematic design system — Iron Man 1-2 HUD.
 ///
-/// Near-black deep-navy base, cyan signal glow (#5FE3FF), amber warnings,
+/// Near-black deep-navy base, icy cyan signal glow (#A8EBFF), amber warnings,
 /// glassy panels with hairline cyan borders + bracket corners (painted by
 /// [HudPanel] in widgets/hud.dart), mono uppercase telemetry labels.
 class JarvisTheme {

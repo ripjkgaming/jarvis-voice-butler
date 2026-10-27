@@ -13,8 +13,8 @@
   gap: 8px;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid var(--line-strong, rgba(95, 227, 255, 0.42));
-  background: rgba(var(--acc, 95, 227, 255), 0.1);
+  border: 1px solid var(--line-strong, rgba(168, 235, 255, 0.42));
+  background: rgba(var(--acc, 168, 235, 255), 0.1);
   color: var(--text, #d9f4ff);
   font: inherit;
   font-size: 12px;
@@ -29,12 +29,12 @@
 
 .chip:hover,
 .chip[aria-expanded='true'] {
-  background: rgba(var(--acc, 95, 227, 255), 0.22);
-  border-color: var(--cyan, #5fe3ff);
+  background: rgba(var(--acc, 168, 235, 255), 0.22);
+  border-color: var(--cyan, #a8ebff);
 }
 
 .chip:focus-visible {
-  outline: 2px solid var(--cyan, #5fe3ff);
+  outline: 2px solid var(--cyan, #a8ebff);
   outline-offset: 2px;
 }
 
@@ -59,7 +59,7 @@
   padding: 6px;
   margin: 0;
   list-style: none;
-  border: 1px solid var(--line-strong, rgba(95, 227, 255, 0.42));
+  border: 1px solid var(--line-strong, rgba(168, 235, 255, 0.42));
   background: rgba(var(--ink-rgb, 3, 16, 26), 0.96);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(10px);
@@ -99,7 +99,7 @@
 
 .row:hover,
 .row[data-focus='true'] {
-  background: rgba(var(--acc, 95, 227, 255), 0.16);
+  background: rgba(var(--acc, 168, 235, 255), 0.16);
 }
 
 .rowName {
@@ -119,7 +119,7 @@
 .rowTag {
   font-size: 9px;
   letter-spacing: 0.14em;
-  color: var(--cyan, #5fe3ff);
+  color: var(--cyan, #a8ebff);
 }
 
 .notice {
@@ -139,11 +139,11 @@
   width: min(580px, calc(100% - 48px));
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--line-strong, rgba(95, 227, 255, 0.42));
+  border: 1px solid var(--line-strong, rgba(168, 235, 255, 0.42));
   background: rgba(var(--ink-rgb, 3, 16, 26), 0.9);
   box-shadow:
     0 16px 48px rgba(0, 0, 0, 0.5),
-    var(--glow, 0 0 10px rgba(95, 227, 255, 0.35));
+    var(--glow, 0 0 10px rgba(168, 235, 255, 0.35));
   backdrop-filter: blur(12px);
   font-family: var(--f-label, inherit);
   color: var(--text, #d9f4ff);
@@ -177,7 +177,7 @@
 
 .kbd {
   padding: 1px 6px;
-  border: 1px solid var(--line, rgba(95, 227, 255, 0.18));
+  border: 1px solid var(--line, rgba(168, 235, 255, 0.18));
   font-size: 10px;
 }
 
@@ -186,7 +186,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px 8px 14px;
-  border-bottom: 1px solid var(--line, rgba(95, 227, 255, 0.18));
+  border-bottom: 1px solid var(--line, rgba(168, 235, 255, 0.18));
   font-size: 11px;
   letter-spacing: 0.18em;
   color: var(--text-dim, #7fa6b8);
@@ -251,7 +251,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 10px 10px 12px;
-  border-top: 1px solid var(--line, rgba(95, 227, 255, 0.18));
+  border-top: 1px solid var(--line, rgba(168, 235, 255, 0.18));
 }
 
 .input {
@@ -274,8 +274,8 @@
 .send {
   height: 28px;
   padding: 0 12px;
-  border: 1px solid var(--line-strong, rgba(95, 227, 255, 0.42));
-  background: rgba(var(--acc, 95, 227, 255), 0.14);
+  border: 1px solid var(--line-strong, rgba(168, 235, 255, 0.42));
+  background: rgba(var(--acc, 168, 235, 255), 0.14);
   color: var(--text, #d9f4ff);
   font: inherit;
   font-size: 11px;
