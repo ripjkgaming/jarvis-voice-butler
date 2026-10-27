@@ -1,5 +1,6 @@
 'use client';
 
+import { CharacterHost } from '@/components/character/character-host';
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
@@ -288,6 +289,7 @@ export function HudShell({ children }: Props) {
       {/* Protocol 12 network map: takes over the full HUD face only (not the
           school bar or its transitions). */}
       <ProtocolLayer enabled={hudOn && !tx && !returning} />
+      <CharacterHost />
     </>
   );
 }

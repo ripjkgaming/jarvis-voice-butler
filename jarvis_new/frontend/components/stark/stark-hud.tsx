@@ -14,6 +14,9 @@ import { CommsLog, Execution, VoicePanels, useActivity } from './ops';
 import { Reactor } from './reactor';
 import s from './stark.module.css';
 import { Caption, Research, StateReadout } from './voice';
+import { CharacterChip } from '@/components/character/character-chip';
+import { ChatDock } from '@/components/character/chat-dock';
+import { skinStateColor, taglineOf, useSkin, wordmarkOf } from '@/lib/character/hooks';
 
 function two(n: number): string {
   return String(n).padStart(2, '0');
@@ -85,13 +88,16 @@ function TopBar({
   solo: boolean;
   link: VoiceLink;
 }) {
+  const { ch } = useSkin();
   return (
     <header className={s.top} data-tauri-drag-region>
       <div className={s.brand} data-tauri-drag-region>
         <Emblem />
         <div className={s.brandCopy} data-tauri-drag-region>
-          <strong className={s.wordmark}>J.A.R.V.I.S.</strong>
-          <small className={s.brandSub}>LOCKE OS · PERSONAL INTELLIGENCE</small>
+          <strong className={s.wordmark}>{ch ? wordmarkOf(ch) : 'J.A.R.V.I.S.'}</strong>
+          <small className={s.brandSub}>
+            {ch ? taglineOf(ch) : 'LOCKE OS · PERSONAL INTELLIGENCE'}
+          </small>
         </div>
       </div>
       <div className={s.chips} data-tauri-drag-region>
@@ -105,6 +111,7 @@ function TopBar({
           MIC {muted === true ? 'OFF' : muted === false ? 'ON' : '…'}
         </span>
         <span className={s.chip}>{solo ? 'SOLO' : 'DUAL'} · D</span>
+        <CharacterChip />
       </div>
       <Clock />
     </header>
@@ -189,7 +196,13 @@ export function StarkHud({
   const history = useHistory(m, sys);
   const activity = useActivity();
   const flash = useDoneFlash(activity);
-  const color = muted === true ? MUTED_COLOR : JARVIS_COLORS[jarvis];
+  const { ch: skin } = useSkin();
+  const color =
+    muted === true
+      ? MUTED_COLOR
+      : skin
+        ? skinStateColor(skin, jarvis)
+        : JARVIS_COLORS[jarvis];
 
   const center = (
     <section className={s.center} aria-label="Voice core">
@@ -251,6 +264,7 @@ export function StarkHud({
       )}
       <Footer m={m} />
       <i className={s.flashEdge} aria-hidden="true" />
+      <ChatDock />
       {children}
     </div>
   );

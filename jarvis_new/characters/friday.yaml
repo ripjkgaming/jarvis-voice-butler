@@ -38,7 +38,7 @@ theme:
     line: "rgba(40,110,150,0.20)"
     line_strong: "rgba(40,110,150,0.45)"
     accent: "#2e9fd8"
-    accent_hot: "#ffb55e"
+    accent_hot: "#d9731a"
     accent_dim: "#7fb8d6"
     text: "#16313f"
     text_dim: "#4f6c7c"

@@ -12,6 +12,8 @@ import type { SuitCommand } from '@/lib/suit-diagnostics';
 import { bridgeInfo, isTauri } from '@/lib/tauri';
 
 const FALLBACK_URL = `http://127.0.0.1:${process.env.NEXT_PUBLIC_BRIDGE_PORT ?? 4317}`;
+/** Plain-browser dev/test only (set in the dev env, never baked into the shell build). */
+const FALLBACK_TOKEN = process.env.NEXT_PUBLIC_BRIDGE_TOKEN || null;
 
 type BridgeEndpoint = { url: string; token?: string | null };
 let endpoint: Promise<BridgeEndpoint> | null = null;
@@ -37,9 +39,9 @@ function getEndpoint(): Promise<BridgeEndpoint> {
           // A transient native IPC failure must not pin the unauthenticated
           // fallback for the rest of the webview's lifetime.
           if (endpoint === lookup) endpoint = null;
-          return { url: FALLBACK_URL };
+          return { url: FALLBACK_URL, token: FALLBACK_TOKEN };
         })
-      : Promise.resolve({ url: FALLBACK_URL });
+      : Promise.resolve({ url: FALLBACK_URL, token: FALLBACK_TOKEN });
     endpoint = lookup;
   }
   return endpoint;
@@ -207,7 +209,7 @@ export async function bridgeCallState(): Promise<CallState | null> {
 
 export type BridgeCaptions = {
   ok?: boolean;
-  captions?: { ts: number; role: string; text: string }[];
+  captions?: { ts: number; role: string; text: string; speaker?: string }[];
 };
 
 /** Conversation tail (agent mirrors convo here; the webview has no
@@ -282,6 +284,37 @@ export async function bridgeChat(text: string): Promise<string | null> {
     const j = (await res.json()) as BridgeChatReply;
     if (j.reply) return j.reply;
     return j.warning ? `(${j.warning})` : null;
+  } catch {
+    return null;
+  }
+}
+
+export type BridgeChatFull = BridgeChatReply & {
+  switched?: boolean;
+  target?: string;
+  char_turn?: number;
+  speaker?: string;
+};
+
+/** Typed chat with the shared history and speaker tags (character switching
+ *  rides the same call: a switch command comes back with switched/char_turn). */
+export async function bridgeChatFull(
+  text: string,
+  history: [string, string, string?][] = []
+): Promise<BridgeChatFull | null> {
+  try {
+    const { url, token } = await getEndpoint();
+    const res = await fetch(`${url}/chat`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ text: text.slice(0, 2000), history: history.slice(-20) }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as BridgeChatFull;
   } catch {
     return null;
   }
