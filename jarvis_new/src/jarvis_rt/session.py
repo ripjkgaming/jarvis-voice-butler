@@ -403,6 +403,7 @@ class AgentSession(EventEmitter):
         self.emit("error", ErrorEvent(error=error, source=source))
 
     def _on_tool_calls(self, calls: list[FunctionCall]) -> None:
+        self._set_agent_state("thinking")
         self._spawn(self._run_tools(calls))
 
     async def _run_tools(self, calls: list[FunctionCall]) -> None:
