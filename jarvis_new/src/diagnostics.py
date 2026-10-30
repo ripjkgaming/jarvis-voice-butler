@@ -26,7 +26,7 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SIDECAR_LOGS = ("livekit", "agent", "wake", "bridge")
+SIDECAR_LOGS = ("agent", "wake", "bridge")
 TAIL_LINES = 200
 WIZARD_TIMEOUT_S = 120.0
 REDACTED = "***REDACTED***"
@@ -167,12 +167,9 @@ def _prog_version(argv: list[str], timeout: float = 10.0) -> str | None:
 
 
 def collect_versions() -> dict:
-    """shell/venvs/livekit-server/frontend versions. All fail-soft."""
+    """shell/venvs/frontend versions. All fail-soft."""
     import hashlib
 
-    livekit_bin = _env("JARVIS_LIVEKIT_BIN").strip() or str(
-        jarvis_home() / "bin" / "livekit-server"
-    )
     ui_index = REPO_ROOT / "shell" / "ui" / "index.html"
     try:
         ui_id = hashlib.sha256(ui_index.read_bytes()).hexdigest()[:16]
@@ -191,7 +188,6 @@ def collect_versions() -> dict:
         "wake_python": _prog_version(
             [str(REPO_ROOT / ".venv-wake" / "bin" / "python"), "--version"]
         ),
-        "livekit_server": _prog_version([livekit_bin, "--version"]),
         "frontend": frontend_version,
         "frontend_ui": ui_id,
     }

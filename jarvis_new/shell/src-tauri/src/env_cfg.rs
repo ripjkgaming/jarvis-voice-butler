@@ -3,13 +3,12 @@
 //! The launcher (this shell) is the single place that sets the variables the
 //! audit proved sidecars need: `JARVIS_LOCAL=1` (every system tool refuses
 //! without it), `PYTHONPATH=src` (the `local_voice` fallback imports),
-//! `LIVEKIT_URL` (local server, Phase 0), `JARVIS_HOME` (sandboxed homes).
+//! `JARVIS_HOME` (sandboxed homes).
 //! All constructors here are pure and unit-tested.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub const LIVEKIT_PORT: u16 = 7880;
 pub const BRIDGE_PORT_DEFAULT: u16 = 4317;
 pub const AGENT_NAME_DEFAULT: &str = "my-agent";
 
@@ -23,6 +22,19 @@ pub fn bridge_host() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
+/// Loopback port of the in-repo voice hub served by the agent worker
+/// (`JARVIS_VOICE_PORT`, default 7880). Mirrors `mint_token.voice_port()`:
+/// unset, unparsable or out-of-range values fall back to the default.
+pub const VOICE_PORT_DEFAULT: u16 = 7880;
+
+pub fn voice_port() -> u16 {
+    std::env::var("JARVIS_VOICE_PORT")
+        .ok()
+        .and_then(|s| s.trim().parse::<u16>().ok())
+        .filter(|p| *p > 0)
+        .unwrap_or(VOICE_PORT_DEFAULT)
 }
 
 /// Host the mic uplink binds (`JARVIS_MIC_BIND`, default loopback).
@@ -101,8 +113,8 @@ fn is_repo_root(p: &Path) -> bool {
 /// own process env (never overriding real env). The shell is the only
 /// process that reads both files: sidecars get their contract via
 /// [`sidecar_env`], and the bridge inherits this process env, so its
-/// `/status` presence flags (`livekit_configured`, pipeline name) are
-/// correct without every sidecar re-parsing dotenv. Returns files loaded.
+/// `/status` pipeline name is correct without every sidecar re-parsing
+/// dotenv. Returns files loaded.
 /// Values are never logged.
 pub fn load_dotenv_files(repo: &std::path::Path) -> usize {
     let mut loaded = 0;
@@ -163,8 +175,6 @@ pub fn sidecar_env(repo: &Path) -> HashMap<String, String> {
             env.get("PYTHONPATH").map(String::as_str).unwrap_or(""),
         ),
     );
-    env.entry("LIVEKIT_URL".into())
-        .or_insert_with(|| format!("ws://127.0.0.1:{LIVEKIT_PORT}"));
     env.entry("JARVIS_HOME".into())
         .or_insert(jarvis_home().to_string_lossy().into_owned());
     env.entry("AGENT_NAME".into())
@@ -184,7 +194,6 @@ fn prepend_path(first: &str, rest: &str) -> String {
 /// never panicked on — the manager surfaces them in the tray.
 #[derive(Debug, Clone)]
 pub struct SidecarPrograms {
-    pub livekit_bin: PathBuf,
     pub agent_python: PathBuf,
     pub wake_python: PathBuf,
     pub bridge_python: PathBuf,
@@ -193,14 +202,10 @@ pub struct SidecarPrograms {
 }
 
 pub fn sidecar_programs(repo: &Path) -> SidecarPrograms {
-    let livekit_bin = std::env::var_os("JARVIS_LIVEKIT_BIN")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| jarvis_home().join("bin").join("livekit-server"));
     let agent_python = repo.join(".venv").join("bin").join("python");
     let wake_python = repo.join(".venv-wake").join("bin").join("python");
     let mut missing = Vec::new();
     for (label, p) in [
-        ("livekit-server", &livekit_bin),
         ("agent venv python", &agent_python),
         ("wake venv python", &wake_python),
     ] {
@@ -214,7 +219,6 @@ pub fn sidecar_programs(repo: &Path) -> SidecarPrograms {
         }
     }
     SidecarPrograms {
-        livekit_bin,
         agent_python,
         wake_python,
         bridge_python: agent_python_clone(repo),
@@ -312,10 +316,15 @@ mod tests {
         let env = sidecar_env(Path::new("/repo"));
         assert_eq!(env.get("JARVIS_LOCAL").map(String::as_str), Some("1"));
         assert!(env["PYTHONPATH"].starts_with("/repo/src"));
-        assert_eq!(
-            env.get("LIVEKIT_URL").map(String::as_str),
-            Some("ws://127.0.0.1:7880")
-        );
+        assert!(!env.contains_key("LIVEKIT_URL"));
+    }
+
+    #[test]
+    fn stale_livekit_env_is_inherited_harmlessly() {
+        std::env::set_var("LIVEKIT_URL", "ws://127.0.0.1:7880");
+        let env = sidecar_env(Path::new("/repo"));
+        assert_eq!(env.get("JARVIS_LOCAL").map(String::as_str), Some("1"));
+        std::env::remove_var("LIVEKIT_URL");
     }
 
     #[test]

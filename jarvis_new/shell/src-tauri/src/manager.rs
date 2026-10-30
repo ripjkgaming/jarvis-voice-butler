@@ -1,9 +1,10 @@
 //! Supervised sidecar manager: spawn order, readiness gates, restarts.
 //!
 //! Start order (each gate must pass before the next spawns):
-//!   livekit-server (TCP :7880) → agent worker (alive + livekit reachable,
-//!   90s budget for model warmup) → wake_client (alive) → bridge (HTTP
-//!   /health :4317) → mic-uplink (TCP :4318) → ui (static export on :4000).
+//!   agent worker (alive + voice hub TCP :7880, 90s budget for model
+//!   warmup) → wake_client
+//!   (alive) → bridge (HTTP /health :4317) → mic-uplink (TCP :4318) →
+//!   ui (static export on :4000).
 //! Overall state is published on a watch channel for the
 //!   tray. Unexpected exits restart on the [`BACKOFF_SECS`] ladder (max 5),
 //!   then the sidecar is marked Down and the tray goes red. The bridge alone
@@ -91,7 +92,7 @@ fn mark_down(state: &mut SidecarState, reason: String) {
 /// How the manager knows a sidecar is ready.
 #[derive(Debug, Clone)]
 pub enum ReadyCheck {
-    /// TCP port accepts connections (livekit-server).
+    /// TCP port accepts connections (ui static server).
     TcpPort(u16),
     /// TCP port on an explicit bind host (mic uplink may serve tailnet).
     TcpPortOn { host: String, port: u16 },
@@ -105,9 +106,10 @@ pub enum ReadyCheck {
         port: u16,
         path: String,
     },
-    /// Process alive AND livekit reachable (agent worker: registration
-    /// implies a live server; the framework logs no stable marker).
-    AgentAlive { livekit_port: u16 },
+    /// Process alive AND the in-repo voice hub accepting TCP on loopback
+    /// (agent worker: the hub is the readiness signal; wake/bridge/ui wait
+    /// for it).
+    AgentAlive { voice_port: u16 },
     /// Process alive (wake_client: mic loop has no port).
     ProcessAlive,
 }
@@ -236,26 +238,9 @@ pub fn mic_port() -> u16 {
 }
 
 /// Build the six specs from resolved programs. Pure (no spawning).
-pub fn build_specs(
-    progs: &SidecarPrograms,
-    livekit_port: u16,
-    bridge_port: u16,
-) -> Vec<SidecarSpec> {
+pub fn build_specs(progs: &SidecarPrograms, bridge_port: u16) -> Vec<SidecarSpec> {
     let repo = &progs.repo;
     vec![
-        SidecarSpec {
-            name: "livekit",
-            program: progs.livekit_bin.clone(),
-            args: vec![
-                "--config".into(),
-                env_cfg::jarvis_home()
-                    .join("livekit.yaml")
-                    .to_string_lossy()
-                    .into_owned(),
-            ],
-            ready: ReadyCheck::TcpPort(livekit_port),
-            ready_timeout_s: 30,
-        },
         SidecarSpec {
             name: "agent",
             program: progs.agent_python.clone(),
@@ -266,7 +251,9 @@ pub fn build_specs(
                     .into_owned(),
                 "start".into(),
             ],
-            ready: ReadyCheck::AgentAlive { livekit_port },
+            ready: ReadyCheck::AgentAlive {
+                voice_port: env_cfg::voice_port(),
+            },
             ready_timeout_s: 90,
         },
         SidecarSpec {
@@ -340,7 +327,7 @@ fn check_ready(check: &ReadyCheck) -> bool {
                 .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
                 .unwrap_or(false)
         }
-        ReadyCheck::AgentAlive { livekit_port } => health::tcp_reachable(*livekit_port),
+        ReadyCheck::AgentAlive { voice_port } => health::tcp_reachable(*voice_port),
         ReadyCheck::ProcessAlive => true,
     }
 }
@@ -968,7 +955,6 @@ mod tests {
 
     fn fake_progs() -> SidecarPrograms {
         SidecarPrograms {
-            livekit_bin: PathBuf::from("/bin/true"),
             agent_python: PathBuf::from("/bin/true"),
             wake_python: PathBuf::from("/bin/true"),
             bridge_python: PathBuf::from("/bin/true"),
@@ -1048,7 +1034,7 @@ mod tests {
     fn slow_recovery_never_restarts_voice_sidecars_or_a_healthy_bridge() {
         let now = tokio::time::Instant::now();
         let mut next = None;
-        for name in ["agent", "wake", "livekit", "mic-uplink", "ui"] {
+        for name in ["agent", "wake", "mic-uplink", "ui"] {
             assert!(!bridge_recovery_due(
                 name,
                 &SidecarState::Down("x".into()),
@@ -1100,7 +1086,7 @@ mod tests {
     }
 
     #[test]
-    fn specs_start_with_livekit_and_end_with_ui() {
+    fn specs_start_with_agent_and_end_with_ui() {
         // Pin a clean env: build_specs resolves bind hosts from it.
         let saved: Vec<(String, Option<String>)> =
             ["JARVIS_BRIDGE_BIND", "JARVIS_MIC_BIND", "JARVIS_UI_PORT"]
@@ -1110,15 +1096,13 @@ mod tests {
         std::env::remove_var("JARVIS_BRIDGE_BIND");
         std::env::remove_var("JARVIS_MIC_BIND");
         std::env::remove_var("JARVIS_UI_PORT");
-        let specs = build_specs(&fake_progs(), 7880, 4317);
-        assert_eq!(specs.len(), 6);
-        assert_eq!(specs.first().unwrap().name, "livekit");
-        assert_eq!(specs[3].name, "bridge");
-        assert_eq!(specs[4].name, "mic-uplink");
-        assert_eq!(specs.last().unwrap().name, "ui");
-        assert!(matches!(specs[0].ready, ReadyCheck::TcpPort(7880)));
+        let specs = build_specs(&fake_progs(), 4317);
+        let names: Vec<&str> = specs.iter().map(|s| s.name).collect();
+        assert_eq!(names, ["agent", "wake", "bridge", "mic-uplink", "ui"]);
+        assert!(!names.contains(&"livekit"));
+        assert!(matches!(specs[0].ready, ReadyCheck::AgentAlive { .. }));
         assert!(
-            matches!(&specs[4].ready, ReadyCheck::TcpPortOn { host, port }
+            matches!(&specs[3].ready, ReadyCheck::TcpPortOn { host, port }
                 if host == "127.0.0.1" && *port == 4318)
         );
         for (v, old) in saved {
@@ -1130,8 +1114,17 @@ mod tests {
     }
 
     #[test]
+    fn agent_ready_only_once_voice_hub_listens() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(check_ready(&ReadyCheck::AgentAlive { voice_port: port }));
+        drop(listener);
+        assert!(!check_ready(&ReadyCheck::AgentAlive { voice_port: port }));
+    }
+
+    #[test]
     fn agent_gets_the_longest_readiness_budget() {
-        let specs = build_specs(&fake_progs(), 7880, 4317);
+        let specs = build_specs(&fake_progs(), 4317);
         let agent = specs.iter().find(|s| s.name == "agent").unwrap();
         assert!(specs
             .iter()
@@ -1196,7 +1189,7 @@ mod tests {
     /// Traffic model (measured 2026-09-18 on the live box, steady state
     /// excluding startup bursts, with margin): the agent is the chattiest
     /// (~4KB/h of capacity chatter) plus one ~110KB warmup burst per daily
-    /// restart; livekit/bridge/wake stay under ~3KB/h. actions.log traffic
+    /// restart; bridge/wake stay under ~3KB/h. actions.log traffic
     /// (~100 short tool lines/day) never nears its 5MB cap, so it ships
     /// unrotated. Total must stay under the 50MB accept.
     #[test]
@@ -1208,7 +1201,6 @@ mod tests {
         // (name, bytes per simulated hour, daily bursts of 110KB)
         let model = [
             ("agent", 10 * 1024, true),
-            ("livekit", 3 * 1024, false),
             ("bridge", 3 * 1024, false),
             ("wake", 3 * 1024, false),
         ];

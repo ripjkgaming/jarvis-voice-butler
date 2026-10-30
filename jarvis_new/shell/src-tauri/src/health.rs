@@ -26,8 +26,6 @@ pub struct BridgeStatus {
     pub pipeline: String,
     #[serde(default)]
     pub local_unlocked: bool,
-    #[serde(default)]
-    pub livekit_configured: bool,
 }
 
 /// Overall shell state from per-sidecar aliveness + bridge reachability.
@@ -59,7 +57,7 @@ pub fn combine_status(alive: &[(&str, bool)], bridge: Option<&BridgeStatus>) -> 
     }
 }
 
-/// TCP connect probe (livekit-server :7880, bridge :4317).
+/// TCP connect probe (loopback; e.g. the mic uplink on :4318).
 pub fn tcp_reachable(port: u16) -> bool {
     tcp_reachable_on("127.0.0.1", port)
 }
@@ -211,25 +209,24 @@ mod tests {
 
     #[test]
     fn combine_all_alive_bridge_ok_is_running() {
-        let alive = [("livekit", true), ("agent", true)];
+        let alive = [("agent", true), ("wake", true)];
         let b = BridgeStatus {
             ok: true,
             pipeline: "realtime".into(),
             local_unlocked: true,
-            livekit_configured: true,
         };
         assert_eq!(combine_status(&alive, Some(&b)), ShellState::Running);
     }
 
     #[test]
     fn combine_dead_sidecar_is_down_even_with_bridge() {
-        let alive = [("livekit", true), ("agent", false)];
+        let alive = [("agent", false), ("wake", true)];
         assert!(matches!(combine_status(&alive, None), ShellState::Down(_)));
     }
 
     #[test]
     fn combine_no_bridge_is_degraded_not_down() {
-        let alive = [("livekit", true)];
+        let alive = [("agent", true)];
         assert!(matches!(
             combine_status(&alive, None),
             ShellState::Degraded(_)

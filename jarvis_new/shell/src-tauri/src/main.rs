@@ -243,7 +243,6 @@ fn main() {
             // (watcher rebuilds, SIGKILL, crashes) BEFORE spawning our set.
             let specs = manager::build_specs(
                 &progs,
-                env_cfg::LIVEKIT_PORT,
                 std::env::var("JARVIS_BRIDGE_PORT")
                     .ok()
                     .and_then(|s| s.parse().ok())
