@@ -6,11 +6,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fake_live import FakeClient
+from google.genai import types
 
 from jarvis_rt import Agent, AgentSession, function_tool
 from jarvis_rt.live import (
     LiveBackend,
     ModelChain,
+    http_options,
     needs_reply_placeholder,
     thinking_config,
 )
@@ -139,7 +141,7 @@ def test_tool_roundtrip_with_when_idle_scheduling():
     from google.genai import types
 
     async def run():
-        client, be, s, ev, _ = await boot()
+        client, be, _s, ev, _ = await boot()
         c = client.conns[0]
         c.push(
             tool_call=types.LiveServerToolCall(
@@ -164,7 +166,7 @@ def test_tool_nudge_when_no_generation_follows():
     from google.genai import types
 
     async def run():
-        client, be, s, ev, _ = await boot()
+        client, be, _s, _ev, _ = await boot()
         be._nudge_s = 0.05
         c = client.conns[0]
         c.push(
@@ -186,7 +188,7 @@ def test_failover_cooldown_and_error_event():
     async def run():
         client = FakeClient()
         client.fail_models["gemini-3.8-live"] = RuntimeError("1011 quota")
-        client_, be, s, ev, _ = await boot(client=client)
+        _client, be, _s, ev, _ = await boot(client=client)
         await asyncio.sleep(0.5)
         await be.aclose()
         return client, ev
@@ -214,7 +216,7 @@ def test_model_chain_cooldown_clock():
 
 def test_agent_handoff_reconnects_with_new_instructions_and_history():
     async def run():
-        client, be, s, ev, _ = await boot()
+        client, be, s, _ev, _ = await boot()
         other = Agent(instructions="specialist")
         s.update_agent(other)
         await asyncio.sleep(0.3)
@@ -236,3 +238,51 @@ def test_quirk_helpers():
     assert not needs_reply_placeholder("gemini-3.8-live") and needs_reply_placeholder(
         "gemini-2.5-flash"
     )
+
+
+class Specialist(Agent):
+    def __init__(self):
+        super().__init__(instructions="specialist")
+
+    @function_tool()
+    async def ping(self) -> str:
+        """Ping."""
+        return "pong"
+
+
+def test_tool_set_change_reconnects_with_new_declarations_and_keeps_history():
+    async def run():
+        client, be, s, _ev, _ = await boot()
+        c = client.conns[0]
+        c.push(
+            session_resumption_update=types.LiveServerSessionResumptionUpdate(
+                new_handle="h1", resumable=True
+            )
+        )
+        await settle()
+        s.update_agent(Specialist())
+        await asyncio.sleep(0.3)
+        await be.aclose()
+        return client
+
+    client = asyncio.run(run())
+    assert len(client.connects) == 2
+    cfg = client.connects[1][1]
+    assert [f.name for f in cfg.tools[0].function_declarations] == ["ping"]
+    assert cfg.system_instruction.parts[0].text == "specialist"
+    # The resumption handle carries the conversation across the tool-set change.
+    assert cfg.session_resumption.handle == "h1"
+
+
+def test_tls_http_options_keep_certificate_environment(monkeypatch):
+    calls = []
+    sentinel = object()
+    monkeypatch.setenv("SSL_CERT_FILE", "/custom/ca.pem")
+    monkeypatch.setenv("SSL_CERT_DIR", "/custom/certs")
+    monkeypatch.setattr(
+        "ssl.create_default_context", lambda **kw: calls.append(kw) or sentinel
+    )
+    options = http_options()
+    assert options.async_client_args["ssl"] is sentinel
+    assert options.timeout == 10_000
+    assert calls == [{"cafile": "/custom/ca.pem", "capath": "/custom/certs"}]

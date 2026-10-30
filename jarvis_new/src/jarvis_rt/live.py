@@ -4,8 +4,8 @@ Server-side activity detection is the only authority for end of user turn
 and for cancelling a reply. This module streams mic audio up, maps server
 messages to session backend events, runs the tool-response protocol, keeps
 session resumption, and fails over along a model chain with a cooldown.
-Behavior ported from livekit-plugins-google's RealtimeSession and from the
-gemini_watchdog / realtime_startup patches that used to wrap it.
+Behavior ported from livekit-plugins-google's RealtimeSession. Stall detection
+lives in gemini_watchdog.StallClock and is driven from here.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from typing import Any
 
 from google.genai import types
 
+import gemini_watchdog
+
 from .agent import Agent
 from .chat_context import FunctionCall, FunctionCallOutput
 from .gemini_schema import function_declarations
@@ -33,11 +35,33 @@ OUTPUT_RATE = 24000
 MAX_TOOL_CALL_REJECTIONS = 3
 MIC_BACKLOG_BLOCKS = 600  # ~19 s of 32 ms blocks held while (re)connecting
 NO_REPLY_PLACEHOLDER_MODELS = ("3.1", "3.8")
+GENERATE_REPLY_TIMEOUT_S = 10.0
 RECOVERY_NOTICE = (
     "The voice connection was refreshed after a timeout. "
     "Do not execute or repeat any earlier request or tool. "
     "Say only: I lost that voice request, Sir. Please repeat it."
 )
+
+
+def http_options() -> types.HttpOptions:
+    """Verified TLS defaults (certifi), built once off the audio path."""
+    import ssl
+
+    import certifi
+
+    context = ssl.create_default_context(
+        cafile=os.environ.get("SSL_CERT_FILE", certifi.where()),
+        capath=os.environ.get("SSL_CERT_DIR"),
+    )
+    return types.HttpOptions(timeout=10_000, async_client_args={"ssl": context})
+
+
+def _log_system_action(action: str, detail: str) -> None:
+    """Best-effort entry in the desktop action log; never fails the audio path."""
+    with contextlib.suppress(Exception):
+        from system import log_action
+
+        log_action(action, detail)
 
 
 def silence_ms() -> int:
@@ -109,6 +133,7 @@ class LiveBackend:
         http_options: types.HttpOptions | None = None,
         clock: Callable[[], float] = time.monotonic,
         watchdog: bool | None = None,
+        generate_reply_timeout: float = GENERATE_REPLY_TIMEOUT_S,
     ) -> None:
         self.chain = (
             chain if isinstance(chain, ModelChain) else ModelChain(chain, clock=clock)
@@ -138,17 +163,18 @@ class LiveBackend:
         self._restart_error: BaseException | None = None
         self._fresh = False
         self._notice_pending = False
+        self._recovery_until = 0.0
+        #: Connection whose late resumption handles must be ignored after a recovery.
+        self._stale_conn: Any = None
         self._drop_audio = False
         self._lock = asyncio.Lock()
         if watchdog is None:
-            from gemini_watchdog import enabled
-
-            watchdog = enabled()
-        self._stall: Any = None
-        if watchdog:
-            from gemini_watchdog import StallClock
-
-            self._stall = StallClock()
+            watchdog = gemini_watchdog.enabled()
+        self._stall: gemini_watchdog.StallClock | None = (
+            gemini_watchdog.StallClock() if watchdog else None
+        )
+        self._generate_reply_timeout = generate_reply_timeout
+        self._reply_waiters: list[asyncio.Future] = []
         self._nudge_s = 1.5
         self._ready = asyncio.Event()
 
@@ -173,15 +199,21 @@ class LiveBackend:
     def push_audio(self, pcm: bytes) -> None:
         if self._stall is not None:
             try:
-                from gemini_watchdog import frame_rms
-
                 if self._stall.mic(
-                    len(pcm) / 2 / INPUT_RATE, frame_rms(pcm), self._clock()
+                    len(pcm) / 2 / INPUT_RATE,
+                    gemini_watchdog.frame_rms(pcm),
+                    self._clock(),
                 ):
-                    log.warning("Gemini silent; forcing reconnect")
+                    log.warning(
+                        "Gemini silent %.0fs after speech; forcing reconnect",
+                        gemini_watchdog.SILENT_S,
+                    )
+                    _log_system_action(
+                        "gemini-watchdog", "stalled session, reconnecting"
+                    )
                     self._recover()
             except Exception:
-                pass
+                log.exception("Gemini stall watchdog failed")
         self._mic.append(pcm)
         self._mic_ready.set()
 
@@ -217,7 +249,44 @@ class LiveBackend:
             )
         if needs_reply_placeholder(self._model or self.chain.models[0]):
             turns.append(types.Content(role="user", parts=[types.Part(text=".")]))
-        self._out.put_nowait(("content", turns, True))
+        # An audio turn (no instructions) on a model without a placeholder needs
+        # no client turn: server activity detection already answers the audio,
+        # and an empty turn_complete would start a reply to the stale context.
+        if turns:
+            self._out.put_nowait(("content", turns, True))
+        if self._stall is None:
+            return
+        waiter = asyncio.get_running_loop().create_future()
+        self._reply_waiters.append(waiter)
+        try:
+            await asyncio.wait_for(waiter, timeout=self._generate_reply_timeout)
+        except TimeoutError:
+            self._reply_timed_out()
+        finally:
+            with contextlib.suppress(ValueError):
+                self._reply_waiters.remove(waiter)
+
+    def _reply_timed_out(self) -> None:
+        """No generation began for this reply: recover, at most once per cooldown."""
+        if self._closing or self._stall is None:
+            return
+        now = self._clock()
+        if now - self._stall.forced_at < gemini_watchdog.COOLDOWN_S:
+            return
+        self._stall.forced_at = now
+        self._stall.server(now)
+        log.warning("Gemini reply creation timed out; opening a fresh connection")
+        self._recover()
+
+    def _release_reply_waiters(self, error: BaseException | None) -> None:
+        waiters, self._reply_waiters = self._reply_waiters, []
+        for waiter in waiters:
+            if waiter.done():
+                continue
+            if error is None:
+                waiter.set_result(None)
+            else:
+                waiter.set_exception(error)
 
     def interrupt(self) -> None:
         # Gemini cancels on user speech; locally just stop the rest of this reply.
@@ -259,6 +328,12 @@ class LiveBackend:
         self._request_restart()
 
     # ---- connection management -------------------------------------------
+    def recovery_pending(self) -> bool:
+        """A forced reconnect is still within its bounded recovery window."""
+        return (
+            self._notice_pending or self._fresh or self._clock() < self._recovery_until
+        )
+
     def _request_restart(self, error: BaseException | None = None) -> None:
         self._restart_error = error
         self._restart.set()
@@ -268,6 +343,9 @@ class LiveBackend:
         self._fresh = True
         self._notice_pending = True
         self._handle = None
+        self._recovery_until = self._clock() + gemini_watchdog.RECOVERY_S
+        # The old receive task may still deliver a final handle while closing.
+        self._stale_conn = self._conn
         self._request_restart()
 
     def _client_obj(self) -> Any:
@@ -363,6 +441,9 @@ class LiveBackend:
                 error = exc
             await self._close_conn()
             self._finish_generation(abort=True)
+            # A reply queued on this connection is lost with it.
+            self._pending_reply = False
+            self._release_reply_waiters(error)
             if self._closing:
                 break
             if error is not None:
@@ -432,18 +513,18 @@ class LiveBackend:
 
     async def _recv_loop(self, conn: Any) -> None:
         async for msg in conn.receive():
-            self._handle_message(msg)
+            self._handle_message(msg, conn)
         # receive() ended: server closed this turn stream; keep listening
         # until the connection itself closes.
         while not self._closing and self._conn is conn:
             got = False
             async for msg in conn.receive():
                 got = True
-                self._handle_message(msg)
+                self._handle_message(msg, conn)
             if not got:
                 raise ConnectionError("Gemini Live stream closed")
 
-    def _handle_message(self, msg: types.LiveServerMessage) -> None:
+    def _handle_message(self, msg: types.LiveServerMessage, conn: Any = None) -> None:
         sc = msg.server_content
         if msg.tool_call and self._tool_choice_none:
             self._reject_tools(msg.tool_call.function_calls or [])
@@ -462,7 +543,12 @@ class LiveBackend:
 
         if msg.session_resumption_update:
             upd = msg.session_resumption_update
-            if upd.resumable and upd.new_handle:
+            # A recovered connection must not resume from its stalled predecessor.
+            if (
+                upd.resumable
+                and upd.new_handle
+                and (conn is None or conn is not self._stale_conn)
+            ):
                 self._handle = upd.new_handle
         if sc is not None:
             self._server_content(sc)
@@ -479,6 +565,8 @@ class LiveBackend:
             or (sc is not None and (sc.model_turn or sc.output_transcription))
         ):
             self._stall.server(self._clock())
+            if not self._notice_pending:
+                self._recovery_until = 0.0
 
     @staticmethod
     def _is_new_generation(
@@ -503,6 +591,10 @@ class LiveBackend:
         self._pending_reply = False
         self._gen = _Generation(user_initiated=pending)
         self._drop_audio = False
+        for waiter in self._reply_waiters:
+            if not waiter.done():
+                waiter.set_result(None)
+        self._reply_waiters = []
         if not pending:
             # not a reply we asked for: Gemini heard the user speak
             self._emit("user_speech_started")

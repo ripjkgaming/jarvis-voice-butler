@@ -1,29 +1,18 @@
-"""Reconnect a Gemini Live session that has gone deaf.
+"""Pure stall-detection helpers for the Gemini Live client.
 
-Seen 2 Oct 20:38-20:40: after a handoff reconnect, Gemini sent nothing
-for 108 s (no speech events, no transcript, no error) while Sir kept
-talking, then flushed everything at once and re-ran a finished tool.
+jarvis_rt.live.LiveBackend feeds each mic frame to StallClock and stamps it
+whenever Gemini answers (model output, output transcript or tool call).
+Input transcripts, usage metadata and keepalives are not answers. A completed
+utterance that stays unanswered for SILENT_S, or UTTERANCES unanswered
+utterances, asks the backend for a fresh connection. At most one forced
+restart per COOLDOWN_S, so a noisy room cannot loop it.
 
-The watchdog wraps each RealtimeSession the google plugin hands out:
-  - model output or a tool call stamps "answered by the server";
-  - mic frames pushed to Gemini are split into utterances (plain RMS
-    gate; the wake client already denoises).
-When a completed utterance has gone unanswered for SILENT_S, or Sir
-has finished UTTERANCES utterances that Gemini never answered,
-the first at least SILENT_S ago, the session is marked for restart, the same path the plugin
-uses for its own errors (it resumes with the session handle). At most one
-forced restart per COOLDOWN_S, so a noisy room cannot loop it.
-
-JARVIS_GEMINI_WATCHDOG=0 disables it. Never raises into the audio path.
+JARVIS_GEMINI_WATCHDOG=0 disables it.
 """
 
 from __future__ import annotations
 
-import logging
 import os
-import time
-
-log = logging.getLogger("jarvis.gemini_watchdog")
 
 
 def _num(name: str, default: float) -> float:
@@ -43,13 +32,10 @@ UTTER_GAP_S = 0.8
 #: ...and dense: speech fills most of its span, key clicks do not.
 UTTER_DENSITY = 0.5
 COOLDOWN_S = 60.0
+#: Bounded time for a fresh connection and the recovery announcement.
+RECOVERY_S = 10.0
 #: int16 RMS above which a frame counts as speech (~ -38 dBFS).
 VOICE_RMS = 400.0
-
-_SERVER_HANDLERS = (
-    "_handle_server_content",
-    "_handle_tool_calls",
-)
 
 
 def enabled() -> bool:
@@ -117,69 +103,3 @@ class StallClock:
             self.server(now)  # give the fresh session a full window
             return True
         return False
-
-
-def _guard(session) -> None:
-    clock = StallClock()
-
-    for name in _SERVER_HANDLERS:
-        original = getattr(session, name, None)
-        if original is None:
-            continue
-
-        def stamped(*args, _orig=original, _name=name, **kwargs):
-            # Input transcripts and usage/keepalive traffic prove transport
-            # liveness, not an answer. They must not mask a deaf model.
-            content = args[0] if args else kwargs.get("server_content")
-            answered = _name == "_handle_tool_calls" or any(
-                getattr(content, field, None)
-                for field in ("model_turn", "output_transcription")
-            )
-            if answered:
-                clock.server(time.monotonic())
-            return _orig(*args, **kwargs)
-
-        setattr(session, name, stamped)
-
-    push = session.push_audio
-
-    def push_audio(frame) -> None:
-        try:
-            seconds = frame.samples_per_channel / max(1, frame.sample_rate)
-            if clock.mic(seconds, frame_rms(frame.data), time.monotonic()):
-                log.warning(
-                    "Gemini silent %.0fs after Sir began speaking; forcing reconnect",
-                    SILENT_S,
-                )
-                with _suppress():
-                    from system import log_action
-
-                    log_action("gemini-watchdog", "stalled session, reconnecting")
-                session._mark_restart_needed(on_error=True)
-        except Exception:
-            pass
-        push(frame)
-
-    session.push_audio = push_audio
-
-
-def _suppress():
-    import contextlib
-
-    return contextlib.suppress(Exception)
-
-
-def install(model):
-    """Wrap `model.session()` so every session it opens is guarded."""
-    if not enabled():
-        return model
-    make = model.session
-
-    def session(*args, **kwargs):
-        sess = make(*args, **kwargs)
-        with _suppress():
-            _guard(sess)
-        return sess
-
-    model.session = session
-    return model

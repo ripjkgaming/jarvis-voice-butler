@@ -1,109 +1,156 @@
-"""Native Gemini turn detection must not wait for a noisy local VAD."""
+"""Native Gemini turn handling on LiveBackend, against the fake Live server.
 
-from types import SimpleNamespace
+Server voice activity detection owns end of turn. The client must never send
+an empty turn_complete for an audio turn, and it nudges only when a tool
+result is left without any generation.
+"""
 
-import pytest
-from livekit.agents import TurnHandlingOptions
+import asyncio
+import sys
+from pathlib import Path
 
-import agent
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _fake_live import FakeClient
+from google.genai import types
 
-def test_voice_chain_keeps_native_activity_detection(monkeypatch):
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    for model in agent._realtime_llm()._models:
-        assert (
-            not model._opts.realtime_input_config.automatic_activity_detection.disabled
-        )
+from jarvis_rt import Agent, AgentSession
+from jarvis_rt.chat_context import FunctionCallOutput
+from jarvis_rt.live import LiveBackend, needs_reply_placeholder
 
-
-@pytest.mark.asyncio
-async def test_realtime_session_uses_provider_turns_without_local_vad(monkeypatch):
-    monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
-    session = agent._session_for_pipeline(
-        TurnHandlingOptions(turn_detection="vad", interruption=agent.barge_in("vad")),
-        vad=object(),
-    )
-    assert session.turn_detection == "realtime_llm"
-    assert session.vad is None
-    assert session._opts.interruption["enabled"]
-    assert session._opts.user_away_timeout == agent.IDLE_HANGUP_SECONDS
+NATIVE_3_8 = "gemini-3.8-live"
+PLACEHOLDER_2_5 = "gemini-2.5-flash-native-audio-latest"
 
 
-@pytest.mark.asyncio
-async def test_default_realtime_does_not_load_silero(monkeypatch):
-    monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
-
-    def no_local_model(**kwargs):
-        pytest.fail("Native realtime must not load a local speech detector")
-
-    monkeypatch.setattr(
-        agent, "silero", SimpleNamespace(VAD=SimpleNamespace(load=no_local_model))
-    )
-    assert agent._session_for_pipeline(TurnHandlingOptions()).vad is None
+async def boot(models=(NATIVE_3_8,)):
+    client = FakeClient()
+    backend = LiveBackend(list(models), client=client, watchdog=False)
+    session = AgentSession(backend=backend)
+    session.output.audio = lambda data: None
+    await session.start(Agent(instructions="be brief"))
+    await asyncio.sleep(0.02)
+    return client, backend, session
 
 
-@pytest.mark.asyncio
-async def test_native_activity_uses_provider_speech_events_without_local_interruptions(
-    monkeypatch,
-):
-    import socket
+async def settle(seconds: float = 0.05) -> None:
+    await asyncio.sleep(seconds)
 
-    from livekit.agents import Agent, llm
-    from livekit.agents.voice.agent_activity import AgentActivity
 
-    def no_network(*args, **kwargs):
-        pytest.fail("Offline activity validation must not connect to a provider")
+def client_turns(conn) -> list:
+    return [kw for kind, kw in conn.sent if kind == "content"]
 
-    def no_provider_session(*args, **kwargs):
-        pytest.fail("Offline activity validation must not start a provider session")
 
-    monkeypatch.setattr(socket.socket, "connect", no_network)
-    monkeypatch.setattr(socket, "create_connection", no_network)
-    monkeypatch.setattr(
-        agent.google.realtime.RealtimeModel, "session", no_provider_session
-    )
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
-    session = agent._session_for_pipeline(TurnHandlingOptions())
-    model = agent._realtime_llm()
+def tool_result(call_id="f1", output="42"):
+    return [
+        FunctionCallOutput(call_id=call_id, name="echo", output=output, is_error=False)
+    ]
+
+
+def tool_responses(conn) -> list:
+    return [kw for kind, kw in conn.sent if kind == "tool_response"]
+
+
+async def test_audio_turn_sends_no_empty_client_turn():
+    client, backend, _ = await boot()
     try:
-        activity = AgentActivity(
-            Agent(instructions="Synthetic offline activity check.", llm=model), session
-        )
-        assert activity._rt_turn_detection_enabled
-        assert activity._turn_detection == "realtime_llm"
-        assert activity.vad is None
-        assert activity._interruption_detector is None
-        assert not activity._interruption_by_audio_activity_enabled
-        assert activity.allow_interruptions
-
-        states = []
-        session.on("user_state_changed", lambda event: states.append(event.new_state))
-        activity._interrupt_by_audio_activity()
-        assert states == []
-
-        activity._on_input_speech_started(llm.InputSpeechStartedEvent())
-        assert session.user_state == "speaking"
-        activity._on_input_speech_stopped(
-            llm.InputSpeechStoppedEvent(user_transcription_enabled=False)
-        )
-        assert session.user_state == "listening"
-        assert states == ["speaking", "listening"]
+        conn = client.conns[0]
+        reply = asyncio.create_task(backend.generate_reply(None, None))
+        await settle()
+        assert client_turns(conn) == []
+        reply.cancel()
+        await asyncio.gather(reply, return_exceptions=True)
     finally:
-        await model.aclose()
+        await backend.aclose()
 
 
-@pytest.mark.parametrize("pipeline", ["realtime", "local", "direct"])
-def test_room_input_observer_is_wired_only_for_native_and_preserves_agc(
-    monkeypatch, pipeline
-):
-    monkeypatch.setenv("JARVIS_PIPELINE", pipeline)
-    session = SimpleNamespace()
-    options = agent._audio_input_options(session)
-    if pipeline == "realtime":
-        assert options.noise_cancellation is session._jarvis_input_activity
-        assert isinstance(options.noise_cancellation, agent._InputActivity)
-        assert options.auto_gain_control is True
-    else:
-        assert options.noise_cancellation is None
-        assert not hasattr(session, "_jarvis_input_activity")
+async def test_audio_turn_on_placeholder_model_sends_dot_not_empty_turn():
+    assert needs_reply_placeholder(PLACEHOLDER_2_5)
+    client, backend, _ = await boot(models=(PLACEHOLDER_2_5,))
+    try:
+        conn = client.conns[0]
+        reply = asyncio.create_task(backend.generate_reply(None, None))
+        await settle()
+        turns = client_turns(conn)
+        assert len(turns) == 1
+        assert turns[0]["turns"][0].parts[0].text == "."
+        assert turns[0]["turn_complete"] is True
+        reply.cancel()
+        await asyncio.gather(reply, return_exceptions=True)
+    finally:
+        await backend.aclose()
+
+
+async def test_instructed_reply_is_sent_as_a_turn():
+    client, backend, _ = await boot()
+    try:
+        conn = client.conns[0]
+        reply = asyncio.create_task(backend.generate_reply("Say hi.", None))
+        await settle()
+        turns = client_turns(conn)
+        assert len(turns) == 1
+        assert turns[0]["turns"][0].parts[0].text == "Say hi."
+        assert turns[0]["turn_complete"] is True
+        reply.cancel()
+        await asyncio.gather(reply, return_exceptions=True)
+    finally:
+        await backend.aclose()
+
+
+def test_nudge_delay_is_one_and_a_half_seconds():
+    backend = LiveBackend([NATIVE_3_8], client=FakeClient(), watchdog=False)
+    assert backend._nudge_s == 1.5
+
+
+async def test_tool_response_nudges_when_no_generation_begins():
+    client, backend, _ = await boot()
+    try:
+        backend._nudge_s = 0.05
+        conn = client.conns[0]
+        await backend.send_tool_results(tool_result(), reply=True)
+        await settle(0.2)
+        nudges = [kw for kw in client_turns(conn) if kw["turns"] is None]
+        assert nudges == [{"turns": None, "turn_complete": True}]
+    finally:
+        await backend.aclose()
+
+
+async def test_tool_response_is_not_nudged_once_generation_begins():
+    client, backend, _ = await boot()
+    try:
+        backend._nudge_s = 0.1
+        conn = client.conns[0]
+        await backend.send_tool_results(tool_result(), reply=True)
+        conn.audio(b"\x01\x00")  # the model speaks the tool result
+        await settle(0.25)
+        assert [kw for kw in client_turns(conn) if kw["turns"] is None] == []
+    finally:
+        await backend.aclose()
+
+
+async def test_nudge_can_be_disabled_by_environment(monkeypatch):
+    monkeypatch.setenv("JARVIS_GEMINI_TURN_PATCH", "0")
+    client, backend, _ = await boot()
+    try:
+        backend._nudge_s = 0.05
+        conn = client.conns[0]
+        await backend.send_tool_results(tool_result(), reply=True)
+        await settle(0.2)
+        assert client_turns(conn) == []
+        assert len(tool_responses(conn)) == 1
+    finally:
+        await backend.aclose()
+
+
+async def test_tool_response_without_reply_is_never_nudged():
+    client, backend, _ = await boot()
+    try:
+        backend._nudge_s = 0.05
+        conn = client.conns[0]
+        await backend.send_tool_results(tool_result(), reply=False)
+        await settle(0.2)
+        assert client_turns(conn) == []
+        scheduling = tool_responses(conn)[0]["function_responses"][0].scheduling
+        assert scheduling == types.FunctionResponseScheduling.SILENT
+    finally:
+        await backend.aclose()
