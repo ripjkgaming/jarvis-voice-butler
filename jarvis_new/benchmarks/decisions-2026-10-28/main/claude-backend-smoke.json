@@ -1,0 +1,6 @@
+{
+  "provider": "claude",
+  "reply": "BACKEND_SMOKE_OK",
+  "warning": null,
+  "verified_success": true
+}

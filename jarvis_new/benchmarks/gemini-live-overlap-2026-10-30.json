@@ -1,0 +1,15 @@
+{
+  "kind": "real_Gemini_Live_overlapping_speech_with_running_worker",
+  "source": "synthesized_Piper_audio_over_LiveKit_RTC",
+  "real_microphone_test": false,
+  "real_speaker_test": false,
+  "room_name_redacted": true,
+  "first_reply_start_before_interruption_s": 9.56,
+  "interruption_audio_duration_s": 6.79,
+  "last_received_voiced_frame_after_onset_ms": 10501.7,
+  "first_250ms_RTC_silence_gap_after_onset_ms": 684.0,
+  "voiced_frames_after_interruption_start": 235,
+  "total_received_frames": 3532,
+  "reply_transcript_after_overlap": "Violet Sapphire 7",
+  "limitations": "No clean generation ID in the remote RTC audio track. The first silence gap is not proof of Gemini cancellation, and received audio latency differs from hardware playout."
+}

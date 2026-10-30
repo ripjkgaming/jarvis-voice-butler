@@ -1,0 +1,132 @@
+{
+  "synthetic_only": true,
+  "jobs_dispatched": 0,
+  "rows": [
+    {
+      "case": "volume",
+      "request": "Turn the volume down",
+      "expected_route": "direct",
+      "result": {
+        "route": "direct",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 1095.029284999896,
+      "passed": true
+    },
+    {
+      "case": "knowledge",
+      "request": "What is photosynthesis?",
+      "expected_route": "direct",
+      "result": {
+        "route": "direct",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 862.8037120000727,
+      "passed": true
+    },
+    {
+      "case": "about_model",
+      "request": "What is the difference between Claude and ChatGPT?",
+      "expected_route": "direct",
+      "result": {
+        "route": "direct",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 920.0360790000559,
+      "passed": true
+    },
+    {
+      "case": "careful_plan",
+      "request": "Make me a comprehensive six-week revision plan with daily subject allocations, milestones and recovery days.",
+      "expected_route": "backend",
+      "result": {
+        "route": "backend",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 861.9077899999184,
+      "passed": true
+    },
+    {
+      "case": "explicit_claude",
+      "request": "Ask Claude to write a detailed revision plan",
+      "expected_route": "backend",
+      "result": {
+        "route": "backend",
+        "provider": "claude",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 965.3921650000257,
+      "passed": true
+    },
+    {
+      "case": "explicit_chatgpt",
+      "request": "Ask ChatGPT to carefully analyse this long argument",
+      "expected_route": "backend",
+      "result": {
+        "route": "backend",
+        "provider": "chatgpt",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 916.0202069999741,
+      "passed": true
+    },
+    {
+      "case": "stay_direct",
+      "request": "Do not send this to a backend. Explain it yourself: what is a prime number?",
+      "expected_route": "direct",
+      "result": {
+        "route": "direct",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 831.9719689999374,
+      "passed": true
+    },
+    {
+      "case": "research",
+      "request": "Research solid-state batteries in depth and write a sourced report",
+      "expected_route": "research",
+      "result": {
+        "route": "research",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 873.1065680000256,
+      "passed": true
+    },
+    {
+      "case": "code",
+      "request": "Build me a Python script to organise photos by date",
+      "expected_route": "code",
+      "result": {
+        "route": "code",
+        "provider": "auto",
+        "allow_fallback": true,
+        "source": "decider",
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 844.8079930000176,
+      "passed": true
+    }
+  ]
+}

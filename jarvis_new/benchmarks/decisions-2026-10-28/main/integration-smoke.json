@@ -1,0 +1,39 @@
+{
+  "model": "perplexity/pplx-decider-v1.2",
+  "dedicated_key_count": 1,
+  "credential_file_mode": "0600",
+  "urgency_verdict": {
+    "urgent": true,
+    "scam": false,
+    "reason": "perplexity/pplx-decider-v1.2 urgent=1.00 scam=0.03"
+  },
+  "non_event_gate_skipped_extraction": true,
+  "elapsed_s": 2.7296593700011726,
+  "calls": [
+    {
+      "model": "perplexity/pplx-decider-v1.2-20261016",
+      "usage": {
+        "input_tokens": 311,
+        "output_tokens": 2,
+        "cost": 6.22e-06
+      }
+    },
+    {
+      "model": "perplexity/pplx-decider-v1.2-20261016",
+      "usage": {
+        "input_tokens": 191,
+        "output_tokens": 1,
+        "cost": 3.82e-06
+      }
+    },
+    {
+      "model": "perplexity/pplx-decider-v1.2-20261016",
+      "usage": {
+        "input_tokens": 191,
+        "output_tokens": 1,
+        "cost": 3.82e-06
+      }
+    }
+  ],
+  "configuration_persisted": true
+}

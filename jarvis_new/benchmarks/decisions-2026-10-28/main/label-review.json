@@ -1,0 +1,8 @@
+{
+  "case": "account",
+  "label": "has_event",
+  "initial_expected": false,
+  "reviewed_expected": true,
+  "reason": "The exam portal closes today, a dated deadline under the production event gate criteria. Label was reviewed after collecting predictions; no payload, model output or latency changed. Original local scoring retained in initial_correct.",
+  "affected_rows": 12
+}

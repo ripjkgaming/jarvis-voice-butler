@@ -11,10 +11,13 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 if [[ "${1:-}" == --stop ]]; then
   exec podman stop --time 3 "$NAME"
 fi
-if [[ "${1:-}" != --inside-display && "${1:-}" != --prepare-only ]] && \
-   [[ "$(podman inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null || true)" == true ]]; then
-  command -v notify-send >/dev/null && notify-send 'DaVinci Resolve' 'Resolve is already open. Save and close it before launching again.'
-  exit 0
+if [[ "${1:-}" != --inside-display && "${1:-}" != --prepare-only ]]; then
+  if [[ "$(podman inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null || true)" == true ]]; then
+    command -v notify-send >/dev/null && notify-send 'DaVinci Resolve' 'Resolve is already open. Save and close it before launching again.'
+    exit 0
+  else
+    podman rm -f "$NAME" >/dev/null 2>&1 || true
+  fi
 fi
 for cmd in podman nvidia-ctk; do
   command -v "$cmd" >/dev/null || fail "Required program missing: $cmd"

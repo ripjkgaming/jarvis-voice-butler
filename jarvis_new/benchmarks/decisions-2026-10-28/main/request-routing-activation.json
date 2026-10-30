@@ -1,0 +1,8 @@
+{
+  "agent_reloaded_while_no_room_participants": true,
+  "old_agent_pid": 7548,
+  "new_agent_pid": 51727,
+  "bridge_wake_and_mic_unchanged": true,
+  "routing_model": "perplexity/pplx-decider-v1.2",
+  "claude_text_worker_smoke": "passed"
+}

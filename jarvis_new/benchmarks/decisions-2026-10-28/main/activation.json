@@ -1,0 +1,12 @@
+{
+  "old_bridge_pid": 2102626,
+  "new_bridge_pid": 2147573,
+  "health": {
+    "ok": true,
+    "version": "0.2.0",
+    "uptime_s": 1
+  },
+  "voice_sidecars_unchanged": true,
+  "model_default": "perplexity/pplx-decider-v1.2",
+  "dedicated_key_file_mode": "0o600"
+}

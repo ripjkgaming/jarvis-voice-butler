@@ -1,0 +1,13 @@
+{
+  "old_bridge_pid": 2147573,
+  "new_bridge_pid": 2157651,
+  "health": {
+    "ok": true,
+    "version": "0.2.0",
+    "uptime_s": 0
+  },
+  "voice_sidecars_unchanged": true,
+  "whatsapp_decider_enabled": true,
+  "model": "perplexity/pplx-decider-v1.2",
+  "rude_mode_enabled": false
+}

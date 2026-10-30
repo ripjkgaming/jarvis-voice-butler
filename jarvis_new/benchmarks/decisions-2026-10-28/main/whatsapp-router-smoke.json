@@ -1,0 +1,179 @@
+{
+  "model": "perplexity/pplx-decider-v1.2",
+  "synthetic_only": true,
+  "whatsapp_send_calls": 0,
+  "rows": [
+    {
+      "case": "ordinary",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 1,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 858.963582009892,
+      "correct": true
+    },
+    {
+      "case": "approved_casual",
+      "expected": "owner_style",
+      "result": {
+        "mode": "owner_style",
+        "source": "decider",
+        "probability": 0.9962267667609154,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 802.0879340037936,
+      "correct": true
+    },
+    {
+      "case": "approved_assistant",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9892893496751923,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 849.2394140048418,
+      "correct": true
+    },
+    {
+      "case": "hostile",
+      "expected": "rude_jarvis",
+      "result": {
+        "mode": "rude_jarvis",
+        "source": "decider",
+        "probability": 0.9728251846386862,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 870.569381993846,
+      "correct": true
+    },
+    {
+      "case": "rude_disabled",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 1,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 839.8218319925945,
+      "correct": true
+    },
+    {
+      "case": "trusted_hostile",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 1,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 820.6239119899692,
+      "correct": true
+    },
+    {
+      "case": "emergency",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9984555619290305,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 828.274915998918,
+      "correct": true
+    },
+    {
+      "case": "casual_swearing",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9754274953548707,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 811.1887279956136,
+      "correct": true
+    },
+    {
+      "case": "impatience",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9797000857784444,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 807.2724029916571,
+      "correct": true
+    },
+    {
+      "case": "approved_handoff",
+      "expected": "owner_style",
+      "result": {
+        "mode": "owner_style",
+        "source": "decider",
+        "probability": 0.9660806060525203,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "elapsed_ms": 1045.6127880024724,
+      "correct": true
+    }
+  ],
+  "usage": [
+    {
+      "input_tokens": 299,
+      "output_tokens": 1,
+      "cost": 5.98e-06
+    },
+    {
+      "input_tokens": 379,
+      "output_tokens": 1,
+      "cost": 7.58e-06
+    },
+    {
+      "input_tokens": 382,
+      "output_tokens": 1,
+      "cost": 7.64e-06
+    },
+    {
+      "input_tokens": 363,
+      "output_tokens": 1,
+      "cost": 7.26e-06
+    },
+    {
+      "input_tokens": 296,
+      "output_tokens": 1,
+      "cost": 5.92e-06
+    },
+    {
+      "input_tokens": 296,
+      "output_tokens": 1,
+      "cost": 5.92e-06
+    },
+    {
+      "input_tokens": 360,
+      "output_tokens": 1,
+      "cost": 7.2e-06
+    },
+    {
+      "input_tokens": 356,
+      "output_tokens": 1,
+      "cost": 7.12e-06
+    },
+    {
+      "input_tokens": 364,
+      "output_tokens": 1,
+      "cost": 7.28e-06
+    },
+    {
+      "input_tokens": 383,
+      "output_tokens": 1,
+      "cost": 7.66e-06
+    }
+  ]
+}

@@ -1,13 +1,20 @@
-"""Greeting retries use LiveKit's actual completed-handle error semantics."""
+"""Greeting retries use jarvis_rt's completed-handle error semantics."""
 
 import asyncio
+import sys
+from array import array
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from livekit.agents import llm
-from livekit.agents.voice import SpeechHandle
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _fake_live import FakeClient
 
 import agent
+from jarvis_rt import SpeechHandle
+from jarvis_rt.live import LiveBackend
 
 
 def _completed_speech(error=None):
@@ -18,7 +25,7 @@ def _completed_speech(error=None):
 
 @pytest.mark.asyncio
 async def test_failed_speech_handle_does_not_publish_success_caption():
-    failed = _completed_speech(llm.RealtimeError("generation timed out"))
+    failed = _completed_speech(RuntimeError("generation timed out"))
     # Reproduce the SDK contract: awaiting a failed handle does not raise.
     assert await failed is failed
     captions = []
@@ -34,7 +41,7 @@ async def test_failed_speech_handle_does_not_publish_success_caption():
 async def test_greeting_retries_stored_error_and_captions_only_success(monkeypatch):
     handles = iter(
         [
-            _completed_speech(llm.RealtimeError("generation timed out")),
+            _completed_speech(RuntimeError("generation timed out")),
             _completed_speech(),
         ]
     )
@@ -120,7 +127,7 @@ async def test_greeting_retry_yields_to_active_conversation(
 
     def say(line):
         attempts.append(line)
-        return _completed_speech(llm.RealtimeError("generation timed out"))
+        return _completed_speech(RuntimeError("generation timed out"))
 
     session = SimpleNamespace(say=say, user_state="listening", agent_state="listening")
 
@@ -141,7 +148,7 @@ async def test_greeting_stops_after_one_retry_without_false_captions(monkeypatch
 
     def say(line):
         attempts.append(line)
-        return _completed_speech(llm.RealtimeError("generation timed out"))
+        return _completed_speech(RuntimeError("generation timed out"))
 
     async def no_delay(delay):
         pass
@@ -178,9 +185,6 @@ async def test_cancelled_greeting_is_not_retried(monkeypatch):
 async def test_native_greeting_retry_waits_for_pcm_before_provider_speech_event(
     monkeypatch,
 ):
-    from array import array
-
-    from livekit import rtc
 
     attempts = []
     now = [0.0]
@@ -188,7 +192,7 @@ async def test_native_greeting_retry_waits_for_pcm_before_provider_speech_event(
 
     def say(line):
         attempts.append(line)
-        return _completed_speech(llm.RealtimeError("generation timed out"))
+        return _completed_speech(RuntimeError("generation timed out"))
 
     session = SimpleNamespace(
         say=say,
@@ -199,14 +203,7 @@ async def test_native_greeting_retry_waits_for_pcm_before_provider_speech_event(
 
     async def speaking_before_native_event(delay):
         now[0] = 2.0
-        meter._process(
-            rtc.AudioFrame(
-                data=array("h", [1200, -1200] * 400).tobytes(),
-                sample_rate=16000,
-                num_channels=1,
-                samples_per_channel=800,
-            )
-        )
+        meter.process(array("h", [1200, -1200] * 400).tobytes())
 
     monkeypatch.setattr(agent.asyncio, "sleep", speaking_before_native_event)
     await agent._greet_with_retry(session, lambda *args: None)
@@ -300,13 +297,29 @@ def test_only_actual_bare_wake_ignores_request_tracking():
 async def test_stalled_speech_is_interrupted_and_releases_startup(monkeypatch):
     speech = SpeechHandle.create(allow_interruptions=True)
     captions = []
-    monkeypatch.setattr(agent, 'ANNOUNCEMENT_TIMEOUT_S', 0.02)
+    monkeypatch.setattr(agent, "ANNOUNCEMENT_TIMEOUT_S", 0.02)
     try:
-        result = await asyncio.wait_for(agent._say_with_caption(
-            SimpleNamespace(say=lambda line: speech), 'Hello.',
-            lambda *args: captions.append(args)), timeout=0.5)
+        result = await asyncio.wait_for(
+            agent._say_with_caption(
+                SimpleNamespace(say=lambda line: speech),
+                "Hello.",
+                lambda *args: captions.append(args),
+            ),
+            timeout=0.5,
+        )
         assert result is False
         assert speech.interrupted
         assert captions == []
     finally:
         speech._mark_done()
+
+
+async def test_realtime_announcement_does_not_duplicate_conversation_caption():
+    # The live backend already captions its own generated speech.
+    backend = LiveBackend(["gemini-3.8-live"], client=FakeClient(), watchdog=False)
+    session = SimpleNamespace(say=lambda line: _completed_speech(), backend=backend)
+    captions = []
+    assert await agent._say_with_caption(
+        session, "Hello", lambda *args: captions.append(args)
+    )
+    assert captions == []

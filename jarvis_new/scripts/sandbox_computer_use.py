@@ -232,8 +232,7 @@ async def main() -> int:
 
 
 async def _run_checks() -> int:
-    from livekit.agents.llm import ToolError
-
+    from jarvis_rt import ToolError
     from system.core import SystemTools
     from system.desktop import DesktopTools
 

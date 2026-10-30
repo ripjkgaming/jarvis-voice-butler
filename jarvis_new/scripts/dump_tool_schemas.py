@@ -1,4 +1,9 @@
-"""Dump name/description/JSON schema of every agent tool for regression diffs."""
+"""Dump name/description/JSON schema of every agent tool for regression diffs.
+
+Usage: uv run python scripts/dump_tool_schemas.py [DEST]
+DEST defaults to work/jarvis_rt-tool-schemas.json. The frozen LiveKit-era
+snapshot at work/livekit-removal/tool_schemas.json is never the default target.
+"""
 
 from __future__ import annotations
 
@@ -8,20 +13,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from livekit.agents import llm  # noqa: E402
+from jarvis_rt import is_function_tool, is_raw_function_tool, tool_schema
+
+DEFAULT_DEST = "work/jarvis_rt-tool-schemas.json"
 
 
 def _schema(tool) -> dict:
-    if llm.is_raw_function_tool(tool):
-        return tool.info.raw_schema
-    return llm.utils.build_legacy_openai_schema(tool, internally_tagged=True)
+    return tool_schema(tool)
 
 
 def dump(agents: dict) -> dict:
     out: dict = {}
     for label, agent in agents.items():
         for tool in agent.tools:
-            if not llm.is_function_tool(tool) and not llm.is_raw_function_tool(tool):
+            if not is_function_tool(tool) and not is_raw_function_tool(tool):
                 continue
             s = _schema(tool)
             out[f"{label}:{s.get('name')}"] = s
@@ -37,7 +42,7 @@ def main() -> None:
         "system": app.SystemAgent(),
     }
     data = dump(agents)
-    dest = Path(sys.argv[1] if len(sys.argv) > 1 else "work/livekit-removal/tool_schemas.json")
+    dest = Path(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DEST)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(data, indent=1, sort_keys=True))
     print(f"{len(data)} tools -> {dest}")

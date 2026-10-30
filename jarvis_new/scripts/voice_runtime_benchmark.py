@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Offline runtime probe: no mic, speakers, desktop, server or model APIs.
+"""Offline runtime probe on the in-process voice runtime (jarvis_rt).
 
-Playback uses a controlled blocking speaker and buffered 10ms frames to
-measure event-loop starvation, NOT real hardware or voice round-trip time.
+No mic, speakers, desktop or model APIs. Agent audio goes through a real
+VoiceHub on loopback into a real VoiceClient, then through WakeClient's
+playback loop. The speaker is a controlled blocking fake and the frames are
+buffered 10ms PCM blocks, so this measures event-loop starvation and playback
+scheduling, NOT real hardware or voice round-trip time.
 Optional --stt tests cached Whisper base with unchanged recognition settings.
 Cold STT means a fresh plugin/model instance; only the first run has cold imports.
 Run before/after separately, serializing with other CPU-heavy work.
+
+Output: benchmarks/voice-runtime-<today>-jarvis_rt.json, created exclusively
+(never overwritten). Use --output for another new path.
 """
 
 from __future__ import annotations
@@ -16,9 +22,11 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import statistics
 import sys
 import time
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -63,14 +71,35 @@ async def measured(operation):
         await task
 
 
-async def playback_trial(frames, expected):
-    from livekit import rtc
+class _FirstFrames:
+    """Wraps a real VoiceClient so playback ends after ``count`` agent chunks."""
 
+    def __init__(self, client, count):
+        self._client = client
+        self._count = count
+
+    def audio_frames(self):
+        return self._take()
+
+    async def _take(self):
+        source = self._client.audio_frames()
+        try:
+            for _ in range(self._count):
+                yield await source.__anext__()
+        finally:
+            await source.aclose()
+
+
+async def playback_trial(frames, expected):
+    from jarvis_rt.transport.client import VoiceClient
+    from jarvis_rt.transport.server import VoiceHub
+    from jarvis_rt.transport.tokens import MemoryNonceLedger, mint_call_token
     from wake_client import WakeClient
 
     written = bytearray()
     first_at = []
     write_gaps = []
+    last_at = []
 
     class Output:
         def __init__(self, **kwargs):
@@ -92,26 +121,32 @@ async def playback_trial(frames, expected):
         def close(self):
             pass
 
-    class Stream:
-        def __init__(self, track):
-            pass
-
-        async def __aiter__(self):
-            for frame in frames:
-                yield SimpleNamespace(frame=frame)
-
-        async def aclose(self):
-            pass
-
-    client = WakeClient.__new__(WakeClient)  # no config or live devices
-    last_at = []
-    with (
-        patch.dict(sys.modules, sounddevice=SimpleNamespace(OutputStream=Output)),
-        patch.object(rtc, "AudioStream", Stream),
-        patch("wake_client._school_quiet", return_value=False),
-    ):
-        started = time.perf_counter()
-        _, wall, lag = await measured(lambda: client._play_agent(None))
+    secret = secrets.token_bytes(32)  # in-memory only; never the real voice_secret
+    hub = VoiceHub(secret, ledger=MemoryNonceLedger())
+    listener = await hub.serve("127.0.0.1", 0)
+    port = listener.sockets[0].getsockname()[1]
+    room_name = "bench-playback"
+    token = mint_call_token(room_name, "bench", "speaker", 120, None, secret)
+    client = VoiceClient(f"ws://127.0.0.1:{port}/voice", token)
+    client.start()
+    try:
+        await client.wait_connected(10)
+        room = hub.room(room_name)
+        for frame in frames:
+            room.send_audio(frame)
+        wake = WakeClient.__new__(WakeClient)  # no config or live devices
+        with (
+            patch.dict(sys.modules, sounddevice=SimpleNamespace(OutputStream=Output)),
+            patch("wake_client._school_quiet", return_value=False),
+        ):
+            started = time.perf_counter()
+            _, wall, lag = await measured(
+                lambda: wake._play_agent(_FirstFrames(client, len(frames)))
+            )
+    finally:
+        await client.close()
+        listener.close()
+        await listener.wait_closed()
     assert bytes(written) == expected, "PCM bytes/order changed"
     return {
         "cold_first_write_s": first_at[0] - started,
@@ -122,16 +157,11 @@ async def playback_trial(frames, expected):
 
 
 async def playback(rounds):
-    from livekit import rtc
-
-    frames = [
-        rtc.AudioFrame(np.full(240, n + 600, np.int16).tobytes(), 24000, 1, 240)
-        for n in range(20)
-    ]
-    expected = b"".join(bytes(frame.data) for frame in frames)
+    frames = [np.full(240, n + 600, np.int16).tobytes() for n in range(20)]
+    expected = b"".join(frames)
     rows = [await playback_trial(frames, expected) for _ in range(rounds)]
     return {
-        "kind": "controlled fake speaker; 30ms open + 20 x 10ms writes; buffered frames",
+        "kind": "in-process VoiceHub+VoiceClient; controlled fake speaker; 30ms open + 20 x 10ms writes; buffered frames",
         "pcm_sha256": hashlib.sha256(expected).hexdigest(),
         "rows": rows,
         "summary": {key: distribution([r[key] for r in rows]) for key in rows[0]},
@@ -143,10 +173,10 @@ async def stt_probe(cold_rounds):
     sys.path.insert(0, str(ROOT / "tests"))
     import wave
 
-    from livekit import rtc
     from test_voice_fixtures import FIXTURES, fixture_slug, wer
     from test_voice_regressions import CACHE_DIR, EARS_IDX, expand_numbers
 
+    from jarvis_rt.stt import AudioFrame
     from local_stt import FasterWhisperSTT
 
     fixtures = []
@@ -158,7 +188,7 @@ async def stt_probe(cold_rounds):
         ) as wav:
             assert wav.getframerate() == 16000 and wav.getnchannels() == 1
             pcm = wav.readframes(wav.getnframes())
-        fixtures.append((rtc.AudioFrame(pcm, 16000, 1, len(pcm) // 2), fix["text"]))
+        fixtures.append((AudioFrame(pcm, 16000, 1, len(pcm) // 2), fix["text"]))
 
     async def run_one(plugin, idx):
         frame, reference = fixtures[idx]
@@ -204,7 +234,6 @@ async def main(args):
     report = {"label": args.label, "playback": await playback(args.rounds)}
     if args.stt:
         report["stt"] = await stt_probe(args.cold_rounds)
-    args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(
         json.dumps(
             {
@@ -214,13 +243,37 @@ async def main(args):
             indent=2,
         )
     )
+    if args.print_only:
+        return
+    write_new(args.output, report)
+    print(f"wrote {args.output}")
+
+
+def default_output() -> Path:
+    return (
+        ROOT / "benchmarks" / f"voice-runtime-{date.today().isoformat()}-jarvis_rt.json"
+    )
+
+
+def write_new(path: Path, report: dict) -> None:
+    """Create ``path`` exclusively; never overwrite an existing benchmark."""
+    try:
+        with path.open("x") as fh:
+            fh.write(json.dumps(report, indent=2) + "\n")
+    except FileExistsError:
+        raise SystemExit(
+            f"refusing to overwrite existing {path}; pass --output"
+        ) from None
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--print-only", action="store_true")
     parser.add_argument("--rounds", type=int, default=10)
     parser.add_argument("--cold-rounds", type=int, default=5)
     parser.add_argument("--stt", action="store_true")
-    asyncio.run(main(parser.parse_args()))
+    parsed = parser.parse_args()
+    parsed.output = parsed.output or default_output()
+    asyncio.run(main(parsed))

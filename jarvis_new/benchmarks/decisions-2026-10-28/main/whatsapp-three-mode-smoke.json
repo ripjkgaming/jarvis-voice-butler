@@ -1,0 +1,51 @@
+{
+  "all_three_modes_allowed": true,
+  "synthetic_only": true,
+  "send_calls": 0,
+  "rows": [
+    {
+      "case": "casual",
+      "expected": "owner_style",
+      "result": {
+        "mode": "owner_style",
+        "source": "decider",
+        "probability": 0.9921885364114439,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "correct": true
+    },
+    {
+      "case": "assistant",
+      "expected": "jarvis",
+      "result": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9898600834336551,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "correct": true
+    },
+    {
+      "case": "hostile_assistant",
+      "expected": "rude_jarvis",
+      "result": {
+        "mode": "rude_jarvis",
+        "source": "decider",
+        "probability": 0.9300356201315575,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "correct": true
+    },
+    {
+      "case": "identity_handoff",
+      "expected": "owner_style",
+      "result": {
+        "mode": "owner_style",
+        "source": "decider",
+        "probability": 0.9304181618262133,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "correct": true
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "synthetic_only": true,
+  "send_calls": 0,
+  "rows": [
+    {
+      "case": "Ordinary Contact",
+      "expected": "jarvis",
+      "route": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 0.9923479729987278,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "writer_modes": [
+        "jarvis"
+      ],
+      "outcome": "dry-run",
+      "send_calls": 0
+    },
+    {
+      "case": "Approved Friend",
+      "expected": "owner_style",
+      "route": {
+        "mode": "owner_style",
+        "source": "decider",
+        "probability": 0.9921885364114439,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "writer_modes": [
+        "owner_style"
+      ],
+      "outcome": "dry-run",
+      "send_calls": 0
+    },
+    {
+      "case": "Hostile Contact",
+      "expected": "rude_jarvis",
+      "route": {
+        "mode": "rude_jarvis",
+        "source": "decider",
+        "probability": 0.9728251846386862,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "writer_modes": [
+        "rude_jarvis"
+      ],
+      "outcome": "dry-run",
+      "send_calls": 0
+    },
+    {
+      "case": "Trusted Friend",
+      "expected": "jarvis",
+      "route": {
+        "mode": "jarvis",
+        "source": "decider",
+        "probability": 1,
+        "model": "perplexity/pplx-decider-v1.2"
+      },
+      "writer_modes": [
+        "jarvis"
+      ],
+      "outcome": "dry-run",
+      "send_calls": 0
+    }
+  ]
+}

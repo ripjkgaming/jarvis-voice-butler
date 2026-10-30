@@ -1,0 +1,83 @@
+{
+  "kind": "offline_deterministic_mic_and_audio_frame_simulation",
+  "real_world_mic_to_speaker_latency_measured": false,
+  "audio_frame_duration_ms": 32,
+  "playback_callback_target_ms": 10,
+  "new_pcm_queue_max_ms": 250,
+  "baseline_independent_local_mute": false,
+  "baseline_native_provider_delay_ms": "unknown/not measured",
+  "trials_each": 80,
+  "cases": {
+    "loud": {
+      "detected": 80,
+      "onset_byte_exact": 80,
+      "detected_percent": 100.0,
+      "baseline_pcm_identical_percent_mean": 0.01,
+      "new_pcm_identical_percent_mean": 100.0,
+      "onset_byte_exact_percent": 100.0,
+      "onset_to_local_mute_ms_p50": 64.0,
+      "onset_to_local_mute_ms_p95": 64.0
+    },
+    "moderate": {
+      "detected": 80,
+      "onset_byte_exact": 80,
+      "detected_percent": 100.0,
+      "baseline_pcm_identical_percent_mean": 0.01,
+      "new_pcm_identical_percent_mean": 100.0,
+      "onset_byte_exact_percent": 100.0,
+      "onset_to_local_mute_ms_p50": 64.0,
+      "onset_to_local_mute_ms_p95": 64.0
+    },
+    "quiet": {
+      "detected": 80,
+      "onset_byte_exact": 80,
+      "detected_percent": 100.0,
+      "baseline_pcm_identical_percent_mean": 0.02,
+      "new_pcm_identical_percent_mean": 100.0,
+      "onset_byte_exact_percent": 100.0,
+      "onset_to_local_mute_ms_p50": 64.0,
+      "onset_to_local_mute_ms_p95": 64.0
+    },
+    "very_quiet": {
+      "detected": 0,
+      "onset_byte_exact": 0,
+      "detected_percent": 0.0,
+      "baseline_pcm_identical_percent_mean": 0.03,
+      "new_pcm_identical_percent_mean": 0.03,
+      "onset_byte_exact_percent": 0.0,
+      "onset_to_local_mute_ms_p50": null,
+      "onset_to_local_mute_ms_p95": null
+    },
+    "noise_click": {
+      "detected": 0,
+      "onset_byte_exact": 0,
+      "detected_percent": 0.0,
+      "baseline_pcm_identical_percent_mean": 0.03,
+      "new_pcm_identical_percent_mean": 0.03,
+      "onset_byte_exact_percent": 0.0,
+      "onset_to_local_mute_ms_p50": null,
+      "onset_to_local_mute_ms_p95": null
+    },
+    "loud_background_voice": {
+      "detected": 80,
+      "onset_byte_exact": 80,
+      "detected_percent": 100.0,
+      "baseline_pcm_identical_percent_mean": 0.02,
+      "new_pcm_identical_percent_mean": 100.0,
+      "onset_byte_exact_percent": 100.0,
+      "onset_to_local_mute_ms_p50": 32.0,
+      "onset_to_local_mute_ms_p95": 32.0
+    }
+  },
+  "tts_whisper": {
+    "prompt": "Wait, actually compare the Pi four and the Pi five. Which one is cheaper?",
+    "clean_transcription": "Weight actually compared the Pi 4 and the Pi 5, which one is cheaper?",
+    "current_gate_transcription": "Weight actually compared the Pi 4 and the Pi 5, which one is cheaper?",
+    "fast_barge_transcription": "Weight actually compared the Pi 4 and the Pi 5, which one is cheaper?",
+    "fast_barge_fired": true,
+    "microphone_audio_duration_s": 4.61,
+    "sample_exact_fraction": 1.0,
+    "baseline_exact_fraction": 0.94452
+  },
+  "elapsed_wall_s": 10.49
+}
