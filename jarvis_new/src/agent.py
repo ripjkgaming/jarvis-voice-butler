@@ -12,32 +12,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from dotenv import load_dotenv
-from google.genai import types as genai_types
-from livekit import rtc
-from livekit.agents import (
+from jarvis_rt import (
     Agent,
     AgentServer,
     AgentSession,
+    EndCallTool,
     JobContext,
     RunContext,
-    TurnHandlingOptions,
-    cli,
+    StopResponse,
+    UserStateChangedEvent,
     function_tool,
-    inference,
+    io,
     room_io,
+    run_app,
 )
-from livekit.agents.beta.tools import EndCallTool
-from livekit.agents import llm
-from livekit.agents.llm import StopResponse
-from livekit.agents.llm import FallbackAdapter, RealtimeModelFallbackAdapter
-from livekit.agents.types import APIConnectOptions, NOT_GIVEN
-from livekit.agents.voice import UserStateChangedEvent, io
-from livekit.plugins import google
-
-try:
-    from livekit.plugins import silero
-except ImportError:  # pragma: no cover - direct pipeline needs the extra
-    silero = None  # type: ignore[assignment]
+from jarvis_rt.live import LiveBackend, ModelChain
+from jarvis_rt.live import http_options as _live_http_options
 
 from browser import BrowserManager
 
@@ -56,6 +46,7 @@ from system.background import BackgroundTools
 from system.budget import record_session
 from system.budget import status as budget_status
 from system.computer_use import COMPUTER_USE_INSTRUCTIONS, ComputerUseTools
+from system import full_command_access, local_access_instructions
 from system.core import SystemTools
 from system.daily import DailyTools
 from system.desktop import DesktopTools
@@ -87,6 +78,7 @@ from system.vision_tools import VisionTools
 from system.workspace_tools import WorkspaceTools
 from system.reddit import RedditTools
 from tools import BrowserTools
+from voice_upgrade import DEFAULT_CHAIN, selected_chain
 import tool_usage
 from youtube_download import YouTubeDownloadTools
 
@@ -96,251 +88,37 @@ from youtube_download import YouTubeDownloadTools
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 
 
-_TOOL_NUDGE_S = 1.5
-
-
-def _patch_gemini_turn_end() -> bool:
-    """Stop Gemini Live answering one turn behind (manual activity mode).
-
-    At end of turn the plugin's generate_reply sends activity_end (which
-    already asks Gemini to answer the audio just spoken) AND an empty
-    turn_complete client turn. On 3.x Live models that empty turn starts
-    a reply to the context *before* the new audio lands, so Sir heard
-    the previous answer ("2401 - 1605" -> "2401") while the real one was
-    dropped as "server content but no active generation". Suppress only
-    that empty trailing turn; instructed replies (greetings) are
-    untouched. JARVIS_GEMINI_TURN_PATCH=0 disables. Idempotent.
-    """
-    if os.environ.get("JARVIS_GEMINI_TURN_PATCH", "1").strip() == "0":
-        return False
-    try:
-        from google.genai import types as _gt
-        from livekit.agents.types import APIConnectOptions, NOT_GIVEN
-        from livekit.plugins.google.realtime import realtime_api as _ra
-    except Exception:
-        return False
-    sess = _ra.RealtimeSession
-    if getattr(sess, "_jarvis_turn_patch", False):
-        return True
-    orig_generate = sess.generate_reply
-    orig_send = sess._send_client_event
-
-    def generate_reply(self, *, instructions=NOT_GIVEN, **kwargs):
-        self._jarvis_audio_turn = bool(
-            self._manual_activity_detection
-            and self._in_user_activity
-            and instructions is NOT_GIVEN
-            and not _ra._needs_reply_placeholder(self._opts.model)
-        )
-        try:
-            return orig_generate(self, instructions=instructions, **kwargs)
-        finally:
-            self._jarvis_audio_turn = False
-
-    def _send_client_event(self, event):
-        if not self._manual_activity_detection:
-            return orig_send(self, event)
-        if (
-            getattr(self, "_jarvis_audio_turn", False)
-            and isinstance(event, _gt.LiveClientContent)
-            and not event.turns
-        ):
-            return None
-        out = orig_send(self, event)
-        if isinstance(event, _gt.LiveClientToolResponse):
-            # Without that empty turn, Gemini sits on a tool result and never
-            # speaks it (maths computed, silence). Nudge only if no reply has
-            # started shortly after, so a normal continuation isn't doubled.
-            def _nudge(sess=self) -> None:
-                gen = sess._current_generation
-                if gen is None or gen._done:
-                    orig_send(sess, _gt.LiveClientContent(turns=[], turn_complete=True))
-
-            with contextlib.suppress(RuntimeError):
-                asyncio.get_running_loop().call_later(_TOOL_NUDGE_S, _nudge)
-        return out
-
-    sess.generate_reply = generate_reply
-    sess._send_client_event = _send_client_event
-    sess._jarvis_turn_patch = True
-    return True
-
-
-_patch_gemini_turn_end()
-
-
-def _say_instructions(text: str) -> str:
-    return (
-        "Say exactly the following line to Sir, word for word, in your "
-        f"normal voice, and nothing else: {text}"
-    )
-
-
-def _patch_say_without_tts() -> bool:
-    """Make session.say() speak on the Gemini Live pipeline.
-
-    The realtime session has no TTS and Gemini Live doesn't support say(),
-    so every say() raised and was swallowed: instant commands (maths,
-    volume, project navigation) ran silently. Without a TTS, route the
-    line through the realtime model as a verbatim reply instead, so it
-    comes out in the same voice. Idempotent.
-    """
-    if getattr(AgentSession, "_jarvis_say_patch", False):
-        return True
-    orig_say = AgentSession.say
-
-    def say(
-        self,
-        text,
-        *,
-        audio=NOT_GIVEN,
-        allow_interruptions=NOT_GIVEN,
-        add_to_chat_ctx=True,
-    ):
-        activity = getattr(self, "_activity", None)
-        rt = activity is not None and isinstance(
-            getattr(activity, "llm", None), llm.RealtimeModel
-        )
-        if (
-            rt
-            and self.tts is None
-            and audio is NOT_GIVEN
-            and isinstance(text, str)
-            and not activity.llm.capabilities.supports_say
-        ):
-            # tool_choice="none": say() speaks a fixed line (a fast-path
-            # result, a computed answer) — Gemini must not turn it into a
-            # second tool call.
-            return self.generate_reply(
-                instructions=_say_instructions(text),
-                allow_interruptions=allow_interruptions,
-                tool_choice="none",
-            )
-        return orig_say(
-            self,
-            text,
-            audio=audio,
-            allow_interruptions=allow_interruptions,
-            add_to_chat_ctx=add_to_chat_ctx,
-        )
-
-    AgentSession.say = say
-    AgentSession._jarvis_say_patch = True
-    return True
-
-
-_patch_say_without_tts()
-
-
-def _realtime_llm():
-    """Voice brain with high-usage backups.
+def _realtime_llm() -> ModelChain:
+    """Voice brain chain with high-usage backups.
 
     Primary is gemini-3.8-live (note: no "flash" — gemini-3.8-flash is
     the text-only sibling). Base, not -extended-thinking: thinking
     trades latency for reasoning and a voice router wants the opposite.
-    When the primary is saturated (429/quota), the adapter fails over
-    down VOICE_MODEL_CHAIN preserving chat context; when it recovers,
-    later sessions start at the top again (per-session order).
-    JARVIS_VOICE_MODELS (comma list) overrides the chain without code.
+    When the primary is saturated (429/quota) the backend fails over
+    down VOICE_MODEL_CHAIN preserving chat context, with a 60 s cooldown
+    per failed model. JARVIS_VOICE_MODELS (comma list) overrides the chain.
     """
-    return RealtimeModelFallbackAdapter(
-        [_voice_model(mid) for mid in _voice_chain()],
-        cooldown=60.0,
-        regenerate_on_swap=False,
-    )
+    return ModelChain(list(_voice_chain()), cooldown=60.0)
 
 
 # Newest-first voice chain: separate Gemini Live quotas per model, so a
 # saturated primary still leaves backups. 3.1 is the older Live voice
 # model; 2.5 native-audio is the legacy fallback (full server-speech
 # flow, unlimited-free AI Studio quota).
-VOICE_MODEL_CHAIN = [
-    "gemini-3.8-live",
-    "gemini-3.1-flash-live-preview",
-    "gemini-2.5-flash-native-audio-latest",
-]
+VOICE_MODEL_CHAIN = list(DEFAULT_CHAIN)
 
 
 def _voice_chain() -> list:
-    """Chain order, env-overridable. Pure (env only)."""
-    raw = os.environ.get("JARVIS_VOICE_MODELS", "").strip()
-    if not raw:
-        return list(VOICE_MODEL_CHAIN)
-    models = [m.strip() for m in raw.split(",") if m.strip()]
-    return models or list(VOICE_MODEL_CHAIN)
+    """Read automatic selection for new sessions; explicit env order wins."""
+    return selected_chain(VOICE_MODEL_CHAIN)
 
 
-def _gemini_silence_ms() -> int:
-    """Quiet (ms) before Gemini ends Sir's turn (JARVIS_GEMINI_SILENCE_MS,
-    default 500). Pure (env only)."""
-    try:
-        return max(
-            200, int(os.environ.get("JARVIS_GEMINI_SILENCE_MS", "").strip() or 500)
-        )
-    except ValueError:
-        return 500
-
-
-def _voice_model(model_id: str):
-    """One chain link with that generation's thinking rules. Pure-ish.
-
-    3.8-live accepts NO thinking knobs (1007 "Thinking level is not
-    supported", verified live 2026-09-20). 3.1 Live wants thinkingLevel
-    MINIMAL for lowest latency. 2.5 native-audio wants a small
-    thinking_budget (32: every thinking token delays first audio).
-    Unknown IDs get no thinking config (model default).
-    """
-    thinking: dict = {}
-    if "3.1" in model_id:
-        thinking = {
-            "thinking_config": genai_types.ThinkingConfig(thinking_level="MINIMAL")
-        }
-    elif "2.5" in model_id:
-        thinking = {"thinking_config": genai_types.ThinkingConfig(thinking_budget=32)}
-    import gemini_watchdog
-    import realtime_startup
-
-    return realtime_startup.install(gemini_watchdog.install(
-        google.realtime.RealtimeModel(
-            model=model_id,
-            voice="Enceladus",
-            http_options=realtime_startup.http_options(),
-            # The adapter owns failover. Child reconnects reset retry accounting
-            # on inbound metadata and can otherwise cycle on provider errors.
-            conn_options=APIConnectOptions(max_retry=0),
-            # Native audio chooses language automatically; English output is
-            # an instruction policy, not a supported input-language lock.
-            **thinking,
-            # Let Gemini detect the spoken turn. Local Silero classified the
-            # live microphone background as continuous speech, withholding
-            # activity_end and all transcripts for over 40 seconds. Native
-            # detection is verified with this model and does not need that gate.
-            # End-of-speech is tuned for speed: with the server defaults a final
-            # transcript landed 4-7 s after the partial (captions.log, 2 Oct),
-            # and Jarvis only answers on the final.
-            realtime_input_config=genai_types.RealtimeInputConfig(
-                automatic_activity_detection=genai_types.AutomaticActivityDetection(
-                    disabled=False,
-                    end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_HIGH,
-                    silence_duration_ms=_gemini_silence_ms(),
-                )
-            ),
-            tool_response_scheduling=genai_types.FunctionResponseScheduling.WHEN_IDLE,
-        )
-    ))
-
-
-# Cheap pipeline model IDs (LiveKit Inference; billed from credits).
-CHEAP_STT_MODEL = "assemblyai/universal-streaming"
-CHEAP_LLM_MODEL = "google/gemini-3.8-flash"
 # Direct voice brain (REST generateContent namespace): newest GA Flash.
 # Intentionally NOT the same value as bridge.py's GEMINI_TEXT_MODEL only
 # in history — both now track gemini-3.8-flash; the LiveKit RealtimeModel
 # above lives in the live voice API namespace and must not be "kept in
 # sync" with these text IDs.
 DIRECT_LLM_MODEL = "gemini-3.8-flash"
-# Free cloud fallback voice (debugging + fallback if local voice misbehaves).
-CHEAP_TTS_MODEL = "rime/coda"
 
 # Silence before the agent hangs up on its own (seconds).
 IDLE_HANGUP_SECONDS = 60.0
@@ -451,7 +229,7 @@ def _write_live_caption(uid: str, text: str, done: bool) -> None:
 
 def _strip_markup(text: str) -> str:
     try:
-        from livekit.agents.tts._provider_format import strip_all_markup
+        from jarvis_rt.markup import strip_all_markup
 
         return strip_all_markup(text)
     except Exception:
@@ -507,6 +285,7 @@ def _wake_announce(room: object) -> str:
             attrs = getattr(participant, "attributes", None) or {}
             if attrs.get("jarvis.phone_call"):
                 import phone_calls
+
                 return phone_calls.consume_announcement(
                     attrs["jarvis.phone_call"], getattr(participant, "identity", "")
                 )
@@ -533,7 +312,7 @@ FOLLOW_UP_PAUSE_PROMPT_S = 20.0
 FOLLOW_UP_HOLD_CAP_S = 60.0
 
 
-class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
+class _InputActivity:
     """Observe energy for idle timers; forward every frame unchanged.
 
     Native Gemini speech-start arrives when it generates a response, after
@@ -573,17 +352,18 @@ class _InputActivity(rtc.FrameProcessor[rtc.AudioFrame]):
     def enabled(self, value: bool) -> None:
         self._enabled = value
 
-    def _process(self, frame: rtc.AudioFrame) -> rtc.AudioFrame:
-        if self.enabled and len(frame.data):
+    def process(self, frame: bytes) -> bytes:
+        """Observe one PCM16 block; always returns it unchanged."""
+        data = memoryview(frame).cast("h") if len(frame) >= 2 else ()
+        if self.enabled and len(data):
             # At most 64 PCM samples per frame; no copy or model work on the
             # audio loop. This observes the source before RoomIO's AGC.
-            samples = frame.data[:: max(1, math.ceil(len(frame.data) / 64))]
+            samples = data[:: max(1, math.ceil(len(data) / 64))]
             rms = math.sqrt(sum(value * value for value in samples) / len(samples))
             now = self._clock()
             level_db = 20 * math.log10(max(rms, 1.0))
             loud = (
-                rms >= self.MIN_RMS
-                and level_db >= self.floor_db + self.ABOVE_FLOOR_DB
+                rms >= self.MIN_RMS and level_db >= self.floor_db + self.ABOVE_FLOOR_DB
             )
             self._track_floor(level_db, now)
             if loud:
@@ -636,11 +416,24 @@ def _audio_input_options(session) -> room_io.AudioInputOptions:
         return room_io.AudioInputOptions()
     activity = _InputActivity()
     session._jarvis_input_activity = activity
-    # The SDK's processor slot accepts generic pass-through observers too.
-    # Explicit AGC preserves the previous default when a processor is set.
+    # The observer sees raw blocks before the software AGC; explicit AGC
+    # preserves the previous default level.
     return room_io.AudioInputOptions(
         noise_cancellation=activity, auto_gain_control=True
     )
+
+
+def _voice_recovery_pending(session) -> bool:
+    pending = getattr(getattr(session, "backend", None), "recovery_pending", None)
+    return bool(callable(pending) and pending())
+
+
+def _task_work_pending(session) -> bool:
+    """Tools and session-owned background work keep automatic standby open."""
+    import latency
+    from hud_voice_state import execution_pending
+
+    return latency.TRACKER.pending > 0 or execution_pending(session)
 
 
 def _normal_follow_up_s() -> float:
@@ -671,7 +464,6 @@ async def _school_follow_up(
     gets a pause prompt, then a bounded hold; it is never forcibly sent
     to the model. Pending tools and agent work still prevent hangup.
     """
-    import latency
     import school
 
     user_state = str(getattr(session, "user_state", "listening"))
@@ -753,12 +545,18 @@ async def _school_follow_up(
                     "Still hearing continuous sound, Sir. Please pause briefly "
                     "so I can finish listening."
                 )
+            if _task_work_pending(session):
+                # SDK listening can arrive while tools/background downloads
+                # still run. Start a fresh follow-up window after they finish.
+                deadline = None
+                continue
+            _update_deadline()
             expired = deadline is not None and now >= deadline
             stuck = bool(starts) and held >= FOLLOW_UP_HOLD_CAP_S
             if (
                 (expired or stuck)
                 and agent_state not in ("thinking", "speaking")
-                and latency.TRACKER.pending == 0
+                and not _voice_recovery_pending(session)
             ):
                 if stuck:
                     _caption(
@@ -817,62 +615,16 @@ NAME_ALIASES = frozenset(
 )
 
 
-def _char_runtime():
-    try:
-        try:
-            from character_runtime import get_runtime
-        except ImportError:
-            from src.character_runtime import get_runtime
-        return get_runtime()
-    except Exception:
-        return None
-
-
-def _active_character():
-    rt = _char_runtime()
-    try:
-        return rt.active() if rt is not None else None
-    except Exception:
-        return None
-
-
 def _canned(kind: str, default: str) -> str:
-    """Canned line for the active character; Jarvis keeps `default` verbatim."""
-    ch = _active_character()
-    if ch is None or ch.id == "jarvis":
-        return default
-    try:
-        import persona
-
-        return persona.line(ch, kind) or default
-    except Exception:
-        return default
+    return default
 
 
 def _extra_names() -> frozenset[str]:
-    """Every loaded non-Jarvis character's names/aliases/wake names."""
-    rt = _char_runtime()
-    if rt is None:
-        return frozenset()
-    out: set[str] = set()
-    for cid, ch in rt.chars.items():
-        if cid == "jarvis":
-            continue
-        for n in (cid, ch.spoken_name, *ch.aliases, *ch.wake_names):
-            n = str(n).casefold().strip()
-            if n and " " not in n:
-                out.add(n)
-    return frozenset(out - NAME_ALIASES)
+    return frozenset()
 
 
 def _extra_name_called(text: str) -> bool:
-    """Another character addressed by name: only as one of the first two
-    words ("Ultron", "hey Friday ..."), so "see you Friday" is not a summons."""
-    extra = _extra_names()
-    if not extra:
-        return False
-    words = re.findall(r"[a-z']+", text.casefold())
-    return any(w in extra for w in words[:2])
+    return False
 
 
 def _name_called(text: str) -> bool:
@@ -1104,13 +856,17 @@ async def _say_with_caption(
     except Exception:
         return False
     with contextlib.suppress(Exception):
-        caption("jarvis", line)
+        if not isinstance(getattr(session, "backend", None), LiveBackend):
+            caption("jarvis", line)
+        # Realtime say() already captions its generated conversation message.
     return True
 
 
 def _note_wake_greeting_input(session, event) -> None:
     """Remember real requests; a bare/prefix wake transcript is not a request."""
-    words = re.findall(r"[a-z]+", str(getattr(event, "transcript", "") or "").casefold())
+    words = re.findall(
+        r"[a-z]+", str(getattr(event, "transcript", "") or "").casefold()
+    )
     if not words:
         return
     text = " ".join(words)
@@ -1140,9 +896,9 @@ async def _sir_already_talking(session, window_s: float) -> bool:
             session, "agent_state", None
         ) in {"thinking", "speaking"}:
             return True
-        busy = getattr(session, "user_state", None) == "speaking" or _input_activity_holds(
-            session, grace=0.3
-        )
+        busy = getattr(
+            session, "user_state", None
+        ) == "speaking" or _input_activity_holds(session, grace=0.3)
         if busy:
             quiet_since = None
         elif quiet_since is None:
@@ -1170,24 +926,18 @@ async def _greet_with_retry(
     gemini-3.8-live, 2 Oct). Let wake-tail noise settle, and yield to
     actual requests or replies: Gemini answers those directly.
     """
-    if getattr(session, "_jarvis_greeting_consumed", False):
-        return
-    line = _canned("greet", "Good day, Sir. What do you require?")
+    line = "Good day, Sir. What do you require?"
     if listen_first_s > 0 and await _sir_already_talking(session, listen_first_s):
         with contextlib.suppress(Exception):
             from system import log_action
 
-            log_action("greeting", "wake greeting yielded to request/reply or unsettled input")
+            log_action(
+                "greeting", "wake greeting yielded to request/reply or unsettled input"
+            )
         return
     if not can_greet():
         return
-    session._jarvis_greeting_active = True
-    try:
-        said = await _say_with_caption(session, f"{line}{budget_aside}", caption)
-    finally:
-        session._jarvis_greeting_active = False
-    if said or getattr(session, "_jarvis_wake_request_seen", False):
-        session._jarvis_greeting_consumed = True
+    if await _say_with_caption(session, f"{line}{budget_aside}", caption):
         return
     await asyncio.sleep(2.0)
     # A retry uses generate_reply on Gemini, which ends its current input
@@ -1209,38 +959,21 @@ _WAKE_LISTEN_S = 1.0
 
 
 def _pipeline_name() -> str:
-    """'realtime' (Gemini Live on the owner's free AI Studio key, $0
-    inference), 'local' (cheap STT + Gemini brains + local voice, needs
-    LiveKit Cloud Inference), or 'direct' (fully cloud-free for a local
-    livekit-server: Silero VAD + local whisper ears, Gemini-direct brains,
-    Piper mouth — needs only GOOGLE_API_KEY).
+    """'realtime' (Gemini Live on the owner's free AI Studio key) or
+    'direct' (offline-first: Silero VAD + local whisper ears, Gemini-direct
+    brains, Piper mouth — needs only GOOGLE_API_KEY).
 
     Realtime is the default: the Live API quota is unlimited, while
     the text-out free tier (20 req/day) cannot feed a voice pipeline.
-    JARVIS_PIPELINE=local restores the old Cloud stack;
-    JARVIS_PIPELINE=direct is the offline-first stack.
+    The old cloud-inference 'local' pipeline no longer exists; it maps to
+    'direct'.
     """
-    return os.environ.get("JARVIS_PIPELINE", "realtime").strip().lower()
+    name = os.environ.get("JARVIS_PIPELINE", "realtime").strip().lower()
+    return "direct" if name == "local" else name
 
 
 def _session_tts():
-    """Local Piper voice by default; JARVIS_TTS=<inference model> for a
-    free cloud voice (e.g. rime/coda). Escape hatch for debugging."""
-    override = os.environ.get("JARVIS_TTS", "local").strip().lower()
-    if override and override != "local":
-        return inference.TTS(model=override)
-    ch = _active_character()
-    if ch is not None and ch.id != "jarvis":
-        try:
-            try:
-                import character_voice as _cvoice
-            except ImportError:
-                from src import character_voice as _cvoice
-            make = getattr(_cvoice, "make_session_tts", None)
-            if make is not None:
-                return make()
-        except Exception:
-            pass
+    """Local Piper voice."""
     return PiperTTS()
 
 
@@ -1297,9 +1030,7 @@ def vad_kwargs() -> dict:
     return kw
 
 
-def _session_for_pipeline(
-    turn_handling: TurnHandlingOptions, vad: object = None
-) -> AgentSession:
+def _session_for_pipeline(vad: object = None) -> AgentSession:
     """Voice session for the active pipeline.
 
     Both branches carry the same IDLE_HANGUP_SECONDS away budget. The
@@ -1308,60 +1039,29 @@ def _session_for_pipeline(
     executing, and the call died as USER_INITIATED.
     """
     if _pipeline_name() == "realtime":
-        # Native speech events own both endpointing and interruptions.
-        # Explicitly disable local VAD: leaving Silero attached still lets
-        # its noise classifications change user_state and delay greetings.
+        # Gemini's server-side activity detection owns both endpointing and
+        # interruptions; there is no local VAD in this mode.
         return AgentSession(
-            turn_handling=TurnHandlingOptions(
-                turn_detection="realtime_llm",
-                interruption={"enabled": True},
-            ),
-            user_away_timeout=IDLE_HANGUP_SECONDS,
-            vad=None,
-        )
-    if _pipeline_name() == "direct":
-        # Cloud-free stack for a local livekit-server: the default
-        # inference.VAD/STT/LLM/TurnDetector have no backend here, so every
-        # slot gets a direct/local equivalent. Ears are lazy (whisper loads
-        # on first utterance); brains need GOOGLE_API_KEY, fail fast if set.
-        if silero is None:
-            raise RuntimeError(
-                "JARVIS_PIPELINE=direct needs livekit-plugins-silero "
-                "(uv sync to install the pinned extra)."
-            )
-        if not os.environ.get("GOOGLE_API_KEY"):
-            raise RuntimeError(
-                "JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local."
-            )
-        return AgentSession(
-            vad=vad if vad is not None else silero.VAD.load(**vad_kwargs()),
-            stt=FasterWhisperSTT(),
-            # 60s HTTP deadline: the plugin default (5s) is rejected by
-            # current Gemini models (400 "minimum deadline 10s").
-            llm=google.LLM(
-                model=DIRECT_LLM_MODEL,
-                http_options=genai_types.HttpOptions(timeout=60_000),
-            ),
-            tts=_session_tts(),
-            # No explicit turn_detection: auto mode picks "vad" (a VAD is
-            # present, no realtime model), so endpointing stays local too.
-            # Same adaptive interruptions + preemptive replies as realtime.
-            turn_handling=TurnHandlingOptions(
-                interruption=barge_in("adaptive"),
-                preemptive_generation={"enabled": True},
-            ),
+            backend=LiveBackend(_realtime_llm(), http_options=_live_http_options()),
             user_away_timeout=IDLE_HANGUP_SECONDS,
         )
+    # Offline-first stack. Ears are lazy (whisper loads on first
+    # utterance); brains need GOOGLE_API_KEY, fail fast if unset.
+    if not os.environ.get("GOOGLE_API_KEY"):
+        raise RuntimeError("JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local.")
+    from jarvis_rt import vad as rt_vad
+    from jarvis_rt.pipeline_direct import DirectBackend
+
     return AgentSession(
-        # Ears: budget streaming STT. Brains: still Gemini (with 3.6-flash
-        # backup when 3.8-flash is saturated). Mouth: the downloaded local
-        # voice (zero inference burn).
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=inference.STT(model=CHEAP_STT_MODEL, language="en-GB"),
-        llm=_fallback_text_llm(lambda m: inference.LLM(model=f"google/{m}")),
-        tts=_session_tts(),
-        turn_handling=turn_handling,
-        # Silence budget: flag the user away so the hangup task below fires.
+        backend=DirectBackend(
+            vad=vad if vad is not None else rt_vad.load(**vad_kwargs()),
+            stt=FasterWhisperSTT(),
+            tts=_session_tts(),
+            llm_models=list(TEXT_FALLBACK_CHAIN),
+            barge_in=barge_in("adaptive"),
+            endpointing_delay=endpointing_delay(),
+            preemptive_generation=True,
+        ),
         user_away_timeout=IDLE_HANGUP_SECONDS,
     )
 
@@ -1377,44 +1077,22 @@ _shared_local_llm = None
 TEXT_FALLBACK_CHAIN = [DIRECT_LLM_MODEL, "gemini-3.6-flash"]
 
 
-def _fallback_text_llm(make_llm) -> FallbackAdapter:
-    """Wrap primary + backups in a FallbackAdapter. Pure-ish (constructs)."""
-    return FallbackAdapter([make_llm(m) for m in TEXT_FALLBACK_CHAIN])
+def _fallback_text_llm(make_llm=None) -> ModelChain:
+    """Text-brain chain (primary + backups) with the standard cooldown."""
+    return ModelChain(list(TEXT_FALLBACK_CHAIN), cooldown=60.0)
 
 
 def _default_agent_llm():
-    """Realtime model in realtime mode; shared Gemini Flash otherwise.
-
-    Sub-agents need an explicit LLM: llm=None does NOT inherit the
-    session default (the activity raises "trying to generate reply
-    without an LLM model"). One shared instance mirrors how the
-    realtime model is shared across agents. The direct pipeline gets
-    Gemini-direct (GOOGLE_API_KEY) so specialists stay cloud-free too.
-    """
+    """The model chain a sub-agent reports (informational: the session
+    backend owns the actual model). Realtime chain in realtime mode, the
+    shared Gemini text chain in direct mode."""
     global _shared_local_llm
     if _pipeline_name() == "realtime":
         return _realtime_llm()
-    if _pipeline_name() == "direct":
-        if not os.environ.get("GOOGLE_API_KEY"):
-            raise RuntimeError(
-                "JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local."
-            )
-        if _shared_local_llm is None:
-            _shared_local_llm = _fallback_text_llm(
-                # 60s HTTP deadline: the plugin default (5s) is rejected
-                # by current Gemini models (400 "minimum deadline 10s").
-                # HttpOptions object (not a dict): the plugin calls
-                # .model_copy() on it.
-                lambda m: google.LLM(
-                    model=m,
-                    http_options=genai_types.HttpOptions(timeout=60_000),
-                ),
-            )
-        return _shared_local_llm
+    if not os.environ.get("GOOGLE_API_KEY"):
+        raise RuntimeError("JARVIS_PIPELINE=direct needs GOOGLE_API_KEY in .env.local.")
     if _shared_local_llm is None:
-        _shared_local_llm = _fallback_text_llm(
-            lambda m: inference.LLM(model=f"google/{m}"),
-        )
+        _shared_local_llm = _fallback_text_llm()
     return _shared_local_llm
 
 
@@ -1431,23 +1109,19 @@ def _say_ack(tool: str, args: tuple, kwargs: dict) -> None:
     try:
         import acks
 
+        line = acks.next_line(tool)
+        if not line:
+            return
         ctx = kwargs.get("context")
         if ctx is None:
             ctx = next((a for a in args if hasattr(a, "session")), None)
         session = getattr(ctx, "session", None)
-        manager = getattr(session, "jarvis_turn_manager", None)
-        turn = manager.current_turn if manager else None
-        # A queued say() behind an active SDK turn is stale on arrival.
-        # Realtime owns its audio and cannot safely mix local filler.
-        if session is None or turn is None or _pipeline_name() == "realtime":
-            return
-        if getattr(session, "agent_state", None) == "speaking":
-            return
-        line = acks.next_line(tool)
-        if not line or not manager.filler(turn):
-            return
-        from hud_events import caption
-        caption("jarvis", line)
+        if session is not None:
+            if isinstance(getattr(session, "backend", None), LiveBackend):
+                # say() becomes generate_reply on this pipeline. Starting an
+                # acknowledgement here races the tool's normal spoken reply.
+                return
+            session.say(line, add_to_chat_ctx=False, allow_interruptions=True)
     except Exception:
         pass
 
@@ -1457,13 +1131,13 @@ def barge_in(mode: str) -> dict:
     (default 0.3 s) of speech; a false interruption resumes the reply, so
     nothing said is lost (IRONMAN_SPEC §4). Pure (env only)."""
     try:
-        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.15"))
+        secs = float(os.environ.get("JARVIS_BARGE_IN_S", "0.3"))
     except ValueError:
-        secs = 0.15
+        secs = 0.3
     return {
         "mode": mode,
         "min_duration": max(0.1, min(2.0, secs)),
-        "resume_false_interruption": False,
+        "resume_false_interruption": True,
     }
 
 
@@ -1495,24 +1169,39 @@ def _wrap_tools_with_timing(tools: list) -> list:
         async def _timed(
             *args: object, _orig: object = orig, _tid: str = tid, **kwargs: object
         ):  # type: ignore[no-untyped-def]
-            from livekit.agents.llm import ToolError
+            from jarvis_rt import ToolError
 
             import watch_mode
 
             if phone_session.private() and phone_session.guest_required():
                 raise ToolError("The private phone call has ended.")
-            if phone_session.guest_required() and _tid not in {"tell_time", "do_math", "set_volume", "media_control", "end_call"}:
-                raise ToolError("Guest mode refuses owner actions. Only the owner's explicit stop control can restore owner mode.")
+            if phone_session.guest_required() and _tid not in {
+                "tell_time",
+                "do_math",
+                "set_volume",
+                "media_control",
+                "end_call",
+            }:
+                raise ToolError(
+                    "Guest mode refuses owner actions. Only the owner's explicit stop control can restore owner mode."
+                )
             private_error = phone_session.private_tool_error(_tid)
             if private_error:
                 raise ToolError(private_error)
             context = kwargs.get("context")
             if not isinstance(context, RunContext):
                 context = next((a for a in args if isinstance(a, RunContext)), None)
-            goodnight_binding = getattr(getattr(context, "session", None), "jarvis_goodnight", None)
-            if (goodnight_binding is not None and goodnight_binding.blocks_tools
-                    and _tid not in {"goodnight_status", "goodnight_cancel"}):
-                raise ToolError("The trusted goodnight host owns this command. Use goodnight_status or goodnight_cancel; no immediate lock or hangup is authorized by goodnight.")
+            goodnight_binding = getattr(
+                getattr(context, "session", None), "jarvis_goodnight", None
+            )
+            if (
+                goodnight_binding is not None
+                and goodnight_binding.blocks_tools
+                and _tid not in {"goodnight_status", "goodnight_cancel"}
+            ):
+                raise ToolError(
+                    "The trusted goodnight host owns this command. Use goodnight_status or goodnight_cancel; no immediate lock or hangup is authorized by goodnight."
+                )
             start = time.monotonic()
             try:
                 loop = asyncio.get_running_loop()
@@ -1551,37 +1240,36 @@ def _wrap_tools_with_timing(tools: list) -> list:
                 cleanup.enter_context(scope)
                 from hud_voice_state import execution_scope
 
-                cleanup.enter_context(execution_scope(getattr(context, "session", None)))
+                cleanup.enter_context(
+                    execution_scope(getattr(context, "session", None))
+                )
                 _say_ack(_tid, args, kwargs)
                 from goodnight_fence import Fence
 
-                goodnight_work = (Fence().work() if os.environ.get("JARVIS_GOODNIGHT_V2") == "1" else contextlib.nullcontext())
+                goodnight_work = (
+                    Fence().work()
+                    if os.environ.get("JARVIS_GOODNIGHT_V2") == "1"
+                    else contextlib.nullcontext()
+                )
                 cleanup.enter_context(goodnight_work)
                 TRACKER.call_started()
                 call_started = True
-                from turn_manager import complete_side_effect, tool_has_side_effect
-
-                protected = tool_has_side_effect(_tid)
-                manager = getattr(getattr(context, "session", None), "jarvis_turn_manager", None)
-                binding = getattr(getattr(context, "session", None), "_jarvis_turn_binding", None)
-                turn = binding.turn_for_context(context) if binding else (manager.current_turn if manager else None)
-                if turn is not None and turn.cancelled:
-                    raise asyncio.CancelledError()
-                if protected:
-                    if callable(getattr(context, "disallow_interruptions", None)):
-                        # Refuse to start if the SDK already interrupted this
-                        # call; once started, mutations drain to completion.
-                        context.disallow_interruptions()
-                    if turn is not None:
-                        turn.side_effect = True
-                elif turn is not None and turn.cancelled:
-                    raise asyncio.CancelledError()
                 res = _orig(*args, **kwargs)  # type: ignore[operator]
                 if _inspect.isawaitable(res):
-                    res = await complete_side_effect(res) if protected else await res
+                    res = await res
                 if phone_session.private() and phone_session.guest_required():
                     raise ToolError("The private phone call has ended.")
-                if phone_session.guest_required() and _tid not in {"tell_time", "do_math", "set_volume", "media_control", "end_call"}:
+                if phone_session.guest_required() and _tid not in {
+                    "tell_time",
+                    "do_math",
+                    "set_volume",
+                    "media_control",
+                    "end_call",
+                }:
+                    if _tid == "start_watch_mode":
+                        # This owner action intentionally enters guest mode.
+                        # Return only its fixed acknowledgement, never private results.
+                        return {"say": "Watching the laptop, Sir."}
                     raise ToolError("Guest mode suppresses owner tool results.")
                 from handoff_recovery import remember
 
@@ -1599,7 +1287,9 @@ def _wrap_tools_with_timing(tools: list) -> list:
                         getattr(context, "session", None), "_jarvis_health", None
                     )
                     if health:
-                        health[1](None, None, "tool_call", classify_error(exc, "tool_failed"))
+                        health[1](
+                            None, None, "tool_call", classify_error(exc, "tool_failed")
+                        )
                 raise
             finally:
                 # Drain every acquired scope even when a later entry or tool fails.
@@ -1831,6 +1521,7 @@ HANDOFF_WHATSAPP_IDS: frozenset[str] = frozenset(
         "whatsapp_chats",
         "whatsapp_read",
         "whatsapp_draft",
+        "whatsapp_image_draft",
         "do_math",
     }
 )
@@ -1892,7 +1583,9 @@ class SystemAgent(_SpecialistAgent):
             picked = [tool for group in groups for tool in group if tool.id in only_ids]
         super().__init__(
             llm=llm or _default_agent_llm(),
-            instructions=SYSTEM_INSTRUCTIONS + COMPUTER_USE_INSTRUCTIONS,
+            instructions=SYSTEM_INSTRUCTIONS
+            + COMPUTER_USE_INSTRUCTIONS
+            + local_access_instructions(),
             # end_call always rides along: after a handoff this agent owns
             # the call, so a direct "hang up" must work here too.
             tools=[*picked, *(extra_tools or []), *self._end_call_tool.tools],
@@ -1941,100 +1634,8 @@ class SystemAgent(_SpecialistAgent):
         )
 
 
-def _is_mirror() -> bool:
-    try:
-        try:
-            from character_runtime import is_authority
-        except ImportError:
-            from src.character_runtime import is_authority
-        return not is_authority()
-    except Exception:
-        return False
-
-
-def _prewarm_voice_bg(rt, char_id: str) -> None:
-    """One executor job warming this worker's voice bank for the switch target."""
-    try:
-        try:
-            import character_voice as cv
-        except ImportError:
-            from src import character_voice as cv
-        char = rt.chars.get(char_id)
-        if char is None or cv.is_passthrough(char):
-            return
-        asyncio.get_running_loop().run_in_executor(None, cv.prewarm, char)
-    except Exception:
-        pass
-
-
-def _start_idle_warm(session) -> None:
-    """Warm every non-jarvis voice in this worker once, when the session is quiet."""
-    rt = _char_runtime()
-    if rt is None:
-        return
-    try:
-        try:
-            import character_voice as cv
-        except ImportError:
-            from src import character_voice as cv
-
-        def busy() -> bool:
-            return (
-                getattr(session, "agent_state", "") == "speaking"
-                or getattr(session, "user_state", "") == "speaking"
-            )
-
-        cv.start_idle_warm(list(rt.chars.values()), busy)
-    except Exception:
-        pass
-
-
-async def _follow_character(assistant, session, interval: float = 0.2) -> None:
-    """Follow switches made by the bridge authority (one task per session)."""
-    rt = _char_runtime()
-    if rt is None:
-        return
-    seen = rt.active_id()
-    warmed: set[str] = set()
-    while True:
-        await asyncio.sleep(interval)
-        try:
-            snap = rt.snapshot()
-            if snap["phase"] != "idle":
-                tgt = snap.get("target")
-                if tgt and tgt != snap["active"] and tgt not in warmed:
-                    warmed.add(tgt)
-                    _prewarm_voice_bg(rt, tgt)
-            else:
-                warmed.clear()
-            if snap["phase"] != "idle" or snap["active"] == seen:
-                continue
-            seen = snap["active"]
-            char = rt.chars[seen]
-            assistant._owner_instructions = _persona_instructions()
-            setter = getattr(getattr(session, "tts", None), "set_character", None)
-            if callable(setter):
-                setter(char)
-            if not phone_session.guest_required():
-                await assistant.update_instructions(assistant._owner_instructions)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            pass
-
-
 def _persona_instructions() -> str:
-    """Owner instructions for the active character (Jarvis: unchanged bytes)."""
-    ch = _active_character()
-    if ch is None or ch.id == "jarvis":
-        return _with_memory(AGENT_INSTRUCTIONS)
-    try:
-        import persona
-
-        block = _with_memory(AGENT_INSTRUCTIONS)[len(AGENT_INSTRUCTIONS):]
-        return persona.build_instructions(AGENT_INSTRUCTIONS, ch, memory_block=block)
-    except Exception:
-        return _with_memory(AGENT_INSTRUCTIONS)
+    return _with_memory(AGENT_INSTRUCTIONS + local_access_instructions())
 
 
 def _with_memory(instructions: str) -> str:
@@ -2069,9 +1670,13 @@ PROMOTABLE_RARE_IDS: frozenset[str] = frozenset(
 def _never_demote(tool_id: str) -> bool:
     """Handoffs, safety confirmations and the live-latency tool stay put."""
     return (
-        tool_id.startswith("transfer_")
+        (full_command_access() and tool_id in {"run_command", "power_control"})
+        or tool_id.startswith("transfer_")
         or "confirm" in tool_id
-        or tool_id in {
+        or tool_id
+        in {
+            "route_request",
+            "ask_backend",
             "latency_report",
             "launch_chess",
             "system_health_incident",
@@ -2164,13 +1769,18 @@ class Assistant(Agent):
         from librarian_sources import DriveSource, LocalSource
         from system.librarian_tools import LibrarianTools
 
-        self.librarian_service = librarian_service or Librarian(adapters={"local": LocalSource(), "drive": DriveSource()})
+        self.librarian_service = librarian_service or Librarian(
+            adapters={"local": LocalSource(), "drive": DriveSource()}
+        )
         self.librarian_tools = LibrarianTools(self.librarian_service)
         self.panel_tools = PanelTools()
         self.workshop_tools = WorkshopTools()
         self._research_agent: ResearchAgent | None = None
         self._system_agent: SystemAgent | None = None
         self._end_call_tool = _end_call_tool()
+        direct_ids = (
+            {"run_command", "power_control"} if full_command_access() else set()
+        )
         all_tools = [
             *self.browser_tools.tools,
             *self.youtube_download_tools.tools,
@@ -2244,7 +1854,7 @@ class Assistant(Agent):
                     self.reddit_tools.tools,
                 )
                 for tool in group
-                if tool.id not in RARE_SYSTEM_TOOL_IDS
+                if tool.id not in RARE_SYSTEM_TOOL_IDS or tool.id in direct_ids
             ],
         ]
         # Adaptive tiering: tools Sir has stopped using leave the router's
@@ -2252,7 +1862,11 @@ class Assistant(Agent):
         # Rare tools he keeps using are promoted onto the router.
         promoted = tool_usage.promote(PROMOTABLE_RARE_IDS)
         router = [
-            t for t in all_tools if t.id not in RARE_SYSTEM_TOOL_IDS or t.id in promoted
+            t
+            for t in all_tools
+            if t.id not in RARE_SYSTEM_TOOL_IDS
+            or t.id in promoted
+            or t.id in direct_ids
         ]
         seen_ids = {t.id for t in router}
         router += [
@@ -2291,21 +1905,14 @@ class Assistant(Agent):
 
         self._owner_instructions = _persona_instructions()
         self._watch_guest = phone_session.guest_required()
-        instructions = watch_mode.GUEST_INSTRUCTIONS if self._watch_guest else self._owner_instructions
+        instructions = (
+            watch_mode.GUEST_INSTRUCTIONS
+            if self._watch_guest
+            else self._owner_instructions
+        )
         super().__init__(
-            # A Large Language Model (LLM) is your agent's brain. In realtime
-            # mode this is the bundled Gemini voice model; in local-pipeline
-            # mode None inherits the session default (Gemini Flash text).
-            # See all available models at https://docs.livekit.io/agents/models/llm/
+            # The session backend owns the actual model; this reports the chain.
             llm=llm or _default_agent_llm(),
-            # To use a realtime model instead of a voice pipeline, replace the LLM
-            # with a RealtimeModel and remove the STT/TTS from the AgentSession
-            # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/)
-            # 1. Install livekit-agents[openai]
-            # 2. Set OPENAI_API_KEY in .env.local
-            # 3. Add `from livekit.plugins import openai` to the top of this file
-            # 4. Replace the llm argument with:
-            #     llm=openai.realtime.RealtimeModel(voice="marin")
             instructions=instructions,
             tools=router,
         )
@@ -2383,57 +1990,7 @@ class Assistant(Agent):
         return hit[0], hit[1], "goal"
 
     async def _character_switch_turn(self, text: str) -> bool:
-        """Typed/voice "switch to Ultron": runtime first, conductor runs it.
-
-        Returns True when the turn was a switch command (reply is stopped; the
-        conductor speaks the exit line and greeting). Never raises.
-        """
-        try:
-            rt = _char_runtime()
-            if rt is None:
-                return False
-            res = rt.handle_text(text, "voice")
-            if res is None:
-                return False
-            if getattr(rt, "snapshot", None) and _is_mirror():
-                # The bridge conductor runs the switch; the watcher follows it.
-                if not res.get("switched") and res.get("reply"):
-                    with contextlib.suppress(Exception):
-                        await self.session.say(res["reply"], add_to_chat_ctx=False)
-                return True
-            try:
-                from switch_conductor import get_conductor
-            except ImportError:
-                from src.switch_conductor import get_conductor
-            cond = get_conductor()
-            if not getattr(cond, "_agent_wired", False):
-                cond._agent_wired = True
-                cond.on_complete(self._on_character_switched)
-                self._loop = asyncio.get_running_loop()
-            if res.get("switched"):
-                cond.start(res, source="voice")
-            elif res.get("reply"):
-                with contextlib.suppress(Exception):
-                    await self.session.say(res["reply"], add_to_chat_ctx=False)
-            return True
-        except Exception:
-            return False
-
-    def _on_character_switched(self, char) -> None:
-        """Conductor thread: new persona instructions + TTS voice follow."""
-        loop = getattr(self, "_loop", None)
-        try:
-            self._owner_instructions = _persona_instructions()
-            tts = getattr(self.session, "tts", None)
-            setter = getattr(tts, "set_character", None)
-            if callable(setter):
-                setter(char)
-            if loop is not None and not phone_session.guest_required():
-                asyncio.run_coroutine_threadsafe(
-                    self.update_instructions(self._owner_instructions), loop
-                )
-        except Exception:
-            pass
+        return False
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
         """Execute instant commands before the text model replies.
@@ -2456,46 +2013,101 @@ class Assistant(Agent):
             import watch_mode
 
             if phone_session.guest_required():
+                if phone_session.private():
+                    # A revoked private call must not fall through to a model
+                    # response with the call's existing conversation context.
+                    raise StopResponse()
                 if not self._watch_guest:
                     await self.update_instructions(watch_mode.GUEST_INSTRUCTIONS)
                 return
             features = getattr(self.session, "jarvis_features", None)
             # Fresh SDK user messages own visual consent; model tools cannot
             # synthesize confirmation arguments or reuse conversation context.
-            if not phone_session.private() and not getattr(features, "sensitive_active", False) and not getattr(features, "input_quarantined", False):
+            if (
+                not phone_session.private()
+                and not getattr(features, "sensitive_active", False)
+                and not getattr(features, "input_quarantined", False)
+            ):
                 import computer_watch
                 import computer_watch_client
                 from watch_control import confirmation_command
 
                 turn_id = getattr(new_message, "id", None)
                 seen = getattr(self, "_watch_control_turns", set())
-                if getattr(new_message, "role", None) == "user" and confirmation_command(text) and (getattr(self.session, "agent_state", None) == "speaking" or (features is not None and features.is_echo(text))):
+                if (
+                    getattr(new_message, "role", None) == "user"
+                    and confirmation_command(text)
+                    and (
+                        getattr(self.session, "agent_state", None) == "speaking"
+                        or (features is not None and features.is_echo(text))
+                    )
+                ):
                     raise StopResponse()  # speaker echo can never mint consent
-                if getattr(new_message, "role", None) == "user" and turn_id and not (features is not None and features.is_echo(text)) and (computer_watch.parse_command(text) is not None or confirmation_command(text)):
+                if (
+                    getattr(new_message, "role", None) == "user"
+                    and turn_id
+                    and not (features is not None and features.is_echo(text))
+                    and (
+                        computer_watch.parse_command(text) is not None
+                        or confirmation_command(text)
+                    )
+                ):
                     if turn_id in seen:
                         raise StopResponse()
-                    if len(seen) >= 256 and computer_watch.parse_command(text) != "stop":
-                        await self.session.say("Start a fresh voice session for more Watch Mode requests. Stop remains available in the tray.", add_to_chat_ctx=False)
+                    if (
+                        len(seen) >= 256
+                        and computer_watch.parse_command(text) != "stop"
+                    ):
+                        await self.session.say(
+                            "Start a fresh voice session for more Watch Mode requests. Stop remains available in the tray.",
+                            add_to_chat_ctx=False,
+                        )
                         raise StopResponse()
                     seen.add(turn_id)
                     self._watch_control_turns = seen
-                    if computer_watch.parse_command(text) == "start":
+                    if computer_watch.parse_command(
+                        text
+                    ) == "start" and not computer_watch.screen_share_request(text):
                         # Watch Mode = fullscreen ASCII card + camera guard.
                         launched = await asyncio.to_thread(watch_mode.launch)
                         if launched.get("ok"):
                             from system import log_action
 
                             log_action("watch_mode", "launched")
-                        await self.session.say("Watching the laptop, Sir." if launched.get("ok") else str(launched.get("error") or "Watch Mode unavailable."), add_to_chat_ctx=False)
+                        await self.session.say(
+                            "Watching the laptop, Sir."
+                            if launched.get("ok")
+                            else str(
+                                launched.get("error") or "Watch Mode unavailable."
+                            ),
+                            add_to_chat_ctx=False,
+                        )
                         raise StopResponse()
-                    result = await asyncio.to_thread(computer_watch_client.trusted_user_control, text, f"voice-{id(self.session)}")
-                    reply = "Open Watch Mode briefing in the tray to read the private visual summary." if result.get("visual_private") else str(result.get("spoken_disclosure") or result.get("say") or result.get("error") or "Watch Mode unavailable.")
-                    echo_guard = getattr(getattr(features, "is_echo", None), "__self__", None)
+                    result = await asyncio.to_thread(
+                        computer_watch_client.trusted_user_control,
+                        text,
+                        f"voice-{id(self.session)}",
+                    )
+                    reply = (
+                        "Open Watch Mode briefing in the tray to read the private visual summary."
+                        if result.get("visual_private")
+                        else str(
+                            result.get("spoken_disclosure")
+                            or result.get("say")
+                            or result.get("error")
+                            or "Watch Mode unavailable."
+                        )
+                    )
+                    echo_guard = getattr(
+                        getattr(features, "is_echo", None), "__self__", None
+                    )
                     if callable(getattr(echo_guard, "note_agent", None)):
                         echo_guard.note_agent(reply)
                     await self.session.say(reply, add_to_chat_ctx=False)
                     raise StopResponse()
-            if not phone_session.private() and not getattr(features, "sensitive_active", False):
+            if not phone_session.private() and not getattr(
+                features, "sensitive_active", False
+            ):
                 with contextlib.suppress(Exception):
                     import computer_watch_client
 
@@ -2555,6 +2167,9 @@ class Assistant(Agent):
         except StopResponse:
             raise
         except Exception:
+            if phone_session.private() and phone_session.guest_required():
+                # Revocation also wins when an in-flight local operation fails.
+                raise StopResponse()
             # Never let the fast path break a turn: fall through to Gemini.
             with contextlib.suppress(Exception):
                 from system import log_action
@@ -2681,7 +2296,7 @@ def _idle_procs() -> int:
 # Single-user laptop: never refuse a call because the machine is busy.
 # The stock 0.7 cutoff tracks system-wide CPU, so builds/tests flipped the
 # worker "unavailable" and a wake joined a room no agent ever entered.
-server = AgentServer(num_idle_processes=_idle_procs(), load_threshold=math.inf)
+server = AgentServer()
 
 
 @server.rtc_session(agent_name=os.environ.get("AGENT_NAME", "my-agent"))
@@ -2730,38 +2345,24 @@ async def my_agent(ctx: JobContext):
         browser = BrowserManager(headless=True)
     ctx.add_shutdown_callback(browser.close)
 
-    # Voice pipeline: Gemini realtime by default (Live API on the
-    # owner's AI Studio key = $0 LiveKit inference). JARVIS_PIPELINE=local
-    # restores the cheap local stack (budget STT + Gemini brains +
-    # downloaded voice = ~$0.003/min).
-    turn_handling = TurnHandlingOptions(
-        # The realtime factory replaces this with native model endpointing;
-        # local speech pipelines retain their own turn settings.
-        turn_detection="vad" if silero is not None else None,
-        # "vad" (local Silero), never "adaptive": the adaptive detector
-        # dials wss://agent-gateway.livekit.cloud (401 with no Cloud
-        # credentials) and retries forever. Same Cloud dependency class
-        # as the old TurnDetector and QUAIL enhancement.
-        interruption=barge_in("vad"),
-        # Local pipelines use the configured minimum silence window.
-        endpointing={"min_delay": endpointing_delay()},
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation={"enabled": True},
-    )
+    # Voice pipeline: Gemini realtime by default (Live API on the owner's
+    # AI Studio key). JARVIS_PIPELINE=direct selects the offline-first stack
+    # (Silero VAD + local whisper + Gemini text brains + Piper).
     # P1 pre-warm: Silero's onnx session build blocks ~200ms on the audio
-    # loop if built inline (measured in agent.log). Build it in a thread
-    # while nothing else needs the loop yet; _session_for_pipeline reuses it.
+    # loop if built inline. Build it in a thread while nothing else needs
+    # the loop yet; _session_for_pipeline reuses it.
     _vad = None
-    if silero is not None and _pipeline_name() == "direct":
+    if _pipeline_name() == "direct":
         with contextlib.suppress(Exception):
-            _vad = await asyncio.to_thread(silero.VAD.load, **vad_kwargs())
-    session = _session_for_pipeline(turn_handling, vad=_vad)
-    # AgentSession closes its streams, but leaves provider plugins owned by
-    # the caller. Drain this job's native voice worker at job shutdown even
-    # when startup fails or the closed session remains referenced.
-    if isinstance(session.tts, PiperTTS):
-        ctx.add_shutdown_callback(session.tts.aclose)
+            from jarvis_rt import vad as _rt_vad
+
+            _vad = await asyncio.to_thread(_rt_vad.load, **vad_kwargs())
+    session = _session_for_pipeline(vad=_vad)
+    # Drain this job's native voice worker at job shutdown even when
+    # startup fails or the closed session remains referenced.
+    _tts = getattr(getattr(session, "backend", None), "tts", None)
+    if isinstance(_tts, PiperTTS):
+        ctx.add_shutdown_callback(_tts.aclose)
     phone_session.bind_session(session)
     from feature_sessions import FeatureSession, load_host_consent
 
@@ -2796,7 +2397,8 @@ async def my_agent(ctx: JobContext):
 
     session.on("user_input_transcribed", _mark_active)
     session.on(
-        "user_input_transcribed", lambda event: _note_wake_greeting_input(session, event)
+        "user_input_transcribed",
+        lambda event: _note_wake_greeting_input(session, event),
     )
     session.on("conversation_item_added", _mark_active)
     session.on("function_tools_executed", _mark_active)
@@ -2811,10 +2413,13 @@ async def my_agent(ctx: JobContext):
 
     _echo = EchoGuard()
     _features.is_echo = _echo.is_echo
+    # Linked (HTTP-launched) turns: the wake client sends jarvis.turn control
+    # frames, which the hub delivers to the speaker's subscription below.
     from turn_manager import VoiceTurnBinding
 
     async def _publish_voice_turn(payload):
         import json
+
         await ctx.room.local_participant.publish_data(
             json.dumps(payload).encode(), reliable=True, topic="jarvis.turn"
         )
@@ -2822,19 +2427,12 @@ async def my_agent(ctx: JobContext):
     _voice_turns = VoiceTurnBinding(session, _echo, _publish_voice_turn)
     ctx.add_shutdown_callback(_voice_turns.close)
     from linked_turn import ExternalSeedRouter
+
     _external_seeds = ExternalSeedRouter(_voice_turns)
 
-    @ctx.room.on("data_received")
-    def _turn_control(packet):
-        import json
+    def _turn_control(data):
         try:
-            # Only the selected input participant may control this session.
-            identity = getattr(getattr(packet, "participant", None), "identity", "")
-            owner = phone_session.identity()
-            if owner and identity != owner:
-                return
-            data = json.loads(bytes(packet.data))
-            if data.get("type") != "jarvis_turn":
+            if not isinstance(data, dict) or data.get("type") != "jarvis_turn":
                 return
             if _external_seeds.handle(data):
                 return
@@ -2856,6 +2454,8 @@ async def my_agent(ctx: JobContext):
                     session.interrupt(force=True)
         except (ValueError, KeyError, TypeError):
             return
+
+    ctx.room.on_topic("jarvis.turn", _turn_control)
     from goodnight_host import install as install_goodnight
 
     _goodnight_binding = install_goodnight(session, _features)
@@ -2915,7 +2515,8 @@ async def my_agent(ctx: JobContext):
     def _guard_tools(event) -> None:
         for call, out in event.zipped():
             _cg.GUARD.note_result(
-                getattr(call, "name", ""), _cg.sdk_tool_result(out),
+                getattr(call, "name", ""),
+                _cg.sdk_tool_result(out),
                 is_error=bool(getattr(out, "is_error", False)),
             )
 
@@ -3080,32 +2681,17 @@ async def my_agent(ctx: JobContext):
                     _hud_caption("jarvis", text)
             except Exception:
                 pass
-            # Latency attribution: close the turn, log the exact breakdown,
-            # and speak it proactively on real stalls (user asked to always
-            # be told the cause). All best-effort, never breaks voice.
+            # Passive timing only: speaking a report here creates another
+            # assistant item, which used to schedule the same report again.
             try:
                 import latency as _lat_end
 
                 _summary = _lat_end.TRACKER.turn_end()
                 _fmt_break = _lat_end.format_breakdown
-                _fmt_say = _lat_end.format_spoken
-                _is_slow = _lat_end.should_announce
-                with __import__("contextlib").suppress(Exception):
+                with contextlib.suppress(Exception):
                     from system import log_action as _log
 
                     _log("latency", f"turn {_fmt_break(_summary)}")
-                if _is_slow(_summary):
-                    _hud_caption("jarvis", f"(timing: {_fmt_break(_summary)})")
-
-                    async def _announce_slow() -> None:
-                        with __import__("contextlib").suppress(Exception):
-                            await session.say(_fmt_say(_summary))
-
-                    try:
-                        _loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        _loop = asyncio.get_event_loop()
-                    _loop.call_soon(lambda lp=_loop: lp.create_task(_announce_slow()))
             except Exception:
                 pass
 
@@ -3119,9 +2705,12 @@ async def my_agent(ctx: JobContext):
             return  # one watcher waits out the work; extra firings stand down
         _hangup_watching["active"] = True
         try:
-            while not _idle_exceeded(
-                _activity_clock["last"], time.monotonic()
-            ) or _input_activity_holds(session, grace=_normal_follow_up_s()):
+            while (
+                not _idle_exceeded(_activity_clock["last"], time.monotonic())
+                or _input_activity_holds(session, grace=_normal_follow_up_s())
+                or _task_work_pending(session)
+                or _voice_recovery_pending(session)
+            ):
                 await asyncio.sleep(5.0)
             if _goodnight_binding is not None and _goodnight_binding.armed():
                 return  # the explicit ten-minute request owns this quiet wait
@@ -3134,7 +2723,9 @@ async def my_agent(ctx: JobContext):
             # short butler-style goodnight...") instead of following them.
             # A hangup line wants determinism, not variety.
             with contextlib.suppress(Exception):
-                await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
+                await session.say(
+                    _canned("farewell", "Very good, Sir. Ring when you require me.")
+                )
             await session.aclose()
         finally:
             _hangup_watching["active"] = False
@@ -3177,6 +2768,51 @@ async def my_agent(ctx: JobContext):
             task = asyncio.create_task(_hangup_when_forgotten())
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
+
+    # Model-authoritative playout signals for optional fast local barge-in.
+    # Does not replace Gemini endpointing or interrupt a task or reply.
+    if _pipeline_name() == "realtime":
+        from voice_barge_signals import TOPIC as _BARGE_TOPIC
+        from voice_barge_signals import ProviderEvents as _ProviderEvents
+        from voice_barge_signals import encode as _barge_encode
+
+        _barge_provider = _ProviderEvents()
+        _barge_messages = asyncio.Queue(maxsize=32)
+
+        def _enqueue_barge_signal(payload):
+            with contextlib.suppress(asyncio.QueueFull):
+                _barge_messages.put_nowait(payload)
+
+        def _barge_on_user_state(event):
+            if getattr(event, "new_state", None) == "speaking":
+                _enqueue_barge_signal(_barge_provider.user_speaking())
+
+        def _barge_on_speech_created(_event):
+            _enqueue_barge_signal(_barge_provider.reply_created())
+
+        session.on("user_state_changed", _barge_on_user_state)
+        session.on("speech_created", _barge_on_speech_created)
+
+        async def _barge_signal_worker():
+            while True:
+                signal = await _barge_messages.get()
+                try:
+                    if ctx.room.isconnected():
+                        await ctx.room.local_participant.publish_data(
+                            _barge_encode(signal), topic=_BARGE_TOPIC
+                        )
+                except Exception:
+                    # Best-effort telemetry must never fail the voice agent.
+                    pass
+
+        _barge_signal_task = asyncio.create_task(_barge_signal_worker())
+
+        async def _close_barge_signal():
+            _barge_signal_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await _barge_signal_task
+
+        ctx.add_shutdown_callback(_close_barge_signal)
 
     # P0 turn phases: thinking/speaking transitions timestamp the model's
     # think time and voice start inside every turn's latency breakdown.
@@ -3225,11 +2861,9 @@ async def my_agent(ctx: JobContext):
         except Exception:
             pass
 
-    # Tool introspection and model TLS defaults are local synchronous work.
-    # Construct on a worker before publishing the assistant to the voice loop.
-    import realtime_startup
-
-    assistant = await asyncio.to_thread(realtime_startup.build_assistant, Assistant, browser)
+    # Tool introspection is local synchronous work. Construct on a worker
+    # before publishing the assistant to the voice loop.
+    assistant = await asyncio.to_thread(Assistant, browser)
     _features.task_tools = assistant.task_tools
     _features.librarian = assistant.librarian_service
     # No file read without an explicit configured consent path; invalid grants
@@ -3258,13 +2892,15 @@ async def my_agent(ctx: JobContext):
                     session.interrupt(force=True)
                     # Drop private context when entering guest: prompts are not access control.
                     if guest:
-                        from livekit.agents.llm import ChatContext
+                        from jarvis_rt import ChatContext
 
                         await assistant.update_chat_ctx(ChatContext())
                         if session.current_agent is not assistant:
                             session.update_agent(assistant)
                     await assistant.update_instructions(
-                        watch_mode.GUEST_INSTRUCTIONS if guest else assistant._owner_instructions
+                        watch_mode.GUEST_INSTRUCTIONS
+                        if guest
+                        else assistant._owner_instructions
                     )
                     assistant._watch_guest = guest
                 except Exception:
@@ -3326,7 +2962,7 @@ async def my_agent(ctx: JobContext):
         agent=assistant,
         room=ctx.room,
         room_options=room_io.RoomOptions(
-            participant_identity=phone_session.identity() or NOT_GIVEN,
+            participant_identity=phone_session.identity() or None,
             video_input=True,
             # The optional activity observer passes raw audio unchanged;
             # no cloud noise enhancement or local speech gate is involved.
@@ -3339,33 +2975,34 @@ async def my_agent(ctx: JobContext):
     )
 
     session._jarvis_models_ready = True
-    _start_idle_warm(session)
     if not getattr(session, "_jarvis_startup_audio_pending", False):
         _voice_turns.ready()
+
+    # The desktop wake client publishes audio only. Read the bridge's explicitly
+    # enrolled window directly into the same live model's video input. Phone
+    # calls retain their own RTC camera/screen stream.
+    if not phone_session.private():
+        from screen_video import ScreenVideoInput
+
+        session.input.video = ScreenVideoInput()
 
     # Pinned private owner audio is the only source of WhatsApp send approval.
     # Exact review uses local TTS even when the realtime model owns normal speech.
     import wa_approvals
 
-    _wa_review_tts = PiperTTS(strict_sentence_audio=True) if phone_session.identity() else None
+    _wa_review_tts = (
+        PiperTTS(strict_sentence_audio=True) if phone_session.identity() else None
+    )
     _wa_gate = wa_approvals.install(session, tts=_wa_review_tts)
     if _wa_gate is not None:
+
         async def _close_wa_approval() -> None:
             _wa_gate.close()
             await _wa_gate.drain()
             if _wa_review_tts is not None:
                 await _wa_review_tts.aclose()
+
         ctx.add_shutdown_callback(_close_wa_approval)
-
-    if _is_mirror():
-        _follow_task = asyncio.ensure_future(_follow_character(assistant, session))
-        _background_tasks.add(_follow_task)
-        _follow_task.add_done_callback(_background_tasks.discard)
-
-        async def _stop_follow() -> None:
-            _follow_task.cancel()
-
-        ctx.add_shutdown_callback(_stop_follow)
 
     # Proactive pillar: background battery/climb watcher. Edge-triggered,
     # cooldown-gated, and fully swallowed on failure so sensors can never
@@ -3431,18 +3068,9 @@ async def my_agent(ctx: JobContext):
 
         def _on_hud_tools(executed) -> None:
             try:
-                calls = (
-                    getattr(executed, "function_calls", None)
-                    or getattr(executed, "tools", None)
-                    or []
-                )
-                for call in calls:
-                    name = (
-                        getattr(call, "name", None)
-                        or getattr(call, "tool_name", None)
-                        or str(call)[:60]
-                    )
-                    ok = getattr(call, "is_error", False) is False
+                from hud_events import tool_execution_results
+
+                for name, ok in tool_execution_results(executed):
                     mirror_to_log(str(name), "tool_start")
                     mirror_to_log(str(name), "tool_finish", "ok" if ok else "error")
                     room = getattr(ctx, "room", None)
@@ -3556,7 +3184,9 @@ async def my_agent(ctx: JobContext):
     # took ~11s with the camera present, and anything Sir said in that
     # window (e.g. "launch YouTube") was lost before the session listened.
     _join = (
-        {"status": "unknown"} if (_school_call or _wake or _phone) else await _presence_snapshot()
+        {"status": "unknown"}
+        if (_school_call or _wake or _phone)
+        else await _presence_snapshot()
     )
     _decision = (
         "school"
@@ -3642,9 +3272,13 @@ async def my_agent(ctx: JobContext):
                 break
             if _goodnight_binding is not None and _goodnight_binding.armed():
                 continue
+            if _task_work_pending(session):
+                continue
             if _phone or _school.is_school():
                 continue  # A remote phone owner is independent of desk presence.
             snap = await _presence_snapshot()
+            if _task_work_pending(session):
+                continue
             status = str(snap.get("status", "unknown"))
             if status == "present":
                 _presence["empty_streak"] = 0
@@ -3666,7 +3300,11 @@ async def my_agent(ctx: JobContext):
                     _presence["engaged"] = False
                     await _say(_absent_lines[1])
                     with contextlib.suppress(Exception):
-                        await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
+                        await session.say(
+                            _canned(
+                                "farewell", "Very good, Sir. Ring when you require me."
+                            )
+                        )
                     with contextlib.suppress(Exception):
                         await session.aclose()
                     break
@@ -3689,12 +3327,17 @@ async def my_agent(ctx: JobContext):
             await asyncio.sleep(10.0)
             if _goodnight_binding is not None and _goodnight_binding.armed():
                 continue
+            if _task_work_pending(session):
+                _turn_clock["last"] = time.monotonic()
+                continue
             budget = (
                 _engaged_idle_seconds() if _presence["engaged"] else IDLE_HANGUP_SECONDS
             )
             if not _idle_exceeded(_turn_clock["last"], time.monotonic(), budget):
                 continue
             if _input_activity_holds(session, grace=_normal_follow_up_s()):
+                continue
+            if _voice_recovery_pending(session):
                 continue
             if str(getattr(session, "agent_state", "")) in ("thinking", "speaking"):
                 continue  # never cut a reply (or a long read-out) short
@@ -3705,7 +3348,9 @@ async def my_agent(ctx: JobContext):
                     "presence", f"idle hangup after {budget:.0f}s without a real turn"
                 )
             with contextlib.suppress(Exception):
-                await session.say(_canned("farewell", "Very good, Sir. Ring when you require me."))
+                await session.say(
+                    _canned("farewell", "Very good, Sir. Ring when you require me.")
+                )
             with contextlib.suppress(Exception):
                 await session.aclose()
             break
@@ -3725,4 +3370,4 @@ async def my_agent(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    cli.run_app(server)
+    run_app(server)

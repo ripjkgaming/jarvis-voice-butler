@@ -222,12 +222,13 @@ class VoiceClient:
         text = text.strip()
         if not 0 < len(text) <= CHAT_MAX_CHARS:
             raise ValueError("chat text must be 1..8000 characters")
-        return await self._send_text("lk.chat", {"text": text})
+        return await self.send_topic("lk.chat", {"text": text})
 
     async def ping(self) -> bool:
-        return await self._send_text("ping", None)
+        return await self.send_topic("ping", None)
 
-    async def _send_text(self, topic: str, payload: Any) -> bool:
+    async def send_topic(self, topic: str, payload: Any) -> bool:
+        """Send one JSON topic frame to the hub (False if not connected)."""
         if not self.connected or self._ws is None:
             return False
         try:

@@ -1568,7 +1568,7 @@ class WakeClient:
         if client is None:
             return
         with contextlib.suppress(Exception):
-            await client._send_text("jarvis.turn", payload)
+            await client.send_topic("jarvis.turn", payload)
 
     async def _pump_mic(self, source) -> None:
         """Forward live mic blocks to the call (the hotword loop keeps listening).

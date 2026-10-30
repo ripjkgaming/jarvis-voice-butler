@@ -48,6 +48,8 @@ ROOM_CLOSED = 4011
 CONTROL_TOPICS = frozenset({"hello", "flush", "pong"})
 _AUDIO_SLICE_BYTES = 32 * 1024
 _VIDEO_QUEUE = 8
+#: Topics a speaker may publish to the server (delivered via HubRoom.on_topic).
+INBOUND_TOPICS = frozenset({"jarvis.turn", BARGE_TOPIC})
 
 
 log = logging.getLogger("jarvis_rt.transport")
@@ -239,6 +241,7 @@ class HubRoom:
         self._mic: asyncio.Queue[bytes | None] = asyncio.Queue()
         self._mic_callbacks: list[Callable[[bytes], Any]] = []
         self._chat_callbacks: list[Callable[[str], Any]] = []
+        self._topic_callbacks: dict[str, list[Callable[[Any], Any]]] = {}
         self._closed = False
         self._events: dict[str, list[Callable[..., Any]]] = {}
         self._participants: dict[str, Participant] = {}
@@ -308,6 +311,12 @@ class HubRoom:
     def on_chat(self, callback: Callable[[str], Any]) -> None:
         self._chat_callbacks.append(callback)
 
+    def on_topic(self, topic: str, callback: Callable[[Any], Any]) -> None:
+        """Receive speaker-sent decoded payloads for an inbound topic."""
+        if topic not in INBOUND_TOPICS:
+            raise ValueError(f"topic {topic!r} is not inbound")
+        self._topic_callbacks.setdefault(topic, []).append(callback)
+
     def _deliver_mic(self, payload: bytes) -> None:
         self._mic.put_nowait(payload)
         for callback in list(self._mic_callbacks):
@@ -319,6 +328,13 @@ class HubRoom:
     def _deliver_chat(self, text: str) -> None:
         for callback in list(self._chat_callbacks):
             _invoke(callback, text)
+
+    def _deliver_topic(self, topic: str, payload: Any) -> None:
+        for callback in list(self._topic_callbacks.get(topic, ())):
+            try:
+                _invoke(callback, payload)
+            except Exception:
+                log.exception("topic handler for %s failed", topic)
 
     # -- outbound ---------------------------------------------------------
     def _broadcast(self, topic: str, text: str) -> None:
@@ -517,6 +533,14 @@ class VoiceHub:
                 room._deliver_chat(text)
             else:
                 self.stats["dropped_malformed"] += 1
+        elif topic in INBOUND_TOPICS:
+            # Barge packets are size/shape checked by frames.decode_text.
+            if topic == "jarvis.turn" and not (
+                isinstance(payload, dict) and payload.get("type") == "jarvis_turn"
+            ):
+                self.stats["dropped_malformed"] += 1
+            else:
+                room._deliver_topic(topic, payload)
         elif topic != "pong":
             self.stats["dropped_forbidden_topic"] += 1
         return True
