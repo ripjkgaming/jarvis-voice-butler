@@ -4,7 +4,7 @@ This is a separately staged, registered screen host. `agent.py` routes only expl
 
 ## Functional boundary
 
-`ScreenSessionHolder` starts and closes real installed LiveKit `AgentSession` engines. Each engine uses the same room with `delete_room_on_close=False`, `record=False`, `session_host=False`, video input off and remote text input off. Only final `hangup()` invokes the host's `end_call` callback. Unexpected SDK engine closure stops that generation and preserves the room.
+`ScreenSessionHolder` starts and closes in-repo `jarvis_rt` `AgentSession` engines. Each engine uses the same room with `delete_room_on_close=False`, video input off and `text_input=False` (remote text input off). Only final `hangup()` invokes the host's `end_call` callback. Unexpected SDK engine closure stops that generation and preserves the room.
 
 `PhysicalScreenControls.dispatch(LocalControlEvent(...))` accepts a host-authenticated button/shortcut event through a required host verifier. Its default verifier refuses everything. The event ID is consumed before awaiting, expires after 30 seconds, and cannot be replayed. A source string, client boolean, microphone transcript, model argument, OCR or `lk.chat` message is not authentication. The test verifier deliberately uses a fake source; it must not be copied into a real host verifier.
 
@@ -39,11 +39,9 @@ A failed drain may be retried before the room teardown callback has started. Onc
 
 The normal `my_agent` captures old session/features/assistant/caption objects in many closures. The separate screen mode bypasses those closures and rebuilds its own caption, transcript and echo observers through `GenerationEvents` for every SDK engine. Its screen-only Agent has no conversational model, tools, handoffs, camera checks or proactive jobs. This narrow mode makes bounded device acceptance possible without rewriting the normal assistant. Job shutdown and owner loss are registered directly with the host. Do not copy the full staged tree into production.
 
-## Installed SDK compatibility
+## Runtime compatibility
 
-Verified SDK: **livekit-agents 1.8.2** in the repository's existing Python 3.14 environment. The module refuses another SDK version or a missing partial-close contract before startup. No dependency/lockfile change is included.
-
-The installed SDK's public `aclose()` returns when `_started` is false, even if `start()` has already created RoomIO or AgentActivity. Normal retirement always uses public `aclose()`. Partial startup additionally invokes the installed `_teardown_activity` under `_lock`, detaches I/O, closes RoomIO and ends the session span. This narrow private SDK boundary is necessary to avoid leaked input/provider work on cancelled/failed startup; rerun its tests and review SDK source before relaxing the version guard. The adapter does not rewrite SDK internals. Start has a 20-second budget; cleanup retains ownership until completion rather than declaring a timed-out drain successful.
+The holder runs on the in-repo `jarvis_rt` runtime (no LiveKit SDK). The former livekit-agents version guard and private partial-teardown workaround were removed with the LiveKit dependency. Start has a 20-second budget (`_deadline(20)` in `src/screen_session_holder.py`).
 
 ## Offline and device acceptance
 

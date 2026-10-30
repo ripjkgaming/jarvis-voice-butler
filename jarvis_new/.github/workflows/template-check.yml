@@ -1,5 +1,5 @@
-# As this is a starter template project, we don't want to check in the uv.lock and livekit.toml files in its template form
-# However, once you have cloned this repo for your own use, LiveKit recommends you check them in and delete this github workflow entirely
+# As this is a starter template project, we don't want to check in the uv.lock file in its template form
+# However, once you have cloned this repo for your own use, you should check it in and delete this github workflow entirely
 
 name: Template Check
 
@@ -23,9 +23,4 @@ jobs:
           echo "Disable this test and commit the file once you have cloned this repo for your own use"
           exit 1
         fi
-        if git ls-files | grep -q "^livekit\.toml$"; then
-          echo "Error: livekit.toml should not be checked into git"
-          echo "Disable this test and commit the file once you have cloned this repo for your own use"
-          exit 1
-        fi
-        echo "✓ uv.lock and livekit.toml are correctly not tracked in git" 
+        echo "✓ uv.lock is correctly not tracked in git"

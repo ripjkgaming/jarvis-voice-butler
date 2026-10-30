@@ -5,16 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-starter-python"
 version = "1.0.0"
-description = "Simple voice AI assistant built with LiveKit Agents for Python"
+description = "Jarvis voice butler: in-repo voice runtime (jarvis_rt) with Gemini Live"
 requires-python = ">=3.10, <3.15"
 
 dependencies = [
-    "livekit-agents[google,images]>=1.8.2",
-    "livekit-plugins-ai-coustics~=0.2",
-    # Cloud-free `direct` pipeline (JARVIS_PIPELINE=direct): local Silero VAD
-    # endpointing + local faster-whisper ears. Tracks the agents minor line
-    # (>=1.8 for Gemini 3.1 Flash Live support).
-    "livekit-plugins-silero~=1.8",
+    # In-repo voice runtime (src/jarvis_rt): Gemini Live client, WebSocket
+    # voice hub, Silero VAD via onnxruntime (no LiveKit packages).
+    "google-genai>=2.18.1",
+    "pydantic>=2.13",
+    "docstring-parser>=0.18",
+    "json-repair>=0.60",
+    "certifi",
+    "numpy>=2.2",
+    "pillow>=12.3",
+    # Local `direct` pipeline ears (faster-whisper) and voice (Piper).
     "faster-whisper>=1.2.1",
     "piper-tts>=1.8.0",
     "playwright>=1.62.0",
@@ -72,7 +76,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [
-    "live_llm: needs a real Gemini/LiveKit model call; skipped unless JARVIS_LIVE_LLM=1",
+    "live_llm: needs a real Gemini Live model call; skipped unless JARVIS_LIVE_LLM=1",
     "slow: loads real whisper / Piper models; deselect with -m 'not slow'",
 ]
 asyncio_default_fixture_loop_scope = "function"

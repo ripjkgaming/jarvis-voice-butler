@@ -1,9 +1,9 @@
 # Jarvis voice transport (WebSocket)
 
-Replaces the LiveKit room. One authenticated WebSocket per call, served by the bridge process.
+Replaces the former LiveKit room. One authenticated WebSocket per call, served by the agent worker process (`src/agent.py`, implemented in `src/jarvis_rt/transport/`). The bridge connects to it; it does not serve it.
 
 ## Endpoint
-`ws://127.0.0.1:<bridge-port>/voice?token=<call token>` (loopback by default; remote access goes through the tunnel in REMOTE_ACCESS_PLAN.md).
+`ws://127.0.0.1:<JARVIS_VOICE_PORT>/voice?token=<call token>` (port default 7880, bound to loopback). Remote access goes through a tunnel to this loopback endpoint; never open a public port. `JARVIS_VOICE_URL` (ws:// or wss://) overrides only the URL that clients use.
 
 ## Call token
 `<b64url(json claims)>.<b64url(hmac_sha256(secret, claims_b64))>`; claims: `{room, identity, mode, issued, expires, nonce, attrs}`.
@@ -15,7 +15,7 @@ Binary: `[1-byte kind][payload]`
 - `0x02` agent audio: PCM16 LE mono 24 kHz, server -> client, any chunk size, paced by the server.
 - `0x03` video: `[8-byte BE ms timestamp][JPEG]`, client -> server (phone camera/screen).
 
-Text frames are JSON `{"topic": str, "payload": any}`; topics keep their LiveKit names:
+Text frames are JSON `{"topic": str, "payload": any}`; topics keep their former LiveKit names:
 - `jarvis-tasks` (HUD events, server -> all), `jarvis.voice.barge.v1` (<= 256 B payload, validated as today), `lk.chat` (typed text, client -> server as `{"text": str}`), `state` (`{"agent": "...", "user": "..."}`), `caption` (`{"text": str, "final": bool}`), `flush` (server -> client: drop queued playback now, sent on interrupt), `hello` (server -> client on accept: `{identity, room, mode}`), `ping`/`pong`.
 
 ## Close codes
@@ -23,3 +23,13 @@ Text frames are JSON `{"topic": str, "payload": any}`; topics keep their LiveKit
 
 ## Limits
 Text frame <= 64 KiB, binary <= 64 KiB, oversize or malformed frames are dropped and counted. Outbound queues are bounded; telemetry topics drop oldest, mic audio is never dropped. One speaker per room; observers unlimited (16 max).
+
+## Running
+
+```console
+uv run python src/agent.py dev       # debug logging
+uv run python src/agent.py console   # info logging
+uv run python src/agent.py start     # info logging (production / Docker)
+```
+
+The worker writes `$JARVIS_HOME/voice_active.json` (`{"active": true, ...}` while a call is live) so other processes can detect a call without the hub.

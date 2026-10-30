@@ -2,7 +2,7 @@
 
 Implemented as an additive `src/event_monitor/` package. No visual changes,
 service units, enabled worker, real monitors, calls, microphones or messages.
-The collection worker is independent of LiveKit session lifetime. Runtime
+The collection worker is independent of voice session lifetime. Runtime
 integration belongs to the existing release coordinator and is still pending.
 
 ## What works
@@ -122,8 +122,8 @@ Coordinator integration sequence, to stage against the current dirty manifest:
 1. Instantiate `MonitorAPI(Store(private_home / 'event_monitor/monitors.sqlite'))`
    and add `MonitorTools(api).tools` to the owner SystemAgent tool list only after
    its existing permission/privacy gates. Do not add to guest tools. Preserve the
-   shared `agent.py` edits. The wrapper contract was checked against
-   [LiveKit tools docs](https://docs.livekit.io/agents/logic/tools/).
+   shared `agent.py` edits. The wrapper contract follows the in-repo
+   `jarvis_rt` function-tool decorator (`src/jarvis_rt/tools.py`).
 2. Mount create/list/status/stop behind existing bridge authorization/peer validation;
    owner identity is server-derived. Return concise validation errors and recheck
    authority before disclosure. Keep all existing guest/privacy checks.
@@ -177,7 +177,7 @@ PYTHONPATH=src uv run --offline --no-sync python -m event_monitor --home "$JARVI
 
 `--once` runs one bounded pass. SIGTERM/SIGINT stops collection; no service unit was
 installed. Do not run this against the real home during testing. Collection needs
-no LiveKit connection. Real dispatch needs the completed host integration above.
+no voice-hub connection. Real dispatch needs the completed host integration above.
 
 Rollback: stop the manually started worker via its recorded PID, disable the
 coordinator's dispatcher/start flag, remove its staged owner-tool/API registrations,

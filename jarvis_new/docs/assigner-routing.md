@@ -109,7 +109,7 @@ ownership across processes. Archive writes use unique temporary files and atomic
 replacement. Each raw worker response is committed to the Jarvis ledger before
 validation or coordinator reporting, then exposed as worker-N.md in the archive.
 Malformed replies or reporting failure cannot discard those original proposals.
-The stable voice ID derives from LiveKit's tool-call ID; callers retrying HTTP
+The stable voice ID derives from the realtime model's tool-call ID (`call_id`); callers retrying HTTP
 must reuse the original ID. Independent new requests use new IDs.
 
 Only one job and one worker turn run at a time. Up to two workers are planned;

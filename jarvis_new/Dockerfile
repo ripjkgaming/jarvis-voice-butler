@@ -48,11 +48,14 @@ RUN mkdir -p src
 # Ensure your uv.lock file is checked in for consistency across environments
 RUN uv sync --locked
 
-# Pre-download any ML models or files the agent needs
-# This runs before COPY . . so the download layer is cached across code-only changes.
-# The module-level command discovers installed livekit-plugins-* packages without
-# loading your agent code.
-RUN uv run --module livekit.agents download-files
+# Pre-download the local voice models (faster-whisper ears, Piper voice) and
+# verify the bundled Silero VAD model. Only the script and the bundled resource
+# are copied here, so this layer stays cached across code-only changes.
+# HOME=/app makes the Piper voice land in /app/.jarvis, which the non-root
+# runtime user (home /app) reads. Network failures only warn; see the script.
+COPY scripts/prefetch_models.py scripts/prefetch_models.py
+COPY src/jarvis_rt/resources src/jarvis_rt/resources
+RUN HOME=/app uv run python scripts/prefetch_models.py
 
 # Copy all remaining application files into the container
 # This includes source code, configuration files, and dependency specifications
@@ -84,7 +87,8 @@ WORKDIR /app
 # This improves security by not running as root
 USER appuser
 
-# Run the AgentServer using UV
+# Run the voice agent worker using UV.
 # UV will activate the virtual environment and run the agent.
-# The "start" command tells the AgentServer to connect to LiveKit and begin waiting for jobs.
+# "start" runs the in-repo voice runtime (src/jarvis_rt); its WebSocket hub
+# listens on 127.0.0.1:$JARVIS_VOICE_PORT (default 7880), not on a public port.
 CMD ["uv", "run", "src/agent.py", "start"]
