@@ -121,6 +121,28 @@ class AgentServer:
     def active_call_exists(self) -> bool:
         return any(not t.done() for t in self._jobs.values())
 
+    def _write_active(self) -> None:
+        """Publish whether a call is live so other processes (wake client,
+        mint_token.active_call_exists) can see it."""
+        import json
+        import os
+        import tempfile
+
+        path = jarvis_home() / "voice_active.json"
+        data = {
+            "active": self.active_call_exists(),
+            "rooms": sorted(self._jobs),
+            "pid": os.getpid(),
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".voice_active")
+            with os.fdopen(fd, "w") as fh:
+                json.dump(data, fh)
+            os.replace(tmp, path)
+        except OSError:
+            log.warning("could not write voice_active.json", exc_info=True)
+
     def build_hub(self) -> VoiceHub:
         home = jarvis_home()
         ledger = FileNonceLedger(home / "voice_nonces")
@@ -143,6 +165,7 @@ class AgentServer:
         self._jobs[room.name] = asyncio.get_running_loop().create_task(
             self._run_job(entry, room, info)
         )
+        self._write_active()
 
     async def _run_job(self, entry: _Entry, room: HubRoom, info: JobInfo) -> None:
         ctx = JobContext(room, info)
@@ -159,6 +182,7 @@ class AgentServer:
             with contextlib.suppress(Exception):
                 await room.close()
             self._jobs.pop(room.name, None)
+            self._write_active()
 
     async def serve(self, host: str = "127.0.0.1", port: int | None = None) -> Any:
         hub = self.build_hub()

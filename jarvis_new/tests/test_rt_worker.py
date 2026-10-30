@@ -117,3 +117,36 @@ async def _take(client, n):
     yield_all = out
     for x in yield_all:
         yield x
+
+
+def test_active_call_file_tracks_job_lifetime(home):
+    import json
+
+    from jarvis_rt.transport.tokens import load_secret
+
+    async def run():
+        server = AgentServer()
+        seen = {}
+
+        @server.rtc_session(agent_name="my-agent")
+        async def entry(ctx):
+            seen["during"] = json.loads((home / "voice_active.json").read_text())
+            await asyncio.sleep(0.05)
+
+        listener = await server.serve(port=0)
+        port = listener.sockets[0].getsockname()[1]
+        tok = mint_call_token(
+            "jarvis-3", "jarvis-master", "speaker", 60, {}, load_secret(home)
+        )
+        client = VoiceClient(f"ws://127.0.0.1:{port}/voice", tok)
+        client.start()
+        await client.wait_connected(5)
+        await asyncio.sleep(0.5)
+        after = json.loads((home / "voice_active.json").read_text())
+        await client.close()
+        listener.close()
+        return seen, after
+
+    seen, after = asyncio.run(run())
+    assert seen["during"]["active"] is True and seen["during"]["rooms"] == ["jarvis-3"]
+    assert after["active"] is False
