@@ -57,3 +57,8 @@ __all__ = [
     "tool_schema",
     "tools",
 ]
+
+from .agent import Agent
+from .session import AgentSession
+
+__all__ += ["Agent", "AgentSession"]

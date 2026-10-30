@@ -158,10 +158,24 @@ def get_function_info(f: FunctionTool) -> FunctionToolInfo:
 
 
 def find_function_tools(obj: Any) -> list[FunctionTool | RawFunctionTool]:
+    """Tool descriptors on the class (bound to obj) or instance attributes.
+
+    Properties are never evaluated: a property may raise (e.g. Agent.session).
+    """
     out: list[FunctionTool | RawFunctionTool] = []
-    for _, member in inspect.getmembers(obj):
-        if isinstance(member, (FunctionTool, RawFunctionTool)):
-            out.append(member)
+    seen: set[str] = set()
+    cls = obj if isinstance(obj, type) else type(obj)
+    for klass in cls.__mro__:
+        for name, raw in vars(klass).items():
+            if name in seen or not isinstance(raw, (FunctionTool, RawFunctionTool)):
+                continue
+            seen.add(name)
+            out.append(raw if isinstance(obj, type) else getattr(obj, name))
+    if not isinstance(obj, type):
+        for name, value in vars(obj).items():
+            if name not in seen and isinstance(value, (FunctionTool, RawFunctionTool)):
+                seen.add(name)
+                out.append(value)
     return out
 
 
