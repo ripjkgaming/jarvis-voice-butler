@@ -1,18 +1,16 @@
 """Tests for the cloud-free direct pipeline (local whisper STT)."""
 
 import numpy as np
-
-import audio_shared
 import pytest
-from livekit import rtc
 
 import agent as agent_mod
 from agent import _pipeline_name
+from jarvis_rt.stt import AudioFrame
 from local_stt import FasterWhisperSTT, frames_to_mono16k, whisper_model_name
 
 
-def _frame(data: np.ndarray, rate: int, channels: int = 1) -> rtc.AudioFrame:
-    return rtc.AudioFrame(
+def _frame(data: np.ndarray, rate: int, channels: int = 1) -> AudioFrame:
+    return AudioFrame(
         data=data.astype(np.int16).tobytes(),
         sample_rate=rate,
         num_channels=channels,

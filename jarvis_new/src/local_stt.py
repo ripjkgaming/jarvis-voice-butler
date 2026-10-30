@@ -22,14 +22,21 @@ import os
 import threading
 
 import numpy as np
-from livekit.agents import stt, utils
-from livekit.agents.types import (
+
+from jarvis_rt.stt import (
     DEFAULT_API_CONNECT_OPTIONS,
     NOT_GIVEN,
+    STT,
     APIConnectOptions,
+    AudioBuffer,
+    AudioFrame,
+    AudioResampler,
     NotGivenOr,
+    SpeechData,
+    SpeechEvent,
+    SpeechEventType,
+    STTCapabilities,
 )
-
 from whisper_config import configured_model, english_model_name
 
 logger = logging.getLogger("jarvis-local-stt")
@@ -41,15 +48,13 @@ def whisper_model_name() -> str:
     return configured_model()
 
 
-def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
-    """Normalize LiveKit frames to mono float32 16kHz for whisper.
+def frames_to_mono16k(buffer: AudioBuffer) -> np.ndarray:
+    """Normalize audio frames to mono float32 16kHz for whisper.
 
     Pure DSP (no model): concat int16 frames, downmix to mono, resample to
     16k. Integer-ratio rates decimate directly (48k→16k is the hot path);
-    anything else goes through rtc.AudioResampler.
+    anything else goes through the windowed-sinc AudioResampler.
     """
-    from livekit import rtc
-
     frames = buffer if isinstance(buffer, list) else [buffer]
     if not frames:
         return np.zeros(0, dtype=np.float32)
@@ -70,22 +75,20 @@ def frames_to_mono16k(buffer: utils.AudioBuffer) -> np.ndarray:
     elif rate % TARGET_RATE == 0:
         out = mono[:: rate // TARGET_RATE]
     else:
-        resampler = rtc.AudioResampler(
-            input_rate=rate, output_rate=TARGET_RATE, num_channels=1
-        )
+        resampler = AudioResampler(rate, TARGET_RATE, num_channels=1)
         out_frames = resampler.push(
-            rtc.AudioFrame(
+            AudioFrame(
                 data=mono.tobytes(),
                 sample_rate=rate,
                 num_channels=1,
                 samples_per_channel=len(mono),
             )
         )
-        out = np.frombuffer(b"".join(f.data for f in out_frames), dtype=np.int16)
+        out = np.frombuffer(b"".join(bytes(f.data) for f in out_frames), dtype=np.int16)
     return out.astype(np.float32) / 32768.0
 
 
-class FasterWhisperSTT(stt.STT):
+class FasterWhisperSTT(STT):
     """Batch STT backed by a local faster-whisper model. No network."""
 
     def __init__(
@@ -95,7 +98,9 @@ class FasterWhisperSTT(stt.STT):
         compute_type: str | None = None,
     ) -> None:
         super().__init__(
-            capabilities=stt.STTCapabilities(streaming=False, interim_results=False)
+            capabilities=STTCapabilities(
+                streaming=False, interim_results=False, offline_recognize=True
+            )
         )
         self._model_size = (
             english_model_name(model_size) if model_size else whisper_model_name()
@@ -155,8 +160,12 @@ class FasterWhisperSTT(stt.STT):
                 extra["initial_prompt"] = prompt
                 extra["hotwords"] = hotwords
             segments, _info = self._load().transcribe(
-                audio, language="en", task="transcribe", beam_size=beam_size,
-                vad_filter=False, **extra,
+                audio,
+                language="en",
+                task="transcribe",
+                beam_size=beam_size,
+                vad_filter=False,
+                **extra,
             )
             result = []
             try:
@@ -173,16 +182,16 @@ class FasterWhisperSTT(stt.STT):
 
     async def _recognize_impl(
         self,
-        buffer: utils.AudioBuffer,
+        buffer: AudioBuffer,
         *,
         language: NotGivenOr[str] = NOT_GIVEN,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
-    ) -> stt.SpeechEvent:
+    ) -> SpeechEvent:
         audio = frames_to_mono16k(buffer)
         if audio.size < TARGET_RATE // 4:  # <250ms: nothing to transcribe
-            return stt.SpeechEvent(
-                type=stt.SpeechEventType.FINAL_TRANSCRIPT,
-                alternatives=[stt.SpeechData(language="en", text="")],
+            return SpeechEvent(
+                type=SpeechEventType.FINAL_TRANSCRIPT,
+                alternatives=[SpeechData(language="en", text="")],
             )
         lang = "en"  # English-only: caller locale must not re-enable autodetection.
         cancelled = threading.Event()
@@ -202,9 +211,7 @@ class FasterWhisperSTT(stt.STT):
             import math
 
             confidence = min(1.0, max(0.0, math.exp(sum(logprobs) / len(logprobs))))
-        return stt.SpeechEvent(
-            type=stt.SpeechEventType.FINAL_TRANSCRIPT,
-            alternatives=[
-                stt.SpeechData(language=lang, text=text, confidence=confidence)
-            ],
+        return SpeechEvent(
+            type=SpeechEventType.FINAL_TRANSCRIPT,
+            alternatives=[SpeechData(language=lang, text=text, confidence=confidence)],
         )

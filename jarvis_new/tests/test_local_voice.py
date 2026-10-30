@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 
 from local_voice import (
@@ -108,24 +109,19 @@ async def test_empty_text_pushes_no_audio() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_adapter_path_renders_audio() -> None:
-    """The exact framework path: StreamAdapter wraps us (streaming TTS).
+async def test_stream_path_renders_audio() -> None:
+    """The incremental path: stream() takes text tokens and renders them.
 
     This is the path that failed in the first live session (only
-    synthesize() existed, so the adapter's stream() hit the abstract
-    base and the turn died silently).
+    synthesize() existed, so stream() hit the abstract base and the turn
+    died silently).
     """
-    from livekit.agents import tokenize, tts
-
     plugin = PiperTTS()
     if not plugin._model_path.exists():
         pytest.skip("voice model not downloaded")
-    adapter = tts.StreamAdapter(
-        tts=plugin,
-        sentence_tokenizer=tokenize.blingfire.SentenceTokenizer(),
-    )
-    stream = adapter.stream()
-    stream.push_text("Good evening, Sir. At your service.")
+    stream = plugin.stream()
+    stream.push_text("Good evening, Sir. ")
+    stream.push_text("At your service.")
     stream.end_input()
     pcm = bytearray()
     async for event in stream:

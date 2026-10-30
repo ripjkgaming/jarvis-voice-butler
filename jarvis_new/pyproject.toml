@@ -27,20 +27,22 @@ dependencies = [
     # Focus mode: KWin active-window over D-Bus (pure Python).
     "jeepney>=0.9.0",
     "yt-dlp[default]>=2026.8.19",
+    "onnxruntime>=1.24.3",
 ]
 
 [dependency-groups]
 dev = [
+    "memray>=1.20.0",
     "pytest",
     "pytest-asyncio",
     "ruff",
 ]
 
 [project.optional-dependencies]
-# Local semantic routing (Needle 2, 14MB offline tool-calling model).
+# Local semantic routing (Cactus Needle 3, offline tool-calling model).
 # Install with: uv sync --extra needle. Disabled at runtime with JARVIS_NEEDLE=0.
 needle = [
-    "cactus-needle>=2.0",
+    "cactus-needle>=3.2.8,<4",
 ]
 
 # Games (chess): install with `uv sync --extra chess`.

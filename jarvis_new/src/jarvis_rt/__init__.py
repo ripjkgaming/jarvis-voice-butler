@@ -92,3 +92,7 @@ __all__ += [
     "room_io",
     "run_app",
 ]
+
+from .end_call import EndCallTool  # noqa: E402
+
+__all__ += ["EndCallTool"]

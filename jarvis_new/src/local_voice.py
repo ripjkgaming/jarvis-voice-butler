@@ -16,14 +16,9 @@ import asyncio
 import contextlib
 import contextvars
 import logging
-import os
-import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-
-from livekit.agents import tts, utils
-from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 
 # Pure, LiveKit-free pieces live in audio_shared (the chess voice engine uses
 # them too); the names stay importable from here for existing callers.
@@ -36,6 +31,8 @@ from audio_shared import (  # noqa: F401
     resolve_voice_path,
     sentence_split,
 )
+from jarvis_rt import tts
+from jarvis_rt.stt import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions, shortuuid
 
 logger = logging.getLogger("jarvis-voice")
 
@@ -44,7 +41,6 @@ RENDER_TIMEOUT_S = 15.0
 VOICE_DIR = Path.home() / ".jarvis" / "voices"
 DEFAULT_VOICE_NAME = "en_GB-alan-medium"
 DEFAULT_VOICE_PATH = VOICE_DIR / f"{DEFAULT_VOICE_NAME}.onnx"
-
 
 
 class PiperTTS(tts.TTS):
@@ -164,7 +160,9 @@ class PiperTTS(tts.TTS):
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
     ) -> tts.SynthesizeStream:
         if self._strict_sentence_audio:
-            raise RuntimeError("Complete approval readback requires synthesize, not incremental text")
+            raise RuntimeError(
+                "Complete approval readback requires synthesize, not incremental text"
+            )
         return _PiperSynthesizeStream(tts=self, conn_options=conn_options)
 
     async def aclose(self) -> None:
@@ -211,7 +209,7 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
         with contextlib.suppress(RuntimeError):
             await plugin._run_worker(plugin._get_voice)
         output_emitter.initialize(
-            request_id=utils.shortuuid(),
+            request_id=shortuuid(),
             sample_rate=plugin.sample_rate,
             num_channels=1,
             mime_type="audio/pcm",
@@ -224,7 +222,7 @@ class _PiperSynthesizeStream(tts.SynthesizeStream):
                     buffer += item
                 elif isinstance(item, tts.SynthesizeStream._FlushSentinel):
                     if buffer.strip():
-                        output_emitter.start_segment(segment_id=utils.shortuuid())
+                        output_emitter.start_segment(segment_id=shortuuid())
                         for sentence in sentence_split(buffer):
                             pcm = await plugin._run_worker(
                                 plugin._render_sentence, sentence
@@ -242,7 +240,7 @@ class _PiperChunkedStream(tts.ChunkedStream):
         if sentences:
             await plugin._run_worker(plugin._get_voice)
         output_emitter.initialize(
-            request_id=utils.shortuuid(),
+            request_id=shortuuid(),
             sample_rate=plugin.sample_rate,
             num_channels=1,
             mime_type="audio/pcm",
@@ -255,7 +253,9 @@ class _PiperChunkedStream(tts.ChunkedStream):
                 for sentence in sentences:
                     pcm = await plugin._run_worker(plugin._render_sentence, sentence)
                     if plugin._closed or not pcm or len(pcm) < 2 or len(pcm) % 2:
-                        raise RuntimeError("Complete readback sentence audio is unavailable")
+                        raise RuntimeError(
+                            "Complete readback sentence audio is unavailable"
+                        )
                     rendered.append(pcm)
                 # Emit only after every sentence completed. A failed/cancelled
                 # message cannot leave a recipient/code-only partial review.
