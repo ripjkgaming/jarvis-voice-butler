@@ -275,10 +275,10 @@ class ScreenSessionHolder:
                     raise SessionLifecycleError("SDK room options are required")
                 options.delete_room_on_close = False
                 # Only actual microphone input is restored on resume; the room's
-                # camera/video input stays off. TODO: RoomIO always binds the
-                # lk.chat typed-text stream; it needs a text_input gate so typed
-                # chat cannot reach this screen session. Until then it is open.
+                # camera/video input stays off, and typed chat cannot reach
+                # this screen session.
                 options.video_input = False
+                options.text_input = False
 
                 def closed(event):
                     if self._slot is slot and self.generation == generation:

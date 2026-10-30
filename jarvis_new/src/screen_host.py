@@ -178,6 +178,7 @@ class ScreenHost:
         return RoomOptions(
             audio_input=AudioInputOptions(),
             video_input=False,
+            text_input=False,
             text_output=TextOutputOptions(next_in_chain=session.jarvis_caption_tail),
             delete_room_on_close=False,
         )
