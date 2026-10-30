@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { RoomEvent } from 'livekit-client';
-import { useRoomContext } from '@livekit/components-react';
+import { useRef, useState } from 'react';
+import { useDataTopic } from '@/lib/voice-session-react';
 
 export type HudTaskEvent = {
   kind: 'tool_start' | 'tool_finish' | 'intent_echo' | 'log';
@@ -23,16 +22,13 @@ export type HudTask = HudTaskEvent & {
 
 const MAX_LIVE = 5;
 
-function parsePayload(raw: Uint8Array | string): HudTaskEvent | null {
-  try {
-    const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
-    const obj = JSON.parse(text);
-    if (!obj || typeof obj.kind !== 'string') return null;
-    if (!['tool_start', 'tool_finish', 'intent_echo', 'log'].includes(obj.kind)) return null;
-    return { ...obj, ts: obj.ts ?? Date.now() };
-  } catch {
-    return null;
-  }
+/** Topic payloads arrive already parsed from the voice socket. */
+function parsePayload(raw: unknown): HudTaskEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as { kind?: unknown; ts?: unknown };
+  if (typeof obj.kind !== 'string') return null;
+  if (!['tool_start', 'tool_finish', 'intent_echo', 'log'].includes(obj.kind)) return null;
+  return { ...(raw as HudTaskEvent), ts: typeof obj.ts === 'number' ? obj.ts : Date.now() };
 }
 
 /**
@@ -40,32 +36,20 @@ function parsePayload(raw: Uint8Array | string): HudTaskEvent | null {
  * Falls back to silence (consumers mine actions.log instead).
  */
 export function useHudEvents() {
-  const room = useRoomContext();
   const [events, setEvents] = useState<HudTaskEvent[]>([]);
   const [intentEcho, setIntentEcho] = useState<string>('');
   const [lastTool, setLastTool] = useState<string>('');
   const seq = useRef(0);
 
-  useEffect(() => {
-    if (!room) return;
-    const onData = (
-      payload: Uint8Array,
-      _participant?: unknown,
-      _kind?: unknown,
-      topic?: string
-    ) => {
-      if (topic && topic !== 'jarvis-tasks' && topic !== 'jarvis') return;
-      const ev = parsePayload(payload);
-      if (!ev) return;
-      if (ev.kind === 'intent_echo' && ev.echo) setIntentEcho(ev.echo);
-      if (ev.kind === 'tool_start' && ev.tool) setLastTool(ev.tool);
-      setEvents((prev) => [...prev.slice(-60), ev]);
-    };
-    room.on(RoomEvent.DataReceived, onData);
-    return () => {
-      room.off(RoomEvent.DataReceived, onData);
-    };
-  }, [room]);
+  const onEvent = (payload: unknown) => {
+    const ev = parsePayload(payload);
+    if (!ev) return;
+    if (ev.kind === 'intent_echo' && ev.echo) setIntentEcho(ev.echo);
+    if (ev.kind === 'tool_start' && ev.tool) setLastTool(ev.tool);
+    setEvents((prev) => [...prev.slice(-60), ev]);
+  };
+  useDataTopic('jarvis-tasks', onEvent);
+  useDataTopic('jarvis', onEvent);
 
   const live: HudTask[] = (() => {
     const byTool = new Map<string, HudTask>();

@@ -1,47 +1,38 @@
-import { type Room } from 'livekit-client';
-import {
-  RoomAudioRenderer,
-  type RoomAudioRendererProps,
-  SessionProvider,
-  type SessionProviderProps,
-  type UseSessionReturn,
-} from '@livekit/components-react';
+'use client';
+
+import { useEffect } from 'react';
+import { type VoiceSession } from '@/lib/voice-session';
+import { VoiceSessionProvider } from '@/lib/voice-session-react';
 
 /**
  * Props for the AgentSessionProvider component.
- * Combines SessionProviderProps with RoomAudioRendererProps.
  */
-export type AgentSessionProviderProps = SessionProviderProps &
-  RoomAudioRendererProps & {
-    /**
-     * The room to provide.
-     */
-    room?: Room;
-    /**
-     * The volume to set for the audio renderer.
-     */
-    volume?: number;
-    /**
-     * Whether to mute the audio renderer.
-     */
-    muted?: boolean;
-    /**
-     * The session to provide.
-     */
-    session: UseSessionReturn;
-    /**
-     * The children to render.
-     */
-    children: React.ReactNode;
-  };
+export type AgentSessionProviderProps = {
+  /**
+   * The voice session to provide.
+   */
+  session: VoiceSession;
+  /**
+   * The volume (0-1) of agent playback.
+   */
+  volume?: number;
+  /**
+   * Whether to mute agent playback locally.
+   */
+  muted?: boolean;
+  /**
+   * The children to render.
+   */
+  children: React.ReactNode;
+};
 
 /**
- * A provider component for agent sessions that wraps SessionProvider
- * and includes RoomAudioRenderer for audio playback.
+ * A provider component for agent sessions. Shares one VoiceSession with the
+ * subtree and applies local playback settings (playback lives in the core).
  *
  * @example
  * ```tsx
- * <AgentSessionProvider session={agentSession}>
+ * <AgentSessionProvider session={voiceSession}>
  *   <AgentControlBar />
  *   <AgentChatTranscript />
  * </AgentSessionProvider>
@@ -49,13 +40,17 @@ export type AgentSessionProviderProps = SessionProviderProps &
  */
 export function AgentSessionProvider({
   session,
+  volume,
+  muted = false,
   children,
-  ...roomAudioRendererProps
 }: AgentSessionProviderProps) {
-  return (
-    <SessionProvider session={session}>
-      {children}
-      <RoomAudioRenderer {...roomAudioRendererProps} />
-    </SessionProvider>
-  );
+  useEffect(() => {
+    session.setPlaybackMuted(muted);
+  }, [session, muted]);
+
+  useEffect(() => {
+    if (volume !== undefined) session.setPlaybackVolume(volume);
+  }, [session, volume]);
+
+  return <VoiceSessionProvider session={session}>{children}</VoiceSessionProvider>;
 }

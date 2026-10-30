@@ -2,14 +2,13 @@
 
 import { type CSSProperties, type ComponentProps, useMemo } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
-import { type LocalAudioTrack, type RemoteAudioTrack } from 'livekit-client';
-import {
-  type AgentState,
-  type TrackReferenceOrPlaceholder,
-  useMultibandTrackVolume,
-} from '@livekit/components-react';
 import { useAgentAudioVisualizerRadialAnimator } from '@/hooks/agents-ui/use-agent-audio-visualizer-radial';
 import { cn } from '@/lib/shadcn/utils';
+import {
+  type AudioLevelSource,
+  type VisualizerState,
+  useAudioLevel,
+} from '@/lib/voice-session-react';
 
 /**
  * Resizes an array of per-band volume values to exactly `count` entries.
@@ -63,7 +62,7 @@ export interface AgentAudioVisualizerRadialProps {
    * The current state of the agent. Determines the animation pattern.
    * @defaultValue 'connecting'
    */
-  state?: AgentState;
+  state?: VisualizerState;
   /**
    * The color of the radial bars in hexidecimal format.
    */
@@ -80,9 +79,9 @@ export interface AgentAudioVisualizerRadialProps {
    */
   barCount?: number;
   /**
-   * The audio track to visualize. Can be a local/remote audio track or a track reference.
+   * The audio level to visualize: agent playback (default) or the local mic.
    */
-  audioTrack?: LocalAudioTrack | RemoteAudioTrack | TrackReferenceOrPlaceholder;
+  audioTrack?: AudioLevelSource;
   /**
    * Volume values (0-1) to use instead of the values computed from the audioTrack.
    * The volumeBands.length should match barCount.
@@ -138,11 +137,12 @@ export function AgentAudioVisualizerRadial({
     }
   }, [barCount, size]);
 
-  const multibandVolume = useMultibandTrackVolume(audioTrack, {
-    bands: _barCount,
-    loPass: 100,
-    hiPass: 200,
-  });
+  // The voice transport gives one level, not per-band analysis: every band follows it.
+  const level = useAudioLevel(audioTrack ?? 'agent', !volumeBands);
+  const multibandVolume = useMemo(
+    () => new Array<number>(_barCount).fill(level),
+    [level, _barCount]
+  );
   const resolvedVolumeBands = volumeBands
     ? normalizeVolumeBands(volumeBands, _barCount)
     : multibandVolume;

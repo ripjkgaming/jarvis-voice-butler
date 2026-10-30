@@ -30,7 +30,7 @@ const { callStateFrom } = load('../lib/bridge.ts', { '@/lib/tauri': {} });
 const palette = load('../lib/jarvis-palette.ts', {});
 const { useJarvisState, JARVIS_COLORS } = load('../hooks/hud/use-jarvis-state.ts', {
   react: { useMemo: (fn) => fn() },
-  '@livekit/components-react': { useAgent: () => ({ state: agent }) },
+  '@/lib/voice-session-react': { useAgentState: () => agent },
   '@/hooks/hud/use-room-state': { useCallState: () => call, useRoomState: () => room },
   '@/lib/tauri': { isTauri: () => desktop },
   '@/lib/jarvis-palette': palette,

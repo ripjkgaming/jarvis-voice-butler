@@ -34,9 +34,10 @@ export async function invoke<T>(cmd: string, args?: unknown): Promise<T> {
   return (await api.invoke(cmd, args)) as T;
 }
 
-/** Mint a participant token + connection details via `invoke('mint_token')`.
- *  Mirrors the old /api/token response so livekit's TokenSource.custom works.
- *  With a room name: join-mode token for that live room WITHOUT agent
+/** Mint a call token + connection details via `invoke('mint_token')`:
+ *  `{serverUrl, roomName, participantName, participantToken}` (see
+ *  docs/voice-transport.md). Pass the result to `VoiceSession.connect`.
+ *  With a room name: observer token for that live room WITHOUT agent
  *  dispatch (the agent is already there — dispatching again would summon a
  *  second voice). Without: legacy summon mode (fresh room + dispatch). */
 export function mintToken(roomName?: string): Promise<ConnectionDetails> {

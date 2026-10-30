@@ -1,6 +1,5 @@
 import { type ComponentProps, Fragment, useMemo, useState } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
-import { Track } from 'livekit-client';
 import {
   LoaderIcon,
   MicIcon,
@@ -43,17 +42,17 @@ export const agentTrackToggleVariants = cva(['size-9'], {
   },
 });
 
-function getSourceIcon(source: Track.Source, enabled: boolean, pending = false) {
+function getSourceIcon(source: AgentTrackToggleProps['source'], enabled: boolean, pending = false) {
   if (pending) {
     return LoaderIcon;
   }
 
   switch (source) {
-    case Track.Source.Microphone:
+    case 'microphone':
       return enabled ? MicIcon : MicOffIcon;
-    case Track.Source.Camera:
+    case 'camera':
       return enabled ? VideoIcon : VideoOffIcon;
-    case Track.Source.ScreenShare:
+    case 'screen_share':
       return enabled ? MonitorUpIcon : MonitorOffIcon;
     default:
       return Fragment;
@@ -109,7 +108,7 @@ export type AgentTrackToggleProps = VariantProps<typeof agentTrackToggleVariants
  * @example
  * ```tsx
  * <AgentTrackToggle
- *   source={Track.Source.Microphone}
+ *   source="microphone"
  *   pressed={isMicEnabled}
  *   onPressedChange={(pressed) => setMicEnabled(pressed)}
  * />
@@ -132,7 +131,7 @@ export function AgentTrackToggle({
     () => (isControlled ? pressed : uncontrolledPressed) ?? false,
     [isControlled, pressed, uncontrolledPressed]
   );
-  const IconComponent = getSourceIcon(source as Track.Source, resolvedPressed, pending);
+  const IconComponent = getSourceIcon(source, resolvedPressed, pending);
   const handlePressedChange = (nextPressed: boolean) => {
     if (!isControlled) {
       setUncontrolledPressed(nextPressed);

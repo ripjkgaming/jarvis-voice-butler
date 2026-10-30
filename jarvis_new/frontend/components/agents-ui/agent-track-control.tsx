@@ -1,12 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
-import {
-  type TrackReferenceOrPlaceholder,
-  useMaybeRoomContext,
-  useMediaDeviceSelect,
-} from '@livekit/components-react';
 import { AgentAudioVisualizerBar } from '@/components/agents-ui/agent-audio-visualizer-bar';
 import { AgentTrackToggle } from '@/components/agents-ui/agent-track-toggle';
 import {
@@ -18,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { type toggleVariants } from '@/components/ui/toggle';
 import { cn } from '@/lib/shadcn/utils';
+import { type AudioLevelSource } from '@/lib/voice-session-react';
 
 const selectVariants = cva(
   [
@@ -196,9 +192,9 @@ export type AgentTrackControlProps = VariantProps<typeof toggleVariants> & {
    */
   disabled?: boolean;
   /**
-   * The audio track reference for visualization (only for microphone).
+   * The audio level source for visualization (only for microphone).
    */
-  audioTrack?: TrackReferenceOrPlaceholder;
+  audioTrack?: AudioLevelSource;
   /**
    * Additional CSS class names to apply to the container.
    */
@@ -244,47 +240,21 @@ export function AgentTrackControl({
   className,
   audioTrack,
   onPressedChange,
-  onMediaDeviceError,
   onActiveDeviceChange,
 }: AgentTrackControlProps) {
-  const room = useMaybeRoomContext();
-  const [requestPermissionsState, setRequestPermissionsState] = useState(false);
-  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
-    room,
-    kind,
-    requestPermissions: requestPermissionsState,
-    onError: onMediaDeviceError,
-  });
+  // Device selection is not in the voice transport: there is no device list,
+  // so the selector renders nothing and the toggle is never disabled for it.
+  const devices: MediaDeviceInfo[] = [];
+  const activeDeviceId = '';
+  const filteredDevices = devices;
+  const noDevices = false;
+  const resolvedPressed = pressed;
 
-  useEffect(() => {
-    // A track was already acquired elsewhere (e.g. session.start()), so permission is already
-    // granted — safe to fetch labeled devices without a second getUserMedia prompt. Without
-    // this, the list stays label-less until a page reload, since the device observer only
-    // re-fetches when `requestPermissions` changes value. Screen share has no `kind` and no
-    // associated device list, so it should never trigger a mic/camera permission request.
-    if (pressed && kind) {
-      setRequestPermissionsState(true);
-    }
-  }, [pressed, kind]);
-
-  const handleOpenChange = (open: boolean) => {
-    if (open) {
-      setRequestPermissionsState(true);
-    }
-  };
+  const handleOpenChange = () => undefined;
 
   const handleActiveDeviceChange = (deviceId: string) => {
-    setActiveMediaDevice(deviceId);
     onActiveDeviceChange?.(deviceId);
   };
-
-  const filteredDevices = useMemo(() => devices.filter((d) => d.deviceId !== ''), [devices]);
-  // Before permission is granted, the browser reports devices with blank ids, which get filtered
-  // out here — that's an *unknown* device count, not a confirmed empty one. Only treat it as
-  // "no devices" once a permission-gated check has actually run and still come up empty;
-  // otherwise the toggle disables itself before the user ever gets a chance to grant permission.
-  const noDevices = Boolean(kind) && requestPermissionsState && filteredDevices.length === 0;
-  const resolvedPressed = pressed && !noDevices;
 
   return (
     <div

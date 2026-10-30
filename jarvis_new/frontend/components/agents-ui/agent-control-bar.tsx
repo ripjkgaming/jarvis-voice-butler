@@ -1,10 +1,8 @@
 'use client';
 
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
-import { Track } from 'livekit-client';
 import { Loader, MessageSquareTextIcon, SendHorizontal } from 'lucide-react';
 import { type MotionProps, motion } from 'motion/react';
-import { useChat } from '@livekit/components-react';
 import { AgentDisconnectButton } from '@/components/agents-ui/agent-disconnect-button';
 import { AgentTrackControl } from '@/components/agents-ui/agent-track-control';
 import {
@@ -14,11 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import {
+  type TrackSource,
   type UseInputControlsProps,
   useInputControls,
   usePublishPermissions,
 } from '@/hooks/agents-ui/use-agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
+import { useVoiceSession } from '@/lib/voice-session-react';
 
 const LK_TOGGLE_VARIANT_1 = [
   'data-[state=off]:bg-accent data-[state=off]:hover:bg-foreground/10',
@@ -212,7 +212,7 @@ export interface AgentControlBarProps extends UseInputControlsProps {
   /** The callback for when the chat is opened or closed. */
   onIsChatOpenChange?: (open: boolean) => void;
   /** The callback for when a device error occurs. */
-  onDeviceError?: (error: { source: Track.Source; error: Error }) => void;
+  onDeviceError?: (error: { source: TrackSource; error: Error }) => void;
 }
 
 /**
@@ -251,7 +251,7 @@ export function AgentControlBar({
   className,
   ...props
 }: AgentControlBarProps & ComponentProps<'div'>) {
-  const { send } = useChat();
+  const { sendChat } = useVoiceSession();
   const publishPermissions = usePublishPermissions();
   const [isChatOpenUncontrolled, setIsChatOpenUncontrolled] = useState(isChatOpen);
   const {
@@ -266,7 +266,7 @@ export function AgentControlBar({
   } = useInputControls({ onDeviceError, saveUserChoices });
 
   const handleSendMessage = async (message: string) => {
-    await send(message);
+    sendChat(message);
   };
 
   const visibleControls = {
@@ -315,7 +315,7 @@ export function AgentControlBar({
               variant={variant === 'outline' ? 'outline' : 'default'}
               kind="audioinput"
               aria-label="Toggle microphone"
-              source={Track.Source.Microphone}
+              source="microphone"
               pressed={microphoneToggle.enabled}
               disabled={microphoneToggle.pending}
               audioTrack={microphoneTrack}
@@ -337,7 +337,7 @@ export function AgentControlBar({
               variant={variant === 'outline' ? 'outline' : 'default'}
               kind="videoinput"
               aria-label="Toggle camera"
-              source={Track.Source.Camera}
+              source="camera"
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
               disabled={cameraToggle.pending}
@@ -358,7 +358,7 @@ export function AgentControlBar({
             <AgentTrackToggle
               variant={variant === 'outline' ? 'outline' : 'default'}
               aria-label="Toggle screen share"
-              source={Track.Source.ScreenShare}
+              source="screen_share"
               pressed={screenShareToggle.enabled}
               disabled={screenShareToggle.pending}
               onPressedChange={screenShareToggle.toggle}

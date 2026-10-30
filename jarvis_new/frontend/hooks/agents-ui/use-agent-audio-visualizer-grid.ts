@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type AgentState } from '@livekit/components-react';
+import { type VisualizerState } from '@/lib/voice-session-react';
 
 export interface Coordinate {
   x: number;
@@ -64,7 +64,7 @@ export function generateThinkingSequence(rows: number, columns: number) {
 }
 
 export function useAgentAudioVisualizerGridAnimator(
-  state: AgentState,
+  state: VisualizerState,
   rows: number,
   columns: number,
   interval: number,

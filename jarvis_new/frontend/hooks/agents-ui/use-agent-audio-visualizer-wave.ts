@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LocalAudioTrack, RemoteAudioTrack } from 'livekit-client';
 import {
   type AnimationPlaybackControlsWithThen,
   type ValueAnimationTransition,
@@ -8,11 +7,10 @@ import {
   useMotionValueEvent,
 } from 'motion/react';
 import {
-  type AgentState,
-  type TrackReference,
-  type TrackReferenceOrPlaceholder,
-  useTrackVolume,
-} from '@livekit/components-react';
+  type AudioLevelSource,
+  type VisualizerState,
+  useAudioLevel,
+} from '@/lib/voice-session-react';
 
 const DEFAULT_SPEED = 5;
 const DEFAULT_AMPLITUDE = 0.025;
@@ -36,8 +34,8 @@ function useAnimatedValue<T>(initialValue: T) {
 }
 
 interface UseAgentAudioVisualizerWaveAnimatorArgs {
-  state?: AgentState;
-  audioTrack?: LocalAudioTrack | RemoteAudioTrack | TrackReferenceOrPlaceholder;
+  state?: VisualizerState;
+  audioTrack?: AudioLevelSource;
   volume?: number;
 }
 
@@ -51,10 +49,8 @@ export function useAgentAudioVisualizerWave({
   const { value: frequency, animate: animateFrequency } = useAnimatedValue(DEFAULT_FREQUENCY);
   const { value: opacity, animate: animateOpacity } = useAnimatedValue(1.0);
 
-  const trackVolume = useTrackVolume(audioTrack as TrackReference, {
-    fftSize: 512,
-    smoothingTimeConstant: 0.55,
-  });
+  // The voice transport analyses one level for the whole agent output.
+  const trackVolume = useAudioLevel(audioTrack ?? 'agent', volumeProp === undefined);
   const volume = volumeProp ?? trackVolume;
 
   useEffect(() => {

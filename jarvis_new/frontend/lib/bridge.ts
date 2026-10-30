@@ -9,7 +9,7 @@
  */
 import type { PaperMarketSnapshot } from '@/lib/paper-market';
 import type { SuitCommand } from '@/lib/suit-diagnostics';
-import { bridgeInfo, isTauri } from '@/lib/tauri';
+import { type ConnectionDetails, bridgeInfo, isTauri } from '@/lib/tauri';
 
 const FALLBACK_URL = `http://127.0.0.1:${process.env.NEXT_PUBLIC_BRIDGE_PORT ?? 4317}`;
 /** Plain-browser dev/test only (set in the dev env, never baked into the shell build). */
@@ -287,6 +287,34 @@ export async function bridgeChat(text: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** Receive-only voice token for a live room via the bridge `/token` route
+ *  (no dispatch, so no second call). Browser path only: the Tauri shell mints
+ *  through `invoke('mint_token')`. Rejects when the bridge refuses or is unreachable. */
+export async function bridgeObserverToken(room: string): Promise<ConnectionDetails> {
+  const { url, token } = await getEndpoint();
+  const res = await fetch(`${url}/token`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ room, dispatch: false }),
+  });
+  const j = (await res.json().catch(() => null)) as
+    | (Partial<ConnectionDetails> & { ok?: boolean; error?: string })
+    | null;
+  if (!res.ok || !j?.ok || !j.serverUrl || !j.participantToken) {
+    throw new Error(j?.error ?? `voice token unavailable (${res.status})`);
+  }
+  return {
+    serverUrl: j.serverUrl,
+    roomName: j.roomName ?? room,
+    participantName: j.participantName ?? 'user',
+    participantToken: j.participantToken,
+  };
 }
 
 export type BridgeChatFull = BridgeChatReply & {

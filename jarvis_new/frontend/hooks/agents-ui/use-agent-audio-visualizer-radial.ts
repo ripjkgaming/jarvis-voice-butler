@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type AgentState } from '@livekit/components-react';
+import { type VisualizerState } from '@/lib/voice-session-react';
 
 function findGcdLessThan(columns: number, max: number = columns): number {
   function gcd(a: number, b: number): number {
@@ -40,7 +40,7 @@ function generateListeningSequenceBar(columns: number): number[][] {
 }
 
 export const useAgentAudioVisualizerRadialAnimator = (
-  state: AgentState | undefined,
+  state: VisualizerState | undefined,
   barCount: number,
   interval: number
 ): number[] => {

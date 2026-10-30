@@ -11,17 +11,16 @@ import React, {
   useMemo,
 } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
-import type { LocalAudioTrack, RemoteAudioTrack } from 'livekit-client';
-import {
-  type AgentState,
-  type TrackReferenceOrPlaceholder,
-  useMultibandTrackVolume,
-} from '@livekit/components-react';
 import {
   type Coordinate,
   useAgentAudioVisualizerGridAnimator,
 } from '@/hooks/agents-ui/use-agent-audio-visualizer-grid';
 import { cn } from '@/lib/shadcn/utils';
+import {
+  type AudioLevelSource,
+  type VisualizerState,
+  useAudioLevel,
+} from '@/lib/voice-session-react';
 
 /**
  * Resizes an array of per-band volume values to exactly `count` entries.
@@ -148,7 +147,7 @@ function useGrid(
 
 interface GridCellProps {
   index: number;
-  state: AgentState;
+  state: VisualizerState;
   interval: number;
   rowCount: number;
   columnCount: number;
@@ -209,15 +208,15 @@ export type AgentAudioVisualizerGridProps = GridOptions & {
    * The current state of the agent. Determines the animation pattern.
    * @defaultValue 'connecting'
    */
-  state?: AgentState;
+  state?: VisualizerState;
   /**
    * The color of the grid cells in hexidecimal format.
    */
   color?: `#${string}`;
   /**
-   * The audio track to visualize. Can be a local/remote audio track or a track reference.
+   * The audio level to visualize: agent playback (default) or the local mic.
    */
-  audioTrack?: LocalAudioTrack | RemoteAudioTrack | TrackReferenceOrPlaceholder;
+  audioTrack?: AudioLevelSource;
   /**
    * Volume values (0-1) to use instead of the values computed from the audioTrack.
    * The volumeBands.length should match columnCount.
@@ -275,11 +274,12 @@ export function AgentAudioVisualizerGrid({
     interval,
     radius
   );
-  const multibandVolume = useMultibandTrackVolume(audioTrack, {
-    bands: columnCount,
-    loPass: 100,
-    hiPass: 200,
-  });
+  // The voice transport gives one level, not per-band analysis: every band follows it.
+  const level = useAudioLevel(audioTrack ?? 'agent', !volumeBands);
+  const multibandVolume = useMemo(
+    () => new Array<number>(columnCount).fill(level),
+    [level, columnCount]
+  );
   const resolvedVolumeBands = volumeBands
     ? normalizeVolumeBands(volumeBands, columnCount)
     : multibandVolume;

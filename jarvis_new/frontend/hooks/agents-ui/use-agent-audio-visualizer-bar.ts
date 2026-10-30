@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type AgentState } from '@livekit/components-react';
+import { type VisualizerState } from '@/lib/voice-session-react';
 
 function generateConnectingSequenceBar(columns: number): number[][] {
   const seq = [];
@@ -19,7 +19,7 @@ function generateListeningSequenceBar(columns: number): number[][] {
 }
 
 export function useAgentAudioVisualizerBarAnimator(
-  state: AgentState | undefined,
+  state: VisualizerState | undefined,
   columns: number,
   interval: number
 ): number[] {

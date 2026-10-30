@@ -1,7 +1,6 @@
 import { type ComponentProps } from 'react';
-import { type Room } from 'livekit-client';
-import { useEnsureRoom, useStartAudio } from '@livekit/components-react';
 import { Button } from '@/components/ui/button';
+import { useVoiceSession } from '@/lib/voice-session-react';
 
 /**
  * Props for the StartAudioButton component.
@@ -17,10 +16,6 @@ export interface StartAudioButtonProps extends ComponentProps<'button'> {
    * @defaultValue 'default'
    */
   variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
-  /**
-   * The LiveKit room instance. If not provided, uses the room from context.
-   */
-  room?: Room;
   /**
    * The label text to display on the button.
    */
@@ -43,14 +38,22 @@ export function StartAudioButton({
   size = 'default',
   variant = 'default',
   label,
-  room,
+  onClick,
   ...props
 }: StartAudioButtonProps) {
-  const roomEnsured = useEnsureRoom(room);
-  const { mergedProps } = useStartAudio({ room: roomEnsured, props });
+  const { session } = useVoiceSession();
 
   return (
-    <Button size={size} variant={variant} {...props} {...mergedProps}>
+    <Button
+      size={size}
+      variant={variant}
+      {...props}
+      onClick={(event) => {
+        // Resuming the AudioContext needs the user gesture of this click.
+        void session.resumeAudio();
+        onClick?.(event);
+      }}
+    >
       {label}
     </Button>
   );

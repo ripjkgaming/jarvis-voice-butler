@@ -2,13 +2,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
-import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
+import { useAgentState, useTranscript, useVoiceSession } from '@/lib/voice-session-react';
 import { TileLayout } from './tile-view';
 
 const BOTTOM_VIEW_MOTION_PROPS: MotionProps = {
@@ -178,11 +178,11 @@ export function AgentSessionView_01({
   className,
   ...props
 }: React.ComponentProps<'section'> & AgentSessionView_01Props) {
-  const session = useSessionContext();
-  const { messages } = useSessionMessages(session);
+  const { isConnected, disconnect } = useVoiceSession();
+  const messages = useTranscript();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const { state: agentState } = useAgent();
+  const agentState = useAgentState();
 
   const controls: AgentControlBarControls = {
     leave: true,
@@ -194,7 +194,7 @@ export function AgentSessionView_01({
 
   useEffect(() => {
     const lastMessage = messages.at(-1);
-    const lastMessageIsLocal = lastMessage?.from?.isLocal === true;
+    const lastMessageIsLocal = lastMessage?.from === 'user';
 
     if (scrollAreaRef.current && lastMessageIsLocal) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
@@ -263,8 +263,8 @@ export function AgentSessionView_01({
             variant="livekit"
             controls={controls}
             isChatOpen={isChatOpen}
-            isConnected={session.isConnected}
-            onDisconnect={session.end}
+            isConnected={isConnected}
+            onDisconnect={disconnect}
             onIsChatOpenChange={setIsChatOpen}
           />
         </div>

@@ -2,7 +2,6 @@
 
 import { type ComponentProps } from 'react';
 import { Streamdown } from 'streamdown';
-import { type AgentState, type ReceivedMessage } from '@livekit/components-react';
 import { AgentChatIndicator } from '@/components/agents-ui/agent-chat-indicator';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
@@ -15,6 +14,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller';
+import { type AgentState, type TranscriptMessage } from '@/lib/voice-session';
 
 /**
  * Props for the AgentChatTranscript component.
@@ -54,7 +54,7 @@ export interface AgentChatTranscriptProps
    * Array of messages to display in the transcript.
    * @defaultValue []
    */
-  messages?: ReceivedMessage[];
+  messages?: TranscriptMessage[];
   /**
    * Additional CSS class names to apply to the conversation container.
    */
@@ -108,12 +108,9 @@ export function AgentChatTranscript({
             spacerClassName={spacerClassName}
             aria-busy={agentState === 'thinking'}
           >
-            {messages.map((receivedMessage) => {
-              const { id, timestamp, from, message } = receivedMessage;
-              const time = new Date(timestamp);
-              const isUser = from?.isLocal;
-              const locale = typeof navigator !== 'undefined' ? navigator.language : 'en-US';
-              const title = time.toLocaleTimeString(locale, { timeStyle: 'full' });
+            {messages.map((transcriptMessage) => {
+              const { id, from, text } = transcriptMessage;
+              const isUser = from === 'user';
               let _scrollAnchor = false;
 
               if (
@@ -126,14 +123,14 @@ export function AgentChatTranscript({
 
               return (
                 <MessageScrollerItem key={id} messageId={id} scrollAnchor={_scrollAnchor}>
-                  <Message align={isUser ? 'end' : 'start'} title={title}>
+                  <Message align={isUser ? 'end' : 'start'}>
                     <MessageContent>
                       <Bubble
                         align={isUser ? 'end' : 'start'}
                         variant={isUser ? 'secondary' : 'ghost'}
                       >
                         <BubbleContent>
-                          <Streamdown>{message}</Streamdown>
+                          <Streamdown>{text}</Streamdown>
                         </BubbleContent>
                       </Bubble>
                     </MessageContent>

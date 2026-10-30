@@ -1,6 +1,6 @@
 # Voice session migration: livekit-client to `lib/voice-session`
 
-Status: additive phase. The new core (`lib/voice-session.ts`) and hooks (`lib/voice-session-react.tsx`) exist. No component imports have been switched. Protocol: `docs/voice-transport.md`.
+Status: switched. Components, hooks and the HUD use `lib/voice-session` and `lib/voice-session-react`. `livekit-client`, `@livekit/components-react` and `livekit-server-sdk` are removed from `package.json`. Protocol: `docs/voice-transport.md`.
 
 ## Hook and call mapping
 

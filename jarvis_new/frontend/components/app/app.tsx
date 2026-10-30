@@ -1,24 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { TokenSource } from 'livekit-client';
-import { useSession } from '@livekit/components-react';
+import { useEffect, useState } from 'react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { ViewController } from '@/components/app/view-controller';
 import { HudShell } from '@/components/hud/hud-shell';
 import { Toaster } from '@/components/ui/sonner';
+import { useRoom } from '@/hooks/hud/use-room-state';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
-import { useDebugMode } from '@/hooks/useDebug';
-import { getHudRoom } from '@/lib/hud-room';
+import { bridgeObserverToken } from '@/lib/bridge';
+import { setHudRoom } from '@/lib/hud-room';
 import { isTauri, mintToken, shellAppConfig } from '@/lib/tauri';
-import { getSandboxTokenSource } from '@/lib/utils';
-
-const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
+import { VoiceSession } from '@/lib/voice-session';
 
 function AppSetup() {
-  useDebugMode({ enabled: IN_DEVELOPMENT });
   useAgentErrors();
 
   return null;
@@ -28,8 +24,16 @@ interface AppProps {
   appConfig: AppConfig;
 }
 
+/** Receive-only token for a live call. The Tauri shell mints through its
+ *  command; a plain browser asks the bridge. Neither dispatches an agent. */
+function observerToken(room: string) {
+  return isTauri() ? mintToken(room) : bridgeObserverToken(room);
+}
+
 export function App({ appConfig }: AppProps) {
   const [config, setConfig] = useState(appConfig);
+  const [voice] = useState(() => new VoiceSession());
+  const liveRoom = useRoom();
 
   // In the Tauri shell, agentName lives in the shell config (env AGENT_NAME),
   // not in a build-time env var. Pull it once on mount.
@@ -47,34 +51,32 @@ export function App({ appConfig }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tokenSource = useMemo(() => {
-    if (typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string') {
-      return getSandboxTokenSource(config);
-    }
-    if (isTauri()) {
-      // Receive-only: join the live wake room (set by the room watcher).
-      // No room → reject (minting blind would summon a stray second call).
-      return TokenSource.custom(async () => mintToken(getHudRoom() ?? undefined));
-    }
-    // Plain-browser dev fallback (no shell): legacy endpoint route.
-    return TokenSource.endpoint('/api/token');
-  }, [config]);
+  // Receive-only link: follow the live call. No room, no socket. The room
+  // watcher publishes the target for other readers (setHudRoom).
+  useEffect(() => {
+    setHudRoom(liveRoom);
+    if (!liveRoom) return;
 
-  const session = useSession(
-    tokenSource,
-    config.agentName ? { agentName: config.agentName } : undefined
-  );
-
-  if (IN_DEVELOPMENT && !config.agentName) {
-    console.warn(
-      '[jarvis] agentName is undefined - no explicit dispatch will be sent and the named worker will NOT join. Set AGENT_NAME in the shell env or frontend/.env.local.'
+    let active = true;
+    const fetchToken = () => observerToken(liveRoom).then((d) => d.participantToken);
+    observerToken(liveRoom).then(
+      (details) => {
+        if (active) voice.connect(details.serverUrl, details.participantToken, { fetchToken });
+      },
+      () => {
+        /* no link to the call yet; the next room change retries */
+      }
     );
-  }
+    return () => {
+      active = false;
+      voice.disconnect();
+    };
+  }, [liveRoom, voice]);
 
   return (
     // Muted renderer: the native wake client owns the laptop speakers, so
     // the webview must never double-play the agent. Eyes here, ears there.
-    <AgentSessionProvider session={session} muted>
+    <AgentSessionProvider session={voice} muted>
       <AppSetup />
       <HudShell>
         <main className="contents">

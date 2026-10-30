@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAgent } from '@livekit/components-react';
 import { useCallState, useRoomState } from '@/hooks/hud/use-room-state';
 import { JARVIS_COLORS, type JarvisState } from '@/lib/jarvis-palette';
 import { isTauri, micStatus, setMicMuted } from '@/lib/tauri';
+import { useAgentState } from '@/lib/voice-session-react';
 
 /** Canonical colour rule: execution green, active call purple, no call cyan.
- * Tauri consumes the leased bridge state; browser voice sessions use the SDK.
+ * Tauri consumes the leased bridge state; browser voice sessions use the voice link.
  * Speech and quiet listening share a colour, while retaining their labels.
  */
 export { JARVIS_COLORS, MUTED_COLOR, type JarvisState } from '@/lib/jarvis-palette';
@@ -26,7 +26,7 @@ export function agentStateToJarvis(agentState: string | undefined): JarvisState 
 }
 
 export function useJarvisState() {
-  const { state: agentState } = useAgent();
+  const agentState = useAgentState();
   const inCall = useCallState()?.live ?? false;
   const room = useRoomState();
 

@@ -1,8 +1,9 @@
 import { ReactNode, useEffect } from 'react';
 import { toast as sonnerToast } from 'sonner';
-import { useAgent, useSessionContext } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { CLOSE, isTerminalClose } from '@/lib/voice-session';
+import { useVoiceSession, useVoiceSnapshot } from '@/lib/voice-session-react';
 
 interface ToastProps {
   title: ReactNode;
@@ -24,42 +25,23 @@ function toastAlert(toast: ToastProps) {
   );
 }
 
+/** Closes that end a call on purpose or by the room owner, not a failure. */
+const NORMAL_ENDS: number[] = [CLOSE.CLIENT_REQUESTED, CLOSE.ROOM_CLOSED];
+
 export function useAgentErrors() {
-  const agent = useAgent();
-  const { isConnected, end } = useSessionContext();
+  const { disconnect } = useVoiceSession();
+  const { closeCode, lastError } = useVoiceSnapshot();
 
   useEffect(() => {
-    if (isConnected && agent.state === 'failed') {
-      const reasons = agent.failureReasons;
-
-      toastAlert({
-        title: 'Session ended',
-        description: (
-          <>
-            {reasons.length > 1 && (
-              <ul className="list-inside list-disc">
-                {reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-            {reasons.length === 1 && <p className="w-full">{reasons[0]}</p>}
-            <p className="w-full">
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href="https://docs.livekit.io/agents/start/voice-ai/"
-                className="whitespace-nowrap underline"
-              >
-                See quickstart guide
-              </a>
-              .
-            </p>
-          </>
-        ),
-      });
-
-      end();
+    if (closeCode === null || !isTerminalClose(closeCode) || NORMAL_ENDS.includes(closeCode)) {
+      return;
     }
-  }, [agent, isConnected, end]);
+
+    toastAlert({
+      title: 'Session ended',
+      description: lastError ? <p className="w-full">{lastError}</p> : undefined,
+    });
+
+    disconnect();
+  }, [closeCode, lastError, disconnect]);
 }

@@ -13,11 +13,10 @@
  */
 import React, { type ComponentProps, useMemo } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
-import { type LocalAudioTrack, type RemoteAudioTrack } from 'livekit-client';
-import { type AgentState, type TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { ReactShaderToy } from '@/components/agents-ui/react-shader-toy';
 import { useAgentAudioVisualizerAura } from '@/hooks/agents-ui/use-agent-audio-visualizer-aura';
 import { cn } from '@/lib/shadcn/utils';
+import { type AudioLevelSource, type VisualizerState } from '@/lib/voice-session-react';
 
 const DEFAULT_COLOR = '#1FD5F9';
 
@@ -370,7 +369,7 @@ export interface AgentAudioVisualizerAuraProps {
    * Agent state
    * @default 'connecting'
    */
-  state?: AgentState;
+  state?: VisualizerState;
   /**
    * The color of the aura in hexidecimal format.
    * @defaultValue '#1FD5F9'
@@ -387,9 +386,9 @@ export interface AgentAudioVisualizerAuraProps {
    */
   themeMode?: 'dark' | 'light';
   /**
-   * The audio track to visualize. Can be a local/remote audio track or a track reference.
+   * The audio level to visualize: agent playback (default) or the local mic.
    */
-  audioTrack?: LocalAudioTrack | RemoteAudioTrack | TrackReferenceOrPlaceholder;
+  audioTrack?: AudioLevelSource;
   /**
    * Volume value (0-1) to use instead of the value computed from the audioTrack.
    */

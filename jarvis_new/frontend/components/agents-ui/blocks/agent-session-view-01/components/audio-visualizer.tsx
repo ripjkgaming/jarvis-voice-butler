@@ -2,13 +2,13 @@
 
 import React from 'react';
 import { type MotionProps, motion } from 'motion/react';
-import { useVoiceAssistant } from '@livekit/components-react';
 import { AgentAudioVisualizerAura } from '@/components/agents-ui/agent-audio-visualizer-aura';
 import { AgentAudioVisualizerBar } from '@/components/agents-ui/agent-audio-visualizer-bar';
 import { AgentAudioVisualizerGrid } from '@/components/agents-ui/agent-audio-visualizer-grid';
 import { AgentAudioVisualizerRadial } from '@/components/agents-ui/agent-audio-visualizer-radial';
 import { AgentAudioVisualizerWave } from '@/components/agents-ui/agent-audio-visualizer-wave';
 import { cn } from '@/lib/shadcn/utils';
+import { useAgentState } from '@/lib/voice-session-react';
 
 const MotionAgentAudioVisualizerAura = motion.create(AgentAudioVisualizerAura);
 const MotionAgentAudioVisualizerBar = motion.create(AgentAudioVisualizerBar);
@@ -46,14 +46,14 @@ export function AudioVisualizer({
   className,
   ...props
 }: AudioVisualizerProps) {
-  const { state, audioTrack } = useVoiceAssistant();
+  const state = useAgentState();
 
   switch (audioVisualizerType) {
     case 'aura': {
       return (
         <MotionAgentAudioVisualizerAura
           state={state}
-          audioTrack={audioTrack}
+          audioTrack="agent"
           color={audioVisualizerColor}
           colorShift={audioVisualizerColorShift}
           themeMode={themeMode}
@@ -67,7 +67,7 @@ export function AudioVisualizer({
         <motion.div className={className} {...props}>
           <MotionAgentAudioVisualizerWave
             state={state}
-            audioTrack={audioTrack}
+            audioTrack="agent"
             color={audioVisualizerColor}
             colorShift={audioVisualizerColorShift}
             lineWidth={isChatOpen ? audioVisualizerWaveLineWidth * 2 : audioVisualizerWaveLineWidth}
@@ -93,7 +93,7 @@ export function AudioVisualizer({
           size={size}
           state={state}
           color={audioVisualizerColor}
-          audioTrack={audioTrack}
+          audioTrack="agent"
           rowCount={audioVisualizerGridRowCount}
           columnCount={audioVisualizerGridColumnCount}
           radius={Math.round(
@@ -111,7 +111,7 @@ export function AudioVisualizer({
             size="xl"
             state={state}
             color={audioVisualizerColor}
-            audioTrack={audioTrack}
+            audioTrack="agent"
             radius={audioVisualizerRadialRadius}
             barCount={audioVisualizerRadialBarCount}
             className="size-[450px]"
@@ -142,7 +142,7 @@ export function AudioVisualizer({
           size={size}
           state={state}
           color={audioVisualizerColor}
-          audioTrack={audioTrack}
+          audioTrack="agent"
           barCount={audioVisualizerBarCount}
           className={sizedClassName}
           {...props}

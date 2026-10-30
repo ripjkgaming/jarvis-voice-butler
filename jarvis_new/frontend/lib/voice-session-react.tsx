@@ -91,6 +91,25 @@ export function useAgentState(): AgentState {
   return useSnapshot().agentState;
 }
 
+/** Reactive snapshot (status, closeCode, lastError, mode, ...). */
+export function useVoiceSnapshot(): VoiceSnapshot {
+  return useSnapshot();
+}
+
+/** Audio level source for the visualizers: agent playback or the local mic. */
+export type AudioLevelSource = 'agent' | 'mic';
+
+/** Visualizer states: the agent states plus the visual-only values the
+ *  visualizers still accept (`connecting`, `disconnected`, `idle`, `failed`,
+ *  `pre-connect-buffering`). The voice transport never emits the latter. */
+export type VisualizerState =
+  | AgentState
+  | 'connecting'
+  | 'disconnected'
+  | 'idle'
+  | 'failed'
+  | 'pre-connect-buffering';
+
 export type UseMicToggleReturn = {
   enabled: boolean;
   /** Flip, or pass the desired state. Stops sending mic frames when off. */
