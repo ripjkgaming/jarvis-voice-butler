@@ -38,10 +38,9 @@ class Sink:
         self.times = []
         self.changed = asyncio.Event()
 
-    async def capture_frame(self, frame):
-        assert frame.sample_rate == wake_client.MIC_RATE
-        assert frame.num_channels == 1
-        self.audio.append(bytes(frame.data))
+    async def capture(self, raw):
+        # The uplink receives 48 kHz capture blocks; MicUplink resamples them.
+        self.audio.append(bytes(raw))
         self.times.append(asyncio.get_running_loop().time())
         self.changed.set()
 
@@ -420,3 +419,66 @@ async def test_callback_discards_audio_if_mute_changes_while_copying_it(monkeypa
         await asyncio.wait_for(obj._listen_loop(SimpleNamespace()), 0.05)
     assert obj._mute_epoch == 1
     assert scored == [], "pre-mute PCM must not receive the new unmuted epoch"
+
+
+async def test_secondary_mic_stream_aborts_overflow_without_forwarding_tail(
+    monkeypatch,
+):
+    """School/secondary capture must have the same bound as the shared stream."""
+    import mic_clean
+
+    obj, sink = client(), Sink()
+    captions = []
+    monkeypatch.setattr(wake_client, "MIC_QUEUE_MAX_BLOCKS", 2)
+    monkeypatch.setattr(
+        wake_client,
+        "mic_buffer_failed",
+        lambda q: bool(getattr(q, "mic_overflowed", False)),
+    )
+    monkeypatch.setattr(mic_clean, "make_cleaner", lambda size: None)
+
+    class Input:
+        def __init__(self, **kwargs):
+            self.callback = kwargs["callback"]
+
+        def __enter__(self):
+            for value in range(5):
+                self.callback(block(value), 960, None, None)
+            return self
+
+        def __exit__(self, *args):
+            captions.append("closed")
+
+    monkeypatch.setitem(
+        sys.modules, "sounddevice", SimpleNamespace(RawInputStream=Input)
+    )
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(obj._pump_mic(sink), 0.1)
+    assert sink.audio == []
+    assert captions == ["closed"]
+
+
+async def test_uplink_sends_each_32ms_block_once_as_16k_pcm16():
+    import numpy as np
+
+    from audio_dsp import Downsampler48to16
+
+    class Hub:
+        def __init__(self):
+            self.sent = []
+
+        async def send_mic(self, pcm):
+            self.sent.append(pcm)
+            return True
+
+    hub = Hub()
+    uplink = wake_client.MicUplink(hub)
+    blocks = [block(3), block(-7), block(12)]
+    for raw in blocks:
+        assert await uplink.capture(raw) is True
+    # 1536 samples at 48 kHz are 32 ms: one 512-sample (1024-byte) frame each.
+    assert [len(pcm) for pcm in hub.sent] == [1024, 1024, 1024]
+    expected = Downsampler48to16()
+    assert hub.sent == [
+        expected.process(np.frombuffer(raw, dtype=np.int16)).tobytes() for raw in blocks
+    ]

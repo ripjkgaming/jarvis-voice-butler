@@ -9,8 +9,6 @@ import pytest
 
 @pytest.fixture
 def call_harness(monkeypatch):
-    from livekit import rtc
-
     import wake_client
 
     events = []
@@ -24,48 +22,57 @@ def call_harness(monkeypatch):
     connecting = asyncio.Event()
 
     class Source:
+        async def capture(self, raw):
+            return True
+
         async def aclose(self):
             events.append("source_closed")
 
     class Room:
+        """Stands in for the hub client: same surface, scripted outcomes."""
+
         def __init__(self):
             self.handlers = {}
-            self.local_participant = self
+            self.last_close_code = None
+            self._closed = None
 
-        def on(self, name):
-            def register(callback):
-                self.handlers[name] = callback
-                return callback
+        def on_topic(self, topic, callback):
+            self.handlers.setdefault(topic, []).append(callback)
 
-            return register
+        def start(self):
+            self._closed = asyncio.get_running_loop().create_future()
+            return self._closed
 
-        async def connect(self, *args):
+        def drop(self, *args):
+            # The server ends the call; the client's run task finishes.
+            if self._closed is not None and not self._closed.done():
+                self._closed.set_result(None)
+
+        async def wait_connected(self, timeout=None):
             connecting.set()
             if behavior.get("connect") == "error":
                 raise OSError("synthetic connection failure")
             if behavior.get("connect") == "wait":
                 await asyncio.Event().wait()
             events.append("connected")
+            if not behavior.get("no_agent"):
+                # The agent announces itself once its session is up.
+                for callback in self.handlers.get("state", []):
+                    callback({"agent": "listening", "user": "listening"})
 
-        async def publish_track(self, *args):
-            if behavior.get("no_agent"):
-                return
-            self.handlers["track_subscribed"](
-                SimpleNamespace(kind=rtc.TrackKind.KIND_AUDIO), None, None
-            )
+        async def send_mic(self, pcm):
+            return True
 
-        async def disconnect(self):
+        async def send_chat(self, text):
+            return True
+
+        async def close(self):
             events.append("disconnected")
-            self.handlers["disconnected"]()
+            self.drop()
 
     room = Room()
-    monkeypatch.setattr(rtc, "Room", lambda: room)
-    monkeypatch.setattr(rtc, "AudioSource", lambda *args: Source())
-    monkeypatch.setattr(
-        rtc,
-        "LocalAudioTrack",
-        SimpleNamespace(create_audio_track=lambda *args: object()),
-    )
+    monkeypatch.setattr(wake_client, "VoiceClient", lambda *args, **kw: room)
+    monkeypatch.setattr(wake_client, "MicUplink", lambda client: Source())
     for name in (
         "hud_stage",
         "clear_hud_room",
@@ -83,11 +90,6 @@ def call_harness(monkeypatch):
 
     monkeypatch.setattr(wake_client, "active_call_exists", idle)
     client = wake_client.WakeClient.__new__(wake_client.WakeClient)
-    client._creds = {
-        "LIVEKIT_URL": "unused",
-        "LIVEKIT_API_KEY": "unused",
-        "LIVEKIT_API_SECRET": "unused",
-    }
     client._agent_name = "fake-agent"
     client._mic_lock = threading.Lock()
     client._pending_text = client._pending_announce = ""
@@ -250,7 +252,7 @@ async def test_quiet_playback_keeps_call_and_normal_end_cleans_tasks(
             h.client._rewake.set()
             assert await asyncio.wait_for(call, 1) is True
         elif end_reason == "disconnect":
-            h.room.handlers["disconnected"]()
+            h.room.drop()
             assert await asyncio.wait_for(call, 1) is False
         else:
             call.cancel()
@@ -315,7 +317,7 @@ async def test_disconnect_during_join_stops_waiting_for_agent(call_harness):
     try:
         await asyncio.wait_for(h.mic_started.wait(), 1)
         # Current RTC SDK includes a reason with this event.
-        h.room.handlers["disconnected"]("synthetic-server-shutdown")
+        h.room.drop("synthetic-server-shutdown")
         done, _ = await asyncio.wait({call}, timeout=0.2)
         assert call in done, "disconnected join must not wait the 25s track timeout"
         assert await call is False

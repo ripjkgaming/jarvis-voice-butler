@@ -1,5 +1,4 @@
 import asyncio
-import json
 
 import pytest
 
@@ -30,6 +29,74 @@ from wake_client import (
 )
 
 
+class FakeHub:
+    """Stands in for jarvis_rt VoiceClient: same surface, no network.
+
+    ``connect`` controls the outcome: "ok" (accepted), "error" (wait_connected
+    raises an unexpected OSError) or "raise" (raises the given exception).
+    """
+
+    last = None
+
+    def __init__(self, url, token, **kwargs):
+        self.url, self.token = url, token
+        self.topics = {}
+        self.mic = []
+        self.chat = []
+        self.events = []
+        self.last_close_code = None
+        self.connect = "ok"
+        self.error = None
+        self.agent_online = True
+        self._closed = None
+        FakeHub.last = self
+
+    @classmethod
+    def factory(cls, **settings):
+        def make(url, token, **kwargs):
+            hub = cls(url, token, **kwargs)
+            for key, value in settings.items():
+                setattr(hub, key, value)
+            return hub
+
+        return make
+
+    def on_topic(self, topic, callback):
+        self.topics.setdefault(topic, []).append(callback)
+
+    def start(self):
+        self._closed = asyncio.get_running_loop().create_future()
+        return self._closed
+
+    async def wait_connected(self, timeout=None):
+        self.events.append("connect")
+        await asyncio.sleep(0)
+        if self.connect == "raise":
+            raise self.error
+        if self.connect == "error":
+            raise OSError("synthetic connection failure")
+        if self.agent_online:
+            for callback in self.topics.get("state", []):
+                callback({"agent": "listening", "user": "listening"})
+
+    async def send_mic(self, pcm):
+        self.mic.append(pcm)
+        return True
+
+    async def send_chat(self, text):
+        self.chat.append(text)
+        return True
+
+    async def audio_frames(self):
+        if False:
+            yield b""
+
+    async def close(self):
+        self.events.append("disconnect")
+        if self._closed is not None and not self._closed.done():
+            self._closed.set_result(None)
+
+
 def test_summon_room_names_are_unique() -> None:
     assert summon_room_name(now=1000.0) == "jarvis-1000"
     assert summon_room_name(now=1001.0) != summon_room_name(now=1000.0)
@@ -55,22 +122,17 @@ def test_load_livekit_env_missing_file(tmp_path) -> None:
     assert load_livekit_env(tmp_path / "nope") == {}
 
 
-def test_mint_summon_token_carries_dispatch() -> None:
-    jwt = mint_summon_token(
-        url="wss://example.livekit.cloud",
-        api_key="test-key",
-        api_secret="test-secret-" + "x" * 32,
-        room="jarvis-1",
-        agent_name="my-agent",
-    )
-    import base64
+def test_mint_summon_token_carries_dispatch(monkeypatch, tmp_path) -> None:
+    from jarvis_rt.transport.tokens import load_secret, verify_call_token
 
-    payload = jwt.split(".")[1]
-    payload += "=" * (-len(payload) % 4)
-    claims = json.loads(base64.urlsafe_b64decode(payload))
-    assert claims["video"]["room"] == "jarvis-1"
-    assert claims["video"]["roomJoin"] is True
-    assert claims["roomConfig"]["agents"][0]["agentName"] == "my-agent"
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    token = mint_summon_token(room="jarvis-1", reason="wake")
+    claims = verify_call_token(token, load_secret(tmp_path))
+    assert claims.room == "jarvis-1"
+    assert claims.identity == "jarvis-master"
+    # Speaker mode: the hub starts the agent job when this summon joins.
+    assert claims.mode == "speaker"
+    assert claims.attrs == {"jarvis.wake": "wake"}
 
 
 def test_frame_16k_chunks_buffers_to_native_frames() -> None:
@@ -101,30 +163,20 @@ def test_wake_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_wake_client_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from wake_client import WakeClient
 
-    # No third-party key exists anymore; config is LiveKit creds only.
+    # No third-party key exists anymore, and the in-repo hub needs no LiveKit
+    # credentials: the client constructs with none in the environment.
     monkeypatch.delenv("PICOVOICE_ACCESS_KEY", raising=False)
-    client = WakeClient()
-    monkeypatch.setattr(
-        client,
-        "_creds",
-        {
-            "LIVEKIT_URL": "wss://x",
-            "LIVEKIT_API_KEY": "k",
-            "LIVEKIT_API_SECRET": "s",
-        },
-    )
-    client._check_config()  # must not raise
+    for key in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+        monkeypatch.delenv(key, raising=False)
+    WakeClient()
 
 
-def test_wake_client_refuses_without_livekit_creds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_wake_client_has_no_livekit_config_gate() -> None:
     from wake_client import WakeClient
 
-    client = WakeClient()
-    monkeypatch.setattr(client, "_creds", {})
-    with pytest.raises(RuntimeError, match="LIVEKIT_URL"):
-        client._check_config()
+    # Formerly refused to start without LIVEKIT_* creds. The voice hub has no
+    # such credentials, so the startup gate is gone.
+    assert not hasattr(WakeClient, "_check_config")
 
 
 def test_room_has_active_call_needs_user_plus_agent() -> None:
@@ -134,19 +186,20 @@ def test_room_has_active_call_needs_user_plus_agent() -> None:
 
 
 async def test_summon_stays_out_when_call_active(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     import wake_client
     from wake_client import WakeClient
 
-    async def _busy(_creds: dict) -> bool:
+    async def _busy() -> bool:
         return True
 
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(wake_client, "VoiceClient", FakeHub.factory())
     monkeypatch.setattr(wake_client, "active_call_exists", _busy)
     monkeypatch.setattr(wake_client, "summon_overlay", lambda: None)
     client = WakeClient()
-    # Must return before touching livekit.rtc (unavailable/blocked here).
-    await client._summon_session()
+    assert await client._summon_session() is False
 
 
 def test_shell_talk_candidates_end_with_talk() -> None:
@@ -176,7 +229,9 @@ def test_summon_overlay_never_raises(monkeypatch) -> None:
         raise FileNotFoundError("synthetic missing shell")
 
     monkeypatch.setattr(wake_client.threading, "Thread", InlineThread)
-    monkeypatch.setattr(wake_client, "shell_talk_candidates", lambda: [["fake", "talk"]])
+    monkeypatch.setattr(
+        wake_client, "shell_talk_candidates", lambda: [["fake", "talk"]]
+    )
     monkeypatch.setattr(subprocess, "run", missing)
     summon_overlay()
     assert attempts == [["fake", "talk"]]
@@ -187,38 +242,26 @@ async def test_summon_joins_without_deferral(
 ) -> None:
     """Wake joins immediately now: the HUD is receive-only (no mic in the
     webview), so there is no race to defer — one call check, run alongside
-    the join (it is a Cloud round trip)."""
+    the join."""
     import wake_client
     from wake_client import WakeClient
 
     class _ReachedConnectError(Exception):
         pass
 
-    class _FakeRoom:
-        def on(self, *args, **kwargs):
-            def deco(fn):
-                return fn
-
-            return deco
-
-        async def connect(self, *args, **kwargs):
-            await asyncio.sleep(0)  # the network yields; the check runs
-            raise _ReachedConnectError("reached-connect")
-
-        async def disconnect(self):
-            pass
-
     calls = {"n": 0}
 
-    async def _idle(_creds: dict) -> bool:
+    async def _idle() -> bool:
         calls["n"] += 1
         return False
 
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setattr(wake_client, "active_call_exists", _idle)
-    import livekit.rtc
-
-    monkeypatch.setattr(livekit.rtc, "Room", _FakeRoom)
+    monkeypatch.setattr(
+        wake_client,
+        "VoiceClient",
+        FakeHub.factory(connect="raise", error=_ReachedConnectError("reached-connect")),
+    )
     client = WakeClient()
     with pytest.raises(_ReachedConnectError):
         await client._summon_session()
@@ -260,9 +303,14 @@ def test_hud_room_stale_reads_as_none(
 async def test_active_call_exists_fails_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import wake_client
     from wake_client import active_call_exists
 
-    assert await active_call_exists({}) is False
+    def broken() -> bool:
+        raise OSError("synthetic status read failure")
+
+    monkeypatch.setattr(wake_client, "_call_active", broken)
+    assert await active_call_exists() is False
 
 
 # --- Phase 4.2: unix-socket mic mute control (no mic hardware needed) ---
@@ -524,7 +572,9 @@ async def test_record_question_caps_in_constant_speech() -> None:
     assert abs(len(got) * block_s - RECORD_MAX_S) < 0.1
 
 
-def test_hud_stage_writes_the_setup_log(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_hud_stage_writes_the_setup_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     import json
 
     from wake_client import hud_stage
@@ -563,33 +613,15 @@ async def test_summon_stays_out_when_check_finds_a_call(
     import wake_client
     from wake_client import WakeClient
 
-    events: list[str] = []
-
-    class _Participant:
-        async def publish_track(self, *a, **k):
-            events.append("publish")
-
-    class _FakeRoom:
-        local_participant = _Participant()
-
-        def on(self, *args, **kwargs):
-            return lambda fn: fn
-
-        async def connect(self, *args, **kwargs):
-            events.append("connect")
-
-        async def disconnect(self):
-            events.append("disconnect")
-
-    async def _busy(_creds: dict) -> bool:
+    async def _busy() -> bool:
         return True
 
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setattr(wake_client, "active_call_exists", _busy)
     monkeypatch.setattr(wake_client, "summon_overlay", lambda: None)
-    import livekit.rtc
-
-    monkeypatch.setattr(livekit.rtc, "Room", _FakeRoom)
+    monkeypatch.setattr(wake_client, "VoiceClient", FakeHub.factory())
     client = WakeClient()
     assert await client._summon_session() is False
-    assert events == ["connect", "disconnect"]
+    hub = FakeHub.last
+    assert hub.events == ["connect", "disconnect"]
+    assert hub.mic == [], "no microphone frames reach a call that was not joined"

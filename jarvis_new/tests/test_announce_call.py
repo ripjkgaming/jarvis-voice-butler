@@ -1,7 +1,6 @@
 """Silent-call announce: wake-client command, token, agent join, speak() routing."""
 
 import json
-import os
 import socket
 import threading
 from types import SimpleNamespace
@@ -16,22 +15,27 @@ def test_extract_announce_text() -> None:
     assert wake_client.extract_announce_text({"announce": ""}) is None
     assert wake_client.extract_announce_text({"announce": 5}) is None
     assert wake_client.extract_announce_text({"talk": True}) is None
-    assert wake_client.extract_announce_text(
-        {"announce": "x" * (wake_client.TALK_TEXT_MAX + 1)}
-    ) is None
+    assert (
+        wake_client.extract_announce_text(
+            {"announce": "x" * (wake_client.TALK_TEXT_MAX + 1)}
+        )
+        is None
+    )
 
 
-def test_token_carries_announce_attribute() -> None:
-    import jwt
+def test_token_carries_announce_attribute(monkeypatch, tmp_path) -> None:
+    from jarvis_rt.transport.tokens import load_secret, verify_call_token
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
 
     def attrs(**kw):
-        tok = wake_client.mint_summon_token(
-            url="ws://x", api_key="k" * 8, api_secret="s" * 32, room="r",
-            agent_name="a", **kw,
-        )
-        return jwt.decode(tok, options={"verify_signature": False}).get("attributes", {})
+        tok = wake_client.mint_summon_token(room="r", **kw)
+        return verify_call_token(tok, load_secret(tmp_path)).attrs
 
-    assert attrs(reason="announce", announce="Mail from Sam")["jarvis.announce"] == "Mail from Sam"
+    assert (
+        attrs(reason="announce", announce="Mail from Sam")["jarvis.announce"]
+        == "Mail from Sam"
+    )
     assert "jarvis.announce" not in attrs()
 
 
@@ -41,7 +45,10 @@ def _room(attrs: dict):
 
 
 def test_agent_reads_announce_from_room() -> None:
-    assert agent._wake_announce(_room({"jarvis.announce": " Three  new mails. "})) == "Three new mails."
+    assert (
+        agent._wake_announce(_room({"jarvis.announce": " Three  new mails. "}))
+        == "Three new mails."
+    )
     assert agent._wake_announce(_room({"jarvis.wake": "wake"})) == ""
     assert agent._wake_announce(SimpleNamespace(remote_participants={})) == ""
 

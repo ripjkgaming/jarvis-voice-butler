@@ -77,7 +77,9 @@ def test_wake_reason_reads_the_wake_clients_tag():
     def room(*parts):
         return SimpleNamespace(remote_participants={p.identity: p for p in parts})
 
-    master = SimpleNamespace(identity="jarvis-master", attributes={"jarvis.wake": "daddy"})
+    master = SimpleNamespace(
+        identity="jarvis-master", attributes={"jarvis.wake": "daddy"}
+    )
     plain = SimpleNamespace(identity="jarvis-master", attributes={})
     user = SimpleNamespace(identity="user", attributes={"jarvis.wake": "daddy"})
     assert _wake_reason(room(master)) == "daddy"
@@ -85,24 +87,20 @@ def test_wake_reason_reads_the_wake_clients_tag():
     assert _wake_reason(room(user)) == ""
     assert _wake_reason(SimpleNamespace()) == ""
     assert DADDY_GREETING == "Welcome back, Sir."
-    bare = SimpleNamespace(identity="jarvis-master", attributes={"jarvis.wake": "school-bare"})
+    bare = SimpleNamespace(
+        identity="jarvis-master", attributes={"jarvis.wake": "school-bare"}
+    )
     assert _wake_reason(room(bare)) == "school-bare"
 
 
-def test_summon_token_carries_the_reason():
-    import jwt as _jwt  # noqa: F401  (pyjwt ships with livekit-api)
-
+def test_summon_token_carries_the_reason(monkeypatch, tmp_path):
+    from jarvis_rt.transport.tokens import load_secret, verify_call_token
     from wake_client import mint_summon_token
 
-    tok = mint_summon_token(
-        url="ws://x", api_key="k", api_secret="s" * 32, room="r", agent_name="a",
-        reason="daddy",
-    )
-    import base64
-    import json
-
-    body = json.loads(base64.urlsafe_b64decode(tok.split(".")[1] + "=="))
-    assert body["attributes"] == {"jarvis.wake": "daddy"}
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    tok = mint_summon_token(room="r", reason="daddy")
+    claims = verify_call_token(tok, load_secret(tmp_path))
+    assert claims.attrs == {"jarvis.wake": "daddy"}
 
 
 def test_briefing_instructions_forbid_tools_and_keep_facts():

@@ -103,31 +103,35 @@ async def test_empty_playback_never_opens_speaker(speaker):
         await playback.write(np.zeros(1, dtype=np.int16), 24000)
 
 
-async def test_wake_playback_preserves_school_gain_and_closes_input(
-    speaker, monkeypatch
-):
-    from livekit import rtc
-
-    from wake_client import WakeClient
-
-    original = np.array([-3000, 1000, 8000], dtype=np.int16)
-    closed = []
+def hub_frames(closed, *chunks):
+    """Agent audio as the hub client yields it: PCM16 mono 24 kHz chunks."""
 
     class Stream:
-        def __init__(self, track):
-            pass
-
         async def __aiter__(self):
-            yield SimpleNamespace(frame=rtc.AudioFrame(original.tobytes(), 24000, 1, 3))
+            for chunk in chunks:
+                yield chunk
 
         async def aclose(self):
             closed.append(True)
 
-    monkeypatch.setattr(rtc, "AudioStream", Stream)
+    class Hub:
+        def audio_frames(self):
+            return Stream()
+
+    return Hub()
+
+
+async def test_wake_playback_preserves_school_gain_and_closes_input(
+    speaker, monkeypatch
+):
+    from wake_client import WakeClient
+
+    original = np.array([-3000, 1000, 8000], dtype=np.int16)
+    closed = []
     monkeypatch.setattr("wake_client._school_quiet", lambda: True)
     monkeypatch.setattr("wake_client._school_gain", lambda: 0.2)
     client = WakeClient.__new__(WakeClient)
-    await client._play_agent(None)
+    await client._play_agent(hub_frames(closed, original.tobytes()))
     writes = [event[2] for event in speaker.events if event[0] == "write"]
     assert len(writes) == 1
     assert np.array_equal(writes[0], (original.astype("float32") * 0.2).astype("int16"))
@@ -139,55 +143,32 @@ async def test_wake_playback_preserves_school_gain_and_closes_input(
 async def test_wake_closes_speaker_and_input_on_device_error(
     speaker, monkeypatch, failure_stage
 ):
-    from livekit import rtc
-
     from wake_client import WakeClient
 
     closed = []
-
-    class Stream:
-        def __init__(self, track):
-            pass
-
-        async def __aiter__(self):
-            yield SimpleNamespace(frame=rtc.AudioFrame(b"\0\0" * 240, 24000, 1, 240))
-
-        async def aclose(self):
-            closed.append(True)
 
     def fail(*args):
         raise OSError("fake speaker unavailable")
 
     monkeypatch.setattr(speaker.Output, failure_stage, fail)
-    monkeypatch.setattr(rtc, "AudioStream", Stream)
     monkeypatch.setattr("wake_client._school_quiet", lambda: False)
     with pytest.raises(OSError, match="fake speaker unavailable"):
-        await WakeClient.__new__(WakeClient)._play_agent(None)
+        await WakeClient.__new__(WakeClient)._play_agent(
+            hub_frames(closed, b"\0\0" * 240)
+        )
     assert closed == [True]
     assert [event[0] for event in speaker.events][-1] == "close"
 
 
-async def test_repeated_cancel_still_closes_rtc_stream(speaker, monkeypatch):
-    from livekit import rtc
-
+async def test_repeated_cancel_still_closes_hub_audio_stream(speaker, monkeypatch):
     from wake_client import WakeClient
 
     speaker.release.clear()
     closed = []
-
-    class Stream:
-        def __init__(self, track):
-            pass
-
-        async def __aiter__(self):
-            yield SimpleNamespace(frame=rtc.AudioFrame(b"\0\0" * 240, 24000, 1, 240))
-
-        async def aclose(self):
-            closed.append(True)
-
-    monkeypatch.setattr(rtc, "AudioStream", Stream)
     monkeypatch.setattr("wake_client._school_quiet", lambda: False)
-    task = asyncio.create_task(WakeClient.__new__(WakeClient)._play_agent(None))
+    task = asyncio.create_task(
+        WakeClient.__new__(WakeClient)._play_agent(hub_frames(closed, b"\0\0" * 240))
+    )
     try:
         assert await asyncio.to_thread(speaker.entered.wait, 1)
         task.cancel()

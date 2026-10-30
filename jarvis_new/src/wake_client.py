@@ -38,6 +38,13 @@ import threading
 import time
 from pathlib import Path
 
+from jarvis_rt.transport.client import VoiceClient
+from jarvis_rt.transport.tokens import load_secret, mint_call_token
+from mint_token import SUMMON_TTL, voice_url
+from mint_token import active_call_exists as _call_active
+from voice_barge_signals import TOPIC as BARGE_TOPIC
+from voice_barge_signals import BargeSync
+from voice_barge_signals import decode as decode_barge
 from wake_events import WakeEventBroadcaster
 
 logger = logging.getLogger("jarvis-wake")
@@ -58,6 +65,13 @@ ACK_LINE = "Loading in, Sir."
 # Spoken openers are short; anything longer belongs in /chat text mode.
 TALK_TEXT_MAX = 500
 AGENT_JOIN_TIMEOUT = 25.0
+CONNECT_TIMEOUT_S = 10.0
+# Hub close code 4003: a call is already live, so this summon stays out.
+ROOM_BUSY_CODE = 4003
+# Agent speech from the hub is PCM16 mono 24 kHz.
+AGENT_RATE = 24000
+# Attribute budget of a call token (jarvis_rt.transport.tokens).
+ATTR_MAX_BYTES = 1024
 MIC_READY_SETTLE_S = 0.3
 # Retain a complete supported join wait without trimming the first words.
 # At 48 kHz mono int16 this queue holds at most about 2.9 MB.
@@ -185,27 +199,15 @@ def room_has_active_call(identities: list[str]) -> bool:
     return len(identities) >= 2
 
 
-async def active_call_exists(creds: dict[str, str]) -> bool:
-    """True when any LiveKit room already hosts a call.
+async def active_call_exists() -> bool:
+    """True when the voice hub already hosts a live call.
 
-    Fails open (returns False) on API errors: a missed double-voice
-    guard is better than going deaf because Cloud hiccuped.
+    Reads the worker's ``voice_active.json`` on a thread. Fails open
+    (returns False) on errors: a missed double-voice guard is better than
+    going deaf because the status file could not be read.
     """
     try:
-        from livekit import api
-
-        async with api.LiveKitAPI(
-            creds["LIVEKIT_URL"], creds["LIVEKIT_API_KEY"], creds["LIVEKIT_API_SECRET"]
-        ) as lk:
-            rooms = await lk.room.list_rooms(api.ListRoomsRequest())
-            for room in rooms.rooms:
-                participants = await lk.room.list_participants(
-                    api.ListParticipantsRequest(room=room.name)
-                )
-                if room_has_active_call(
-                    [p.identity for p in participants.participants]
-                ):
-                    return True
+        return bool(await asyncio.to_thread(_call_active))
     except Exception as exc:
         logger.warning("call check failed, summoning anyway: %s", exc)
     return False
@@ -468,37 +470,73 @@ def extract_announce_text(msg: object) -> str | None:
     return text
 
 
-def mint_summon_token(
-    *,
-    url: str,
-    api_key: str,
-    api_secret: str,
-    room: str,
-    agent_name: str,
-    reason: str = "wake",
-    announce: str = "",
-) -> str:
-    """JWT that joins `room` and dispatches the worker. Pure (no I/O)."""
-    from livekit.api import (
-        AccessToken,
-        RoomAgentDispatch,
-        RoomConfiguration,
-        VideoGrants,
-    )
+def _fit_announce(reason: str, text: str) -> str:
+    """Shorten an announcement until its token attributes fit the claim cap."""
+    while text and (
+        len(json.dumps({"jarvis.wake": reason, "jarvis.announce": text}).encode())
+        > ATTR_MAX_BYTES
+    ):
+        text = text[: int(len(text) * 0.9)]
+    return text
 
-    token = AccessToken(api_key, api_secret)
-    token.with_identity(IDENTITY).with_name("Sir")
-    # Why we summoned ("wake", "daddy"): the agent picks its greeting.
+
+def mint_summon_token(*, room: str, reason: str = "wake", announce: str = "") -> str:
+    """Speaker-mode call token for ``room``. The hub starts the agent on join.
+
+    Carries the summon reason (the agent picks its greeting) and, for a
+    silent-call announce, the spoken opening line. Raises ValueError on a bad
+    room or attributes. Call tokens are single use: callers mint per attempt.
+    """
     attrs = {"jarvis.wake": reason}
-    if announce:
+    fitted = _fit_announce(reason, announce) if announce else ""
+    if fitted:
         # Spoken by the agent as the call's opening line (silent-call announce).
-        attrs["jarvis.announce"] = announce
-    token.with_attributes(attrs)
-    token.with_grants(VideoGrants(room_join=True, room=room))
-    token.with_room_config(
-        RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name)])
-    )
-    return token.to_jwt()
+        attrs["jarvis.announce"] = fitted
+    return mint_call_token(room, IDENTITY, "speaker", SUMMON_TTL, attrs, load_secret())
+
+
+async def _connect_or_fail(client: VoiceClient, run_task: asyncio.Task) -> bool:
+    """True once the hub accepts the speaker. False when it refuses or closes
+    the call, or does not answer within CONNECT_TIMEOUT_S. Other errors raise."""
+    waiter = asyncio.ensure_future(client.wait_connected(CONNECT_TIMEOUT_S))
+    try:
+        done, _ = await asyncio.wait(
+            {waiter, run_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+    if waiter in done and not waiter.cancelled():
+        error = waiter.exception()
+        if error is None:
+            return True
+        if isinstance(error, TimeoutError):
+            return False
+        raise error
+    return False
+
+
+class MicUplink:
+    """48 kHz capture blocks in, 16 kHz PCM16 hub mic frames out (one send each)."""
+
+    def __init__(self, client: VoiceClient) -> None:
+        from audio_dsp import Downsampler48to16
+
+        self._client = client
+        self._down = Downsampler48to16()
+
+    async def capture(self, raw: bytes) -> bool:
+        import numpy as np
+
+        if not raw:
+            return True
+        pcm16 = self._down.process(np.frombuffer(raw, dtype=np.int16)).tobytes()
+        if not pcm16:
+            return True
+        return await self._client.send_mic(pcm16)
+
+    async def aclose(self) -> None:
+        return None
 
 
 class WakeClient:
@@ -512,7 +550,6 @@ class WakeClient:
             load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
         except Exception as exc:
             logger.debug("dotenv load failed: %s", exc)
-        self._creds = load_livekit_env()
         self._threshold = wake_threshold()
         self._agent_name = (
             os.environ.get("AGENT_NAME", "my-agent").strip() or "my-agent"
@@ -551,6 +588,10 @@ class WakeClient:
 
         # Ducks room noise and echo while Jarvis speaks (see talk_gate).
         self._talk_gate = TalkOverGate() if gate_enabled() else None
+        self._fast_barge = None
+        self._barge_sync = None
+        self._active_audio_playback = None
+        self._voice = None
         # False while a plain call runs: the listen loop's queue is unread
         # then, and buffering a whole call's audio grew it without bound.
         self._listen_queue_live = True
@@ -784,7 +825,9 @@ class WakeClient:
             from character_runtime import get_runtime
 
             return character_voice.start_idle_warm(
-                list(get_runtime().chars.values()), self._idle_warm_busy, delay_s=delay_s
+                list(get_runtime().chars.values()),
+                self._idle_warm_busy,
+                delay_s=delay_s,
             )
         except Exception as exc:
             logger.debug("idle warm unavailable: %s", exc)
@@ -815,10 +858,14 @@ class WakeClient:
             pcm, sr = character_voice.render_pcm(text.strip(), char)
             if req.get("whoosh"):
                 pcm = mix_character_whoosh(
-                    pcm, sr, character_voice.whoosh_pcm(char, sr),
+                    pcm,
+                    sr,
+                    character_voice.whoosh_pcm(char, sr),
                     float(motion.get("whoosh_gain_db", -18)),
                 )
-            pcm = prepare_character_pcm(pcm, sr, float(motion.get("audio_crossfade_ms", 120)))
+            pcm = prepare_character_pcm(
+                pcm, sr, float(motion.get("audio_crossfade_ms", 120))
+            )
         except Exception as exc:
             logger.warning("character_say failed: %s", exc)
             return {"ok": False, "error": "render failed"}
@@ -848,13 +895,12 @@ class WakeClient:
         async with lock:
             if interrupt and seq != self._say_seq:
                 return  # a newer line superseded this one while queued
-            turn = ("character_say", seq)
             chunk = max(256, sr // 50)
             try:
                 for i in range(0, len(pcm), chunk):
                     if interrupt and seq != self._say_seq:
                         break
-                    await output.write(pcm[i : i + chunk], sr, turn_id=turn)
+                    await output.write(pcm[i : i + chunk], sr)
             except Exception as exc:
                 logger.warning("character_say playback failed: %s", exc)
 
@@ -869,15 +915,6 @@ class WakeClient:
             return False
         finally:
             probe.close()
-
-    def _check_config(self) -> None:
-        missing = [
-            k
-            for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
-            if not self._creds.get(k)
-        ]
-        if missing:
-            raise RuntimeError(f"Missing in frontend/.env.local: {', '.join(missing)}")
 
     def _render_ack(self) -> None:
         """Pre-render 'Loading in, Sir.' with the local voice for instant feedback."""
@@ -899,7 +936,6 @@ class WakeClient:
             logger.warning("ack render failed: %s", exc)
 
     async def run_forever(self) -> None:
-        self._check_config()
         # Echo-cancel Jarvis's own voice on laptop speakers BEFORE any audio
         # stream opens (streams bind to the default devices at open time).
         import audio_aec
@@ -1221,8 +1257,6 @@ class WakeClient:
         preserve_join_audio: bool = False,
     ) -> bool:
         """Run one call. True when it ended by an in-call rewake."""
-        from livekit import rtc
-
         with self._mic_lock:
             linked = getattr(self, "_pending_linked_turn", None)
             self._pending_linked_turn = None
@@ -1235,10 +1269,9 @@ class WakeClient:
         # way: "hey Jarvis" always summons the UI.
         try:
             hud_stage("check")
-            # The double-call check is a LiveKit Cloud round trip (0.4-0.85 s
-            # measured 2 Oct). Run it alongside token + connect and only act
-            # on it before the mic goes live, instead of serially up front.
-            call_check = asyncio.create_task(active_call_exists(self._creds))
+            # The double-call check runs alongside token minting and connect,
+            # and is only acted on before the mic goes live.
+            call_check = asyncio.create_task(active_call_exists())
 
             # Consume one typed seed (text→voice trigger): delivered as the
             # opening user turn once the agent joins, then forgotten. Taken
@@ -1252,34 +1285,34 @@ class WakeClient:
             if announce_text:
                 reason = "announce"
 
-            # The HUD joins this room receive-only (eyes on the call; the mic
-            # permission is denied in the webview, so the HUD never publishes).
-            # Publish the name only once WE are in — the watcher joins live
-            # rooms, never stale names.
             room_name = summon_room_name()
             hud_stage("auth")
-            jwt = mint_summon_token(
-                url=self._creds["LIVEKIT_URL"],
-                api_key=self._creds["LIVEKIT_API_KEY"],
-                api_secret=self._creds["LIVEKIT_API_SECRET"],
-                room=room_name,
-                agent_name=self._agent_name,
-                reason=reason,
-                announce=announce_text,
-            )
-            room = rtc.Room()
+            # Preflight: a token that cannot be minted fails before the mic
+            # opens. The first attempt reuses it; each retry mints afresh.
+            pending_tokens = [
+                mint_summon_token(room=room_name, reason=reason, announce=announce_text)
+            ]
+
+            def connect_token() -> str:
+                if pending_tokens:
+                    return pending_tokens.pop()
+                return mint_summon_token(
+                    room=room_name, reason=reason, announce=announce_text
+                )
+
+            client = VoiceClient(voice_url(), connect_token)
         except BaseException:
-            # Cancellation before an RTC room exists must not leave the HUD
+            # Cancellation before a client exists must not leave the HUD
             # presenting an abandoned call check/authentication as live work.
             clear_hud_waking()
             call_check.cancel()
             raise
         disconnected = asyncio.Event()
-        agent_audio: asyncio.Queue = asyncio.Queue()
         agent_ready = asyncio.Event()
         self._agent_turn_id = None
         self._playback_scope = room_name
         self._agent_output = None
+        self._voice = client
 
         loop = asyncio.get_running_loop()
 
@@ -1287,39 +1320,31 @@ class WakeClient:
             target = payload.get("turn_id")
             if target is None or target == getattr(self, "_agent_turn_id", None):
                 output = getattr(self, "_agent_output", None)
-                if output is not None:
+                if output is not None and hasattr(output, "cancel"):
                     output.cancel()
-            with contextlib.suppress(Exception):
-                await room.local_participant.publish_data(
-                    json.dumps(payload).encode(), reliable=True, topic="jarvis.turn"
-                )
-
-        @room.on("data_received")
-        def _on_turn_data(packet) -> None:
-            self._handle_turn_data(packet.data)
+            await self._send_turn(payload)
 
         async def startup_audio(pending):
-            await room.local_participant.publish_data(
-                json.dumps(
-                    {
-                        "type": "jarvis_turn",
-                        "event": "startup_audio",
-                        "pending": pending,
-                    }
-                ).encode(),
-                reliable=True,
-                topic="jarvis.turn",
+            if linked is None:
+                # Only linked (external) turns carry jarvis.turn control frames.
+                return
+            await self._send_turn(
+                {"type": "jarvis_turn", "event": "startup_audio", "pending": pending}
             )
 
-        @room.on("disconnected")
-        def _on_disconnected(_reason=None) -> None:
-            disconnected.set()
+        def on_agent_online(_payload=None) -> None:
+            # The hub starts the agent job on our join; the first agent state
+            # (or caption) means its session is up and can hear the mic.
+            agent_ready.set()
 
-        @room.on("track_subscribed")
-        def _on_track(track, _publication, _participant) -> None:
-            if track.kind == rtc.TrackKind.KIND_AUDIO:
-                agent_ready.set()
-                agent_audio.put_nowait(track)
+        client.on_topic("state", on_agent_online)
+        client.on_topic("caption", on_agent_online)
+        client.on_topic("flush", lambda _payload=None: self._flush_playback())
+        client.on_topic(BARGE_TOPIC, self._on_barge)
+        client.on_topic("jarvis.turn", self._on_turn_payload)
+
+        run_task = client.start()
+        run_task.add_done_callback(lambda _task: disconnected.set())
 
         rewake = asyncio.Event()
         self._rewake = rewake
@@ -1331,21 +1356,26 @@ class WakeClient:
         try:
             hud_stage("connect")
             try:
-                await room.connect(self._creds["LIVEKIT_URL"], jwt)
-            except rtc.ConnectError:
-                # A signaling/DNS outage must not kill the offline listener.
+                connected = await _connect_or_fail(client, run_task)
+            except Exception:
+                if announce_text:
+                    self._speak_fallback(announce_text)
+                raise
+            if not connected:
+                if client.last_close_code == ROOM_BUSY_CODE:
+                    # A live call already holds the hub: stay out, HUD visible.
+                    logger.warning("already in a call; staying out")
+                    summon_overlay()
+                    return False
+                # A signaling/network outage must not kill the offline listener.
                 # Cleanup below drains the check and clears unjoined call state.
                 # Require a fresh wake/PTT; never replay this opening request.
                 logger.warning("call connection failed; returning to listening")
                 if announce_text:
                     self._speak_fallback(announce_text)
                 return False
-            except Exception:
-                if announce_text:
-                    self._speak_fallback(announce_text)
-                raise
             if await call_check:
-                # The finally below leaves the room and clears the HUD.
+                # The finally below leaves the call and clears the HUD.
                 logger.warning("already in a call; staying out")
                 summon_overlay()
                 return False
@@ -1371,17 +1401,18 @@ class WakeClient:
             logger.warning("joined %s, waiting for %s", room_name, self._agent_name)
             publish_hud_room(room_name)
             self._set_in_call(True)
-            # Publish the mic, stamped SOURCE_MICROPHONE. The default is
-            # SOURCE_UNKNOWN, which AgentSession input streams reject
-            # (accepted_sources={microphone}) — the agent heard silence on
-            # every call while raw subscribers heard us fine.
             hud_stage("uplink")
-            source = rtc.AudioSource(MIC_RATE, 1)
-            mic_track = rtc.LocalAudioTrack.create_audio_track("jarvis-mic", source)
-            await room.local_participant.publish_track(
-                mic_track,
-                rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE),
+            from fast_barge_in import MicBargeIn
+            from fast_barge_in import enabled as fast_barge_enabled
+
+            self._fast_barge = (
+                MicBargeIn(getattr(self, "_talk_gate", None), self._fast_mute_speaker)
+                if fast_barge_enabled()
+                and getattr(self, "_talk_gate", None) is not None
+                else None
             )
+            self._barge_sync = BargeSync() if self._fast_barge is not None else None
+            source = MicUplink(client)
             mic_task = asyncio.create_task(
                 self._pump_queue(
                     source,
@@ -1399,7 +1430,7 @@ class WakeClient:
 
             # Wait for the agent, then relay its voice to the speakers.
             hud_stage("dispatch")
-            track_ready = asyncio.create_task(agent_audio.get())
+            track_ready = asyncio.create_task(agent_ready.wait())
             ended = asyncio.create_task(disconnected.wait())
             call_tasks.update((track_ready, ended))
             done, _ = await asyncio.wait(
@@ -1422,34 +1453,27 @@ class WakeClient:
                 )
             if linked is not None and linked.cancelled.is_set():
                 return False
-            track = track_ready.result()
-            # "online" means the subscribed voice track exists, not that
-            # the remote model has started responding or audio is audible.
+            # "online" means the agent has announced itself, not that the remote
+            # model has started responding or audio is audible.
             hud_stage("online")
-            play_task = asyncio.create_task(self._play_agent(track))
+            play_task = asyncio.create_task(self._play_agent(client))
             call_tasks.add(play_task)
             if seed_text and (linked is None or linked.seed()):
-                # Text→voice: the typed opener becomes the first user
-                # turn over the standard chat topic, so the agent answers
-                # with voice. Fail-soft: a dropped seed never kills audio.
+                # Text→voice: the typed opener becomes the first user turn, so
+                # the agent answers with voice. Fail-soft: a dropped seed never
+                # kills audio.
                 try:
                     if linked is None:
-                        await room.local_participant.send_text(
-                            seed_text, topic="lk.chat"
-                        )
+                        await client.send_chat(seed_text)
                     else:
-                        await room.local_participant.publish_data(
-                            json.dumps(
-                                {
-                                    "type": "jarvis_turn",
-                                    "event": "external_seed",
-                                    "client_id": linked.key[0],
-                                    "external_turn_id": linked.key[1],
-                                    "text": seed_text,
-                                }
-                            ).encode(),
-                            reliable=True,
-                            topic="jarvis.turn",
+                        await self._send_turn(
+                            {
+                                "type": "jarvis_turn",
+                                "event": "external_seed",
+                                "client_id": linked.key[0],
+                                "external_turn_id": linked.key[1],
+                                "text": seed_text,
+                            }
                         )
                     logger.warning("seeded call with typed text")
                 except Exception as exc:
@@ -1461,9 +1485,9 @@ class WakeClient:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if play_task in done:
-                # A closed track or failed speaker cannot deliver another
+                # A closed stream or failed speaker cannot deliver another
                 # answer. Leave instead of holding a silent call indefinitely.
-                # Quiet gaps/barge-in keep the track task alive and stay here.
+                # Quiet gaps/barge-in keep the playback task alive and stay here.
                 logger.warning("agent playback ended; leaving call")
                 return False
             if mic_task in done:
@@ -1478,6 +1502,8 @@ class WakeClient:
                 for task in call_tasks:
                     task.cancel()
                 await asyncio.gather(*call_tasks, return_exceptions=True)
+                if run_task.done() and not run_task.cancelled():
+                    run_task.exception()  # Observed: a fatal close is handled above.
             finally:
                 try:
                     if source is not None:
@@ -1494,23 +1520,69 @@ class WakeClient:
                     self._set_in_call(False)
                     self._rewake = None
                     self._listen_queue_live = True
-                    await room.disconnect()
+                    self._fast_barge = None
+                    self._barge_sync = None
+                    self._active_audio_playback = None
+                    self._voice = None
+                    await client.close()
                     logger.warning("session over, back to listening")
 
-    async def _pump_mic(self, source) -> None:
-        """Forward live mic blocks to the room (porcupine keeps listening).
+    def _fast_mute_speaker(self, now: float) -> None:
+        """Mute locally without stopping microphone or Gemini input."""
+        sync = getattr(self, "_barge_sync", None)
+        if sync is not None:
+            sync.interrupt(now)
+        output = getattr(self, "_active_audio_playback", None)
+        if output is not None and hasattr(output, "mute"):
+            output.mute()
 
-        While muted the queue is drained but nothing is captured: the room
+    def _on_barge(self, payload: object) -> None:
+        """Feed hub barge-in counters to the model-authoritative BargeSync."""
+        sync = getattr(self, "_barge_sync", None)
+        if sync is None:
+            return
+        message = decode_barge(
+            json.dumps(payload, separators=(",", ":")).encode(), BARGE_TOPIC
+        )
+        if message is not None:
+            sync.ingest(message)
+
+    def _on_turn_payload(self, payload: object) -> None:
+        self._handle_turn_data(json.dumps(payload).encode())
+
+    def _flush_playback(self) -> None:
+        """Server ``flush``: drop agent audio already queued for the speaker now."""
+        output = getattr(self, "_agent_output", None)
+        if output is None:
+            return
+        if getattr(self, "_fast_barge", None) is not None and hasattr(output, "mute"):
+            # Same gate as a local barge-in: only a new reply after confirmed
+            # user speech releases the speaker again (see _play_agent).
+            self._fast_mute_speaker(time.monotonic())
+        elif hasattr(output, "cancel"):
+            output.cancel()
+
+    async def _send_turn(self, payload: dict) -> None:
+        """Publish one jarvis.turn control message on the live call. Fail-soft."""
+        client = getattr(self, "_voice", None)
+        if client is None:
+            return
+        with contextlib.suppress(Exception):
+            await client._send_text("jarvis.turn", payload)
+
+    async def _pump_mic(self, source) -> None:
+        """Forward live mic blocks to the call (the hotword loop keeps listening).
+
+        While muted the queue is drained but nothing is captured: the call
         stays joined so unmute resumes mid-call with no rejoin.
         """
         import numpy as np
         import sounddevice as sd
-        from livekit import rtc
 
         from audio_dsp import Downsampler48to16
 
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=MIC_QUEUE_MAX_BLOCKS)
         model = self._model
         if model is not None:
             with contextlib.suppress(Exception):
@@ -1520,7 +1592,7 @@ class WakeClient:
         hot_run = 0
         from mic_clean import make_cleaner
 
-        cleaner = make_cleaner(960)
+        cleaner = make_cleaner(BLOCKSIZE)
 
         def _callback(indata, frames, time_info, status) -> None:
             nonlocal cleaner
@@ -1533,29 +1605,33 @@ class WakeClient:
                     cleaner = None
             with contextlib.suppress(Exception):
                 for block in blocks:
-                    loop.call_soon_threadsafe(queue.put_nowait, block)
+                    loop.call_soon_threadsafe(enqueue_mic_block, queue, block)
 
         with sd.RawInputStream(
             samplerate=MIC_RATE,
             channels=1,
             dtype="int16",
-            blocksize=960,
+            blocksize=BLOCKSIZE,
             callback=_callback,
         ):
             while True:
                 raw = await queue.get()
+                if mic_buffer_failed(queue):
+                    return
                 if self.muted:
                     continue
-                samples = len(raw) // 2
-                raw = self._gate_mic(raw, time.monotonic())
-                frame = rtc.AudioFrame(raw, MIC_RATE, 1, samples)
-                # Awaited: newer livekit made capture_frame a coroutine and
-                # fire-and-forget silently drops every mic frame (the agent
-                # heard silence on every call).
-                await source.capture_frame(frame)
+                barge = getattr(self, "_fast_barge", None)
+                frames = (
+                    barge.feed(raw, time.monotonic())
+                    if barge
+                    else [self._gate_mic(raw, time.monotonic())]
+                )
+                # This mic coroutine NEVER waits for model interruption.
+                for sent in frames:
+                    await source.capture(sent)
                 if model is None or self._rewake is None:
                     continue
-                # 960 samples at 48k decimate exactly to 320 at 16k.
+                # 1536 samples at 48k decimate exactly to 512 at 16k.
                 block = np.frombuffer(raw, dtype=np.int16)
                 pending16 = np.concatenate([pending16, down16.process(block)])
                 scores, pending16 = score_frames(model, pending16)
@@ -1615,7 +1691,6 @@ class WakeClient:
         their opening question has already been sent as text.
         """
         import numpy as np
-        from livekit import rtc
 
         from audio_dsp import Downsampler48to16
 
@@ -1659,7 +1734,7 @@ class WakeClient:
                 float(os.environ.get("JARVIS_ENDPOINT_DELAY", "0") or "0") + 0.05,
             )
 
-        async def forward(raw: bytes, *, backlog: bool) -> None:
+        async def forward(raw: bytes, *, backlog: bool, gated: bool = False) -> None:
             nonlocal next_frame_at, silent_s
             duration = len(raw) / (2 * MIC_RATE)
             if preserve_join_audio and not any(raw):
@@ -1673,8 +1748,9 @@ class WakeClient:
             now = time.monotonic()
             if now - next_frame_at > duration:
                 next_frame_at = now
-            raw = self._gate_mic(raw, now)
-            await source.capture_frame(rtc.AudioFrame(raw, MIC_RATE, 1, len(raw) // 2))
+            if not gated:
+                raw = self._gate_mic(raw, now)
+            await source.capture(raw)
             next_frame_at += duration
             ahead = next_frame_at - time.monotonic()
             if ahead > 0:
@@ -1705,13 +1781,17 @@ class WakeClient:
                 return
             if self.muted:
                 continue
-            if preserve_join_audio:
+            barge = getattr(self, "_fast_barge", None)
+            if barge is not None:
+                for sent in barge.feed(raw, time.monotonic()):
+                    if preserve_join_audio:
+                        await forward(sent, backlog=not queue.empty(), gated=True)
+                    else:
+                        await source.capture(sent)
+            elif preserve_join_audio:
                 await forward(raw, backlog=not queue.empty())
             else:
-                gated = self._gate_mic(raw, time.monotonic())
-                await source.capture_frame(
-                    rtc.AudioFrame(gated, MIC_RATE, 1, len(gated) // 2)
-                )
+                await source.capture(self._gate_mic(raw, time.monotonic()))
             if model is None or self._rewake is None:
                 continue
             pending16 = np.concatenate(
@@ -1793,29 +1873,32 @@ class WakeClient:
         output = getattr(self, "_agent_output", None)
         if message.get("event") == "cancel":
             get_playback_gate().cancel(scoped_id)
-            if tid == getattr(self, "_agent_turn_id", None) and output is not None:
+            if (
+                tid == getattr(self, "_agent_turn_id", None)
+                and output is not None
+                and hasattr(output, "cancel")
+            ):
                 output.cancel()
         elif message.get("event") == "state" and message.get("state") == "speaking":
             current = getattr(self, "_agent_turn_id", None)
             if current is None or tid >= current:
                 self._agent_turn_id = tid
 
-    async def _play_agent(self, track) -> None:
-        """Play frames in order while mic/call callbacks remain responsive."""
-        from livekit.rtc import AudioStream
+    async def _play_agent(self, client) -> None:
+        """Play agent audio in order while mic/call callbacks stay responsive."""
+        from audio_playback import AudioPlayback, FastAudioPlayback
 
-        from audio_playback import AudioPlayback
-
-        stream = AudioStream(track)
-        output = AudioPlayback()
+        barge = getattr(self, "_fast_barge", None)
+        output = FastAudioPlayback() if barge is not None else AudioPlayback()
+        self._active_audio_playback = output
         # Tests and direct stream consumers can omit a bridge session. Normal
-        # room calls always carry the scope and require explicit ownership.
+        # calls always carry the scope and require explicit ownership.
         scoped_call = getattr(self, "_playback_scope", None) is not None
         lease = not scoped_call or await asyncio.to_thread(self._speaker_lease, "claim")
         refresh_at = time.monotonic() + 30.0
         idle_say = getattr(self, "_say_output", None)
         if idle_say is not None:
-            # One OutputStream at a time: the call's playback takes over.
+            # One output stream at a time: the call's playback takes over.
             self._say_output = None
             with contextlib.suppress(Exception):
                 await idle_say.aclose()
@@ -1824,26 +1907,43 @@ class WakeClient:
         ack = getattr(self, "_ack_session", None)
         if ack is not None:
             ack.cancelled.set()
+        frames = client.audio_frames()
         try:
-            async for event in stream:
+            async for pcm in frames:
                 if scoped_call and time.monotonic() >= refresh_at:
                     lease = await asyncio.to_thread(self._speaker_lease, "claim")
                     refresh_at = time.monotonic() + 30.0
-                    if not lease:
+                    if not lease and hasattr(output, "cancel"):
                         output.cancel()
                 if not lease:
                     continue
-                frame = event.frame
-                pcm = (
-                    frame.data.tobytes()
-                    if hasattr(frame.data, "tobytes")
-                    else bytes(frame.data)
-                )
+                now = time.monotonic()
+                sync = getattr(self, "_barge_sync", None)
+                if (
+                    barge is not None
+                    and sync is not None
+                    and sync.ready
+                    and now - (barge.last_loud_at or barge.interrupted_at) >= 0.25
+                ):
+                    # Only a new Gemini speech handle after confirmed user
+                    # speech may release the local speaker. Never use a
+                    # silence gap or arbitrary timeout to resume old audio.
+                    output.resume()
+                    barge.resume()
+                    sync.complete()
                 samples = self._bytes_to_int16(pcm)
-                if samples.size and int(abs(samples).max()) > 500:
+                if (
+                    samples.size
+                    and int(abs(samples).max()) > 500
+                    and not getattr(output, "_muted", False)
+                ):
                     self._last_agent_voice = time.monotonic()
                 gate = getattr(self, "_talk_gate", None)
-                if gate is not None and samples.size:
+                if (
+                    gate is not None
+                    and samples.size
+                    and not getattr(output, "_muted", False)
+                ):
                     rms = float((samples.astype("float32") ** 2).mean() ** 0.5)
                     gate.note_playback(rms, time.monotonic())
                 if _school_quiet():
@@ -1853,34 +1953,31 @@ class WakeClient:
                 if samples.size and (fade_left or _character_changed()):
                     if not fade_left:
                         fade_left = fade_total = int(
-                            frame.sample_rate * CHAR_FADE_IN_MS / 1000
+                            AGENT_RATE * CHAR_FADE_IN_MS / 1000
                         )
                     n = min(fade_left, samples.size)
                     ramp = (
-                        (fade_total - fade_left + __import__("numpy").arange(n))
-                        / max(fade_total, 1)
-                    )
+                        fade_total - fade_left + __import__("numpy").arange(n)
+                    ) / max(fade_total, 1)
                     samples = samples.astype("float32")
                     samples[:n] *= ramp
                     samples = samples.astype("int16")
                     fade_left -= n
-                turn_id = getattr(self, "_agent_turn_id", None)
-                scoped_id = (
-                    (getattr(self, "_playback_scope", "call"), turn_id)
-                    if turn_id is not None
-                    else None
-                )
-                await output.write(samples, frame.sample_rate, turn_id=scoped_id)
+                await output.write(samples, AGENT_RATE)
         finally:
+            if getattr(self, "_active_audio_playback", None) is output:
+                self._active_audio_playback = None
             try:
                 with contextlib.suppress(Exception):
                     await output.aclose()
             finally:
-                with contextlib.suppress(Exception):
-                    await stream.aclose()
-                if scoped_call and lease:
+                try:
                     with contextlib.suppress(Exception):
-                        await asyncio.to_thread(self._speaker_lease, "release")
+                        await frames.aclose()
+                finally:
+                    if scoped_call and lease:
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(self._speaker_lease, "release")
 
 
 def mix_character_whoosh(pcm, sr: int, whoosh, gain_db: float):
