@@ -5,10 +5,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
 def test_declarations_match_livekit_for_every_tool():
+    from livekit.agents import llm
+
     import agent as app
     import jarvis_rt
     from jarvis_rt.gemini_schema import function_declarations
-    from livekit.agents import llm
 
     for ag in (app.Assistant(), app.ResearchAgent(), app.SystemAgent()):
         ctx = llm.ToolContext(ag.tools)

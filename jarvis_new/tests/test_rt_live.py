@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fake_live import FakeClient
+
 from jarvis_rt import Agent, AgentSession, function_tool
 from jarvis_rt.live import (
     LiveBackend,

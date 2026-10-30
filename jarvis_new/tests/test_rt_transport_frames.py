@@ -65,7 +65,10 @@ def test_video_round_trip_and_bad_soi():
 def test_text_round_trip():
     text = encode_text("state", {"agent": "idle", "user": "listening"})
     assert decode_text(text) == ("state", {"agent": "idle", "user": "listening"})
-    assert decode_text(text.encode()) == ("state", {"agent": "idle", "user": "listening"})
+    assert decode_text(text.encode()) == (
+        "state",
+        {"agent": "idle", "user": "listening"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,4 +122,7 @@ def test_barge_invalid_payloads_rejected(payload):
 
 
 def test_non_barge_topic_accepts_any_json():
-    assert decode_text(encode_text("lk.chat", {"text": "hi"})) == ("lk.chat", {"text": "hi"})
+    assert decode_text(encode_text("lk.chat", {"text": "hi"})) == (
+        "lk.chat",
+        {"text": "hi"},
+    )

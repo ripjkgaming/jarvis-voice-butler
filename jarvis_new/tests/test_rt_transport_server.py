@@ -93,7 +93,7 @@ async def served(hub):
 
 
 async def test_hello_frame_on_accept(served):
-    hub, base = served
+    _hub, base = served
     async with connect(base + _token("alice")) as ws:
         hello = await _recv_topic(ws, "hello")
     assert hello == {"identity": "alice", "room": ROOM, "mode": "speaker"}
@@ -172,7 +172,9 @@ async def test_observer_ping_gets_pong_and_limit_is_enforced():
     hub = VoiceHub(SECRET, max_observers=2)
     server, base = await _start(hub)
     try:
-        observers = [await connect(base + _token(f"o{i}", mode="observer")) for i in range(2)]
+        observers = [
+            await connect(base + _token(f"o{i}", mode="observer")) for i in range(2)
+        ]
         for ws in observers:
             await _recv_topic(ws, "hello")
         await observers[0].send(encode_text("ping", None))
@@ -216,7 +218,9 @@ async def test_barge_packet_bounds(served):
         assert await _recv_topic(ws, BARGE_TOPIC) == packet
     with pytest.raises(ValueError):
         await room.local_participant.publish_data(
-            json.dumps({"kind": "user_start", "user_seq": 1, "pad": "x" * 300}).encode(),
+            json.dumps(
+                {"kind": "user_start", "user_seq": 1, "pad": "x" * 300}
+            ).encode(),
             topic=BARGE_TOPIC,
         )
 
@@ -294,8 +298,8 @@ async def test_slow_client_does_not_stall_producer_or_others():
         assert time.monotonic() - started < 2.0
         assert hub.stats["dropped_telemetry"] > 0
         assert await _recv_topic(fast, "state", timeout=5) == {"done": True}
-        await slow.close()
     finally:
+        slow.transport.abort()  # Never reads, so a graceful close would hang.
         await fast.close()
         server.close()
         await server.wait_closed()

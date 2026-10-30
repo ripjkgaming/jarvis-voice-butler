@@ -13,6 +13,7 @@ import collections
 import contextlib
 import inspect
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -49,6 +50,9 @@ _AUDIO_SLICE_BYTES = 32 * 1024
 _VIDEO_QUEUE = 8
 
 
+log = logging.getLogger("jarvis_rt.transport")
+
+
 @dataclass
 class _Item:
     cls: str  # "control" | "telemetry" | "audio"
@@ -69,8 +73,11 @@ class _Client:
         mode: str,
         room: HubRoom,
         hub: VoiceHub,
+        attrs: dict[str, str] | None = None,
     ) -> None:
         self.ws = ws
+        self.attrs = dict(attrs or {})
+        self.disconnect_reason: str | None = None
         self.identity = identity
         self.mode = mode
         self.room = room
@@ -200,6 +207,23 @@ class _LocalParticipant:
         self._room._broadcast(topic, encode_text(topic, value))
 
 
+class Participant:
+    """Remote party in a room (identity, token attributes, close reason)."""
+
+    def __init__(self, client: _Client) -> None:
+        self._client = client
+        self.identity = client.identity
+        self.mode = client.mode
+
+    @property
+    def attributes(self) -> dict[str, str]:
+        return self._client.attrs
+
+    @property
+    def disconnect_reason(self) -> str | None:
+        return self._client.disconnect_reason
+
+
 class HubRoom:
     """Room-compatible facade: one per room name, owned by a VoiceHub."""
 
@@ -216,6 +240,8 @@ class HubRoom:
         self._mic_callbacks: list[Callable[[bytes], Any]] = []
         self._chat_callbacks: list[Callable[[str], Any]] = []
         self._closed = False
+        self._events: dict[str, list[Callable[..., Any]]] = {}
+        self._participants: dict[str, Participant] = {}
 
     # -- membership -------------------------------------------------------
     @property
@@ -230,12 +256,39 @@ class HubRoom:
     def identities(self) -> set[str]:
         return {c.identity for c in self._clients}
 
+    @property
+    def remote_participants(self) -> dict[str, Participant]:
+        return dict(self._participants)
+
+    def on(self, event: str, callback: Callable[..., Any]) -> Callable[..., Any]:
+        self._events.setdefault(event, []).append(callback)
+        return callback
+
+    def off(self, event: str, callback: Callable[..., Any]) -> None:
+        handlers = self._events.get(event, [])
+        if callback in handlers:
+            handlers.remove(callback)
+
+    def _emit(self, event: str, *args: Any) -> None:
+        for callback in list(self._events.get(event, ())):
+            try:
+                _invoke(callback, *args)
+            except Exception:
+                log.exception("room handler for %s failed", event)
+
     def _add(self, client: _Client) -> None:
         self._clients.append(client)
+        participant = self._participants[client.identity] = Participant(client)
+        self._emit("participant_connected", participant)
 
     def _remove(self, client: _Client) -> None:
         if client in self._clients:
             self._clients.remove(client)
+        participant = self._participants.pop(client.identity, None)
+        if participant is not None:
+            self._emit("participant_disconnected", participant)
+        if client.mode == "speaker":
+            self._emit("disconnected")
 
     def isconnected(self) -> bool:
         return not self._closed and self.speaker is not None
@@ -314,10 +367,24 @@ def spawn(awaitable: Any) -> None:
     task.add_done_callback(_BACKGROUND.discard)
 
 
-def _invoke(callback: Callable[..., Any], value: Any) -> None:
-    result = callback(value)
+def _invoke(callback: Callable[..., Any], *args: Any) -> None:
+    result = callback(*args)
     if inspect.isawaitable(result):
         spawn(result)
+
+
+_REASONS = {
+    1000: "CLIENT_INITIATED",
+    1001: "CLIENT_INITIATED",
+    4010: "CLIENT_INITIATED",
+    4011: "ROOM_CLOSED",
+    4012: "DUPLICATE_IDENTITY",
+    4013: "PARTICIPANT_REMOVED",
+}
+
+
+def _reason_for(code: int | None) -> str:
+    return _REASONS.get(code or 0, "CONNECTION_LOST")
 
 
 class VoiceHub:
@@ -344,6 +411,8 @@ class VoiceHub:
         self.control_limit = control_limit
         self.send_timeout = send_timeout
         self._rooms: dict[str, HubRoom] = {}
+        #: Called as ``on_join(room, client)`` for every accepted connection.
+        self.on_join: Callable[..., Any] | None = None
         self.stats: collections.Counter[str] = collections.Counter()
 
     def room(self, name: str) -> HubRoom:
@@ -388,8 +457,13 @@ class VoiceHub:
         if claims.identity in room.identities:
             await _close(ws, 4012, "duplicate identity")
             return
-        client = _Client(ws, claims.identity, claims.mode, room, self)
+        client = _Client(ws, claims.identity, claims.mode, room, self, claims.attrs)
         room._add(client)
+        if self.on_join is not None:
+            try:
+                _invoke(self.on_join, room, client)
+            except Exception:
+                log.exception("on_join failed")
         client.start()
         client.enqueue(
             "control",
@@ -405,6 +479,7 @@ class VoiceHub:
         except ConnectionClosed:
             pass
         finally:
+            client.disconnect_reason = _reason_for(getattr(ws, "close_code", None))
             room._remove(client)
             await client.stop()
 

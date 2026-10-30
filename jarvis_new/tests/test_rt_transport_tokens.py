@@ -34,9 +34,15 @@ def _resign(claims: dict, secret: bytes = SECRET) -> str:
 
 def test_round_trip_claims():
     now = time.time()
-    token = mint_call_token("jarvis-1", "user", "speaker", 120, {"k": "v"}, SECRET, now=now)
+    token = mint_call_token(
+        "jarvis-1", "user", "speaker", 120, {"k": "v"}, SECRET, now=now
+    )
     claims = verify_call_token(token, SECRET, now=now)
-    assert (claims.room, claims.identity, claims.mode) == ("jarvis-1", "user", "speaker")
+    assert (claims.room, claims.identity, claims.mode) == (
+        "jarvis-1",
+        "user",
+        "speaker",
+    )
     assert claims.attrs == {"k": "v"}
     assert claims.expires - claims.issued == 120
 

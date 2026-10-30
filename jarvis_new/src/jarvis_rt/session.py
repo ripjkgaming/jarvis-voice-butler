@@ -57,6 +57,7 @@ class _Output:
     def __init__(self) -> None:
         self.audio: Any = None  # callable(bytes) sink
         self.transcription: Any = None  # callable(str, final) sink
+        self.flush: Any = None  # callable(): drop queued playback and unheard text
         self.audio_enabled = True
         self.transcription_enabled = True
 
@@ -105,6 +106,7 @@ class AgentSession(EventEmitter):
         self._agent_text = ""
         self._agent_audio_seen = False
         self._started = False
+        self._room_io: Any = None
         self._closed = False
         self._tool_tasks: set[asyncio.Task] = set()
         self._away_task: asyncio.Task | None = None
@@ -134,12 +136,19 @@ class AgentSession(EventEmitter):
         return self._speech
 
     # ---- lifecycle -------------------------------------------------------
-    async def start(self, agent: Agent, **_: Any) -> None:
+    async def start(
+        self, agent: Agent, *, room: Any = None, room_options: Any = None, **_: Any
+    ) -> None:
         if self._started:
             raise RuntimeError("AgentSession is already running")
         self._started = True
         self._agent = agent
         agent._session = self
+        if room is not None:
+            from .room_io import RoomIO
+
+            self._room_io = RoomIO(self, room, room_options)
+            await self._room_io.start()
         self._set_agent_state("initializing")
         if self.backend is not None:
             await self.backend.start(self, agent)
@@ -162,6 +171,9 @@ class AgentSession(EventEmitter):
         if self.backend is not None:
             with contextlib.suppress(Exception):
                 await self.backend.aclose()
+        if self._room_io is not None:
+            with contextlib.suppress(Exception):
+                await self._room_io.aclose()
         self.emit("close", CloseEvent(reason=reason))
 
     def _spawn(self, coro: Any) -> asyncio.Task:
@@ -249,9 +261,11 @@ class AgentSession(EventEmitter):
         )
         if user_input is not None:
             self._add_item(ChatMessage(role="user", content=[user_input]))
-        asyncio.get_running_loop().create_task(
-            self._run_reply(handle, instructions, tool_choice)
-        )
+            if self.backend is not None:
+                self.backend.push_text(user_input)
+            if instructions is None:
+                return handle
+        self._spawn(self._run_reply(handle, instructions, tool_choice))
         return handle
 
     async def _run_reply(
@@ -393,7 +407,11 @@ class AgentSession(EventEmitter):
         speech, self._speech = self._speech, None
         if speech is not None and not speech.done():
             speech._mark_done()
-        if self.output.transcription_enabled and self.output.transcription is not None:
+        if interrupted and self.output.flush is not None:
+            self.output.flush()
+        elif (
+            self.output.transcription_enabled and self.output.transcription is not None
+        ):
             self.output.transcription("", True)
         if not self._closed and self._agent_state != "thinking":
             self._set_agent_state("listening")
