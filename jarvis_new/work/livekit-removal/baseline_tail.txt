@@ -1,0 +1,41 @@
+...............................................................s........ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+..............................................................F
+=================================== FAILURES ===================================
+____________________ test_chat_switch_and_no_false_positive ____________________
+
+    def test_chat_switch_and_no_false_positive():
+        _, res = bridge.handle_chat({"text": "tell me about ultron"})
+        assert res["reply"] == "hello" and res["speaker"] == "jarvis" and res["char_turn"] == 0
+        _, res = bridge.handle_chat({"text": "switch to ultron"})
+>       assert res["switched"] and res["target"] == "ultron" and res["character"]["target"] == "ultron"
+               ^^^^^^^^^^^^^^^
+E       KeyError: 'switched'
+
+tests/test_bridge_characters.py:49: KeyError
+=============================== warnings summary ===============================
+.venv/lib64/python3.14/site-packages/google/genai/types.py:42
+  /mnt/data/jarvis-voice-butler/jarvis_new/.venv/lib64/python3.14/site-packages/google/genai/types.py:42: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+    VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+
+.venv/lib64/python3.14/site-packages/chess/engine.py:54
+  /mnt/data/jarvis-voice-butler/jarvis_new/.venv/lib64/python3.14/site-packages/chess/engine.py:54: DeprecationWarning: 'asyncio.DefaultEventLoopPolicy' is deprecated and slated for removal in Python 3.16
+    EventLoopPolicy = asyncio.DefaultEventLoopPolicy
+
+tests/test_agent.py::test_sub_agents_carry_an_llm_in_local_mode
+tests/test_agent.py::test_sub_agents_carry_an_llm_in_local_mode
+tests/test_agent.py::test_session_for_pipeline_carries_full_away_budget
+tests/test_agent.py::test_session_for_pipeline_carries_full_away_budget
+tests/test_agent.py::test_fast_path_hook_runs_tool_and_stops_gemini
+tests/test_agent.py::test_fast_path_hook_runs_tool_and_stops_gemini
+  /mnt/data/jarvis-voice-butler/jarvis_new/.venv/lib64/python3.14/site-packages/livekit/rtc/event_emitter.py:160: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    if asyncio.iscoroutinefunction(callback):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_bridge_characters.py::test_chat_switch_and_no_false_positive
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 562 passed, 5 skipped, 8 warnings in 25.11s
+done

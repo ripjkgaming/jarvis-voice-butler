@@ -28,7 +28,8 @@ def test_schemas_match_snapshot():
                 fn, info = t.__wrapped__, t.info
                 if hasattr(info, "raw_schema"):
                     rt = jarvis_rt.RawFunctionTool(
-                        fn, jarvis_rt.tools.RawFunctionToolInfo(info.name, info.raw_schema)
+                        fn,
+                        jarvis_rt.tools.RawFunctionToolInfo(info.name, info.raw_schema),
                     )
                 else:
                     rt = jarvis_rt.FunctionTool(

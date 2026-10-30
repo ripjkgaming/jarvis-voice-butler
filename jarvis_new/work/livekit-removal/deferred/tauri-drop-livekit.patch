@@ -1,0 +1,312 @@
+diff --git a/jarvis_new/shell/src-tauri/src/env_cfg.rs b/jarvis_new/shell/src-tauri/src/env_cfg.rs
+index 512f54c..481be5a 100644
+--- a/jarvis_new/shell/src-tauri/src/env_cfg.rs
++++ b/jarvis_new/shell/src-tauri/src/env_cfg.rs
+@@ -3,13 +3,12 @@
+ //! The launcher (this shell) is the single place that sets the variables the
+ //! audit proved sidecars need: `JARVIS_LOCAL=1` (every system tool refuses
+ //! without it), `PYTHONPATH=src` (the `local_voice` fallback imports),
+-//! `LIVEKIT_URL` (local server, Phase 0), `JARVIS_HOME` (sandboxed homes).
++//! `JARVIS_HOME` (sandboxed homes).
+ //! All constructors here are pure and unit-tested.
+ 
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ 
+-pub const LIVEKIT_PORT: u16 = 7880;
+ pub const BRIDGE_PORT_DEFAULT: u16 = 4317;
+ pub const AGENT_NAME_DEFAULT: &str = "my-agent";
+ 
+@@ -101,8 +100,8 @@ fn is_repo_root(p: &Path) -> bool {
+ /// own process env (never overriding real env). The shell is the only
+ /// process that reads both files: sidecars get their contract via
+ /// [`sidecar_env`], and the bridge inherits this process env, so its
+-/// `/status` presence flags (`livekit_configured`, pipeline name) are
+-/// correct without every sidecar re-parsing dotenv. Returns files loaded.
++/// `/status` pipeline name is correct without every sidecar re-parsing
++/// dotenv. Returns files loaded.
+ /// Values are never logged.
+ pub fn load_dotenv_files(repo: &std::path::Path) -> usize {
+     let mut loaded = 0;
+@@ -163,8 +162,6 @@ pub fn sidecar_env(repo: &Path) -> HashMap<String, String> {
+             env.get("PYTHONPATH").map(String::as_str).unwrap_or(""),
+         ),
+     );
+-    env.entry("LIVEKIT_URL".into())
+-        .or_insert_with(|| format!("ws://127.0.0.1:{LIVEKIT_PORT}"));
+     env.entry("JARVIS_HOME".into())
+         .or_insert(jarvis_home().to_string_lossy().into_owned());
+     env.entry("AGENT_NAME".into())
+@@ -184,7 +181,6 @@ fn prepend_path(first: &str, rest: &str) -> String {
+ /// never panicked on — the manager surfaces them in the tray.
+ #[derive(Debug, Clone)]
+ pub struct SidecarPrograms {
+-    pub livekit_bin: PathBuf,
+     pub agent_python: PathBuf,
+     pub wake_python: PathBuf,
+     pub bridge_python: PathBuf,
+@@ -193,14 +189,10 @@ pub struct SidecarPrograms {
+ }
+ 
+ pub fn sidecar_programs(repo: &Path) -> SidecarPrograms {
+-    let livekit_bin = std::env::var_os("JARVIS_LIVEKIT_BIN")
+-        .map(PathBuf::from)
+-        .unwrap_or_else(|| jarvis_home().join("bin").join("livekit-server"));
+     let agent_python = repo.join(".venv").join("bin").join("python");
+     let wake_python = repo.join(".venv-wake").join("bin").join("python");
+     let mut missing = Vec::new();
+     for (label, p) in [
+-        ("livekit-server", &livekit_bin),
+         ("agent venv python", &agent_python),
+         ("wake venv python", &wake_python),
+     ] {
+@@ -214,7 +206,6 @@ pub fn sidecar_programs(repo: &Path) -> SidecarPrograms {
+         }
+     }
+     SidecarPrograms {
+-        livekit_bin,
+         agent_python,
+         wake_python,
+         bridge_python: agent_python_clone(repo),
+@@ -312,10 +303,15 @@ mod tests {
+         let env = sidecar_env(Path::new("/repo"));
+         assert_eq!(env.get("JARVIS_LOCAL").map(String::as_str), Some("1"));
+         assert!(env["PYTHONPATH"].starts_with("/repo/src"));
+-        assert_eq!(
+-            env.get("LIVEKIT_URL").map(String::as_str),
+-            Some("ws://127.0.0.1:7880")
+-        );
++        assert!(!env.contains_key("LIVEKIT_URL"));
++    }
++
++    #[test]
++    fn stale_livekit_env_is_inherited_harmlessly() {
++        std::env::set_var("LIVEKIT_URL", "ws://127.0.0.1:7880");
++        let env = sidecar_env(Path::new("/repo"));
++        assert_eq!(env.get("JARVIS_LOCAL").map(String::as_str), Some("1"));
++        std::env::remove_var("LIVEKIT_URL");
+     }
+ 
+     #[test]
+diff --git a/jarvis_new/shell/src-tauri/src/health.rs b/jarvis_new/shell/src-tauri/src/health.rs
+index 8d90442..9fcf13d 100644
+--- a/jarvis_new/shell/src-tauri/src/health.rs
++++ b/jarvis_new/shell/src-tauri/src/health.rs
+@@ -26,8 +26,6 @@ pub struct BridgeStatus {
+     pub pipeline: String,
+     #[serde(default)]
+     pub local_unlocked: bool,
+-    #[serde(default)]
+-    pub livekit_configured: bool,
+ }
+ 
+ /// Overall shell state from per-sidecar aliveness + bridge reachability.
+@@ -59,7 +57,7 @@ pub fn combine_status(alive: &[(&str, bool)], bridge: Option<&BridgeStatus>) ->
+     }
+ }
+ 
+-/// TCP connect probe (livekit-server :7880, bridge :4317).
++/// TCP connect probe (loopback; e.g. the mic uplink on :4318).
+ pub fn tcp_reachable(port: u16) -> bool {
+     tcp_reachable_on("127.0.0.1", port)
+ }
+@@ -211,25 +209,24 @@ mod tests {
+ 
+     #[test]
+     fn combine_all_alive_bridge_ok_is_running() {
+-        let alive = [("livekit", true), ("agent", true)];
++        let alive = [("agent", true), ("wake", true)];
+         let b = BridgeStatus {
+             ok: true,
+             pipeline: "realtime".into(),
+             local_unlocked: true,
+-            livekit_configured: true,
+         };
+         assert_eq!(combine_status(&alive, Some(&b)), ShellState::Running);
+     }
+ 
+     #[test]
+     fn combine_dead_sidecar_is_down_even_with_bridge() {
+-        let alive = [("livekit", true), ("agent", false)];
++        let alive = [("agent", false), ("wake", true)];
+         assert!(matches!(combine_status(&alive, None), ShellState::Down(_)));
+     }
+ 
+     #[test]
+     fn combine_no_bridge_is_degraded_not_down() {
+-        let alive = [("livekit", true)];
++        let alive = [("agent", true)];
+         assert!(matches!(
+             combine_status(&alive, None),
+             ShellState::Degraded(_)
+diff --git a/jarvis_new/shell/src-tauri/src/main.rs b/jarvis_new/shell/src-tauri/src/main.rs
+index e539d89..f7fb485 100644
+--- a/jarvis_new/shell/src-tauri/src/main.rs
++++ b/jarvis_new/shell/src-tauri/src/main.rs
+@@ -243,7 +243,6 @@ fn main() {
+             // (watcher rebuilds, SIGKILL, crashes) BEFORE spawning our set.
+             let specs = manager::build_specs(
+                 &progs,
+-                env_cfg::LIVEKIT_PORT,
+                 std::env::var("JARVIS_BRIDGE_PORT")
+                     .ok()
+                     .and_then(|s| s.parse().ok())
+diff --git a/jarvis_new/shell/src-tauri/src/manager.rs b/jarvis_new/shell/src-tauri/src/manager.rs
+index 793d87d..078c592 100644
+--- a/jarvis_new/shell/src-tauri/src/manager.rs
++++ b/jarvis_new/shell/src-tauri/src/manager.rs
+@@ -1,9 +1,9 @@
+ //! Supervised sidecar manager: spawn order, readiness gates, restarts.
+ //!
+ //! Start order (each gate must pass before the next spawns):
+-//!   livekit-server (TCP :7880) → agent worker (alive + livekit reachable,
+-//!   90s budget for model warmup) → wake_client (alive) → bridge (HTTP
+-//!   /health :4317) → mic-uplink (TCP :4318) → ui (static export on :4000).
++//!   agent worker (alive, 90s budget for model warmup) → wake_client
++//!   (alive) → bridge (HTTP /health :4317) → mic-uplink (TCP :4318) →
++//!   ui (static export on :4000).
+ //! Overall state is published on a watch channel for the
+ //!   tray. Unexpected exits restart on the [`BACKOFF_SECS`] ladder (max 5),
+ //!   then the sidecar is marked Down and the tray goes red. The bridge alone
+@@ -91,7 +91,7 @@ fn mark_down(state: &mut SidecarState, reason: String) {
+ /// How the manager knows a sidecar is ready.
+ #[derive(Debug, Clone)]
+ pub enum ReadyCheck {
+-    /// TCP port accepts connections (livekit-server).
++    /// TCP port accepts connections (ui static server).
+     TcpPort(u16),
+     /// TCP port on an explicit bind host (mic uplink may serve tailnet).
+     TcpPortOn { host: String, port: u16 },
+@@ -105,9 +105,9 @@ pub enum ReadyCheck {
+         port: u16,
+         path: String,
+     },
+-    /// Process alive AND livekit reachable (agent worker: registration
+-    /// implies a live server; the framework logs no stable marker).
+-    AgentAlive { livekit_port: u16 },
++    /// Process alive (agent worker: the framework logs no stable readiness
++    /// marker, so the gate is process liveness; the bridge gates voice).
++    AgentAlive,
+     /// Process alive (wake_client: mic loop has no port).
+     ProcessAlive,
+ }
+@@ -236,26 +236,9 @@ pub fn mic_port() -> u16 {
+ }
+ 
+ /// Build the six specs from resolved programs. Pure (no spawning).
+-pub fn build_specs(
+-    progs: &SidecarPrograms,
+-    livekit_port: u16,
+-    bridge_port: u16,
+-) -> Vec<SidecarSpec> {
++pub fn build_specs(progs: &SidecarPrograms, bridge_port: u16) -> Vec<SidecarSpec> {
+     let repo = &progs.repo;
+     vec![
+-        SidecarSpec {
+-            name: "livekit",
+-            program: progs.livekit_bin.clone(),
+-            args: vec![
+-                "--config".into(),
+-                env_cfg::jarvis_home()
+-                    .join("livekit.yaml")
+-                    .to_string_lossy()
+-                    .into_owned(),
+-            ],
+-            ready: ReadyCheck::TcpPort(livekit_port),
+-            ready_timeout_s: 30,
+-        },
+         SidecarSpec {
+             name: "agent",
+             program: progs.agent_python.clone(),
+@@ -266,7 +249,7 @@ pub fn build_specs(
+                     .into_owned(),
+                 "start".into(),
+             ],
+-            ready: ReadyCheck::AgentAlive { livekit_port },
++            ready: ReadyCheck::AgentAlive,
+             ready_timeout_s: 90,
+         },
+         SidecarSpec {
+@@ -340,7 +323,7 @@ fn check_ready(check: &ReadyCheck) -> bool {
+                 .and_then(|v| v.get("ok").and_then(|b| b.as_bool()))
+                 .unwrap_or(false)
+         }
+-        ReadyCheck::AgentAlive { livekit_port } => health::tcp_reachable(*livekit_port),
++        ReadyCheck::AgentAlive => true,
+         ReadyCheck::ProcessAlive => true,
+     }
+ }
+@@ -968,7 +951,6 @@ mod tests {
+ 
+     fn fake_progs() -> SidecarPrograms {
+         SidecarPrograms {
+-            livekit_bin: PathBuf::from("/bin/true"),
+             agent_python: PathBuf::from("/bin/true"),
+             wake_python: PathBuf::from("/bin/true"),
+             bridge_python: PathBuf::from("/bin/true"),
+@@ -1048,7 +1030,7 @@ mod tests {
+     fn slow_recovery_never_restarts_voice_sidecars_or_a_healthy_bridge() {
+         let now = tokio::time::Instant::now();
+         let mut next = None;
+-        for name in ["agent", "wake", "livekit", "mic-uplink", "ui"] {
++        for name in ["agent", "wake", "mic-uplink", "ui"] {
+             assert!(!bridge_recovery_due(
+                 name,
+                 &SidecarState::Down("x".into()),
+@@ -1100,7 +1082,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn specs_start_with_livekit_and_end_with_ui() {
++    fn specs_start_with_agent_and_end_with_ui() {
+         // Pin a clean env: build_specs resolves bind hosts from it.
+         let saved: Vec<(String, Option<String>)> =
+             ["JARVIS_BRIDGE_BIND", "JARVIS_MIC_BIND", "JARVIS_UI_PORT"]
+@@ -1110,15 +1092,13 @@ mod tests {
+         std::env::remove_var("JARVIS_BRIDGE_BIND");
+         std::env::remove_var("JARVIS_MIC_BIND");
+         std::env::remove_var("JARVIS_UI_PORT");
+-        let specs = build_specs(&fake_progs(), 7880, 4317);
+-        assert_eq!(specs.len(), 6);
+-        assert_eq!(specs.first().unwrap().name, "livekit");
+-        assert_eq!(specs[3].name, "bridge");
+-        assert_eq!(specs[4].name, "mic-uplink");
+-        assert_eq!(specs.last().unwrap().name, "ui");
+-        assert!(matches!(specs[0].ready, ReadyCheck::TcpPort(7880)));
++        let specs = build_specs(&fake_progs(), 4317);
++        let names: Vec<&str> = specs.iter().map(|s| s.name).collect();
++        assert_eq!(names, ["agent", "wake", "bridge", "mic-uplink", "ui"]);
++        assert!(!names.contains(&"livekit"));
++        assert!(matches!(specs[0].ready, ReadyCheck::AgentAlive));
+         assert!(
+-            matches!(&specs[4].ready, ReadyCheck::TcpPortOn { host, port }
++            matches!(&specs[3].ready, ReadyCheck::TcpPortOn { host, port }
+                 if host == "127.0.0.1" && *port == 4318)
+         );
+         for (v, old) in saved {
+@@ -1131,7 +1111,7 @@ mod tests {
+ 
+     #[test]
+     fn agent_gets_the_longest_readiness_budget() {
+-        let specs = build_specs(&fake_progs(), 7880, 4317);
++        let specs = build_specs(&fake_progs(), 4317);
+         let agent = specs.iter().find(|s| s.name == "agent").unwrap();
+         assert!(specs
+             .iter()
+@@ -1196,7 +1176,7 @@ mod tests {
+     /// Traffic model (measured 2026-09-18 on the live box, steady state
+     /// excluding startup bursts, with margin): the agent is the chattiest
+     /// (~4KB/h of capacity chatter) plus one ~110KB warmup burst per daily
+-    /// restart; livekit/bridge/wake stay under ~3KB/h. actions.log traffic
++    /// restart; bridge/wake stay under ~3KB/h. actions.log traffic
+     /// (~100 short tool lines/day) never nears its 5MB cap, so it ships
+     /// unrotated. Total must stay under the 50MB accept.
+     #[test]
+@@ -1208,7 +1188,6 @@ mod tests {
+         // (name, bytes per simulated hour, daily bursts of 110KB)
+         let model = [
+             ("agent", 10 * 1024, true),
+-            ("livekit", 3 * 1024, false),
+             ("bridge", 3 * 1024, false),
+             ("wake", 3 * 1024, false),
+         ];

@@ -28,7 +28,7 @@ class ToolError(Exception):
         return self._message
 
 
-class StopResponse(Exception):
+class StopResponse(Exception):  # noqa: N818 - name kept for API compatibility
     """Raised by a tool: run it, but do not speak a follow-up."""
 
 
@@ -53,7 +53,9 @@ class RawFunctionToolInfo:
 
 
 class _BaseFunctionTool:
-    def __init__(self, func: Callable[..., Any], info: Any, instance: Any = None) -> None:
+    def __init__(
+        self, func: Callable[..., Any], info: Any, instance: Any = None
+    ) -> None:
         functools.update_wrapper(self, func)
         self._func = func
         self._info = info
@@ -92,7 +94,9 @@ class RawFunctionTool(_BaseFunctionTool):
 class RunContext:
     """Per-call context handed to tools declaring a ``RunContext`` parameter."""
 
-    def __init__(self, *, session=None, speech_handle=None, function_call=None, userdata=None):
+    def __init__(
+        self, *, session=None, speech_handle=None, function_call=None, userdata=None
+    ):
         self.session = session
         self.speech_handle = speech_handle
         self.function_call = function_call
@@ -100,7 +104,11 @@ class RunContext:
 
     @property
     def userdata(self) -> Any:
-        return self._userdata if self._userdata is not None else getattr(self.session, "userdata", None)
+        return (
+            self._userdata
+            if self._userdata is not None
+            else getattr(self.session, "userdata", None)
+        )
 
 
 def function_tool(
@@ -127,7 +135,9 @@ def function_tool(
         doc = parse_from_object(func)
         return FunctionTool(
             func,
-            FunctionToolInfo(name or func.__name__, description or doc.description, flags),
+            FunctionToolInfo(
+                name or func.__name__, description or doc.description, flags
+            ),
         )
 
     if f is not None:
@@ -160,7 +170,9 @@ def _is_context_type(hint: Any) -> bool:
     if origin is not None and getattr(hint, "__metadata__", None):
         hint = origin
     # name check also covers the legacy livekit RunContext during migration
-    return isinstance(hint, type) and any(c.__name__ == "RunContext" for c in hint.__mro__)
+    return isinstance(hint, type) and any(
+        c.__name__ == "RunContext" for c in hint.__mro__
+    )
 
 
 def arguments_model(func: Callable[..., Any]) -> type[BaseModel]:
