@@ -28,10 +28,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from livekit import rtc
 from test_voice_fixtures import FIXTURES, fixture_slug, wer
 from test_voice_regressions import EARS_IDX, cached_fixture_wav, expand_numbers
 
+from jarvis_rt.stt import AudioFrame
+from jarvis_rt.vad import SileroVAD
 from local_stt import FasterWhisperSTT
 from whisper_config import english_model_name
 
@@ -69,7 +70,7 @@ def _fixture_pcm(idx: int) -> tuple[np.ndarray, dict]:
 
 
 async def _transcribe(stt: FasterWhisperSTT, pcm: np.ndarray) -> tuple[str, float]:
-    frame = rtc.AudioFrame(
+    frame = AudioFrame(
         data=pcm.tobytes(),
         sample_rate=16000,
         num_channels=1,
@@ -142,9 +143,7 @@ async def test_size_matrix() -> None:
 
 async def _vad_events(threshold: float, pcm: np.ndarray) -> list[str]:
     """Speech event types for PCM at one activation threshold."""
-    from livekit.plugins import silero
-
-    vad = silero.VAD.load(activation_threshold=threshold)
+    vad = SileroVAD.load(activation_threshold=threshold)
     stream = vad.stream()
     try:
         chunk = 512  # 32ms @ 16kHz
@@ -153,7 +152,7 @@ async def _vad_events(threshold: float, pcm: np.ndarray) -> list[str]:
             if len(piece) < chunk:
                 piece = np.pad(piece, (0, chunk - len(piece)))
             stream.push_frame(
-                rtc.AudioFrame(
+                AudioFrame(
                     data=piece.astype(np.int16).tobytes(),
                     sample_rate=16000,
                     num_channels=1,

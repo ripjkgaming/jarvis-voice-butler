@@ -561,3 +561,8 @@ class SileroVADStream(VADStream):
                 # Consume the samples this window used; keep the remainder.
                 self._input_pcm = self._input_pcm[to_copy_int:]
                 self._inference_pcm = self._inference_pcm[window:]
+
+
+def load(**kwargs):
+    """Module-level convenience: ``vad.load(**vad_kwargs())``."""
+    return SileroVAD.load(**kwargs)

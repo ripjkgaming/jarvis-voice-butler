@@ -39,7 +39,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from livekit import rtc
+
+from jarvis_rt.stt import AudioFrame
 
 FIXTURE_LENGTH_SCALE = 0.85  # pinned: Piper must not read env here
 FIXTURE_VOICE = "alan"  # en_GB-alan-medium; part of the cache key
@@ -345,9 +346,9 @@ def per_kind_table(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _frame(pcm16k: np.ndarray) -> rtc.AudioFrame:
+def _frame(pcm16k: np.ndarray) -> AudioFrame:
     data = pcm16k.astype(np.int16)
-    return rtc.AudioFrame(
+    return AudioFrame(
         data=data.tobytes(),
         sample_rate=TARGET_RATE,
         num_channels=1,

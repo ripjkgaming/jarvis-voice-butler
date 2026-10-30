@@ -37,7 +37,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from livekit import rtc
 from test_voice_fixtures import (
     FIXTURE_LENGTH_SCALE,
     FIXTURES,
@@ -49,6 +48,7 @@ from test_voice_fixtures import (
 
 from intent import needle_router
 from intent.resolver import resolve_intent
+from jarvis_rt.stt import AudioFrame
 from local_stt import FasterWhisperSTT
 
 CORPUS_PATH = Path(__file__).with_name("voice_corpus.json")
@@ -261,7 +261,7 @@ async def test_cached_ears_regressions() -> None:
         fix = FIXTURES[idx]
         raw = await asyncio.to_thread(cached_fixture_wav, fix["text"], fix["kind"])
         pcm = np.frombuffer(raw[44:], dtype=np.int16)
-        frame = rtc.AudioFrame(
+        frame = AudioFrame(
             data=pcm.tobytes(),
             sample_rate=16000,
             num_channels=1,
