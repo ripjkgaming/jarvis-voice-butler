@@ -7,6 +7,7 @@ import dev.jarvis.link.device.AndroidLocation
 import dev.jarvis.link.device.LiveKitEngine
 import dev.jarvis.link.device.RemoteLauncher
 import dev.jarvis.link.device.TtsManager
+import dev.jarvis.link.device.WebSocketEngine
 import dev.jarvis.link.logic.ActivityModel
 import dev.jarvis.link.logic.ApprovalStore
 import dev.jarvis.link.logic.CallHost
@@ -74,7 +75,8 @@ class Graph(private val app: Application) {
     val settings by lazy { SettingsModel(prefs, actions, services, scope, io) }
     val call by lazy {
         CallModel(
-            bridge, config, LiveKitEngine(app),
+            bridge, config,
+            if (BuildConfig.VOICE_WEBSOCKET) WebSocketEngine(app) else LiveKitEngine(app),
             object : CallHost {
                 override fun onCallStarting() = VoiceCallService.start(app)
                 override fun onCallEnded() = VoiceCallService.stop(app)

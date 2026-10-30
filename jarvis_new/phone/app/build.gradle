@@ -13,6 +13,8 @@ android {
         targetSdk = 35
         versionCode = 19
         versionName = "3.6.1"
+        // Call transport: false = LiveKitEngine (default). Opt in with -PjarvisVoiceWebsocket=true.
+        buildConfigField "boolean", "VOICE_WEBSOCKET", (project.findProperty("jarvisVoiceWebsocket") ?: "false").toString()
     }
 
     buildTypes {
