@@ -36,18 +36,16 @@ async def test_tuple_adapter_preserves_receipt_and_truth(adapter, monkeypatch):
 
 
 def test_actual_sdk_serialized_result_is_checked():
-    from livekit.agents.llm import FunctionCall
-    from livekit.agents.voice.events import FunctionToolsExecutedEvent
+    from jarvis_rt.chat_context import FunctionCall
+    from jarvis_rt.events import FunctionToolsExecutedEvent
+    from jarvis_rt.executor import make_result
 
     receipt = ActionOutcome(
         "url.launch", "launch_requested", "started", surface="owner_desktop"
     )
-    from livekit.agents.llm.utils import make_function_call_output
 
     call = FunctionCall(name="open_url", call_id="test", arguments="{}")
-    output = make_function_call_output(
-        fnc_call=call, output=receipt.result(), exception=None
-    ).fnc_call_out
+    output = make_result(call, receipt.result(), None).output
     event = FunctionToolsExecutedEvent(
         function_calls=[call], function_call_outputs=[output]
     )

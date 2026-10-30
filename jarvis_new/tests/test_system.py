@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 import pytest
-from livekit.agents.llm import ToolError
 
+from jarvis_rt import ToolError
 from system import LOG_PATH, LocalSystemError, require_local
 from system.core import (
     DATA_DIR,
@@ -428,18 +428,29 @@ async def test_play_media_opens_system_youtube(monkeypatch) -> None:
     import asyncio
 
     import media_selection
+
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr("shutil.which", lambda _: "/fixture/brave")
+
     async def resolve(*args, **kwargs):
         return media_selection.Selection("selected", "metadata_match", "bbbbbbbbbbb", 2)
+
     monkeypatch.setattr(media_selection, "resolve_async", resolve)
     launched = []
+
     async def spawn(*argv, **kwargs):
         launched.append(argv)
         return type("Process", (), {"pid": 4242})()
+
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     out = await SystemTools().play_media(None, "lofi hip hop", show=True)
-    assert launched == [("/fixture/brave", "--new-window", "https://www.youtube.com/watch?v=bbbbbbbbbbb")]
+    assert launched == [
+        (
+            "/fixture/brave",
+            "--new-window",
+            "https://www.youtube.com/watch?v=bbbbbbbbbbb",
+        )
+    ]
     assert out["outcome"]["state"] == "launch_requested"
     assert "not verified" in out["say"]
 
@@ -447,9 +458,12 @@ async def test_play_media_opens_system_youtube(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_play_media_unavailable_does_not_open_results(monkeypatch) -> None:
     import media_selection
+
     monkeypatch.setenv("JARVIS_LOCAL", "1")
+
     async def resolve(*args, **kwargs):
         return media_selection.Selection("unavailable", "no_supported_match")
+
     monkeypatch.setattr(media_selection, "resolve_async", resolve)
     out = await SystemTools().play_media(None, "lofi hip hop", show=True)
     assert out["outcome"]["dispatch"] == "not_started"
@@ -485,13 +499,12 @@ async def test_play_media_empty_query_opens_playlist(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_play_media_refuses_when_not_local(monkeypatch) -> None:
-    from livekit.agents import llm
-
+    from jarvis_rt import ToolError
     from system.core import SystemTools
 
     monkeypatch.delenv("JARVIS_LOCAL", raising=False)
     tools = SystemTools()
-    with pytest.raises(llm.ToolError, match="only available"):
+    with pytest.raises(ToolError, match="only available"):
         await SystemTools.play_media(tools, None, query="x")  # type: ignore[arg-type]
 
 
@@ -529,8 +542,7 @@ async def test_open_app_with_url_opens_site_on_system(monkeypatch, tmp_path) -> 
 
 @pytest.mark.asyncio
 async def test_open_app_rejects_unsafe_url(monkeypatch) -> None:
-    from livekit.agents.llm import ToolError
-
+    from jarvis_rt import ToolError
     from system.core import SystemTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")
@@ -799,3 +811,54 @@ def test_find_files_has_exactly_one_home() -> None:
 
     assert "find_files" not in [t.id for t in SystemTools().tools]
     assert "find_files" in [t.id for t in FilesTools().tools]
+
+
+def test_file_root_ignores_jarvis_state_directory(tmp_path) -> None:
+    """The desktop exports JARVIS_HOME for state, not file access."""
+    import subprocess
+    import sys
+
+    script = """
+import asyncio
+from pathlib import Path
+import system.core as core
+assert core.HOME_ROOT == Path.home().resolve()
+assert core._resolve_user_path('~/Videos/Jarvis Watch') == (Path.home() / 'Videos/Jarvis Watch').resolve()
+assert core._resolve_user_path('~/Downloads') == (Path.home() / 'Downloads').resolve()
+result = asyncio.run(core.SystemTools().list_dir(None, str(Path.home())))
+assert 'shown' in result['say']
+"""
+    env = dict(os.environ, JARVIS_HOME=str(tmp_path / "state"), JARVIS_LOCAL="1")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_relative_file_paths_start_at_user_home(monkeypatch, tmp_path):
+    home = tmp_path / "owner"
+    app = tmp_path / "app"
+    home.mkdir()
+    app.mkdir()
+    monkeypatch.setattr("system.core.HOME_ROOT", home)
+    monkeypatch.chdir(app)
+    assert _resolve_user_path(".") == home
+    assert _resolve_user_path("Videos/Jarvis Watch") == home / "Videos/Jarvis Watch"
+
+
+async def test_relative_write_uses_home_instead_of_app_folder(monkeypatch, tmp_path):
+    home = tmp_path / "owner"
+    app = tmp_path / "app"
+    home.mkdir()
+    app.mkdir()
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setattr("system.core.HOME_ROOT", home)
+    monkeypatch.chdir(app)
+    result = await SystemTools().write_file(None, path="note.txt", text="saved at home")
+    assert result["ok"] is True
+    assert (home / "note.txt").read_text() == "saved at home"
+    assert not (app / "note.txt").exists()

@@ -3,6 +3,7 @@ import threading
 from types import SimpleNamespace
 
 import pytest
+
 from goodnight_fence import Fence
 from goodnight_host import Binding, Conversations
 from goodnight_runtime import Host
@@ -277,8 +278,8 @@ async def test_failed_observer_cleanup_still_releases_host_fd(tmp_path, monkeypa
 
 @pytest.mark.asyncio
 async def test_installed_sdk_final_event_created_at_fallback(tmp_path, monkeypatch):
-    from livekit.agents import AgentSession
-    from livekit.agents.voice.events import (
+    from jarvis_rt import AgentSession
+    from jarvis_rt.events import (
         AgentStateChangedEvent,
         UserInputTranscribedEvent,
     )

@@ -63,12 +63,11 @@ def test_assistant_router_shrinks_and_handoff_reaches_cold_tools(monkeypatch):
     monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
     # Tiering only applies to the text pipelines (see the realtime test).
     monkeypatch.setenv("JARVIS_PIPELINE", "local")
-    from livekit.agents import inference
 
     from agent import Assistant, _never_demote
 
     def mk():
-        return Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
+        return Assistant(llm="openai/gpt-4.1-mini")
 
     base = mk()
     base_ids = {t.id for t in base.tools}
@@ -107,12 +106,11 @@ def test_realtime_router_keeps_every_tool(monkeypatch):
         monkeypatch.setenv(k, "x" * 32)
     monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
     monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
-    from livekit.agents import inference
 
     from agent import Assistant
 
     def mk():
-        return Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
+        return Assistant(llm="openai/gpt-4.1-mini")
 
     base_ids = {t.id for t in mk().tools}
     tool_usage.reset()
@@ -131,12 +129,11 @@ def test_youtube_download_is_high_priority_and_never_handed_off(monkeypatch):
         monkeypatch.setenv(k, "x" * 32)
     monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
     monkeypatch.setenv("JARVIS_PIPELINE", "local")
-    from livekit.agents import inference
 
     from agent import Assistant, _never_demote
 
     _seed(end_call=80)  # Enough history to demote every unused ordinary tool.
-    assistant = Assistant(llm=inference.LLM(model="openai/gpt-4.1-mini"))
+    assistant = Assistant(llm="openai/gpt-4.1-mini")
     assert "download_youtube_video" in {tool.id for tool in assistant.tools}
     assert "download_youtube_video" not in {tool.id for tool in assistant._cold_tools}
     assert _never_demote("download_youtube_video")

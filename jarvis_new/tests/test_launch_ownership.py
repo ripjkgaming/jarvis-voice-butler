@@ -93,10 +93,9 @@ def test_realtime_transcript_does_not_execute(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_realtime_turn_hook_has_no_executor(monkeypatch):
-    from livekit.agents import llm
-
     import agent
     from intent import fast_path
+    from jarvis_rt import ChatMessage
 
     monkeypatch.setenv("JARVIS_PIPELINE", "realtime")
     monkeypatch.setattr(
@@ -104,7 +103,7 @@ async def test_realtime_turn_hook_has_no_executor(monkeypatch):
     )
     assistant = agent.Assistant(browser=None, llm=None)
     await assistant.on_user_turn_completed(
-        None, llm.ChatMessage(role="user", content=["open sober"])
+        None, ChatMessage(role="user", content=["open sober"])
     )
 
 
@@ -180,6 +179,7 @@ async def test_open_app_launches_once_per_response_with_real_tool_flow(monkeypat
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from system import core
 
     action_guard.reset()
@@ -209,13 +209,19 @@ async def test_open_app_launches_once_per_response_with_real_tool_flow(monkeypat
 async def test_monitor_launcher_cannot_hide_waydroid(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import AsyncMock
-    from livekit.agents.llm import ToolError
+
+    from jarvis_rt import ToolError
     from system import devices
+
     wrapper = tmp_path / "camera"
     wrapper.write_text("#!/bin/sh\nexec waydroid show-full-ui\n")
     monkeypatch.setattr(devices, "require_local", lambda: None)
     monkeypatch.setattr(devices, "run_cmd", AsyncMock(return_value=(0, "", "")))
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", lambda *a, **kw: pytest.fail("spawned"))
+    monkeypatch.setattr(
+        asyncio, "create_subprocess_exec", lambda *a, **kw: pytest.fail("spawned")
+    )
     action_guard.reset()
     with pytest.raises(ToolError, match="Waydroid"):
-        await devices.DeviceTools.open_on_monitor(devices.DeviceTools(), None, str(wrapper))
+        await devices.DeviceTools.open_on_monitor(
+            devices.DeviceTools(), None, str(wrapper)
+        )

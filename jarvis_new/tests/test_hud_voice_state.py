@@ -250,10 +250,9 @@ def test_installed_sdk_events_reach_authenticated_room_handler(monkeypatch, tmp_
     import urllib.error
     import urllib.request
 
-    from livekit import rtc
-    from livekit.agents import AgentSession
-
     import bridge
+    from jarvis_rt import AgentSession
+    from jarvis_rt.events import EventEmitter
 
     monkeypatch.delenv("JARVIS_BRIDGE_TOKEN", raising=False)
     (tmp_path / "bridge_token").write_text("isolated-sdk-test-token\n")
@@ -271,20 +270,25 @@ def test_installed_sdk_events_reach_authenticated_room_handler(monkeypatch, tmp_
 
     async def run():
         # Seed SDK room metadata only; deliberately never call connect/start.
-        room = rtc.Room()
-        room._info.name = "offline-sdk-room"
+        class Room(EventEmitter):
+            name = "offline-sdk-room"
+
+            def isconnected(self):
+                return False
+
+        room = Room()
         session = AgentSession()
         monitor = voice.VoiceStateMonitor(session, room)
         try:
             assert not payload()["call_live"]
             for state in ("listening", "speaking", "thinking", "listening"):
-                session._update_agent_state(state)
+                session._set_agent_state(state)
                 body = payload()
                 assert body["call_live"]
                 assert body["agent_state"] == state
                 assert body["voice_owner"] == monitor.publisher.owner
             with voice.execution_scope(session):
-                session._update_agent_state("speaking")
+                session._set_agent_state("speaking")
                 assert payload()["agent_state"] == "thinking"
             assert payload()["agent_state"] == "speaking"
             session.emit("close", None)
@@ -303,23 +307,12 @@ def test_installed_sdk_events_reach_authenticated_room_handler(monkeypatch, tmp_
         server.server_close()
 
 
-def test_turn_manager_overrides_stale_sdk_speaking_state():
-    from turn_manager import TurnManager
-
+def test_sdk_state_owns_hud_without_custom_turn_manager():
     session, room = Emitter(), Emitter()
-    manager = session.jarvis_turn_manager = TurnManager()
-    manager.set_ready()
     monitor = voice.VoiceStateMonitor(session, room)
-    turn = manager.begin_turn("first request")
-    manager.start_speaking(turn.id)
-    session.agent_state = "speaking"
-    session.emit("agent_state_changed")
-    assert voice.read("desktop") == "speaking"
-    manager.cancel_all()
-    # The SDK's delayed state callback cannot resurrect cancelled speech.
-    assert voice.read("desktop") == "listening"
-    manager.begin_turn("new request")
-    assert voice.read("desktop") == "thinking"
+    for state in ("speaking", "listening", "thinking"):
+        session.agent_state = state
+        session.emit("agent_state_changed")
+        assert voice.read("desktop") == state
     monitor.close()
-    manager.cancel_all()
     assert voice.read("desktop") == "idle"

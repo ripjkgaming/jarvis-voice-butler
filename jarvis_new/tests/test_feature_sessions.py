@@ -5,14 +5,14 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from livekit.agents.llm import ChatMessage
-from livekit.agents.voice.events import (
+
+from feature_sessions import FeatureSession, HostConsent
+from jarvis_rt import ChatMessage
+from jarvis_rt.events import (
     ConversationItemAddedEvent,
     UserInputTranscribedEvent,
 )
-from livekit.agents.voice.io import AgentInput, AgentOutput
-
-from feature_sessions import FeatureSession, HostConsent
+from jarvis_rt.session import _Input, _Output
 
 
 class Session:
@@ -22,8 +22,8 @@ class Session:
         self.interrupts = 0
         self.clears = 0
         self.jarvis_caption_tail = SimpleNamespace(clear_sensitive=lambda: None)
-        self.input = AgentInput(lambda: None, lambda: None)
-        self.output = AgentOutput(lambda: None, lambda: None, lambda: None)
+        self.input = _Input()
+        self.output = _Output()
 
     def on(self, name, fn):
         self.handlers.setdefault(name, []).append(fn)
@@ -240,7 +240,7 @@ async def test_tool_registration_uses_installed_sdk_and_empty_grants(owner):
 
 @pytest.mark.asyncio
 async def test_real_sdk_event_bus_without_starting_transport(owner, monkeypatch):
-    from livekit.agents import AgentSession
+    from jarvis_rt import AgentSession
 
     s = AgentSession(llm=None)
     monkeypatch.setattr(s, "clear_user_turn", lambda: None)
@@ -280,10 +280,9 @@ async def test_real_sdk_event_bus_without_starting_transport(owner, monkeypatch)
 async def test_sdk_agent_hook_consumes_controls_with_fast_path_disabled(
     owner, monkeypatch
 ):
-    from livekit.agents.llm import StopResponse
-
     import agent
     from intent import fast_path
+    from jarvis_rt import StopResponse
 
     monkeypatch.setattr(agent, "_default_agent_llm", lambda: None)
     monkeypatch.setenv("JARVIS_FAST_PATH", "0")
@@ -299,7 +298,7 @@ async def test_sdk_agent_hook_consumes_controls_with_fast_path_disabled(
         librarian=a.librarian_service,
         authorized=lambda: True,
     )
-    a._activity = SimpleNamespace(_session=s, session=s)
+    a._session = s  # jarvis_rt Agent binds its session here
     assert {"librarian_find", "librarian_answer", "librarian_duplicates"} <= {
         t.id for t in a.tools
     }

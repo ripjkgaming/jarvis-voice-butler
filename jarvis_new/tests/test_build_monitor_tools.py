@@ -287,35 +287,32 @@ async def test_old_speech_cannot_register_when_current_speech_changed(setup):
 @pytest.mark.asyncio
 async def test_actual_sdk_chat_messages_and_tool_schema(setup):
     tools, _, _, _, ctx, _ = setup
-    from livekit.agents import llm
-    from livekit.agents.llm import tool_context
-    from livekit.agents.llm.utils import build_legacy_openai_schema
+    from jarvis_rt import ChatContext, get_function_info, tool_schema
 
-    ctx.session.history = llm.ChatContext()
+    ctx.session.history = ChatContext()
     ctx.session.history.add_message(role="user", content="Monitor my build PID 42")
     assert (await tools.build_monitor_register(ctx, 42, "compile"))[
         "status"
     ] == "registered"
     registered = next(t for t in tools.tools if t.id == "build_monitor_register")
-    schema = build_legacy_openai_schema(registered)
-    assert set(schema["function"]["parameters"]["properties"]) == {
+    schema = tool_schema(registered)
+    assert set(schema["parameters"]["properties"]) == {
         "pid",
         "label",
         "window_name",
         "scope",
         "choice",
     }
-    assert tool_context.get_function_info(registered).name == "build_monitor_register"
+    assert get_function_info(registered).name == "build_monitor_register"
 
 
 @pytest.mark.asyncio
 async def test_installed_runcontext_registration_without_model(setup):
     tools, _, _, _, _, _ = setup
-    from livekit.agents import RunContext, llm
-    from livekit.agents.voice.speech_handle import SpeechHandle
+    from jarvis_rt import ChatContext, FunctionCall, RunContext, SpeechHandle
 
     speech = SpeechHandle.create()
-    history = llm.ChatContext()
+    history = ChatContext()
     history.add_message(role="user", content="Monitor my build PID 42")
     session = SimpleNamespace(
         history=history, current_speech=speech, _global_run_state=None
@@ -323,7 +320,7 @@ async def test_installed_runcontext_registration_without_model(setup):
     context = RunContext(
         session=session,
         speech_handle=speech,
-        function_call=llm.FunctionCall(
+        function_call=FunctionCall(
             call_id="test-call", name="build_monitor_register", arguments="{}"
         ),
     )
