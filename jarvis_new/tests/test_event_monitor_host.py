@@ -1,6 +1,7 @@
 import threading
 
 import pytest
+
 from event_monitor.core import Event, Store, Worker
 from event_monitor_host import EventHost, SDKEngine
 
@@ -109,12 +110,12 @@ def test_expiry_quiet_owner_and_fixed_receipt(tmp_path, policy):
 @pytest.mark.asyncio
 async def test_installed_sdk_has_no_room_models_or_audio(monkeypatch):
     # Actual installed start/aclose and context update; no transport or providers.
-    from livekit import rtc
+    from jarvis_rt.room_io import RoomIO
 
     def forbidden(*a, **k):
         raise AssertionError("room/network forbidden")
 
-    monkeypatch.setattr(rtc.Room, "connect", forbidden)
+    monkeypatch.setattr(RoomIO, "start", forbidden)
     engine = SDKEngine()
     await engine.open("synthetic", [])
     try:
@@ -253,7 +254,7 @@ def test_real_runtime_pass_uses_actual_sdk_and_persistent_api(
 async def test_cancelled_sdk_start_drains_owned_candidate(monkeypatch):
     import asyncio
 
-    import livekit.agents
+    import jarvis_rt
 
     closed = []
 
@@ -267,7 +268,7 @@ async def test_cancelled_sdk_start_drains_owned_candidate(monkeypatch):
         async def aclose(self):
             closed.append(True)
 
-    monkeypatch.setattr(livekit.agents, "AgentSession", WaitingSession)
+    monkeypatch.setattr(jarvis_rt, "AgentSession", WaitingSession)
     engine = SDKEngine()
     task = asyncio.create_task(engine.open("synthetic", []))
     await asyncio.sleep(0)

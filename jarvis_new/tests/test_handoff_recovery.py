@@ -1,19 +1,26 @@
 """A completed media tool must not erase an app-launch handoff in its batch."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
-from livekit.agents import Agent, AgentSession, RunContext, function_tool, llm
-from livekit.agents.voice.events import FunctionToolsExecutedEvent
-from livekit.agents.voice.generation import _interrupted_tool_output, make_tool_output
 
 from handoff_recovery import install, remember
+from jarvis_rt import (
+    Agent,
+    AgentSession,
+    FunctionCall,
+    FunctionToolsExecutedEvent,
+    RunContext,
+    function_tool,
+)
+from jarvis_rt.executor import make_result
 
 pytestmark = pytest.mark.asyncio
 
 
 def _call(name, call_id):
-    return llm.FunctionCall(name=name, call_id=call_id, arguments="{}")
+    return FunctionCall(name=name, call_id=call_id, arguments="{}")
 
 
 def _context(session, call):
@@ -24,23 +31,28 @@ def _context(session, call):
     )
 
 
-def _batch(outputs, interrupted=False):
-    # LiveKit 1.8.2's real tool-output sanitizer and handoff aggregation.
-    target = None
-    multiple = False
-    for out in outputs:
-        if target is not None and out.agent_task is not None:
-            multiple = True
-        target = out.agent_task
-    event = FunctionToolsExecutedEvent(
-        function_calls=[out.fnc_call for out in outputs],
-        function_call_outputs=[
-            _interrupted_tool_output(out) if interrupted else out.fnc_call_out
-            for out in outputs
-        ],
+def _batch(results, interrupted=False):
+    """The batch as the session emits it, from executor results (make_result).
+
+    An interrupted turn answers a handoff as a failure and never replies.
+    """
+    outputs = []
+    for result in results:
+        out = result.output
+        if interrupted:
+            if result.agent is not None:
+                out.output = "the agent handoff was interrupted and did not happen"
+                out.is_error = True
+            out.reply_required = False
+        outputs.append(out)
+    return FunctionToolsExecutedEvent(
+        function_calls=[result.call for result in results],
+        function_call_outputs=outputs,
     )
-    event._handoff_required = bool(target and not multiple and not interrupted)
-    return event
+
+
+def _has_tool_reply(event):
+    return any(out.reply_required for out in event.function_call_outputs)
 
 
 def _session():
@@ -51,57 +63,156 @@ def _session():
 
 
 def _output(call, result):
-    return make_tool_output(fnc_call=call, output=result, exception=None)
+    return make_result(call, result, None)
+
+
+def _tool(name, returns):
+    """A jarvis_rt tool that records a handoff the way the common wrapper does."""
+
+    async def run(context: RunContext):
+        result = returns()
+        remember(context, result)
+        return result
+
+    return function_tool(run, name=name, description=name)
+
+
+class NullBackend:
+    """Model stand-in that produces no output: each generation ends silently."""
+
+    session = None
+
+    def __init__(self):
+        self.instructions = []
+
+    async def start(self, session, agent):
+        self.session = session
+
+    async def aclose(self):
+        pass
+
+    def push_audio(self, pcm):
+        pass
+
+    def push_video(self, frame, ts_ms):
+        pass
+
+    def push_text(self, text):
+        pass
+
+    async def say(self, text):
+        pass
+
+    async def generate_reply(self, instructions, tool_choice):
+        self.instructions.append(instructions)
+        self.session.backend_event("turn_complete")
+
+    def interrupt(self):
+        pass
+
+    async def send_tool_results(self, results, *, reply):
+        pass
+
+    async def agent_changed(self, agent):
+        pass
+
+    async def sync_agent(self, agent):
+        pass
+
+
+async def _settle(session):
+    """Wait until the session has no running tool, handoff or reply tasks."""
+
+    async def idle():
+        while session._tool_tasks:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(idle(), 5)
 
 
 @pytest.mark.asyncio
 async def test_launch_handoff_survives_music_result_and_preserves_task():
-    from agent import Assistant
+    from agent import Assistant, _wrap_tools_with_timing
 
-    session = _session()
     # Real handoff implementation and the production tool wrapper, no model/API.
     assistant = Assistant.__new__(Assistant)
     assistant._system_agent = None
     assistant._llm = None
-    session.update_agent(assistant)
-    call = _call("transfer_to_system_control", "launch")
-    context = _context(session, call)
-    from agent import _wrap_tools_with_timing
 
     async def transfer(context: RunContext):
         return await Assistant.transfer_to_system_control(
             assistant, context, task="launch Sober"
         )
 
-    tool = function_tool(transfer)
-    _wrap_tools_with_timing([tool])
-    result = await tool._func(context)
-    music = _output(_call("play_media", "music"), {"say": "Music is playing."})
-    event = _batch([_output(call, result), music])
-    assert not event.has_agent_handoff  # reproduces the SDK loss
-    session.emit("function_tools_executed", event)
-    assert session.current_agent is result[0]
-    assert session.current_agent.task == "launch Sober"
-    assert not event.has_tool_reply  # specialist owns the response now
-    assert music.fnc_call_out.output == str({"say": "Music is playing."})
+    async def play_media(context: RunContext):
+        return {"say": "Music is playing."}
+
+    transfer_tool = function_tool(
+        transfer, name="transfer_to_system_control", description="handoff"
+    )
+    play_tool = function_tool(play_media, name="play_media", description="media")
+    _wrap_tools_with_timing([transfer_tool])
+    router = Agent(instructions="router", tools=[transfer_tool, play_tool])
+    backend = NullBackend()
+    session = AgentSession(backend=backend)
+    backend.session = session
+    session.update_agent(router)
+    install(session)
+    session.backend_event(
+        "tool_calls",
+        calls=[
+            _call("transfer_to_system_control", "launch"),
+            _call("play_media", "music"),
+        ],
+    )
+    await _settle(session)
+    assert isinstance(session.current_agent, Agent)
+    assert session.current_agent is not router
+    # The specialist clears its task on entry; the task must reach its first turn.
+    assert any("launch Sober" in (text or "") for text in backend.instructions)
+    outputs = {
+        item.call_id: item
+        for item in session.history.items
+        if item.type == "function_call_output"
+    }
+    assert outputs["music"].output == str({"say": "Music is playing."})
+
+
+async def test_handoff_batch_sends_no_router_tool_reply():
+    # Mirrors the specialist-owned response: the router sends no tool reply.
+    replies = []
+
+    class RecordingBackend(NullBackend):
+        async def send_tool_results(self, results, *, reply):
+            replies.append(reply)
+
+    specialist = Agent(instructions="specialist")
+    handoff = _tool("handoff", lambda: (specialist, "Handing off."))
+    music = _tool("play_media", lambda: "Music is playing.")
+    session = AgentSession(backend=RecordingBackend())
+    session.update_agent(Agent(instructions="router", tools=[handoff, music]))
+    install(session)
+    session.backend_event(
+        "tool_calls", calls=[_call("handoff", "launch"), _call("play_media", "music")]
+    )
+    await _settle(session)
+    assert replies == [False]
 
 
 async def test_sdk_handled_handoff_is_not_applied_twice(monkeypatch):
     session = _session()
     target = Agent(instructions="specialist")
     call = _call("handoff", "launch")
-    result = (target, "Handing off.")
-    remember(_context(session, call), result)
-    event = _batch(
-        [_output(_call("play_media", "music"), "done"), _output(call, result)]
-    )
-    assert event.has_agent_handoff
+    result = _output(call, (target, "Handing off."))
+    remember(_context(session, call), (target, "Handing off."))
+    event = _batch([_output(_call("play_media", "music"), "done"), result])
+    recovery = session._jarvis_handoff_recovery
+    assert recovery._sdk_handoff(event)
     updates = []
     monkeypatch.setattr(session, "update_agent", updates.append)
     session.emit("function_tools_executed", event)
     assert updates == []
     # Consumed records cannot leak into a later event with the same ID.
-    event._handoff_required = False
     session.emit("function_tools_executed", event)
     assert updates == []
 
@@ -119,7 +230,7 @@ async def test_cancelled_failed_or_ambiguous_batches_never_switch(reason, monkey
     handoff = _output(call, result)
     outputs = [handoff]
     if reason == "failed":
-        handoff.fnc_call_out.is_error = True
+        handoff.output.is_error = True
     elif reason == "source_changed":
         session.update_agent(Agent(instructions="someone else"))
     elif reason == "two_handoffs":
@@ -133,7 +244,7 @@ async def test_cancelled_failed_or_ambiguous_batches_never_switch(reason, monkey
     monkeypatch.setattr(session, "update_agent", updates.append)
     session.emit("function_tools_executed", event)
     assert updates == []
-    assert event.has_tool_reply == (reason != "interrupted")
+    assert _has_tool_reply(event) == (reason != "interrupted")
 
 
 async def test_pending_handoffs_are_isolated_between_sessions():
@@ -144,82 +255,53 @@ async def test_pending_handoffs_are_isolated_between_sessions():
     remember(_context(first, call), result)
     second_router = second.current_agent
     event = _batch(
-        [_output(call, result), _output(_call("play_media", "music"), "done")]
+        [
+            _output(call, result),
+            _output(_call("play_media", "music"), "done"),
+        ]
     )
     second.emit("function_tools_executed", event)
     assert second.current_agent is second_router
-    first.emit("function_tools_executed", event)
-    assert first.current_agent is target
+    assert first._jarvis_handoff_recovery._sdk_handoff(event)
+    assert second._jarvis_handoff_recovery.pending == {}
 
 
-async def test_livekit_session_executes_launch_after_mixed_batch():
-    """Exercise the actual SDK activity/transition, with a deterministic LLM.
+async def test_session_executes_launch_after_mixed_batch():
+    """Drive the real session with a deterministic, scripted model backend.
 
     No model service, app launch or media playback is involved. The first
     response reproduces the production handoff+music batch; the specialist
     must enter and execute the remaining launch before the run completes.
     """
-    import asyncio
-
-    from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
-
     from agent import _wrap_tools_with_timing
 
     actions = []
 
-    class ScriptedStream(llm.LLMStream):
-        def __init__(self, model, *, chat_ctx, tools, conn_options, delta):
-            self.delta = delta
-            super().__init__(
-                model, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options
-            )
+    class ScriptedBackend(NullBackend):
+        """Each model generation emits the next scripted batch or text reply."""
 
-        async def _run(self):
-            self._event_ch.send_nowait(llm.ChatChunk(id="scripted", delta=self.delta))
-
-    class ScriptedLLM(llm.LLM):
-        def __init__(self):
-            super().__init__()
+        def __init__(self, script):
+            self.script = list(script)
             self.turns = 0
 
-        def chat(
-            self,
-            *,
-            chat_ctx,
-            tools=None,
-            conn_options=DEFAULT_API_CONNECT_OPTIONS,
-            **kwargs,
-        ):
+        def push_text(self, text):
+            self._respond()
+
+        async def generate_reply(self, instructions, tool_choice):
+            self._respond()
+
+        async def send_tool_results(self, results, *, reply):
+            if reply:
+                self._respond()
+
+        def _respond(self):
             self.turns += 1
-            batches = {
-                1: [
-                    llm.FunctionToolCall(
-                        name="transfer_to_system_control",
-                        call_id="launch",
-                        arguments="{}",
-                    ),
-                    llm.FunctionToolCall(
-                        name="play_media", call_id="music", arguments="{}"
-                    ),
-                ],
-                2: [
-                    llm.FunctionToolCall(
-                        name="open_app", call_id="open", arguments='{"app": "Sober"}'
-                    )
-                ],
-            }
-            delta = llm.ChoiceDelta(
-                role="assistant",
-                tool_calls=batches.get(self.turns, []),
-                content=None if self.turns in batches else "Done.",
-            )
-            return ScriptedStream(
-                self,
-                chat_ctx=chat_ctx,
-                tools=tools or [],
-                conn_options=conn_options,
-                delta=delta,
-            )
+            item = self.script.pop(0) if self.script else "Done."
+            if isinstance(item, str):
+                self.session.backend_event("agent_text", text=item)
+                self.session.backend_event("turn_complete")
+            else:
+                self.session.backend_event("tool_calls", calls=item)
 
     class Specialist(Agent):
         def __init__(self):
@@ -252,12 +334,36 @@ async def test_livekit_session_executes_launch_after_mixed_batch():
             actions.append(("play_media", "music"))
             return "Music is playing."
 
-    async with ScriptedLLM() as model, AgentSession(llm=model) as session:
-        install(session)
-        await session.start(Router())
-        await asyncio.wait_for(
-            session.run(user_input="Launch Sober and play music."), 10
-        )
+    backend = ScriptedBackend(
+        [
+            [
+                FunctionCall(
+                    name="transfer_to_system_control",
+                    call_id="launch",
+                    arguments="{}",
+                ),
+                FunctionCall(name="play_media", call_id="music", arguments="{}"),
+            ],
+            [
+                FunctionCall(
+                    name="open_app", call_id="open", arguments='{"app": "Sober"}'
+                )
+            ],
+        ]
+    )
+    session = AgentSession(backend=backend)
+    install(session)
+    await session.start(Router())
+    try:
+        session.generate_reply(user_input="Launch Sober and play music.")
+        await _settle(session)
         assert session.current_agent is specialist
         assert actions == [("play_media", "music"), ("open_app", "Sober")]
-        assert model.turns == 3
+    finally:
+        await session.aclose()
+    return backend
+
+
+async def test_handoff_scenario_takes_three_model_turns():
+    backend = await test_session_executes_launch_after_mixed_batch()
+    assert backend.turns == 3

@@ -4,10 +4,17 @@ import asyncio
 from types import MethodType, SimpleNamespace
 
 import pytest
-from livekit.agents import Agent, AgentSession, RunContext, llm
-from livekit.agents.voice.events import FunctionToolsExecutedEvent
 
 from handoff_recovery import begin_specialist, install, remember, resume_return
+from jarvis_rt import (
+    Agent,
+    AgentSession,
+    ChatContext,
+    FunctionCall,
+    FunctionCallOutput,
+    FunctionToolsExecutedEvent,
+    RunContext,
+)
 
 
 def scenario(*, error=False, interrupted=False, reported=False, mixed=True):
@@ -17,10 +24,10 @@ def scenario(*, error=False, interrupted=False, reported=False, mixed=True):
     session.update_agent(source)
     install(session)
     begin_specialist(source)
-    action = llm.FunctionCall(
+    action = FunctionCall(
         name="open_app", call_id="action", arguments='{"app":"calculator"}'
     )
-    result = llm.FunctionCallOutput(
+    result = FunctionCallOutput(
         name="open_app",
         call_id="action",
         output="blocked by policy" if error else "{'say': 'Opening calculator.'}",
@@ -29,10 +36,8 @@ def scenario(*, error=False, interrupted=False, reported=False, mixed=True):
     source._chat_ctx.insert([action, result])
     if reported:
         source._chat_ctx.add_message(role="assistant", content="Opening calculator.")
-    call = llm.FunctionCall(
-        name="transfer_back_to_main", call_id="return", arguments="{}"
-    )
-    output = llm.FunctionCallOutput(
+    call = FunctionCall(name="transfer_back_to_main", call_id="return", arguments="{}")
+    output = FunctionCallOutput(
         name=call.name,
         call_id=call.call_id,
         output="Returning to Jarvis.",
@@ -46,7 +51,6 @@ def scenario(*, error=False, interrupted=False, reported=False, mixed=True):
         function_calls=[action, call] if mixed else [call],
         function_call_outputs=[result, output] if mixed else [output],
     )
-    event._handoff_required = True
     session.emit("function_tools_executed", event)
     session.update_agent(router)
     replies = []
@@ -57,9 +61,7 @@ def scenario(*, error=False, interrupted=False, reported=False, mixed=True):
         assert kwargs["tool_choice"] == "none"
         replies.append(kwargs)
 
-    router._activity = SimpleNamespace(
-        session=SimpleNamespace(current_agent=router, generate_reply=generate_reply)
-    )
+    session.generate_reply = generate_reply
     return router, source, speech, replies, event
 
 
@@ -69,7 +71,7 @@ async def test_successful_action_has_one_owned_spoken_completion(mixed):
     from agent import Assistant
 
     router, _, _, replies, event = scenario(mixed=mixed)
-    assert not event.has_tool_reply
+    assert not any(out.reply_required for out in event.function_call_outputs)
     await Assistant.on_enter(router)
     await Assistant.on_enter(router)
     assert len(replies) == 1
@@ -79,6 +81,7 @@ async def test_successful_action_has_one_owned_spoken_completion(mixed):
 
 @pytest.mark.asyncio
 async def test_completion_reaches_google_audio_stream_without_another_action():
+    # LiveKit-only: drives the livekit-plugins-google realtime internals.
     from google.genai import types
     from livekit.plugins.google.realtime import realtime_api as google_rt
 
@@ -99,7 +102,7 @@ async def test_completion_reaches_google_audio_stream_without_another_action():
         _opts=SimpleNamespace(
             output_audio_transcription=types.AudioTranscriptionConfig()
         ),
-        _chat_ctx=llm.ChatContext.empty(),
+        _chat_ctx=ChatContext.empty(),
         emit=lambda *args: events.append(args),
     )
     for name in (
@@ -129,7 +132,7 @@ async def test_completion_reaches_google_audio_stream_without_another_action():
         )
         google_rt.RealtimeSession._handle_server_content(rt, content)
 
-    router._activity.session.generate_reply = provider
+    router.session.generate_reply = provider
     await resume_return(router)
     await resume_return(router)
     frames = [frame async for frame in rt._current_generation.audio_ch]
@@ -172,7 +175,7 @@ async def test_failure_is_reported_without_claiming_success():
 @pytest.mark.asyncio
 async def test_changed_owner_discards_stale_completion():
     router, _, _, replies, _ = scenario()
-    router._activity.session.current_agent = Agent(instructions="new task")
+    router.session._agent = Agent(instructions="new task")
     await resume_return(router)
     assert replies == []
 
@@ -195,7 +198,7 @@ async def test_cancelled_generation_is_consumed_without_retry():
     async def cancelled(**kwargs):
         raise asyncio.CancelledError
 
-    router._activity.session.generate_reply = cancelled
+    router.session.generate_reply = cancelled
     with pytest.raises(asyncio.CancelledError):
         await resume_return(router)
     await resume_return(router)

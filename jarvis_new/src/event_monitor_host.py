@@ -8,12 +8,26 @@ import contextlib
 import json
 import os
 import sqlite3
+import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 
 from event_monitor.core import Session
+
+
+def _inside_job_or_console() -> bool:
+    """True inside a voice job or under the ``console`` run mode."""
+    from jarvis_rt import get_job_context
+
+    try:
+        get_job_context()
+    except RuntimeError:
+        in_job = False
+    else:
+        in_job = True
+    return in_job or sys.argv[1:2] == ["console"]
 
 
 class SDKEngine:
@@ -23,12 +37,9 @@ class SDKEngine:
         self.session = None
 
     async def open(self, identity, messages):
-        from livekit.agents import Agent, AgentSession, cli, get_job_context
+        from jarvis_rt import Agent, AgentSession
 
-        if (
-            get_job_context(required=False) is not None
-            or cli.AgentsConsole.get_instance().enabled
-        ):
+        if _inside_job_or_console():
             raise RuntimeError("Event agent must run outside voice jobs/console")
         await self.aclose()
         session = AgentSession(
@@ -57,7 +68,6 @@ class SDKEngine:
             session.input.set_audio_enabled(False)
             session.input.set_video_enabled(False)
             session.output.set_audio_enabled(False)
-            session.output.set_video_enabled(False)
             assert session.input.audio is None and session.output.audio is None
             for message in messages:
                 await self.put(message)

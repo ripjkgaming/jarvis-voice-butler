@@ -456,7 +456,8 @@ class AgentSession(EventEmitter):
         )
         if new_agent is not None:
             self.update_agent(new_agent)
-        reply = any(r.output.reply_required for r in results) or new_agent is not None
+        # a handoff batch is answered by the incoming agent, not by the router
+        reply = any(r.output.reply_required for r in results) and new_agent is None
         if self.backend is not None and not self._closed:
             await self.backend.send_tool_results(
                 [r.output for r in results], reply=reply

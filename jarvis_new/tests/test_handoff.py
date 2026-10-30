@@ -1,12 +1,14 @@
+from typing import Any
+
 import pytest
-from livekit.agents import inference, llm
 
 from agent import Assistant, ResearchAgent, SystemAgent
 from prompts import AGENT_INSTRUCTIONS, RESEARCH_INSTRUCTIONS, SYSTEM_INSTRUCTIONS
 
 
-def _agent_llm() -> llm.LLM:
-    return inference.LLM(model="openai/gpt-4.1-mini")
+def _agent_llm() -> Any:
+    # Agent construction needs no model client; the in-repo runtime takes llm=None.
+    return None
 
 
 def test_specialist_instructions_exist() -> None:

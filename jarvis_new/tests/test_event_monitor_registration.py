@@ -1,7 +1,8 @@
 import json
 
-import event_monitor_bridge as integration
 import pytest
+
+import event_monitor_bridge as integration
 from event_monitor.api import MonitorAPI
 from event_monitor.core import Store
 
@@ -134,16 +135,14 @@ def test_installed_owner_assistant_registers_lazy_monitor_schemas(
 
     assistant = agent.Assistant(browser=SimpleNamespace())
     try:
-        from livekit.agents.llm.utils import build_legacy_openai_schema
+        from jarvis_rt import tool_schema
 
         targets = {"monitor_create", "monitor_list", "monitor_status", "monitor_stop"}
         actual = {t.id: t for t in assistant.tools if t.id in targets}
         assert set(actual) == targets
         assert all(agent._never_demote(name) for name in targets)
-        schema = build_legacy_openai_schema(actual["monitor_create"])
-        assert set(schema["function"]["parameters"]["properties"]) == {
-            "definition_json"
-        }
+        schema = tool_schema(actual["monitor_create"])
+        assert set(schema["parameters"]["properties"]) == {"definition_json"}
         assert integration._RUNTIME is None
     finally:
         assistant.librarian_service.close()
