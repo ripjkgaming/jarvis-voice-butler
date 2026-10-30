@@ -1,26 +1,23 @@
-"""Mint a participant token for the HUD webview (Tauri `mint_token` backend).
+"""Mint a call token for the HUD webview (Tauri `mint_token` backend).
 
-Counterpart of `frontend/app/api/token/route.ts` for the static-export
-build, where no Next.js route exists. The shell (`shell/src-tauri`)
-execs this with a venv python that has the `livekit` package and reads
-one JSON line from stdout::
+Replaces the old LiveKit participant token. The agent worker hosts the
+in-repo WebSocket voice hub (see docs/voice-transport.md), so this module
+now signs an HMAC call token with the local voice secret
+(`$JARVIS_HOME/voice_secret`, created on first use) and points the client
+at the hub. No livekit imports. The shell reads one JSON line from stdout::
 
     {"serverUrl": ..., "roomName": ..., "participantName": ...,
      "participantToken": ...}
 
-Credentials: env first (`LIVEKIT_URL/API_KEY/API_SECRET`), then
-`<repo>/.env.local`, then `<repo>/frontend/.env.local` (same precedence
-as `wake_client.load_livekit_env`). Fails with a non-zero exit and a
-`{"error": ...}` line — never a traceback on stdout.
+`serverUrl` is `ws://127.0.0.1:<JARVIS_VOICE_PORT>/voice` (port default
+7880), or `JARVIS_VOICE_URL` verbatim when it is a ws:// or wss:// URL
+(tunnels). Failures exit non-zero with a `{"error": ...}` line on stdout.
 
 Usage: `python src/mint_token.py [agent-name] [room-name] [join]`
 
-- summon mode (default): fresh random room + agent dispatch (the HUD
-  used to start its own calls this way).
-- join mode (`join` as third arg with an explicit room): token for the
-  named room WITHOUT dispatch — for joining a live wake summoned room
-  receive-only (the agent is already there; a second dispatch would
-  summon a second voice).
+- summon mode (default): fresh random room, speaker mode (mic + control).
+- join mode (`join` as third arg with an explicit room): receive-only HUD
+  observer (`mode="observer"`) for a live call; no second dispatch.
 """
 
 from __future__ import annotations
@@ -28,43 +25,58 @@ from __future__ import annotations
 import json
 import os
 import random
-import re
 import sys
-from datetime import timedelta
 from pathlib import Path
 
-_ROOM_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+from jarvis_rt.transport.tokens import (
+    jarvis_home,
+    load_secret,
+    mint_call_token,
+    valid_room_name,
+)
+
+__all__ = [
+    "active_call_exists",
+    "main",
+    "mint_token_payload",
+    "valid_room_name",
+    "voice_url",
+]
+
+DEFAULT_VOICE_PORT = 7880  # Matches jarvis_rt.worker.DEFAULT_PORT.
+SUMMON_TTL = 120
+PHONE_TTL = 900
+ACTIVE_FILE = "voice_active.json"
 
 
-def valid_room_name(name: object) -> bool:
-    """Room names are wake-generated `jarvis-<epoch>`; strict allowlist. Pure."""
-    return isinstance(name, str) and _ROOM_RE.fullmatch(name) is not None
-
-
-def _load_dotenv(path: Path, found: dict) -> None:
+def voice_port() -> int:
+    raw = os.environ.get("JARVIS_VOICE_PORT", "").strip()
     try:
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key, value = key.strip(), value.strip().strip("\"'")
-            if key in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
-                found.setdefault(key, value)
-    except OSError:
-        pass
+        port = int(raw) if raw else DEFAULT_VOICE_PORT
+    except ValueError:
+        return DEFAULT_VOICE_PORT
+    return port if 0 < port < 65536 else DEFAULT_VOICE_PORT
 
 
-def load_creds() -> dict:
-    creds = {
-        k: os.environ[k]
-        for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
-        if os.environ.get(k)
-    }
-    repo = Path(__file__).resolve().parent.parent
-    _load_dotenv(repo / ".env.local", creds)
-    _load_dotenv(repo / "frontend" / ".env.local", creds)
-    return creds
+def voice_url() -> str:
+    override = os.environ.get("JARVIS_VOICE_URL", "").strip()
+    if override.startswith(("ws://", "wss://")):
+        return override
+    return f"ws://127.0.0.1:{voice_port()}/voice"
+
+
+def active_call_exists(home: Path | str | None = None) -> bool:
+    """True when the worker's hub registry reports a live call.
+
+    Reads ``$JARVIS_HOME/voice_active.json`` (``{"active": true, ...}``),
+    written by the worker. Missing or malformed means no call.
+    """
+    base = jarvis_home() if home is None else Path(home)
+    try:
+        data = json.loads((base / ACTIVE_FILE).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("active") is True
 
 
 def mint_token_payload(
@@ -75,33 +87,20 @@ def mint_token_payload(
     phone_call_id: str = "",
     private_phone: bool = False,
 ) -> dict:
-    """Mint a join token. Import-safe core of main() for bridge reuse.
+    """Mint a call token. Import-safe core of main() for bridge reuse.
 
-    Raises RuntimeError when LiveKit creds are missing (callers map to
-    503), ValueError on a bad room name.
+    ``dispatch`` True means speaker mode in a fresh or named room; False
+    means receive-only observer mode. ``agent_name`` is accepted for
+    signature compatibility and ignored (the worker hosts the one agent).
+
+    Raises ValueError on a bad room name or a private-room misuse.
     """
-    from livekit.api import (
-        AccessToken,
-        RoomAgentDispatch,
-        RoomConfiguration,
-        VideoGrants,
-    )
-
     import phone_session
 
     if private_phone and (room or not dispatch):
         raise ValueError("Private calls require a fresh owner phone session")
     if not private_phone and phone_session.private_room(room):
         raise ValueError("Private phone rooms cannot be joined or dispatched again")
-    creds = load_creds()
-    missing = [
-        k
-        for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
-        if not creds.get(k)
-    ]
-    if missing:
-        raise RuntimeError(f"missing LiveKit creds: {', '.join(missing)}")
-    agent = (agent_name or os.environ.get("AGENT_NAME", "")).strip() or "my-agent"
     # CLI parity: an invalid room falls back to random (bridge validates
     # explicitly and answers 400 instead).
     room = (
@@ -110,48 +109,37 @@ def mint_token_payload(
         else f"voice_assistant_room_{random.randint(0, 9999)}"
     )
     identity = f"voice_assistant_user_{random.randint(0, 9999)}"
-    private_metadata = ""
+    attrs: dict[str, str] = {}
     if private_phone:
         room = phone_session.new_room()
         identity = phone_session.identity_for(room)
-        private_metadata = phone_session.sign(room)
+        attrs["jarvis.phone_owner"] = room
+        attrs["jarvis.phone_sig"] = phone_session.sign(room)
     if phone_call_id:
+        import time
+
         import phone_calls
 
-        if not phone_calls.queue().accepted(phone_call_id, __import__("time").time()):
+        if not phone_calls.queue().accepted(phone_call_id, time.time()):
             raise RuntimeError("Invitation unavailable")
         if not private_phone:
             identity = "jarvis-phone-" + phone_call_id
+        attrs["jarvis.phone_call"] = phone_call_id
 
-    token = AccessToken(creds["LIVEKIT_API_KEY"], creds["LIVEKIT_API_SECRET"])
-    token.with_identity(identity).with_name("user")
-    attributes = {}
-    if private_phone:
-        attributes["jarvis.phone_owner"] = room
-    if phone_call_id:
-        attributes["jarvis.phone_call"] = phone_call_id
-    if attributes:
-        token.with_attributes(attributes)
-    token.with_grants(
-        VideoGrants(
-            room_join=True,
-            room=room,
-            can_publish=True,
-            can_publish_data=True,
-            can_subscribe=True,
-            can_update_own_metadata=False,
-        )
+    phone = bool(private_phone or phone_call_id)
+    token = mint_call_token(
+        room,
+        identity,
+        "speaker" if dispatch else "observer",
+        PHONE_TTL if phone else SUMMON_TTL,
+        attrs or None,
+        load_secret(),
     )
-    if dispatch:
-        token.with_room_config(
-            RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent, metadata=private_metadata)])
-        )
-    token.with_ttl(timedelta(minutes=15))
     return {
-        "serverUrl": creds["LIVEKIT_URL"],
+        "serverUrl": voice_url(),
         "roomName": room,
         "participantName": "user",
-        "participantToken": token.to_jwt(),
+        "participantToken": token,
     }
 
 
@@ -163,7 +151,7 @@ def main(argv: list[str]) -> int:
     join_mode = len(argv) > 3 and argv[3] == "join" and valid_room_name(room_arg)
     try:
         print(json.dumps(mint_token_payload(room_arg, not join_mode, agent_name)))
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(json.dumps({"error": str(exc)}))
         return 2
     return 0

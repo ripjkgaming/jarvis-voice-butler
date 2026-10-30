@@ -1,7 +1,6 @@
 """Offline watch-phone ownership tests: no camera, ring, audio or cloud calls."""
 
 import asyncio
-import base64
 import json
 import time
 from types import SimpleNamespace
@@ -13,23 +12,24 @@ import hud_events
 import mint_token
 import phone_api
 import watch_mode
+from jarvis_rt.transport.tokens import (
+    MemoryNonceLedger,
+    ReplayedTokenError,
+    load_secret,
+    verify_call_token,
+)
 
 
 @pytest.fixture
-def creds(monkeypatch):
-    c = {
-        "LIVEKIT_URL": "wss://test",
-        "LIVEKIT_API_KEY": "test",
-        "LIVEKIT_API_SECRET": "a" * 40,
-    }
-    monkeypatch.setattr(mint_token, "load_creds", lambda: c)
-    return c
+def creds(monkeypatch, tmp_path):
+    """Hermetic voice secret: the HMAC authority reads $JARVIS_HOME/voice_secret."""
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis-home"))
+    return load_secret()
 
 
 def claims(payload):
-    return json.loads(
-        base64.urlsafe_b64decode(payload["participantToken"].split(".")[1] + "==")
-    )
+    """Verified call-token claims (CallClaims) for a minted payload."""
+    return verify_call_token(payload["participantToken"], load_secret())
 
 
 def test_private_token_is_unique_signed_and_single_dispatch(creds):
@@ -39,13 +39,18 @@ def test_private_token_is_unique_signed_and_single_dispatch(creds):
     b = mint_token.mint_token_payload(private_phone=True)
     assert a["roomName"] != b["roomName"]
     p = claims(a)
-    assert p["sub"] == ps.identity_for(a["roomName"])
-    assert p["video"]["room"] == a["roomName"]
-    assert p["video"]["canUpdateOwnMetadata"] is False
-    assert p["attributes"] == {"jarvis.phone_owner": a["roomName"]}
-    dispatch = p["roomConfig"]["agents"]
-    assert len(dispatch) == 1
-    assert ps.verify(dispatch[0]["metadata"], a["roomName"]) == p["sub"]
+    assert p.identity == ps.identity_for(a["roomName"])
+    assert p.room == a["roomName"]
+    assert p.mode == "speaker"
+    assert p.expires - p.issued == 900
+    assert set(p.attrs) == {"jarvis.phone_owner", "jarvis.phone_sig"}
+    assert p.attrs["jarvis.phone_owner"] == a["roomName"]
+    assert ps.verify(p.attrs["jarvis.phone_sig"], a["roomName"]) == p.identity
+    # Single use: the nonce is claimed once; a replay is refused.
+    ledger = MemoryNonceLedger()
+    verify_call_token(a["participantToken"], load_secret(), ledger=ledger)
+    with pytest.raises(ReplayedTokenError):
+        verify_call_token(a["participantToken"], load_secret(), ledger=ledger)
     with pytest.raises(ValueError):
         mint_token.mint_token_payload(a["roomName"], False)
 
@@ -240,13 +245,15 @@ def test_normal_phone_new_is_private_and_laptop_join_is_unchanged(creds, monkeyp
     code, new = handler_request("/phone/v1/session", {"api_version": 1, "mode": "new"})
     assert code == 200
     assert new["roomName"].startswith("jarvis-private-phone-")
-    assert claims(new)["attributes"]["jarvis.phone_owner"] == new["roomName"]
+    assert claims(new).attrs["jarvis.phone_owner"] == new["roomName"]
     code, joined = handler_request(
         "/phone/v1/session", {"api_version": 1, "mode": "laptop"}
     )
     assert code == 200
     assert joined["roomName"] == "jarvis-local-owner"
-    assert "roomConfig" not in claims(joined)
+    # Laptop join is observer-only: no dispatch and no phone attributes.
+    assert claims(joined).mode == "observer"
+    assert claims(joined).attrs == {}
 
 
 def test_shared_caption_routes_hide_remote_only_then_recover(monkeypatch):
@@ -267,10 +274,9 @@ def test_shared_caption_routes_hide_remote_only_then_recover(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_private_tool_authorization_and_background_callback_scope(creds):
-    from livekit.agents.llm import ToolError
-
     import agent
     import phone_session as ps
+    from jarvis_rt import ToolError
 
     watch_mode.enter_guest()
     calls = []
@@ -469,9 +475,7 @@ class FakeRoom:
     ],
 )
 async def test_terminal_event_revokes_before_shutdown_and_sdk_drain(creds, terminal):
-    from livekit import rtc
-    from livekit.agents import AgentSession
-    from livekit.agents.voice.events import CloseReason
+    from jarvis_rt import Agent, AgentSession
 
     import phone_session as ps
 
@@ -482,15 +486,20 @@ async def test_terminal_event_revokes_before_shutdown_and_sdk_drain(creds, termi
 
     @ps.isolated_job
     async def job(context):
-        session = AgentSession()
-        # Exercise the real installed SDK close entrypoints, without starting media.
-        session._started = True
+        class DrainBackend:
+            async def start(self, session, agent):
+                pass
 
-        async def drain(**kwargs):
-            drain_saw_revocation.append(ps.guest_required())
-            assert ps.identity() == ""
+            async def aclose(self):
+                drain_saw_revocation.append(ps.guest_required())
+                assert ps.identity() == ""
 
-        session._teardown_activity = drain
+            def push_audio(self, pcm):
+                pass
+
+        session = AgentSession(backend=DrainBackend())
+        # Exercise the real close entrypoints (shutdown/aclose) without media.
+        await session.start(Agent(instructions="x"))
         ps.bind_session(session)
         assert ps.identity()
         if terminal not in {"room", "close_soon", "aclose"}:
@@ -498,13 +507,13 @@ async def test_terminal_event_revokes_before_shutdown_and_sdk_drain(creds, termi
                 "participant_disconnected",
                 SimpleNamespace(
                     identity=ps.identity(),
-                    disconnect_reason=getattr(rtc.DisconnectReason, terminal),
+                    disconnect_reason=terminal,
                 ),
             )
         elif terminal == "room":
-            ctx.room.emit("disconnected", rtc.DisconnectReason.ROOM_DELETED)
+            ctx.room.emit("disconnected", "ROOM_DELETED")
         elif terminal == "close_soon":
-            session._close_soon(reason=CloseReason.USER_INITIATED)
+            session.shutdown()
         else:
             await session.aclose()
         # SDK job callbacks have deliberately not run yet.
@@ -514,7 +523,7 @@ async def test_terminal_event_revokes_before_shutdown_and_sdk_drain(creds, termi
         ctx.room.emit("reconnected")
         assert ps.guest_required()  # Unverified events never resurrect authority.
         if terminal == "close_soon":
-            await session._closing_task
+            await asyncio.sleep(0.05)  # the scheduled close drains
         elif terminal != "aclose":
             await session.aclose()
 
@@ -527,8 +536,6 @@ async def test_terminal_event_revokes_before_shutdown_and_sdk_drain(creds, termi
 
 @pytest.mark.asyncio
 async def test_transient_reconnect_and_other_participant_do_not_end_owner(creds):
-    from livekit import rtc
-
     import phone_session as ps
 
     room = ps.new_room()
@@ -543,14 +550,12 @@ async def test_transient_reconnect_and_other_participant_do_not_end_owner(creds)
             "participant_disconnected",
             SimpleNamespace(
                 identity="unrelated",
-                disconnect_reason=rtc.DisconnectReason.CLIENT_INITIATED,
+                disconnect_reason="CLIENT_INITIATED",
             ),
         )
         ctx.room.emit(
             "participant_disconnected",
-            SimpleNamespace(
-                identity=owner, disconnect_reason=rtc.DisconnectReason.UNKNOWN_REASON
-            ),
+            SimpleNamespace(identity=owner, disconnect_reason="UNKNOWN_REASON"),
         )
         ctx.room.emit("reconnected")
         assert ps.identity() == owner
@@ -675,10 +680,9 @@ async def test_private_notify_speak_queue_fail_before_context_losing_threads(
     ],
 )
 async def test_private_unsafe_tools_are_refused_before_origin(creds, tool_id):
-    from livekit.agents.llm import ToolError
-
     import agent
     import phone_session as ps
+    from jarvis_rt import ToolError
 
     async def unsafe(*a, **kw):
         pytest.fail("private detached/output tool reached its origin")
@@ -741,24 +745,32 @@ async def test_direct_class_dispatch_rechecks_private_authority_and_policy(
 
 
 @pytest.mark.asyncio
-async def test_local_turn_does_not_say_result_after_hangup(creds, monkeypatch):
-    from livekit.agents import StopResponse
-
+@pytest.mark.parametrize("phase", ["before", "during", "during_error"])
+async def test_local_turn_does_not_say_result_after_hangup(creds, monkeypatch, phase):
     import agent
     import phone_session as ps
     from intent import fast_path
+    from jarvis_rt import StopResponse
 
     room = ps.new_room()
     ctx = FakeContext(room, ps.sign(room))
 
-    async def goodnight(text):
+    executed = []
+
+    async def character_switch(text):
         return False
+
+    async def update_instructions(*args):
+        pytest.fail("revoked private turn reached guest instructions")
 
     async def match(text):
         return "read_clipboard", {}, "test"
 
     async def execute(*args):
+        executed.append(True)
         ctx.room.emit("disconnected", None)
+        if phase == "during_error":
+            raise RuntimeError("operation failed after hangup")
         return True, "PRIVATE-response-after-hangup"
 
     monkeypatch.setattr(agent, "_pipeline_name", lambda: "local")
@@ -766,7 +778,9 @@ async def test_local_turn_does_not_say_result_after_hangup(creds, monkeypatch):
     monkeypatch.setattr(fast_path, "match_async", match)
     monkeypatch.setattr(fast_path, "execute", execute)
     assistant = SimpleNamespace(
-        _goodnight=goodnight,
+        _character_switch_turn=character_switch,
+        _watch_guest=False,
+        update_instructions=update_instructions,
         system_tools=object(),
         session=SimpleNamespace(
             say=lambda *a: pytest.fail("private response after hangup")
@@ -775,12 +789,15 @@ async def test_local_turn_does_not_say_result_after_hangup(creds, monkeypatch):
 
     @ps.isolated_job
     async def job(context):
+        if phase == "before":
+            ctx.room.emit("disconnected", None)
         with pytest.raises(StopResponse):
             await agent.Assistant.on_user_turn_completed(
                 assistant,
                 None,
                 SimpleNamespace(text_content="read clipboard", id="private-turn"),
             )
+        assert executed == ([] if phase == "before" else [True])
 
     await job(ctx)
     for cb in ctx.shutdowns:
@@ -789,10 +806,9 @@ async def test_local_turn_does_not_say_result_after_hangup(creds, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_revoked_private_guest_controls_cannot_dispatch(creds, monkeypatch):
-    from livekit.agents.llm import ToolError
-
     import agent
     import phone_session as ps
+    from jarvis_rt import ToolError
 
     async def volume(*a, **kw):
         pytest.fail("ended private session changed desktop volume")
@@ -819,7 +835,9 @@ async def test_revoked_private_guest_controls_cannot_dispatch(creds, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["", "wrong_invitation", "expired", "quiet"])
-async def test_accepted_incoming_private_owner_bound_opener_once(creds, tmp_path, monkeypatch, failure):
+async def test_accepted_incoming_private_owner_bound_opener_once(
+    creds, tmp_path, monkeypatch, failure
+):
     import phone_calls
     import phone_session as ps
 
@@ -832,8 +850,8 @@ async def test_accepted_incoming_private_owner_bound_opener_once(creds, tmp_path
     invitation = q.pending(now)["invitation"]["id"]
     assert q.claim(invitation, "accept", now)
     payload = phone_calls.mint_phone_token(invitation)
-    attrs = claims(payload)["attributes"]
-    metadata = claims(payload)["roomConfig"]["agents"][0]["metadata"]
+    attrs = dict(claims(payload).attrs)
+    metadata = attrs["jarvis.phone_sig"]
     ctx = FakeContext(payload["roomName"], metadata)
 
     async def participant(identity):
@@ -850,8 +868,14 @@ async def test_accepted_incoming_private_owner_bound_opener_once(creds, tmp_path
     @ps.isolated_job
     async def job(context):
         assert ps.invitation_id() == invitation
-        assert phone_calls.consume_announcement(invitation, "jarvis-phone-" + invitation) == ""
-        assert phone_calls.consume_announcement(invitation, ps.identity()) == "Server opener"
+        assert (
+            phone_calls.consume_announcement(invitation, "jarvis-phone-" + invitation)
+            == ""
+        )
+        assert (
+            phone_calls.consume_announcement(invitation, ps.identity())
+            == "Server opener"
+        )
         assert phone_calls.consume_announcement(invitation, ps.identity()) == ""
         assert phone_calls.consume_announcement("f" * 32, ps.identity()) == ""
         assert not hud_events.caption("sir", "private incoming text")

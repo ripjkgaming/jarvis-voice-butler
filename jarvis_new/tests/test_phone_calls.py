@@ -104,8 +104,9 @@ def test_server_owned_opener_once_and_quiet_rejected(tmp_path, monkeypatch):
 
 
 def test_stale_cannot_mint_or_announce(tmp_path, monkeypatch):
-    import phone_calls
     import pytest
+
+    import phone_calls
 
     q = CallQueue(tmp_path / "calls.db")
     monkeypatch.setattr(phone_calls, "queue", lambda: q)
@@ -121,45 +122,57 @@ def test_stale_cannot_mint_or_announce(tmp_path, monkeypatch):
 
 
 def test_signed_phone_token_and_manual_unchanged(tmp_path, monkeypatch):
-    import base64
-    import json
+    import pytest
 
     import mint_token
     import phone_calls
+    import phone_session
+    from jarvis_rt.transport.tokens import (
+        MemoryNonceLedger,
+        ReplayedTokenError,
+        load_secret,
+        verify_call_token,
+    )
 
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis-home"))
     q = CallQueue(tmp_path / "calls.db")
     monkeypatch.setattr(phone_calls, "queue", lambda: q)
     n = ts("04", "10:00")
     monkeypatch.setattr(phone_calls.time, "time", lambda: n)
-    monkeypatch.setattr(
-        mint_token,
-        "load_creds",
-        lambda: {
-            "LIVEKIT_URL": "wss://test",
-            "LIVEKIT_API_KEY": "test",
-            "LIVEKIT_API_SECRET": "a" * 40,
-        },
-    )
     q.configure(True, True, True, n)
     q.offer("update", "mint", "Build completed", n)
     i = q.pending(n)["invitation"]
     q.claim(i["id"], "accept", n)
 
     def claims(o):
-        p = o["participantToken"].split(".")[1]
-        return json.loads(base64.urlsafe_b64decode(p + "=="))
+        return verify_call_token(o["participantToken"], load_secret(), now=n)
 
     incoming = phone_calls.mint_phone_token(i["id"])
     p = claims(incoming)
-    import phone_session
-    assert p["sub"] == phone_session.identity_for(incoming["roomName"])
-    assert p["attributes"] == {"jarvis.phone_call": i["id"], "jarvis.phone_owner": incoming["roomName"]}
-    dispatch = p["roomConfig"]["agents"][0]["metadata"]
-    assert phone_session.verify(dispatch, incoming["roomName"]) == p["sub"]
-    assert p["video"]["canUpdateOwnMetadata"] is False
+    assert p.identity == phone_session.identity_for(incoming["roomName"])
+    assert p.room == incoming["roomName"]
+    assert p.mode == "speaker"
+    assert p.expires - p.issued == 900
+    assert set(p.attrs) == {
+        "jarvis.phone_call",
+        "jarvis.phone_owner",
+        "jarvis.phone_sig",
+    }
+    assert p.attrs["jarvis.phone_call"] == i["id"]
+    assert p.attrs["jarvis.phone_owner"] == incoming["roomName"]
+    assert (
+        phone_session.verify(p.attrs["jarvis.phone_sig"], incoming["roomName"])
+        == p.identity
+    )
+    ledger = MemoryNonceLedger()
+    verify_call_token(incoming["participantToken"], load_secret(), now=n, ledger=ledger)
+    with pytest.raises(ReplayedTokenError):
+        verify_call_token(
+            incoming["participantToken"], load_secret(), now=n, ledger=ledger
+        )
     normal = claims(mint_token.mint_token_payload())
-    assert normal["sub"].startswith("voice_assistant_user_")
-    assert "jarvis.phone_call" not in normal.get("attributes", {})
+    assert normal.identity.startswith("voice_assistant_user_")
+    assert "jarvis.phone_call" not in normal.attrs
 
 
 def test_http_calls_auth_old_clients_and_guest(tmp_path, monkeypatch):
@@ -369,14 +382,22 @@ def test_schedule_first_due_late_window_and_atomic_claim(tmp_path):
 def test_bedtime_hook_uses_scheduler_wrapper_and_preserves_weekly_result(monkeypatch):
     import sys
     from types import SimpleNamespace
+
     import phone_calls
+
     calls = []
-    q = SimpleNamespace(poll_schedule=lambda now: calls.append(("weekly", now)) or "weekly-result")
+    q = SimpleNamespace(
+        poll_schedule=lambda now: calls.append(("weekly", now)) or "weekly-result"
+    )
     monkeypatch.setattr(phone_calls, "queue", lambda: q)
+
     def bedtime(queue, now):
         assert queue is q
         calls.append(("bedtime", now))
         raise RuntimeError("isolated Calendar failure")
-    monkeypatch.setitem(sys.modules, "bedtime_calls", SimpleNamespace(poll_schedule=bedtime))
+
+    monkeypatch.setitem(
+        sys.modules, "bedtime_calls", SimpleNamespace(poll_schedule=bedtime)
+    )
     assert phone_calls.poll_schedule(123) == "weekly-result"
     assert calls == [("weekly", 123), ("bedtime", 123)]

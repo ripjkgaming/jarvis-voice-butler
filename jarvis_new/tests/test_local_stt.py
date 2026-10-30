@@ -85,15 +85,16 @@ def test_direct_sub_agents_get_gemini_direct_brains(monkeypatch) -> None:
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setattr(agent_mod, "_shared_local_llm", None)
     llm = agent_mod._default_agent_llm()
-    # High-usage backup: direct brains ride a FallbackAdapter whose first
+    # High-usage backup: direct brains are a jarvis_rt ModelChain whose first
     # link is the Gemini-direct model (still cloud-free, still no Cloud
     # Inference inheritance).
-    assert type(llm).__name__ == "FallbackAdapter"
-    first = llm._llm_instances[0]
-    assert type(first).__module__.startswith("livekit.plugins.google")
-    from agent import DIRECT_LLM_MODEL
+    from agent import DIRECT_LLM_MODEL, TEXT_FALLBACK_CHAIN
+    from jarvis_rt.live import ModelChain
 
-    assert getattr(first, "model", "") == DIRECT_LLM_MODEL
+    assert isinstance(llm, ModelChain)
+    assert type(llm).__module__.startswith("jarvis_rt.")
+    assert llm.models == TEXT_FALLBACK_CHAIN
+    assert llm.models[0] == DIRECT_LLM_MODEL
 
 
 async def test_direct_pipeline_builds_offline_session(monkeypatch) -> None:
@@ -102,16 +103,17 @@ async def test_direct_pipeline_builds_offline_session(monkeypatch) -> None:
     Silero VAD loads its ~2MB ONNX once (cached after); whisper stays
     lazy; Gemini LLM inits key-only. No session.start, no inference.
     """
-    from livekit.agents import TurnHandlingOptions
-
     from agent import IDLE_HANGUP_SECONDS, _session_for_pipeline
+    from jarvis_rt.pipeline_direct import DirectBackend
 
     monkeypatch.setenv("JARVIS_PIPELINE", "direct")
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setattr(agent_mod, "_shared_local_llm", None)
-    session = _session_for_pipeline(TurnHandlingOptions())
-    assert session._opts.user_away_timeout == IDLE_HANGUP_SECONDS
-    assert session._stt is not None and session._stt.provider == "faster-whisper-local"
+    session = _session_for_pipeline()
+    assert isinstance(session.backend, DirectBackend)
+    assert session.user_away_timeout == IDLE_HANGUP_SECONDS
+    assert session.backend.stt is not None
+    assert session.backend.stt.provider == "faster-whisper-local"
 
 
 async def test_lazy_decode_stays_off_event_loop_and_preserves_recognition(monkeypatch):

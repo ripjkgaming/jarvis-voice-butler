@@ -213,6 +213,11 @@ class AgentSession(EventEmitter):
         task.add_done_callback(self._tool_tasks.discard)
         return task
 
+    def shutdown(self, *, reason: CloseReason = CloseReason.USER_INITIATED) -> None:
+        """Close soon without awaiting (safe from sync callbacks and tools)."""
+        if not self._closed:
+            self._spawn(self.aclose(reason))
+
     # ---- state helpers ---------------------------------------------------
     def _set_user_state(self, new: str) -> None:
         old, self._user_state = self._user_state, new

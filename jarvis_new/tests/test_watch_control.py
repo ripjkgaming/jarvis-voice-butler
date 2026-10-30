@@ -245,11 +245,10 @@ def test_stop_during_confirmation_target_probe_invalidates_disclosed_epoch(monke
 async def test_sdk_user_control_consumes_turn_and_replay_before_model(monkeypatch):
     from types import SimpleNamespace
 
-    from livekit.agents.llm import StopResponse
-
     import agent
     import computer_watch_client
     import watch_mode
+    from jarvis_rt import StopResponse
 
     launches, spoken = [], []
 
@@ -261,8 +260,9 @@ async def test_sdk_user_control_consumes_turn_and_replay_before_model(monkeypatc
     monkeypatch.setattr(
         watch_mode,
         "launch",
-        lambda: launches.append("watch the computer")
-        or {"ok": True, "state": "watching"},
+        lambda: (
+            launches.append("watch the computer") or {"ok": True, "state": "watching"}
+        ),
     )
     monkeypatch.setattr(
         computer_watch_client,
@@ -373,10 +373,9 @@ def test_spoken_disclosure_never_recites_confirmation_token():
 async def test_voice_confirmation_during_speech_is_consumed_without_grant(monkeypatch):
     from types import SimpleNamespace
 
-    from livekit.agents.llm import StopResponse
-
     import agent
     import computer_watch_client
+    from jarvis_rt import StopResponse
 
     monkeypatch.setattr(agent.phone_session, "private", lambda: False)
     monkeypatch.setattr(agent.phone_session, "guest_required", lambda: False)

@@ -1,7 +1,7 @@
 """Offline regression for action + return in a silent realtime generation."""
 
 import asyncio
-from types import MethodType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +9,6 @@ from handoff_recovery import begin_specialist, install, remember, resume_return
 from jarvis_rt import (
     Agent,
     AgentSession,
-    ChatContext,
     FunctionCall,
     FunctionCallOutput,
     FunctionToolsExecutedEvent,
@@ -80,74 +79,6 @@ async def test_successful_action_has_one_owned_spoken_completion(mixed):
 
 
 @pytest.mark.asyncio
-async def test_completion_reaches_google_audio_stream_without_another_action():
-    # LiveKit-only: drives the livekit-plugins-google realtime internals.
-    from google.genai import types
-    from livekit.plugins.google.realtime import realtime_api as google_rt
-
-    router, source, _, replies, _ = scenario()
-    actions = [
-        item
-        for item in source.chat_ctx.items
-        if item.type == "function_call" and item.name == "open_app"
-    ]
-    events = []
-    rt = SimpleNamespace(
-        _current_generation=None,
-        _rejected_tool_calls=0,
-        _pending_generation_fut=asyncio.Future(),
-        _realtime_model=SimpleNamespace(
-            capabilities=SimpleNamespace(audio_output=True)
-        ),
-        _opts=SimpleNamespace(
-            output_audio_transcription=types.AudioTranscriptionConfig()
-        ),
-        _chat_ctx=ChatContext.empty(),
-        emit=lambda *args: events.append(args),
-    )
-    for name in (
-        "_close_output_streams",
-        "_mark_current_generation_done",
-        "_handle_input_speech_stopped",
-    ):
-        setattr(rt, name, MethodType(getattr(google_rt.RealtimeSession, name), rt))
-
-    async def provider(**kwargs):
-        assert kwargs["tool_choice"] == "none"
-        replies.append(kwargs)
-        google_rt.RealtimeSession._start_new_generation(rt)
-        content = types.LiveServerContent(
-            model_turn=types.Content(
-                parts=[
-                    types.Part(
-                        inline_data=types.Blob(
-                            mime_type="audio/pcm", data=b"\x00\x00" * 240
-                        )
-                    )
-                ]
-            ),
-            output_transcription=types.Transcription(text="Opening calculator."),
-            generation_complete=True,
-            turn_complete=True,
-        )
-        google_rt.RealtimeSession._handle_server_content(rt, content)
-
-    router.session.generate_reply = provider
-    await resume_return(router)
-    await resume_return(router)
-    frames = [frame async for frame in rt._current_generation.audio_ch]
-    assert len(frames) == 1 and frames[0].samples_per_channel == 240
-    assert rt._current_generation.output_text == "Opening calculator."
-    assert events[0][1].user_initiated
-    assert len(replies) == 1
-    assert [
-        item
-        for item in source.chat_ctx.items
-        if item.type == "function_call" and item.name == "open_app"
-    ] == actions
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("when", ["before", "after"])
 async def test_interruption_abandons_return_without_repeating_action(when):
     router, _, speech, replies, _ = scenario(interrupted=when == "before")
@@ -191,7 +122,6 @@ async def test_reused_specialist_baseline_excludes_previous_action():
 
 @pytest.mark.asyncio
 async def test_cancelled_generation_is_consumed_without_retry():
-    import asyncio
 
     router, _, _, replies, _ = scenario()
 

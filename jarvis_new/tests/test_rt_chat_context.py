@@ -178,36 +178,16 @@ def test_to_gemini_contents_error_output_and_bad_arguments():
     assert out.parts[0].function_response.response == {"error": "boom"}
 
 
-def test_parity_with_livekit_chat_context():
-    pytest.importorskip("livekit.agents.llm")
-    from livekit.agents.llm import ChatContext as LKChatContext
-    from livekit.agents.llm import FunctionCall as LKFunctionCall
-    from livekit.agents.llm import FunctionCallOutput as LKFunctionCallOutput
-
+def test_chat_context_signature_matches_recorded_livekit_behavior():
+    # Literal items recorded from livekit-agents' ChatContext for the same
+    # sequence (the livekit comparison itself was removed with the dependency).
     t0 = 2000.0
-    lk = LKChatContext.empty()
-    lk.add_message(role="system", content="be brief", created_at=t0)
-    lk.add_message(role="user", content="weather in Paris?", created_at=t0 + 1)
-    lk.add_message(role="assistant", content="checking", created_at=t0 + 2)
-    lk.insert(
-        LKFunctionCall(
-            call_id="c1",
-            name="get_weather",
-            arguments='{"city": "Paris"}',
-            created_at=t0 + 3,
-        )
-    )
-    lk.insert(
-        LKFunctionCallOutput(
-            name="get_weather",
-            call_id="c1",
-            output="18C",
-            is_error=False,
-            created_at=t0 + 4,
-        )
-    )
-    lk.add_message(role="user", content="thanks", created_at=t0 + 5)
-
     ours = _sample(t0)
-
-    assert _signature(ours) == _signature(lk)
+    assert _signature(ours) == [
+        ("message", "system", "be brief", None, None),
+        ("message", "user", "weather in Paris?", None, None),
+        ("message", "assistant", "checking", None, None),
+        ("function_call", None, None, "get_weather", "c1"),
+        ("function_call_output", None, None, "get_weather", "c1"),
+        ("message", "user", "thanks", None, None),
+    ]

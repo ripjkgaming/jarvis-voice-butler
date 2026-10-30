@@ -58,11 +58,12 @@ def identity_for(room: str) -> str:
 
 
 def _signature(data: dict) -> str:
-    from mint_token import load_creds
+    from jarvis_rt.transport.tokens import load_secret
 
-    secret = load_creds().get("LIVEKIT_API_SECRET", "")
-    if not secret:
-        raise RuntimeError("Laptop voice service is unavailable")
+    try:
+        secret = load_secret().hex()
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Laptop voice service is unavailable") from exc
     encoded = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
     return hmac.new(secret.encode(), encoded, hashlib.sha256).hexdigest()
 
@@ -162,7 +163,9 @@ def private_tool_error(tool: str) -> str | None:
     return None
 
 
-_APPROVAL_EFFECT = contextvars.ContextVar("jarvis_private_approval_effect", default=None)
+_APPROVAL_EFFECT = contextvars.ContextVar(
+    "jarvis_private_approval_effect", default=None
+)
 
 
 def bind_approval_gate(gate):
@@ -191,9 +194,13 @@ def check_approval_effect(ticket=None, *, current=False):
         return
     scope, epoch = ticket
     gate = scope.approval_gate
-    if (not scope.active or scope.approval_epoch != epoch
-            or (gate is not None and gate.transaction_active)):
+    if (
+        not scope.active
+        or scope.approval_epoch != epoch
+        or (gate is not None and gate.transaction_active)
+    ):
         from system import LocalSystemError
+
         raise LocalSystemError(
             "Generic desktop/command actions cannot bypass an active WhatsApp review. "
             "Cancel that review, then make a fresh action request."
@@ -202,6 +209,7 @@ def check_approval_effect(ticket=None, *, current=False):
 
 def approval_action(fn):
     """Track generic input from invocation through copied worker contexts."""
+
     @functools.wraps(fn)
     async def run(*args, **kwargs):
         ticket = approval_ticket()
@@ -210,36 +218,38 @@ def approval_action(fn):
             check_approval_effect(ticket)
             return await fn(*args, **kwargs)
         except __import__("system").LocalSystemError as exc:
-            from livekit.agents.llm import ToolError
+            from jarvis_rt import ToolError
+
             raise ToolError(str(exc)) from exc
         finally:
             _APPROVAL_EFFECT.reset(token)
+
     return run
 
 
 def bind_session(session) -> None:
-    """Revoke before the installed SDK schedules/drains closing activities.
+    """Revoke before the session starts closing.
 
-    The SDK emits close *after* draining tools. These per-private-session
-    adapters cover its current _close_soon and _aclose_impl entrypoints;
-    ordinary sessions are untouched. Installed SDK contract is regression-tested.
+    The session emits close *after* draining tools, so a private session's
+    close entrypoints (shutdown and aclose) revoke owner access first.
+    Ordinary sessions are untouched.
     """
     scope = _OWNER.get()
     if scope is None:
         return
-    close_soon = session._close_soon
-    aclose_impl = session._aclose_impl
+    shutdown = session.shutdown
+    aclose = session.aclose
 
     def closing(*args, **kwargs):
         scope.revoke()
-        return close_soon(*args, **kwargs)
+        return shutdown(*args, **kwargs)
 
     async def aclosing(*args, **kwargs):
         scope.revoke()
-        return await aclose_impl(*args, **kwargs)
+        return await aclose(*args, **kwargs)
 
-    session._close_soon = closing
-    session._aclose_impl = aclosing
+    session.shutdown = closing
+    session.aclose = aclosing
     session.on("close", scope.revoke)
 
 
@@ -318,15 +328,15 @@ def isolated_job(fn):
 
         scope = _Owner(owner)
 
-        from livekit import rtc
-
+        # Room-facade disconnect reasons are strings (see jarvis_rt.transport.server).
+        # ROOM_DELETED/USER_REJECTED are the legacy names, kept terminal.
         terminal_reasons = {
-            rtc.DisconnectReason.CLIENT_INITIATED,
-            rtc.DisconnectReason.ROOM_DELETED,
-            rtc.DisconnectReason.USER_REJECTED,
-            rtc.DisconnectReason.PARTICIPANT_REMOVED,
-            rtc.DisconnectReason.ROOM_CLOSED,
-            rtc.DisconnectReason.DUPLICATE_IDENTITY,
+            "CLIENT_INITIATED",
+            "ROOM_DELETED",
+            "USER_REJECTED",
+            "PARTICIPANT_REMOVED",
+            "ROOM_CLOSED",
+            "DUPLICATE_IDENTITY",
         }
 
         def participant_left(participant):
@@ -366,7 +376,10 @@ def isolated_job(fn):
             call_id = participant.attributes.get("jarvis.phone_call", "")
             if call_id:
                 import phone_calls
-                if not re.fullmatch(r"[0-9a-f]{32}", call_id) or not phone_calls.queue().accepted(call_id, time.time()):
+
+                if not re.fullmatch(
+                    r"[0-9a-f]{32}", call_id
+                ) or not phone_calls.queue().accepted(call_id, time.time()):
                     raise RuntimeError("Private incoming invitation is unavailable")
                 scope.phone_call_id = call_id
             # Recheck expiry after waiting; no privilege from expired startup.

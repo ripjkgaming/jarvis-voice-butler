@@ -3,11 +3,11 @@
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
 
 import agent
 import bridge
 import watch_mode
+from jarvis_rt import ToolError
 from system.watch_tools import WatchTools
 
 
@@ -219,7 +219,14 @@ async def test_voice_controls_share_bridge_authority(monkeypatch):
     import computer_watch
     import watch_control
 
-    monkeypatch.setattr(watch_control, "controls", watch_control.WatchControls(owner=lambda: True, target=lambda: {"id": "test", "app": "Terminal", "pid": 123}))
+    monkeypatch.setattr(
+        watch_control,
+        "controls",
+        watch_control.WatchControls(
+            owner=lambda: True,
+            target=lambda: {"id": "test", "app": "Terminal", "pid": 123},
+        ),
+    )
 
     monkeypatch.setattr(computer_watch, "start", lambda: {"ok": True, "active": True})
     monkeypatch.setattr(computer_watch, "stop", lambda: {"ok": True, "active": False})

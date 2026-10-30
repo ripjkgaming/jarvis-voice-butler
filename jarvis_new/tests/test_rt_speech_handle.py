@@ -8,14 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from jarvis_rt import speech_handle as jarvis_sh
 
-try:
-    from livekit.agents.voice import speech_handle as livekit_sh
-except Exception:  # livekit already removed: only the in-repo implementation runs
-    livekit_sh = None
-
 IMPLS = [pytest.param(jarvis_sh, id="jarvis")]
-if livekit_sh is not None:
-    IMPLS.append(pytest.param(livekit_sh, id="livekit"))
 
 impl = pytest.mark.parametrize("mod", IMPLS)
 
@@ -282,25 +275,28 @@ def test_wait_if_not_interrupted_returns_on_interrupt(mod):
     assert asyncio.run(run()) == (True, False)
 
 
-@pytest.mark.skipif(livekit_sh is None, reason="livekit-agents not installed")
-def test_parity_scripted_sequence_matches_livekit():
-    def scenario(mod):
-        async def run():
-            h = make(mod, allow=False)
-            obs = []
-            try:
-                h.interrupt()
-            except RuntimeError as e:
-                obs.append(str(e))
-            h.interrupt(force=True, source="audio_activity")
-            obs.append((h.interrupted, h.done(), h._interrupt_source))
-            seen = []
-            h.add_done_callback(lambda s: seen.append(s.id))
-            h._mark_done()
-            await asyncio.sleep(0)
-            obs.append(seen)
-            return obs
+def test_scripted_sequence_matches_recorded_livekit_behavior():
+    # Literal values recorded from livekit-agents' SpeechHandle for this exact
+    # script (the livekit comparison itself was removed with the dependency).
+    obs = []
 
-        return asyncio.run(run())
+    async def run():
+        h = make(jarvis_sh, allow=False)
+        try:
+            h.interrupt()
+        except RuntimeError as e:
+            obs.append(str(e))
+        h.interrupt(force=True, source="audio_activity")
+        obs.append((h.interrupted, h.done(), h._interrupt_source))
+        seen = []
+        h.add_done_callback(lambda s: seen.append(s.id))
+        h._mark_done()
+        await asyncio.sleep(0)
+        obs.append(seen)
 
-    assert scenario(jarvis_sh) == scenario(livekit_sh)
+    asyncio.run(run())
+    assert obs == [
+        "This generation handle does not allow interruptions",
+        (True, False, "audio_activity"),
+        ["speech_t"],
+    ]
