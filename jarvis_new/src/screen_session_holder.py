@@ -15,14 +15,10 @@ import inspect
 import time
 import weakref
 from dataclasses import dataclass, field
-from importlib.metadata import version as _sdk_version
-
-from livekit.agents import Agent, AgentSession
-from livekit.agents.utils import is_given
-from livekit.agents.voice.events import CloseReason
-from livekit.agents.voice.room_io import RoomOptions
 
 from feature_sessions import FeatureSession
+from jarvis_rt import NOT_GIVEN, Agent, AgentSession, RoomOptions
+from jarvis_rt.agent import is_given
 from screen_understanding import _deadline
 
 
@@ -192,8 +188,9 @@ class ScreenSessionHolder:
         self._slot = None
 
     def _acquire_providers(self, slot, container):
+        # Session providers live in its kwargs; Agent providers in its fields.
         for name in ("llm", "stt", "tts"):
-            provider = getattr(container, name)
+            provider = _provider(container, name)
             if not is_given(provider) or provider is None:
                 continue
             if any(provider is owned for owned in slot.providers):
@@ -234,8 +231,6 @@ class ScreenSessionHolder:
                 await _owned(self._retire_locked())
                 check()
                 self.state = "starting"
-                if _sdk_version("livekit-agents") != "1.8.2":
-                    raise SessionLifecycleError("SDK lifecycle version requires review")
                 session = self.session_factory()
                 if not isinstance(session, AgentSession):
                     raise SessionLifecycleError("Installed SDK session is required")
@@ -255,7 +250,7 @@ class ScreenSessionHolder:
                     self._acquire_providers(slot, agent)
                 if (
                     not isinstance(agent, Agent)
-                    or agent._activity is not None
+                    or agent._session is not None
                     or agent in self._agents
                     or any(
                         item.type != "message" or item.role != "system"
@@ -279,9 +274,10 @@ class ScreenSessionHolder:
                 if not isinstance(options, RoomOptions):
                     raise SessionLifecycleError("SDK room options are required")
                 options.delete_room_on_close = False
-                # The ordinary lk.chat stream is remote/synthetic input, not a
-                # physical resume source. Only actual microphone input is restored.
-                options.text_input = False
+                # Only actual microphone input is restored on resume; the room's
+                # camera/video input stays off. TODO: RoomIO always binds the
+                # lk.chat typed-text stream; it needs a text_input gate so typed
+                # chat cannot reach this screen session. Until then it is open.
                 options.video_input = False
 
                 def closed(event):
@@ -302,19 +298,9 @@ class ScreenSessionHolder:
                 session.on("speech_created", startup_speech)
                 slot.handlers.append(("speech_created", startup_speech))
                 async with _deadline(20):
-                    await session.start(
-                        agent,
-                        room=self.room,
-                        room_options=options,
-                        record=False,
-                        session_host=False,
-                    )
-                    # SDK start schedules on_enter without awaiting it. It must
-                    # settle silently before enabling the fresh microphone.
-                    if session._activity is not None:
-                        entered = session._activity._on_enter_task
-                        if entered is not None:
-                            await entered
+                    # jarvis_rt awaits on_enter inside start(), so on_enter must
+                    # settle silently before the fresh microphone is enabled.
+                    await session.start(agent, room=self.room, room_options=options)
                 check()
                 # New caption sink/context/providers, old SDK fully drained. No
                 # await between enabling and publishing the listening generation.
@@ -414,45 +400,27 @@ class PhysicalScreenControls:
         return {"status": "closed"}
 
 
+def _provider(container, name):
+    if isinstance(container, AgentSession):
+        return container.options.get(name, NOT_GIVEN)
+    return getattr(container, f"_{name}", NOT_GIVEN)
+
+
 def _require_partial_close_contract(session):
-    # Installed SDK's public aclose is a no-op before _started. This narrow
-    # compatibility boundary is checked before start and must be revalidated
-    # on SDK upgrades; no general SDK private-state replacement is attempted.
-    if (
-        _sdk_version("livekit-agents") != "1.8.2"
-        or not all(
-            hasattr(session, name)
-            for name in ("_started", "_lock", "_activity", "_room_io", "_session_span")
-        )
-        or not callable(getattr(session, "_teardown_activity", None))
+    # jarvis_rt.AgentSession.aclose is safe on a partially started session: it
+    # sets _closed, runs agent.on_exit, closes the backend and the RoomIO.
+    # Verify the attributes this holder reads still exist before starting.
+    if not all(hasattr(session, name) for name in ("_started", "_room_io")) or not (
+        callable(getattr(session, "aclose", None))
     ):
         raise SessionLifecycleError("SDK partial-start cleanup contract is unsupported")
 
 
 async def _close_sdk(session):
-    await session.aclose()  # normal initialized SDK path, actual provider drain
-    # Partial start does not enter public aclose's teardown. Do not leave RoomIO
-    # or an AgentActivity alive on a cancelled/failed initialization.
-    if session._activity is not None or session._room_io is not None:
-        async with session._lock:
-            await session._teardown_activity(
-                reason=CloseReason.USER_INITIATED, drain=False
-            )
-            session.input.audio = None
-            session.input.video = None
-            session.output.audio = None
-            session.output.transcription = None
-            if session._room_io is not None:
-                await session._room_io.aclose()
-                session._room_io = None
-            if session._session_span is not None:
-                session._session_span.end()
-                session._session_span = None
-    if (
-        session._started
-        or session._activity is not None
-        or session._room_io is not None
-    ):
+    await session.aclose()  # normal session path: agent exit, backend, RoomIO drain
+    room_io = session._room_io
+    # RoomIO.aclose sets _closed; anything else means cleanup did not finish.
+    if room_io is not None and not getattr(room_io, "_closed", False):
         raise SessionLifecycleError("SDK did not finish retiring")
 
 

@@ -9,14 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from livekit.agents import AgentSession, llm
-from livekit.agents.voice import agent_session
-from livekit.agents.voice.events import UserInputTranscribedEvent
 from test_screen_control_socket import request, verifier
 from test_screen_session_holder import FakeRoomIO
 
+import jarvis_rt.room_io as room_io_module
 import screen_host
 from feature_sessions import HostConsent
+from jarvis_rt import AgentSession, ChatMessage, StopResponse
+from jarvis_rt.events import UserInputTranscribedEvent
 from screen_control_socket import NativeControlServer
 from screen_host import ScreenHostConfig, start_screen_host
 from screen_local_stt import DrainingScreenSTT
@@ -50,18 +50,23 @@ class Server(NativeControlServer):
         self.bound = True  # no real socket bind in device-free host tests
 
 
+class Room:
+    def __init__(self, context):
+        self.context = context
+
+    async def close(self):
+        self.context.ended += 1
+
+
 class Context:
     def __init__(self):
-        self.room = object()
-        self.connected = 0
         self.ended = 0
         self.callbacks = []
+        self.room = Room(self)
+        self.connected = 0
 
     async def connect(self):
         self.connected += 1
-
-    async def delete_room(self):
-        self.ended += 1
 
     def add_shutdown_callback(self, callback):
         self.callbacks.append(callback)
@@ -73,7 +78,7 @@ async def rig(monkeypatch, tmp_path):
     FakeRoomIO.entered = None
     FakeRoomIO.release = None
     FakeRoomIO.fail = False
-    monkeypatch.setattr(agent_session.room_io, "RoomIO", FakeRoomIO)
+    monkeypatch.setattr(room_io_module, "RoomIO", FakeRoomIO)
     monkeypatch.setenv("JARVIS_SCREEN_READING", "1")
     sessions, backends, captions, reads = [], [], [], []
     owner = {"allowed": True}
@@ -123,8 +128,8 @@ async def rig(monkeypatch, tmp_path):
 
 async def user_turn(host, text, identity="trusted-user"):
     session = host.holder.session
-    message = llm.ChatMessage(id=identity, role="user", content=[text])
-    with pytest.raises(llm.StopResponse):
+    message = ChatMessage(id=identity, role="user", content=[text])
+    with pytest.raises(StopResponse):
         await session.current_agent.on_user_turn_completed(None, message)
 
 
@@ -136,7 +141,8 @@ async def test_registered_host_native_resume_user_snapshot_stop_rollover_hangup(
     assert host.controls.bound and not rig.sessions and not rig.reads
     assert await request(host.controls, b"resume_quiet\n") == b"ok listening 1\n"
     old = rig.sessions[0]
-    assert old._started and old.llm is None
+    assert old._started and old.backend is None
+    assert old.options.get("llm") is None
     assert not old.jarvis_features.screen.disclosure_accepted
     assert not old.jarvis_features.screen_authorized()
     assert not rig.reads and not rig.backends[0].calls
@@ -153,9 +159,9 @@ async def test_registered_host_native_resume_user_snapshot_stop_rollover_hangup(
     assert not old.input.audio_enabled
     assert not rig.captions
     assert old.jarvis_features.input_quarantined
-    old_callback = next(iter(old._events["user_input_transcribed"]))
+    old_callback = next(iter(old._handlers["user_input_transcribed"]))
     assert await request(host.controls, b"stop\n") == b"ok stopped 0\n"
-    assert rig.backends[0].closed and old._activity is None
+    assert rig.backends[0].closed and old._closed
     assert rig.ctx.ended == 0
     assert await request(host.controls, b"resume_quiet\n") == b"ok listening 3\n"
     fresh = rig.sessions[1]
@@ -232,7 +238,7 @@ async def test_guest_watch_retires_sdk_without_ending_room_or_auto_resuming(rig)
     await request(host.controls, b"resume_quiet\n")
     rig.owner["allowed"] = False
     async with asyncio.timeout(2):
-        while rig.sessions[0]._started:
+        while not rig.sessions[0]._closed:
             await asyncio.sleep(0.01)
     assert rig.ctx.ended == 0
     assert await request(host.controls, b"resume_quiet\n") == b"error refused\n"

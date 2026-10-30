@@ -192,3 +192,22 @@ def test_user_away_timeout():
         return s.user_state
 
     assert asyncio.run(run()) == "away"
+
+
+def test_video_input_frames_reach_backend():
+    class Frames:
+        async def frames(self):
+            yield b"jpeg1", 1000
+            yield b"jpeg2", 2000
+
+    async def run():
+        be = FakeBackend()
+        pushed = []
+        be.push_video = lambda frame, ts: pushed.append((frame, ts))
+        s = AgentSession(backend=be)
+        await s.start(Main())
+        s.input.video = Frames()
+        await asyncio.sleep(0.05)
+        return pushed
+
+    assert asyncio.run(run()) == [(b"jpeg1", 1000), (b"jpeg2", 2000)]

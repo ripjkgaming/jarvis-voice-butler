@@ -8,11 +8,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from livekit.agents import Agent, AgentSession, llm
-from livekit.agents.voice.io import TextOutput
-from livekit.agents.voice.room_io import RoomOptions, TextOutputOptions
-
 from feature_sessions import FeatureSession, load_host_consent
+from jarvis_rt import Agent, AgentSession, StopResponse
+from jarvis_rt.io import TextOutput
+from jarvis_rt.room_io import AudioInputOptions, RoomOptions, TextOutputOptions
 from screen_control_socket import NativeControlServer, NativePeerVerifier
 from screen_session_holder import ScreenSessionHolder, _owned_task
 from screen_understanding import (
@@ -49,8 +48,7 @@ class ScreenHostConfig:
 def local_screen_session():
     # Called only by authenticated physical Resume. All inference is local;
     # no text/realtime model, tools, camera, launch router or proactive watcher.
-    from livekit.plugins import silero
-
+    from jarvis_rt.vad import SileroVAD
     from local_voice import PiperTTS
     from screen_local_stt import DrainingScreenSTT
 
@@ -58,7 +56,7 @@ def local_screen_session():
         llm=None,
         stt=DrainingScreenSTT(),
         tts=PiperTTS(strict_sentence_audio=True),
-        vad=silero.VAD.load(),
+        vad=SileroVAD.load(),
         turn_detection="vad",
         user_away_timeout=None,
     )
@@ -103,7 +101,7 @@ class ScreenAgent(Agent):
         if features is not None:
             self.prepare_request(self.session, message)
             await features.handle_message(message)
-        raise llm.StopResponse()  # never infer a normal model continuation
+        raise StopResponse()  # never infer a normal model continuation
 
 
 class ScreenHost:
@@ -136,7 +134,7 @@ class ScreenHost:
             bind=self._bind_generation,
             room_options_factory=self._room_options,
             owner_allowed=owner,
-            end_call=ctx.delete_room,
+            end_call=self._end_call,
         )
         self.controls = server_factory(
             config.socket_path,
@@ -147,7 +145,7 @@ class ScreenHost:
     def _bind_generation(self, session, events):
         from echo_guard import EchoGuard
 
-        if session.llm is not None:
+        if session.backend is not None or session.options.get("llm") is not None:
             raise ValueError("Screen host permits no live conversational model")
         features = FeatureSession(
             session,
@@ -178,9 +176,7 @@ class ScreenHost:
     @staticmethod
     def _room_options(session):
         return RoomOptions(
-            audio_input=True,
-            audio_output=True,
-            text_input=False,
+            audio_input=AudioInputOptions(),
             video_input=False,
             text_output=TextOutputOptions(next_in_chain=session.jarvis_caption_tail),
             delete_room_on_close=False,
@@ -211,6 +207,10 @@ class ScreenHost:
                 features.configure(consent, confirmed=True)
         except (OSError, ValueError, TypeError):
             features.revoke_authority()
+
+    async def _end_call(self):
+        # Final hangup closes the hub room (code 4011: room closed).
+        await self.ctx.room.close()
 
     async def start(self):
         if not self.owner():

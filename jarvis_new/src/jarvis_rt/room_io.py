@@ -36,6 +36,10 @@ class RoomOptions:
     text_output: TextOutputOptions = field(default_factory=TextOutputOptions)
     audio_input: AudioInputOptions = field(default_factory=AudioInputOptions)
     video_input: bool = False
+    #: Typed ``lk.chat`` text becomes user turns (screen sessions turn it off).
+    text_input: bool = True
+    #: Only audio from this identity reaches the session (private phone calls).
+    participant_identity: str | None = None
     close_on_disconnect: bool = True
     delete_room_on_close: bool = True
 
@@ -67,6 +71,21 @@ class _RoomCaptions(TextOutput):
             self.next_in_chain.flush()
 
 
+class _RoomVideo:
+    """Phone camera/screen frames received on the call (``(jpeg, ts_ms)``)."""
+
+    def __init__(self, room: Any) -> None:
+        self._room = room
+
+    async def frames(self):
+        video = self._room.video
+        while True:
+            while video:
+                ts_ms, jpeg = video.popleft()
+                yield jpeg, ts_ms
+            await asyncio.sleep(0.05)
+
+
 class RoomIO:
     def __init__(
         self, session: Any, room: Any, options: RoomOptions | None = None
@@ -86,9 +105,13 @@ class RoomIO:
         s.output.audio = self._on_audio
         s.output.transcription = self._on_text
         s.output.flush = self._on_flush
-        self.room.on_chat(self._on_chat)
+        if self.options.text_input:
+            self.room.on_chat(self._on_chat)
         s.on("agent_state_changed", self._publish_state)
         s.on("user_state_changed", self._publish_state)
+        if self.options.video_input and getattr(self.room, "video", None) is not None:
+            if s.input.video is None:
+                s.input.video = _RoomVideo(self.room)
         self._tasks.append(asyncio.get_running_loop().create_task(self._pump_mic()))
         if self.options.close_on_disconnect:
             self.room.on("disconnected", self._on_disconnected)
@@ -96,6 +119,10 @@ class RoomIO:
     # ---- inbound -------------------------------------------------------
     async def _pump_mic(self) -> None:
         async for pcm in self.room.mic_frames():
+            pinned = self.options.participant_identity
+            speaker = getattr(self.room, "speaker", None)
+            if pinned and (speaker is None or speaker.identity != pinned):
+                continue
             if self._observer is not None:
                 with contextlib.suppress(Exception):
                     pcm = self._observer.process(pcm) or pcm

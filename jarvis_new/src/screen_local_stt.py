@@ -7,8 +7,6 @@ import contextlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from livekit.agents import stt
-
 from local_stt import TARGET_RATE, FasterWhisperSTT, frames_to_mono16k
 
 
@@ -60,6 +58,10 @@ class DrainingScreenSTT(FasterWhisperSTT):
             finally:
                 self._decodes.pop(worker, None)
         text = " ".join(segment.text.strip() for segment in segments).strip()
+        # jarvis_rt.stt is being added alongside the STT ABC; imported lazily so
+        # this module stays importable until that lands.
+        from jarvis_rt import stt
+
         return stt.SpeechEvent(
             type=stt.SpeechEventType.FINAL_TRANSCRIPT,
             alternatives=[stt.SpeechData(language="en", text=text)],

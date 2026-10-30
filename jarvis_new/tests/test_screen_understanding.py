@@ -518,9 +518,8 @@ async def test_unconfigured_privacy_hooks_block_before_selection():
 
 @pytest.mark.asyncio
 async def test_tool_private_denial_precedes_backend(monkeypatch):
-    from livekit.agents.llm import ToolError
-
     import screen_understanding
+    from jarvis_rt import ToolError
     from system.look_tools import LookTools
 
     monkeypatch.setenv("JARVIS_LOCAL", "1")

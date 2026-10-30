@@ -1,18 +1,16 @@
-"""Actual installed AgentSession lifecycle; fake RoomIO, no media/providers."""
+"""Actual jarvis_rt AgentSession lifecycle; fake RoomIO, no media/providers."""
 
 import asyncio
 from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
-from livekit.agents import Agent, AgentSession, stt
-from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
-from livekit.agents.voice import agent_session
-from livekit.agents.voice.events import CloseEvent, CloseReason
-from livekit.agents.voice.io import AudioInput
-from livekit.agents.voice.room_io import RoomOptions
 
+import jarvis_rt.room_io as room_io_module
 from feature_sessions import FeatureSession
+from jarvis_rt import Agent, AgentSession, ChatContext, stt
+from jarvis_rt.events import CloseEvent, CloseReason
+from jarvis_rt.room_io import RoomOptions
 from screen_session_holder import (
     LocalControlEvent,
     PhysicalScreenControls,
@@ -26,9 +24,8 @@ class Backend:
         pass
 
 
-class FakeMicrophone(AudioInput):
+class FakeMicrophone:
     def __init__(self):
-        super().__init__(label="mock input; produces no audio samples")
         self.entered = asyncio.Event()
         self.drained = False
         self.attached = False
@@ -54,9 +51,9 @@ class FakeRoomIO:
     release = None
     fail = False
 
-    def __init__(self, *, room, agent_session, options):
+    def __init__(self, session, room, options=None):
         self.room = room
-        self.session = agent_session
+        self.session = session
         self.options = options
         self.closed = False
         self.subscribed_fut = None
@@ -75,6 +72,11 @@ class FakeRoomIO:
             raise RuntimeError("synthetic RoomIO start failure")
         self.session.input.audio = self.microphone
 
+    @property
+    def _closed(self):
+        # Mirrors RoomIO._closed, which the holder reads after retirement.
+        return self.closed
+
     async def aclose(self):
         self.closed = True
 
@@ -85,7 +87,7 @@ def rig(monkeypatch):
     FakeRoomIO.entered = None
     FakeRoomIO.release = None
     FakeRoomIO.fail = False
-    monkeypatch.setattr(agent_session.room_io, "RoomIO", FakeRoomIO)
+    monkeypatch.setattr(room_io_module, "RoomIO", FakeRoomIO)
     sessions = []
     bindings = []
     received = []
@@ -117,10 +119,6 @@ def rig(monkeypatch):
         agent_factory=lambda: Agent(instructions="Synthetic test; no providers."),
         bind=bind,
         room_options_factory=lambda session: RoomOptions(
-            audio_input=False,
-            audio_output=False,
-            text_input=False,
-            text_output=False,
             delete_room_on_close=True,  # adapter must override, never inherit
         ),
         owner_allowed=lambda: authority["owner"],
@@ -150,7 +148,7 @@ def event(action, identity="one", *, quiet=True, source="test-owner-button"):
 async def test_actual_sdk_rollover_room_preserved_and_generation_events_retired(rig):
     await rig.controls.dispatch(event("resume", "initial"))
     old = rig.sessions[0]
-    assert old._started and old._activity is not None
+    assert old._started and old._room_io is not None
     assert old.input.audio_enabled
     old_generation = rig.holder.generation
     old.emit("synthetic_host_event", "ordinary")
@@ -162,7 +160,7 @@ async def test_actual_sdk_rollover_room_preserved_and_generation_events_retired(
     await rig.controls.dispatch(event("resume", "after-readback"))
     new = rig.sessions[1]
     assert new is not old and new._started
-    assert not old._started and old._activity is None and old._room_io is None
+    assert old._closed and old._room_io.closed
     assert rig.bindings[0]._closed
     assert not rig.bindings[1].screen.disclosure_accepted
     assert not rig.bindings[1].screen_authorized()
@@ -183,7 +181,7 @@ async def test_physical_stop_drains_sdk_and_explicit_resume_is_required(rig):
     await rig.controls.dispatch(event("resume"))
     await rig.controls.dispatch(event("stop", "stop"))
     assert rig.holder.state == "stopped"
-    assert rig.sessions[0]._activity is None
+    assert rig.sessions[0]._closed
     assert not rig.sessions[0].input.audio_enabled
     assert not rig.ending
     with pytest.raises(SessionLifecycleError):
@@ -201,7 +199,7 @@ async def test_guest_revokes_before_enabling_replacement(rig):
     rig.authority["owner"] = False
     assert not rig.holder.accepts_event(rig.holder.generation)
     await rig.holder.revoke_authority()
-    assert not rig.sessions[0]._started
+    assert rig.sessions[0]._closed
     with pytest.raises(SessionLifecycleError):
         await rig.controls.dispatch(event("resume", "guest"))
     assert len(rig.sessions) == 1 and not rig.ending
@@ -218,8 +216,8 @@ async def test_cancel_during_actual_sdk_start_cleans_partial_roomio(rig):
     with pytest.raises(asyncio.CancelledError):
         await run
     assert FakeRoomIO.instances[0].closed
-    assert not rig.sessions[0]._started
-    assert rig.sessions[0]._room_io is None
+    assert rig.sessions[0]._closed
+    assert rig.sessions[0]._room_io.closed
     assert rig.bindings[0]._closed
     assert rig.holder.state == "stopped" and not rig.ending
     FakeRoomIO.release = None
@@ -233,8 +231,8 @@ async def test_sdk_start_error_cleans_partial_slot_and_can_retry(rig):
     with pytest.raises(SessionLifecycleError):
         await rig.controls.dispatch(event("resume"))
     assert FakeRoomIO.instances[0].closed
-    assert rig.sessions[0]._activity is None
-    assert rig.sessions[0]._room_io is None
+    assert rig.sessions[0]._closed
+    assert rig.sessions[0]._room_io.closed
     assert not rig.sessions[0].input.audio_enabled
     assert rig.bindings[0]._closed and not rig.ending
     FakeRoomIO.fail = False
@@ -288,7 +286,7 @@ async def test_authority_lost_while_roomio_starts_never_enables(rig):
     with pytest.raises(SessionLifecycleError):
         await run
     assert not rig.sessions[0].input.audio_enabled
-    assert not rig.sessions[0]._started
+    assert rig.sessions[0]._closed
     assert FakeRoomIO.instances[0].closed and not rig.ending
     await rig.holder.hangup()
 
@@ -303,7 +301,7 @@ async def test_stop_during_start_cancels_and_drains_before_returning(rig):
     with pytest.raises(asyncio.CancelledError):
         await run
     assert FakeRoomIO.instances[0].closed
-    assert not rig.sessions[0]._started and not rig.ending
+    assert rig.sessions[0]._closed and not rig.ending
     await rig.holder.hangup()
 
 
@@ -328,7 +326,7 @@ async def test_cancelled_stop_waits_for_real_sdk_on_exit_drain(rig):
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await run
-    assert rig.sessions[0]._activity is None
+    assert rig.sessions[0]._closed
     assert FakeRoomIO.instances[0].closed and not rig.ending
     await rig.holder.hangup()
 
@@ -354,7 +352,7 @@ async def test_cancelled_hangup_still_drains_then_ends_room_once(rig):
         await run
     await rig.holder.hangup()
     assert rig.ending == [rig.room]
-    assert rig.sessions[0]._activity is None
+    assert rig.sessions[0]._closed
 
 
 @pytest.mark.asyncio
@@ -380,7 +378,6 @@ async def test_resume_event_expires_during_startup(rig):
 
 @pytest.mark.asyncio
 async def test_reused_session_agent_or_user_context_is_refused(rig):
-    from livekit.agents.llm import ChatContext
 
     agent = Agent(instructions="Synthetic")
     rig.holder.agent_factory = lambda: agent
@@ -388,7 +385,7 @@ async def test_reused_session_agent_or_user_context_is_refused(rig):
     with pytest.raises(SessionLifecycleError):
         await rig.controls.dispatch(event("resume", "reused-agent"))
     assert rig.holder.state == "stopped"
-    context = ChatContext()
+    context = ChatContext.empty()
     context.add_message(role="user", content="Synthetic old private context")
     rig.holder.agent_factory = lambda: Agent(instructions="Synthetic", chat_ctx=context)
     with pytest.raises(SessionLifecycleError):
@@ -404,7 +401,7 @@ async def test_reused_session_agent_or_user_context_is_refused(rig):
 async def test_late_queued_callback_closure_checks_generation(rig):
     await rig.controls.dispatch(event("resume"))
     old = rig.sessions[0]
-    callback = next(iter(old._events["synthetic_host_event"]))
+    callback = next(iter(old._handlers["synthetic_host_event"]))
     await rig.controls.dispatch(event("resume", "new"))
     callback("late callback held outside event bus")
     assert not rig.received
@@ -455,39 +452,18 @@ async def test_no_physical_control_is_implicitly_authorized(rig):
 
 
 @pytest.mark.asyncio
-async def test_actual_sdk_forward_input_and_mock_stt_streams_are_drained(rig):
-    class Stream(stt.RecognizeStream):
-        def __init__(self, provider):
-            super().__init__(stt=provider, conn_options=DEFAULT_API_CONNECT_OPTIONS)
-            self.entered = asyncio.Event()
-            self.drained = False
-
-        async def _run(self):
-            self.entered.set()
-            try:
-                async for _ in self._input_ch:
-                    pytest.fail("No audio samples may be generated by this test")
-            finally:
-                self.drained = True
-
+async def test_session_stt_providers_are_fresh_and_closed_on_rollover_and_hangup(rig):
     class Provider(stt.STT):
         def __init__(self):
             super().__init__(
                 capabilities=stt.STTCapabilities(streaming=True, interim_results=False)
             )
-            self.streams = []
             self.closed = False
 
         async def _recognize_impl(self, *args, **kwargs):
             pytest.fail("No batch recognition allowed")
 
-        def stream(self, **kwargs):
-            stream = Stream(self)
-            self.streams.append(stream)
-            return stream
-
         async def aclose(self):
-            assert all(stream.drained for stream in self.streams)
             self.closed = True
 
     providers = []
@@ -501,24 +477,21 @@ async def test_actual_sdk_forward_input_and_mock_stt_streams_are_drained(rig):
 
     rig.holder.session_factory = factory
     await rig.controls.dispatch(event("resume"))
-    await asyncio.wait_for(FakeRoomIO.instances[0].microphone.entered.wait(), 2)
-    await asyncio.sleep(0)
-    assert providers[0].streams
-    await asyncio.wait_for(providers[0].streams[0].entered.wait(), 2)
-    old = rig.sessions[0]
+    assert FakeRoomIO.instances[0].room is rig.room
     await rig.controls.dispatch(event("resume", "rollover"))
-    assert old._forward_audio_atask.done()
-    assert FakeRoomIO.instances[0].microphone.drained
-    assert not FakeRoomIO.instances[0].microphone.attached
-    assert providers[0].streams[0].drained and providers[0].closed
-    assert providers[0] is not providers[1]
+    assert providers[0].closed and FakeRoomIO.instances[0].closed
+    assert providers[0] is not providers[1] and not providers[1].closed
     await rig.holder.hangup()
     assert providers[1].closed
 
 
 @pytest.mark.asyncio
-async def test_actual_sdk_activity_start_error_drains_partial_activity(rig):
-    class BrokenProvider(stt.STT):
+async def test_agent_start_error_closes_partial_providers_and_roomio(rig):
+    class BrokenAgent(Agent):
+        async def on_enter(self):
+            raise RuntimeError("Synthetic on_enter failure")
+
+    class Provider(stt.STT):
         def __init__(self):
             super().__init__(
                 capabilities=stt.STTCapabilities(streaming=True, interim_results=False)
@@ -528,19 +501,18 @@ async def test_actual_sdk_activity_start_error_drains_partial_activity(rig):
         async def _recognize_impl(self, *args, **kwargs):
             pytest.fail("No recognition allowed")
 
-        def prewarm(self):
-            raise RuntimeError("Synthetic provider initialization failure")
-
         async def aclose(self):
             self.closed = True
 
-    provider = BrokenProvider()
-    rig.holder.agent_factory = lambda: Agent(instructions="Synthetic", stt=provider)
+    provider = Provider()
+    rig.holder.agent_factory = lambda: BrokenAgent(
+        instructions="Synthetic", stt=provider
+    )
     with pytest.raises(SessionLifecycleError):
         await rig.controls.dispatch(event("resume"))
     assert provider.closed
-    assert rig.sessions[0]._activity is None
-    assert rig.sessions[0]._room_io is None
+    assert rig.sessions[0]._closed
+    assert rig.sessions[0]._room_io.closed
     assert FakeRoomIO.instances[0].closed
     assert rig.holder.state == "stopped"
     await rig.holder.hangup()
@@ -583,19 +555,7 @@ async def test_cancellation_during_retirement_does_not_start_replacement(rig):
     with pytest.raises(asyncio.CancelledError):
         await run
     assert len(rig.sessions) == 1
-    assert rig.sessions[0]._activity is None
-    assert rig.holder.state == "stopped"
-    await rig.holder.hangup()
-
-
-@pytest.mark.asyncio
-async def test_sdk_upgrade_requires_review_before_start(rig, monkeypatch):
-    import screen_session_holder
-
-    monkeypatch.setattr(screen_session_holder, "_sdk_version", lambda _: "99.0.0")
-    with pytest.raises(SessionLifecycleError):
-        await rig.controls.dispatch(event("resume"))
-    assert not FakeRoomIO.instances and not rig.bindings
+    assert rig.sessions[0]._closed
     assert rig.holder.state == "stopped"
     await rig.holder.hangup()
 
@@ -636,7 +596,7 @@ async def test_sdk_startup_speech_is_refused_before_microphone_enable(rig):
     with pytest.raises((asyncio.CancelledError, SessionLifecycleError)):
         await rig.controls.dispatch(event("resume"))
     assert not rig.sessions[0].input.audio_enabled
-    assert not rig.sessions[0]._started
+    assert rig.sessions[0]._closed
     assert rig.holder.state == "stopped"
     assert FakeRoomIO.instances[0].closed
     await rig.holder.hangup()

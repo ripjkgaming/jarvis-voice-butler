@@ -69,11 +69,42 @@ class _Output:
 
 
 class _Input:
-    def __init__(self) -> None:
+    def __init__(self, session: AgentSession | None = None) -> None:
+        self._session = session
         self.audio: Any = None
-        self.video: Any = None
+        self._video: Any = None
+        self._video_task: asyncio.Task | None = None
         self.audio_enabled = True
         self.video_enabled = True
+
+    @property
+    def video(self) -> Any:
+        return self._video
+
+    @video.setter
+    def video(self, source: Any) -> None:
+        """A VideoInput whose ``frames()`` yields ``(jpeg_bytes, ts_ms)``."""
+        if self._video_task is not None:
+            self._video_task.cancel()
+            self._video_task = None
+        self._video = source
+        if source is not None and self._session is not None:
+            self._video_task = self._session._spawn(self._pump_video(source))
+
+    async def _pump_video(self, source: Any) -> None:
+        session = self._session
+        try:
+            async for jpeg, ts_ms in source.frames():
+                if (
+                    self.video_enabled
+                    and session is not None
+                    and session.backend is not None
+                ):
+                    session.backend.push_video(jpeg, ts_ms)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("video input failed")
 
     def set_audio_enabled(self, enabled: bool) -> None:
         self.audio_enabled = enabled
@@ -96,7 +127,7 @@ class AgentSession(EventEmitter):
         self.options = options
         self.userdata = userdata
         self.user_away_timeout = user_away_timeout
-        self.input = _Input()
+        self.input = _Input(self)
         self.output = _Output()
         self._agent: Agent | None = None
         self._history = ChatContext.empty()
