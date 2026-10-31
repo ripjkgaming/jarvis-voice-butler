@@ -109,9 +109,12 @@ class RoomIO:
             self.room.on_chat(self._on_chat)
         s.on("agent_state_changed", self._publish_state)
         s.on("user_state_changed", self._publish_state)
-        if self.options.video_input and getattr(self.room, "video", None) is not None:
-            if s.input.video is None:
-                s.input.video = _RoomVideo(self.room)
+        if (
+            self.options.video_input
+            and getattr(self.room, "video", None) is not None
+            and s.input.video is None
+        ):
+            s.input.video = _RoomVideo(self.room)
         self._tasks.append(asyncio.get_running_loop().create_task(self._pump_mic()))
         if self.options.close_on_disconnect:
             self.room.on("disconnected", self._on_disconnected)

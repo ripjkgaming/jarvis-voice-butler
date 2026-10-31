@@ -100,7 +100,7 @@ def test_room_io_end_to_end_mic_audio_barge_and_captions(home):
         listener.close()
         return be, got_audio, flushes, caps
 
-    be, audio, flushes, caps = asyncio.run(run())
+    be, audio, flushes, _caps = asyncio.run(run())
     assert ("audio", 1024) in be.log
     assert audio and audio[0] == b"\x02" * 960
     assert flushes, "interrupt must flush the client playback queue"

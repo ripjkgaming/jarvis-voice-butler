@@ -5,9 +5,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from test_rt_session import FakeBackend
+
 from jarvis_rt import Agent, AgentSession, EndCallTool
 from jarvis_rt.chat_context import FunctionCall
-from test_rt_session import FakeBackend
 
 
 def test_end_call_waits_for_farewell_then_closes():

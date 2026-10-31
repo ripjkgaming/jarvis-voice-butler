@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001
 # Portions derived from livekit-agents (Copyright 2023 LiveKit, Inc.),
 # licensed under the Apache License, Version 2.0.
 """End-call tool: the model says goodbye, then the session closes."""

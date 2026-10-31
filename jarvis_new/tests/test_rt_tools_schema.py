@@ -36,6 +36,7 @@ def test_schemas_match_snapshot():
 
 def test_gemini_declarations_match_snapshot():
     from google.genai import types
+
     from jarvis_rt.gemini_schema import function_declarations
 
     snap = json.loads((SNAP / "gemini_declarations.json").read_text())
