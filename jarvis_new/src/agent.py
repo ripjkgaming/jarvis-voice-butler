@@ -433,7 +433,32 @@ def _task_work_pending(session) -> bool:
     import latency
     from hud_voice_state import execution_pending
 
-    return latency.TRACKER.pending > 0 or execution_pending(session)
+    return (
+        latency.TRACKER.pending > 0
+        or execution_pending(session)
+        or _background_task_running()
+    )
+
+
+BACKGROUND_TASK_HOLD_S = 20 * 60.0
+
+
+def _background_task_running() -> bool:
+    """A background task is still planning or running (bounded, so a stuck
+    record cannot keep the call open forever). Tasks start by voice, so the
+    caller is waiting on the result."""
+    try:
+        import agent_tasks
+
+        now = time.time()
+        for task in agent_tasks.all_tasks():
+            if task.get("status") not in ("planning", "running"):
+                continue
+            if now - float(task.get("created") or 0) < BACKGROUND_TASK_HOLD_S:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _normal_follow_up_s() -> float:
