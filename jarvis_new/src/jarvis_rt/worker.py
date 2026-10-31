@@ -14,6 +14,7 @@ import contextvars
 import inspect
 import logging
 import os
+import signal
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -210,23 +211,28 @@ class AgentServer:
         finally:
             # The speaker is gone: publish that before the slow cleanup so
             # the next wake is not refused as "already in a call".
-            self._write_active()
-            for task in (main, gone_wait):
-                if not task.done():
-                    task.cancel()
-            await asyncio.wait({main, gone_wait}, timeout=self.teardown_timeout)
-            if not main.done():
-                log.error(
-                    "entrypoint for %s ignored cancellation; abandoned", room.name
-                )
-            room.off("disconnected", gone.set)
-            _current_job.reset(token)
-            await ctx.shutdown("job_finished", timeout=self.teardown_timeout)
-            with contextlib.suppress(Exception):
+            try:
+                self._write_active()
+                for task in (main, gone_wait):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.wait({main, gone_wait}, timeout=self.teardown_timeout)
+                if not main.done():
+                    log.error(
+                        "entrypoint for %s ignored cancellation; abandoned", room.name
+                    )
+                room.off("disconnected", gone.set)
+                _current_job.reset(token)
+                await ctx.shutdown("job_finished", timeout=self.teardown_timeout)
                 await asyncio.wait_for(room.close(), self.teardown_timeout)
-            self._jobs.pop(room.name, None)
-            self._rooms.pop(room.name, None)
-            self._write_active()
+            except BaseException:
+                log.exception("cleanup of job %s did not finish", room.name)
+            finally:
+                # Always unregister, however cleanup ended, or the room stays
+                # "active" and every later wake is refused.
+                self._jobs.pop(room.name, None)
+                self._rooms.pop(room.name, None)
+                self._write_active()
 
     async def serve(self, host: str = "127.0.0.1", port: int | None = None) -> Any:
         hub = self.build_hub()
@@ -239,6 +245,16 @@ class AgentServer:
         return await hub.serve(host, listen)
 
 
+def _dump_tasks() -> None:
+    """SIGUSR1 diagnostic: log where every asyncio task is waiting."""
+    import io
+
+    for task in asyncio.all_tasks():
+        buf = io.StringIO()
+        task.print_stack(limit=6, file=buf)
+        log.warning("task %s\n%s", task.get_name(), buf.getvalue())
+
+
 def run_app(server: AgentServer) -> None:
     """``python agent.py <console|dev|start>``: serve the voice hub until stopped."""
     mode = sys.argv[1] if len(sys.argv) > 1 else "dev"
@@ -249,6 +265,8 @@ def run_app(server: AgentServer) -> None:
     async def main() -> None:
         listener = await server.serve()
         log.info("voice hub listening (%s)", mode)
+        with contextlib.suppress(NotImplementedError, ValueError, AttributeError):
+            asyncio.get_running_loop().add_signal_handler(signal.SIGUSR1, _dump_tasks)
         try:
             await asyncio.Event().wait()
         finally:
