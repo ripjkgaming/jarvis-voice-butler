@@ -311,3 +311,27 @@ def test_tool_choice_none_applies_to_one_reply_only():
 
     ev = asyncio.run(run())
     assert [n for n, _ in ev].count("function_tools_executed") == 1
+
+
+def test_reply_instructions_are_marked_internal():
+    """Instruction turns must tell the model not to speak them (they leaked aloud)."""
+
+    async def run():
+        client, be, _s, _ev, _ = await boot()
+        c = client.conns[0]
+        await be.generate_reply("Chain tools silently until done.", None)
+        await asyncio.sleep(0.1)
+        await be.aclose()
+        return c
+
+    c = asyncio.run(run())
+    sent = [kw for k, kw in c.sent if k == "content"]
+    texts = [
+        part.text
+        for kw in sent
+        for turn in (kw.get("turns") or [])
+        for part in turn.parts
+        if part.text
+    ]
+    marked = [t for t in texts if "Chain tools silently until done." in t]
+    assert marked and "never" in marked[0].lower() and "aloud" in marked[0].lower()

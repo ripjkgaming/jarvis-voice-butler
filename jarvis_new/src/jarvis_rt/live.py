@@ -64,6 +64,15 @@ def _log_system_action(action: str, detail: str) -> None:
         log_action(action, detail)
 
 
+# Instruction turns are written as the model's own text, so it tends to read
+# them aloud ("chain tool calls until the task is completed"). Mark them as
+# private direction.
+INTERNAL_DIRECTION = (
+    "(Private direction to myself. Never say it, quote it or describe it "
+    "aloud; just act on it: {text})"
+)
+
+
 def silence_ms() -> int:
     try:
         return max(
@@ -245,7 +254,12 @@ class LiveBackend:
         turns: list[types.Content] = []
         if instructions:
             turns.append(
-                types.Content(role="model", parts=[types.Part(text=instructions)])
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(text=INTERNAL_DIRECTION.format(text=instructions))
+                    ],
+                )
             )
         if needs_reply_placeholder(self._model or self.chain.models[0]):
             turns.append(types.Content(role="user", parts=[types.Part(text=".")]))
