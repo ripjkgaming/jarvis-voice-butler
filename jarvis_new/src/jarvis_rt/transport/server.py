@@ -445,6 +445,9 @@ class VoiceHub:
         async def _handler(ws: Any) -> None:
             await self.handle(ws, ws.request.path)
 
+        # The Tauri health check opens and drops a bare TCP connection; the
+        # library logs that as a handshake traceback on every probe.
+        logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
         return await ws_serve(_handler, host, port, max_size=1 << 20)
 
     async def handle(self, ws: Any, path_query: str) -> None:
