@@ -280,3 +280,26 @@ def test_call_not_active_once_speaker_left_even_if_teardown_hangs(home):
     inactive_fast, gone = asyncio.run(run())
     assert inactive_fast is True
     assert gone is True
+
+
+def test_shutdown_callback_cancelled_error_does_not_skip_the_rest():
+    """Awaiting a task the callback just cancelled raises CancelledError; later
+    callbacks (browser, session, HUD cleanup) must still run."""
+    from jarvis_rt.worker import JobContext
+
+    async def run():
+        ran = []
+        ctx = JobContext(None, None)
+
+        async def cancels_its_own_task():
+            task = asyncio.get_running_loop().create_task(asyncio.sleep(3600))
+            task.cancel()
+            await task
+
+        ctx.add_shutdown_callback(lambda: ran.append("last-registered"))
+        ctx.add_shutdown_callback(cancels_its_own_task)
+        ctx.add_shutdown_callback(lambda: ran.append("first-registered"))
+        await ctx.shutdown("done", timeout=2)
+        return ran
+
+    assert asyncio.run(run()) == ["first-registered", "last-registered"]

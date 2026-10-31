@@ -75,6 +75,13 @@ class JobContext:
                     await asyncio.wait_for(result, timeout)
             except TimeoutError:
                 log.error("shutdown callback %r timed out; abandoned", callback)
+            except asyncio.CancelledError:
+                # A callback that awaits a task it just cancelled raises this.
+                # Only our own cancellation may stop the remaining callbacks.
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
+                log.warning("shutdown callback %r was cancelled; continuing", callback)
             except Exception:
                 log.exception("shutdown callback failed")
 
