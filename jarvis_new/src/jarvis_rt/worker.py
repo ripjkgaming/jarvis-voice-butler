@@ -204,6 +204,7 @@ class AgentServer:
 
     async def serve(self, host: str = "127.0.0.1", port: int | None = None) -> Any:
         hub = self.build_hub()
+        self._write_active()  # clear any "active" left by a crashed worker
         listen = (
             port
             if port is not None

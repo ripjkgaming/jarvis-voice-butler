@@ -223,3 +223,18 @@ def test_returned_entry_keeps_call_until_speaker_leaves(home):
     mid, active, cleaned = asyncio.run(run())
     assert mid == (True, [])
     assert active is False and cleaned == [1]
+
+
+def test_stale_active_file_from_dead_worker_is_ignored(home):
+    import json
+
+    from mint_token import active_call_exists
+
+    (home / "voice_active.json").write_text(
+        json.dumps({"active": True, "rooms": ["r"], "pid": 2**22 + 12345})
+    )
+    assert active_call_exists(home) is False
+    (home / "voice_active.json").write_text(
+        json.dumps({"active": True, "rooms": ["r"], "pid": __import__("os").getpid()})
+    )
+    assert active_call_exists(home) is True

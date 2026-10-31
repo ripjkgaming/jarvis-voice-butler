@@ -76,7 +76,18 @@ def active_call_exists(home: Path | str | None = None) -> bool:
         data = json.loads((base / ACTIVE_FILE).read_text())
     except (OSError, ValueError):
         return False
-    return isinstance(data, dict) and data.get("active") is True
+    if not isinstance(data, dict) or data.get("active") is not True:
+        return False
+    # A worker that died mid-call leaves "active" behind; trust only a live pid.
+    pid = data.get("pid")
+    if isinstance(pid, int) and pid > 0:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            pass
+    return True
 
 
 def mint_token_payload(
