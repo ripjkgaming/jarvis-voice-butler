@@ -184,7 +184,7 @@ def test_blocked_entry_is_cancelled_when_speaker_leaves(home):
         assert server.active_call_exists()
         await client.close()
         for _ in range(100):
-            if not server.active_call_exists():
+            if not server._jobs:
                 break
             await asyncio.sleep(0.05)
         listener.close()
@@ -214,7 +214,7 @@ def test_returned_entry_keeps_call_until_speaker_leaves(home):
         mid = (server.active_call_exists(), list(cleaned))
         await client.close()
         for _ in range(100):
-            if not server.active_call_exists():
+            if not server._jobs:
                 break
             await asyncio.sleep(0.05)
         listener.close()
@@ -238,3 +238,45 @@ def test_stale_active_file_from_dead_worker_is_ignored(home):
         json.dumps({"active": True, "rooms": ["r"], "pid": __import__("os").getpid()})
     )
     assert active_call_exists(home) is True
+
+
+def test_call_not_active_once_speaker_left_even_if_teardown_hangs(home):
+    """A stuck entry or shutdown callback must not make wake think a call is live."""
+
+    async def run():
+        server = AgentServer()
+        server.teardown_timeout = 0.3
+
+        @server.rtc_session(agent_name="my-agent")
+        async def entry(ctx):
+            async def hang():
+                await asyncio.sleep(5)
+
+            ctx.add_shutdown_callback(hang)
+            swallowed = 0
+            while swallowed < 2:  # ignores cancellation, then lets the loop exit
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    swallowed += 1
+
+        listener = await server.serve(port=0)
+        client = _connect(server, listener, home, "jarvis-4")
+        client.start()
+        await client.wait_connected(5)
+        await asyncio.sleep(0.2)
+        assert server.active_call_exists()
+        await client.close()
+        await asyncio.sleep(0.2)
+        inactive_fast = not server.active_call_exists()
+        for _ in range(100):
+            if "jarvis-4" not in server._jobs:
+                break
+            await asyncio.sleep(0.05)
+        gone = "jarvis-4" not in server._jobs
+        listener.close()
+        return inactive_fast, gone
+
+    inactive_fast, gone = asyncio.run(run())
+    assert inactive_fast is True
+    assert gone is True

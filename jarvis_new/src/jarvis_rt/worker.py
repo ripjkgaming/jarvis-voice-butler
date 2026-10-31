@@ -58,8 +58,12 @@ class JobContext:
     def add_shutdown_callback(self, callback: Callable[..., Any]) -> None:
         self._shutdown_callbacks.append(callback)
 
-    async def shutdown(self, reason: str = "") -> None:
-        """Run every shutdown callback exactly once, newest first."""
+    async def shutdown(self, reason: str = "", timeout: float | None = None) -> None:
+        """Run every shutdown callback exactly once, newest first.
+
+        With ``timeout`` a callback that hangs is abandoned after that many
+        seconds so the remaining callbacks and the job cleanup still run.
+        """
         if self._shutdown_done:
             return
         self._shutdown_done = True
@@ -67,7 +71,9 @@ class JobContext:
             try:
                 result = callback() if _takes_no_args(callback) else callback(reason)
                 if inspect.isawaitable(result):
-                    await result
+                    await asyncio.wait_for(result, timeout)
+            except TimeoutError:
+                log.error("shutdown callback %r timed out; abandoned", callback)
             except Exception:
                 log.exception("shutdown callback failed")
 
@@ -105,6 +111,9 @@ class AgentServer:
         self.options = options
         self._entries: dict[str, _Entry] = {}
         self._jobs: dict[str, asyncio.Task] = {}
+        self._rooms: dict[str, HubRoom] = {}
+        # Longest a cancelled entrypoint or shutdown callback may stall cleanup.
+        self.teardown_timeout = 10.0
         self.hub: VoiceHub | None = None
 
     def rtc_session(self, agent_name: str = "", **options: Any):
@@ -119,7 +128,15 @@ class AgentServer:
         return self._entries.get(name) or next(iter(self._entries.values()), None)
 
     def active_call_exists(self) -> bool:
-        return any(not t.done() for t in self._jobs.values())
+        """A job is running and its speaker is still connected. Teardown of a
+        finished call never counts: a slow or stuck cleanup must not make the
+        wake client think a call is live."""
+        return any(
+            not task.done()
+            and (room := self._rooms.get(name)) is not None
+            and room.isconnected()
+            for name, task in self._jobs.items()
+        )
 
     def _write_active(self) -> None:
         """Publish whether a call is live so other processes (wake client,
@@ -162,6 +179,7 @@ class AgentServer:
             metadata=client.attrs.get("jarvis.metadata", ""),
             agent_name=entry.agent_name,
         )
+        self._rooms[room.name] = room
         self._jobs[room.name] = asyncio.get_running_loop().create_task(
             self._run_job(entry, room, info)
         )
@@ -190,16 +208,24 @@ class AgentServer:
         except asyncio.CancelledError:
             raise
         finally:
+            # The speaker is gone: publish that before the slow cleanup so
+            # the next wake is not refused as "already in a call".
+            self._write_active()
             for task in (main, gone_wait):
                 if not task.done():
                     task.cancel()
-            await asyncio.gather(main, gone_wait, return_exceptions=True)
+            await asyncio.wait({main, gone_wait}, timeout=self.teardown_timeout)
+            if not main.done():
+                log.error(
+                    "entrypoint for %s ignored cancellation; abandoned", room.name
+                )
             room.off("disconnected", gone.set)
             _current_job.reset(token)
-            await ctx.shutdown("job_finished")
+            await ctx.shutdown("job_finished", timeout=self.teardown_timeout)
             with contextlib.suppress(Exception):
-                await room.close()
+                await asyncio.wait_for(room.close(), self.teardown_timeout)
             self._jobs.pop(room.name, None)
+            self._rooms.pop(room.name, None)
             self._write_active()
 
     async def serve(self, host: str = "127.0.0.1", port: int | None = None) -> Any:
