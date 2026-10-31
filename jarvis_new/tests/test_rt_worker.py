@@ -142,11 +142,84 @@ def test_active_call_file_tracks_job_lifetime(home):
         client.start()
         await client.wait_connected(5)
         await asyncio.sleep(0.5)
-        after = json.loads((home / "voice_active.json").read_text())
         await client.close()
+        for _ in range(100):
+            after = json.loads((home / "voice_active.json").read_text())
+            if not after["active"]:
+                break
+            await asyncio.sleep(0.05)
         listener.close()
         return seen, after
 
     seen, after = asyncio.run(run())
     assert seen["during"]["active"] is True and seen["during"]["rooms"] == ["jarvis-3"]
     assert after["active"] is False
+
+
+def _connect(server, listener, home, room, identity="jarvis-master"):
+    from jarvis_rt.transport.tokens import load_secret
+
+    port = listener.sockets[0].getsockname()[1]
+    tok = mint_call_token(room, identity, "speaker", 60, {}, load_secret(home))
+    return VoiceClient(f"ws://127.0.0.1:{port}/voice", tok)
+
+
+def test_blocked_entry_is_cancelled_when_speaker_leaves(home):
+    """A job stuck mid-setup must not keep the call marked active after hangup."""
+
+    async def run():
+        server = AgentServer()
+        cleaned = []
+
+        @server.rtc_session(agent_name="my-agent")
+        async def entry(ctx):
+            ctx.add_shutdown_callback(lambda: cleaned.append(1))
+            await asyncio.Event().wait()
+
+        listener = await server.serve(port=0)
+        client = _connect(server, listener, home, "jarvis-2")
+        client.start()
+        await client.wait_connected(5)
+        await asyncio.sleep(0.2)
+        assert server.active_call_exists()
+        await client.close()
+        for _ in range(100):
+            if not server.active_call_exists():
+                break
+            await asyncio.sleep(0.05)
+        listener.close()
+        return server.active_call_exists(), cleaned
+
+    active, cleaned = asyncio.run(run())
+    assert active is False
+    assert cleaned == [1]
+
+
+def test_returned_entry_keeps_call_until_speaker_leaves(home):
+    """Entry returning after session start must not end the call by itself."""
+
+    async def run():
+        server = AgentServer()
+        cleaned = []
+
+        @server.rtc_session(agent_name="my-agent")
+        async def entry(ctx):
+            ctx.add_shutdown_callback(lambda: cleaned.append(1))
+
+        listener = await server.serve(port=0)
+        client = _connect(server, listener, home, "jarvis-3")
+        client.start()
+        await client.wait_connected(5)
+        await asyncio.sleep(0.3)
+        mid = (server.active_call_exists(), list(cleaned))
+        await client.close()
+        for _ in range(100):
+            if not server.active_call_exists():
+                break
+            await asyncio.sleep(0.05)
+        listener.close()
+        return mid, server.active_call_exists(), cleaned
+
+    mid, active, cleaned = asyncio.run(run())
+    assert mid == (True, [])
+    assert active is False and cleaned == [1]

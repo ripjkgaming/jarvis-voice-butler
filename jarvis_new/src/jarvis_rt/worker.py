@@ -170,13 +170,31 @@ class AgentServer:
     async def _run_job(self, entry: _Entry, room: HubRoom, info: JobInfo) -> None:
         ctx = JobContext(room, info)
         token = _current_job.set(ctx)
+        gone = asyncio.Event()
+        if not room.isconnected():
+            gone.set()
+        room.on("disconnected", gone.set)
+        main = asyncio.get_running_loop().create_task(entry.fn(ctx))
+        gone_wait = asyncio.get_running_loop().create_task(gone.wait())
         try:
-            await entry.fn(ctx)
+            # A job lives until its speaker leaves, like the former room job:
+            # the entrypoint usually returns once the session is started, and a
+            # setup step stuck on a dead session must not keep the call "active".
+            await asyncio.wait({main, gone_wait}, return_when=asyncio.FIRST_COMPLETED)
+            if main.done() and not main.cancelled() and main.exception() is not None:
+                log.error(
+                    "job for room %s crashed", room.name, exc_info=main.exception()
+                )
+            elif main.done():
+                await gone.wait()
         except asyncio.CancelledError:
             raise
-        except Exception:
-            log.exception("job for room %s crashed", room.name)
         finally:
+            for task in (main, gone_wait):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(main, gone_wait, return_exceptions=True)
+            room.off("disconnected", gone.set)
             _current_job.reset(token)
             await ctx.shutdown("job_finished")
             with contextlib.suppress(Exception):

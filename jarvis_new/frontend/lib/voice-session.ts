@@ -118,6 +118,22 @@ const MAX_MESSAGES = 200;
 // Frame codec (pure)
 // ---------------------------------------------------------------------------
 
+const DEFAULT_ECHO_GATE_RATIO = 0.5;
+
+/** Echo guard ratio; localStorage `jarvis.echoGate` overrides it (0 turns it off). */
+function echoGateRatio(): number {
+  try {
+    const raw = globalThis.localStorage?.getItem('jarvis.echoGate');
+    if (raw !== null && raw !== undefined) {
+      const value = Number(raw);
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+  } catch {
+    /* storage blocked */
+  }
+  return DEFAULT_ECHO_GATE_RATIO;
+}
+
 /** Float samples in [-1, 1] to little-endian PCM16 samples (clamped). */
 export function floatToPcm16(input: Float32Array): Int16Array {
   const out = new Int16Array(input.length);
@@ -138,6 +154,27 @@ export function encodeFrame(kind: number, payload: ArrayBufferView | ArrayBuffer
   out[0] = kind;
   out.set(bytes, 1);
   return out.buffer;
+}
+
+/** Root-mean-square level of PCM16 samples, 0..1. */
+export function pcmRms(block: Int16Array): number {
+  if (block.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
+  return Math.sqrt(sum / block.length) / 0x8000;
+}
+
+/**
+ * Software echo guard. Speaker output played through Web Audio gets no
+ * browser echo cancellation reference, so the agent's own voice reaches the
+ * mic and the server's speech detector cuts the reply off. While the agent
+ * is audible, a mic block that is not clearly louder than the playback is
+ * treated as echo (sent as silence); real speech near the mic passes.
+ * `ratio` 0 disables the guard.
+ */
+export function isEchoBlock(micRms: number, playbackRms: number, ratio: number): boolean {
+  if (ratio <= 0 || playbackRms < 0.01) return false;
+  return micRms < playbackRms * ratio;
 }
 
 /** Mic block (16 kHz PCM16 LE, 512 samples) as a kind 0x01 frame. */
@@ -756,7 +793,22 @@ export class VoiceSession {
     const socket = this.socket;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
     if (this.snap.mode !== 'speaker' || this.muted) return;
+    if (isEchoBlock(pcmRms(block), this.playbackRms(), echoGateRatio())) {
+      socket.send(encodeMicFrame(new Int16Array(block.length)));
+      return;
+    }
     socket.send(encodeMicFrame(block));
+  }
+
+  /** Current agent playback level (0..1); 0 when nothing is playing. */
+  private playbackRms(): number {
+    const analyser = this.playback?.analyser;
+    if (!analyser || this.playback?.sources.size === 0) return 0;
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    return Math.sqrt(sum / data.length);
   }
 
   // -- mic -------------------------------------------------------------------

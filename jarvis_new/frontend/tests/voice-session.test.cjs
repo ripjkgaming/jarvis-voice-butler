@@ -551,3 +551,13 @@ test('mic capture stops on disconnect', async () => {
   h.session.disconnect();
   assert.equal(h.micStream.track.stopped, true);
 });
+
+test('echo guard: quiet mic under loud playback is echo, close speech passes', () => {
+  const { isEchoBlock, pcmRms } = core;
+  assert.equal(isEchoBlock(0.05, 0.3, 0.5), true);
+  assert.equal(isEchoBlock(0.2, 0.3, 0.5), false);
+  assert.equal(isEchoBlock(0.001, 0.0, 0.5), false);
+  assert.equal(isEchoBlock(0.001, 0.3, 0), false);
+  assert.equal(pcmRms(new Int16Array(0)), 0);
+  assert.ok(Math.abs(pcmRms(Int16Array.from([16384, -16384])) - 0.5) < 1e-6);
+});
