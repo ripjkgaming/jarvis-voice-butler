@@ -286,3 +286,28 @@ def test_tls_http_options_keep_certificate_environment(monkeypatch):
     assert options.async_client_args["ssl"] is sentinel
     assert options.timeout == 10_000
     assert calls == [{"cafile": "/custom/ca.pem", "capath": "/custom/certs"}]
+
+
+def test_tool_choice_none_applies_to_one_reply_only():
+    """A tool-less greeting must not disable tools for the rest of the call."""
+    from google.genai import types
+
+    async def run():
+        client, be, _s, ev, _ = await boot()
+        c = client.conns[0]
+        await be.generate_reply("greet", "none")
+        c.content(turn_complete=True)
+        await asyncio.sleep(0.1)
+        c.push(
+            tool_call=types.LiveServerToolCall(
+                function_calls=[
+                    types.FunctionCall(id="f9", name="echo", args={"text": "yo"})
+                ]
+            )
+        )
+        await asyncio.sleep(0.1)
+        await be.aclose()
+        return ev
+
+    ev = asyncio.run(run())
+    assert [n for n, _ in ev].count("function_tools_executed") == 1

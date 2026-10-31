@@ -475,10 +475,16 @@ class AgentSession(EventEmitter):
                 session=self, speech_handle=self._speech, function_call=call
             )
 
+        log.info("tool calls: %s", ", ".join(c.name for c in calls))
         results = await asyncio.gather(
             *(execute_call(c, tools, ctx_for(c)) for c in calls),
             return_exceptions=False,
         )
+        for r in results:
+            if r.output.is_error:
+                log.warning(
+                    "tool %s failed: %s", r.call.name, str(r.output.output)[:300]
+                )
         new_agent = next((r.agent for r in results if r.agent is not None), None)
         for r in results:
             self._history.items.append(r.output)

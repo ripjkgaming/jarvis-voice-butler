@@ -597,9 +597,13 @@ class LiveBackend:
         self._reply_waiters = []
         if not pending:
             # not a reply we asked for: Gemini heard the user speak
+            self._tool_choice_none = False
             self._emit("user_speech_started")
 
     def _server_content(self, sc: types.LiveServerContent) -> None:
+        if sc.turn_complete:
+            # tool_choice="none" covers the one reply it was requested for.
+            self._tool_choice_none = False
         gen = self._gen
         if gen is None:
             return
