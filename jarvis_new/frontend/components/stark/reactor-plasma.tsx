@@ -466,18 +466,44 @@ export function useReactorPlasma(color: string, jarvis: JarvisState, muted: bool
   });
 
   return {
-    dust: <canvas ref={dust} className={`${s.rxLayer} ${s.pxDust}`} aria-hidden="true" />,
-    orbits: <canvas ref={orbits} className={`${s.rxLayer} ${s.pxOrbits}`} aria-hidden="true" />,
+    dust: (
+      <canvas
+        ref={dust}
+        className={`${s.rxLayer} ${s.pxDust}`}
+        data-ix-layer="5"
+        aria-hidden="true"
+      />
+    ),
+    orbits: (
+      <canvas
+        ref={orbits}
+        className={`${s.rxLayer} ${s.pxOrbits}`}
+        data-ix-layer="4"
+        data-ix-spin
+        aria-hidden="true"
+      />
+    ),
     inner: (
       <>
-        <canvas ref={spiral} className={`${s.rxLayer} ${s.pxSpiral}`} aria-hidden="true" />
-        <canvas ref={flowARef} className={`${s.rxLayer} ${s.pxFlow}`} aria-hidden="true" />
+        <canvas
+          ref={spiral}
+          className={`${s.rxLayer} ${s.pxSpiral}`}
+          data-ix-layer="2"
+          aria-hidden="true"
+        />
+        <canvas
+          ref={flowARef}
+          className={`${s.rxLayer} ${s.pxFlow}`}
+          data-ix-layer="2"
+          aria-hidden="true"
+        />
         <canvas
           ref={flowBRef}
           className={`${s.rxLayer} ${s.pxFlow} ${s.pxFlowB}`}
+          data-ix-layer="2"
           aria-hidden="true"
         />
-        <canvas ref={plasma} className={s.pxPlasma} aria-hidden="true" />
+        <canvas ref={plasma} className={s.pxPlasma} data-ix-layer="2" aria-hidden="true" />
       </>
     ),
   };

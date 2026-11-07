@@ -316,9 +316,10 @@ def _draft_context(msg_id: str, thread_id: str, to: str) -> dict:
 
 
 async def _maybe_suggest_event(parsed: dict) -> None:
-    """Email -> 'shall I add it to your calendar?' (IRONMAN_SPEC §1.3).
+    """Email -> calendar event (IRONMAN_SPEC §1.3).
 
-    Never raises; nothing touches the calendar until Sir says yes.
+    Default: auto-added and Sir is told (JARVIS_AUTO_CALENDAR=0 -> asks
+    "shall I add it?" first). Never raises.
     """
     try:
         import event_extractor

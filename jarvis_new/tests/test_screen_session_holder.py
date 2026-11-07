@@ -626,3 +626,9 @@ async def test_hangup_can_retry_repaired_drain_but_not_uncertain_room_effect(rig
         await rig.holder.hangup()
     assert calls == ["attempt"]
     assert rig.holder.state == "failed"
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

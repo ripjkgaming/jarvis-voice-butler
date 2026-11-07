@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local
 
@@ -73,17 +74,28 @@ class MemoryTools:
 
     @function_tool()
     async def what_was_i_doing(
-        self, context: RunContext, when: str = "yesterday"
+        self, context: RunContext, when: str = "yesterday", at: str = ""
     ) -> dict[str, str]:
         """What Sir did on a day: "what was I doing yesterday", "what did we
-        do on Monday".
+        do on Monday"; or at a time today: "what was I doing at 3pm",
+        "half an hour ago" (pass that as at).
 
         Args:
             when: yesterday, today, a weekday, or YYYY-MM-DD.
+            at: Optional time today: "3pm", "15:30", "half an hour ago".
         """
         _guard()
         import memory
 
+        if at.strip():
+            # Always Aware spans first (+-15 min), then the day's notes.
+            with contextlib.suppress(Exception):
+                from aware import control as aware_control
+
+                said = aware_control.handle("at", at)
+                if said:
+                    return {"say": said[:600]}
+            when = "today"
         day = parse_day(when, dt.date.today())
         if day is None:
             raise ToolError("Which day, Sir? Yesterday, a weekday, or a date.")

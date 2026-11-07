@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GlyphBar } from '@/components/ascii/glyphs';
 import { PANEL_TITLES, panelRow, panelRowKeys, usePanelsView } from '@/components/hud/hud-panels';
 import { type BridgeActivity } from '@/lib/bridge';
+import { useAscii } from '@/lib/character/hooks';
 import { useSharedPoll } from '@/lib/shared-poll';
 import { Frame } from './frame';
 import s from './stark.module.css';
@@ -40,6 +40,7 @@ export function useActivity(): BridgeActivity[] {
 
 /** EXECUTION: what Jarvis and the machine are doing right now. */
 export function Execution({ items, index }: { items: BridgeActivity[]; index: number }) {
+  const ascii = useAscii();
   const [now, setNow] = useState(() => Date.now() / 1000);
   const running = items.filter((a) => a.status === 'running');
   useEffect(() => {
@@ -68,13 +69,14 @@ export function Execution({ items, index }: { items: BridgeActivity[]; index: nu
             const pct = a.progress == null ? null : Math.max(0, Math.min(100, a.progress));
             return (
               <li key={a.id} className={s.execRow} data-running="true">
-                <span className={s.execTag}>{`[${KIND_TAG[a.kind] ?? 'TASK'}]`}</span>
+                <span className={s.execTag}>
+                  {ascii ? `[${KIND_TAG[a.kind] ?? 'TASK'}]` : (KIND_TAG[a.kind] ?? 'TASK')}
+                </span>
                 <span className={s.execTitle}>{a.title}</span>
                 <span className={s.execTime}>
                   {pct !== null ? `${Math.round(pct)}% · ` : ''}
                   {fmtDuration(now - a.started)}
                 </span>
-                <GlyphBar pct={pct} width={30} indeterminate={pct === null} className={s.execBar} />
                 {a.detail ? <span className={s.execDetail}>{a.detail}</span> : null}
               </li>
             );
@@ -82,7 +84,17 @@ export function Execution({ items, index }: { items: BridgeActivity[]; index: nu
           {done.map((a) => (
             <li key={a.id} className={s.execRow} data-status={a.status}>
               <span className={s.execMark} aria-hidden="true">
-                {a.status === 'done' ? '[✓]' : a.status === 'cancelled' ? '[-]' : '[✕]'}
+                {a.status === 'done'
+                  ? ascii
+                    ? '[✓]'
+                    : '✓'
+                  : a.status === 'cancelled'
+                    ? ascii
+                      ? '[-]'
+                      : '–'
+                    : ascii
+                      ? '[✕]'
+                      : '✕'}
               </span>
               <span className={s.execTitle}>{a.title}</span>
               <span className={s.execTime}>{fmtAgo(now - (a.finished ?? a.updated))}</span>
@@ -203,6 +215,73 @@ export function CommsLog({ index, compact = false }: { index: number; compact?: 
           ))}
         </ol>
       )}
+    </Frame>
+  );
+}
+
+/** Opt-in read-only foundation diagnostics; never presents approval controls. */
+export function FoundationStatus({ index }: { index: number }) {
+  const data = useSharedPoll<{
+    enabled?: boolean;
+    native_tasks?: {
+      count: number;
+      items: {
+        id: string;
+        status: string;
+        completed_steps: number;
+        step_count: number;
+        requires_approval: boolean;
+        verification: string;
+        recovery_required?: boolean;
+        checkpoints?: number;
+      }[];
+    };
+    connectors?: Record<string, { ready?: boolean; status?: string }>;
+    safety?: {
+      recovery_required?: number;
+      approvals_waiting?: number;
+      task_checkpoints_enabled?: boolean;
+      approval_tickets_enabled?: boolean;
+    };
+    outbound?: { status?: string; total?: number | null; uncertain?: number | null };
+    mcp?: { status?: string; approved_servers?: number };
+    observability?: { voice_latency?: string; coding_workers?: string; mobile?: string };
+  }>('/foundation/status', 10000);
+  if (!data?.enabled) return null;
+  const items = data.native_tasks?.items ?? [];
+  const connectors = Object.entries(data.connectors ?? {});
+  const available = connectors.filter(([, value]) => value.ready).length;
+  const blocked = items.filter((task) => task.requires_approval).length;
+  return (
+    <Frame label="FOUNDATION" index={index} aside="READ ONLY">
+      <p className={s.panelStat}>
+        TASKS <b>{data.native_tasks?.count ?? 0}</b> · APPROVAL <b>{blocked}</b> · LINKS{' '}
+        <b>
+          {available}/{connectors.length}
+        </b>
+      </p>
+      <p className={s.panelStat}>
+        RECOVERY <b>{data.safety?.recovery_required ?? 0}</b> · CHECKPOINTS{' '}
+        <b>{data.safety?.task_checkpoints_enabled ? 'ON' : 'OFF'}</b> · TICKETS{' '}
+        <b>{data.safety?.approval_tickets_enabled ? 'ON' : 'OFF'}</b>
+      </p>
+      <p className={s.panelStat}>
+        OUTBOUND <b>{data.outbound?.total ?? 'UNKNOWN'}</b> · UNCERTAIN{' '}
+        <b>{data.outbound?.uncertain ?? 'UNKNOWN'}</b> · MCP{' '}
+        <b>{data.mcp?.approved_servers ?? 0} APPROVED, NOT LIVE-VERIFIED</b>
+      </p>
+      <p className={s.panelStat}>
+        VOICE <b>EXISTING TELEMETRY</b> · WORKERS <b>PROPOSAL-ONLY</b> · MOBILE <b>UNVERIFIED</b>
+      </p>
+      {items
+        .slice(-3)
+        .reverse()
+        .map((task) => (
+          <p key={task.id} className={s.panelStat}>
+            {task.id}: {task.status.toUpperCase()} · {task.completed_steps}/{task.step_count} ·{' '}
+            {task.verification.toUpperCase()}
+          </p>
+        ))}
     </Frame>
   );
 }

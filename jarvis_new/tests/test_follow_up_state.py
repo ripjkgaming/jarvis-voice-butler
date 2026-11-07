@@ -227,3 +227,69 @@ async def test_cancellation_removes_only_watchdog_listeners(observations):
     assert not session.closed
     assert session.handlers["user_state_changed"] == [unrelated]
     assert session.handlers["agent_state_changed"] == []
+
+
+@pytest.mark.asyncio
+async def test_follow_up_waits_for_bounded_voice_recovery(observations):
+    now = [0.0]
+    session = Session()
+    # agent._voice_recovery_pending reads backend.recovery_pending().
+    session.backend = SimpleNamespace(recovery_pending=lambda: now[0] < 25.0)
+    task = asyncio.create_task(
+        agent._school_follow_up(
+            session, clock=lambda: now[0], tick=0.001, first=15, window=15
+        )
+    )
+    try:
+        await _settle()
+        now[0] = 20
+        await _settle()
+        assert not session.closed
+        now[0] = 26
+        await asyncio.wait_for(task, 1)
+        assert session.closed
+    finally:
+        await _stop(task)
+
+
+@pytest.mark.asyncio
+async def test_background_work_gets_fresh_follow_up_window(observations):
+    from hud_voice_state import execution_scope
+
+    now = [0.0]
+    session = Session()
+    task = asyncio.create_task(
+        agent._school_follow_up(
+            session, clock=lambda: now[0], tick=0.001, first=5, window=5
+        )
+    )
+    try:
+        await _settle()
+        with execution_scope(session):
+            now[0] = 200
+            await _settle()
+            assert not session.closed
+        await _settle()
+        now[0] = 204.9
+        await _settle()
+        assert not session.closed
+        now[0] = 205
+        await asyncio.wait_for(task, 1)
+        assert session.closed
+    finally:
+        await _stop(task)
+
+
+def test_standby_guard_covers_tools_and_background_work(observations):
+    from hud_voice_state import execution_scope
+
+    session = Session()
+    assert not agent._task_work_pending(session)
+    latency.TRACKER.pending = 1
+    assert agent._task_work_pending(session)
+    latency.TRACKER.pending = 0
+    with execution_scope(session):
+        with execution_scope(session):
+            assert agent._task_work_pending(session)
+        assert agent._task_work_pending(session)
+    assert not agent._task_work_pending(session)

@@ -321,6 +321,7 @@ async def test_backend_failure_cleanup_and_no_fallback(mode):
 async def test_tool_delegates_only_to_session_service(monkeypatch):
     from system import look_tools
 
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     import screen_understanding
 
@@ -566,3 +567,4 @@ async def test_simultaneous_external_cancellation_is_not_timeout():
             await task
     else:
         assert await task == "unsupported"
+

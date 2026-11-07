@@ -295,3 +295,109 @@ def test_dispatch_rechecks_owner_and_never_calls_process_in_guest(monkeypatch):
     )
     outcome = taskbar.dispatch_power("shutdown")
     assert outcome.state.value == "blocked" and outcome.dispatch.value == "not_started"
+
+
+@pytest.fixture(autouse=True)
+def _explicit_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests cover the confirm-phrase gates, so owner pre-approval is off."""
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")
+
+
+async def _voice_power(monkeypatch, steps):
+    """Run (tool, action) steps against one SystemTools, mocking the command runner."""
+    from system.core import SystemTools
+
+    monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.delenv("JARVIS_COMMAND_ACCESS", raising=False)
+    tools = SystemTools()
+    calls = []
+
+    async def run(*argv, **kwargs):
+        calls.append(tuple(argv))
+        return 0, "", ""
+
+    monkeypatch.setattr("system.core.run_cmd", run)
+    results = []
+    for tool, action in steps:
+        fn = getattr(SystemTools, tool)
+        try:
+            results.append(await fn(tools, None, action=action))
+        except Exception as exc:  # the tool refusal is part of the contract
+            results.append(exc)
+    return results, calls
+
+
+@pytest.mark.asyncio
+async def test_voice_restart_runs_reboot_only(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [("confirm_power_action", "restart"), ("power_control", "restart")],
+    )
+    assert not isinstance(results[1], Exception)
+    assert calls == [("systemctl", "reboot")]
+
+
+@pytest.mark.asyncio
+async def test_voice_reboot_runs_reboot_only(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [("confirm_power_action", "reboot"), ("power_control", "reboot")],
+    )
+    assert not isinstance(results[1], Exception)
+    assert calls == [("systemctl", "reboot")]
+
+
+@pytest.mark.asyncio
+async def test_voice_shutdown_runs_poweroff_only(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [("confirm_power_action", "shutdown"), ("power_control", "shutdown")],
+    )
+    assert not isinstance(results[1], Exception)
+    assert calls == [("systemctl", "poweroff")]
+
+
+@pytest.mark.asyncio
+async def test_voice_restart_confirmation_cannot_shut_down(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [("confirm_power_action", "restart"), ("power_control", "shutdown")],
+    )
+    assert isinstance(results[1], Exception)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_voice_shutdown_confirmation_cannot_restart(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [("confirm_power_action", "shutdown"), ("power_control", "restart")],
+    )
+    assert isinstance(results[1], Exception)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_voice_refusal_names_the_requested_action(monkeypatch):
+    results, calls = await _voice_power(monkeypatch, [("power_control", "restart")])
+    assert "restart" in str(results[0]).lower()
+    assert "shutdown" not in str(results[0]).lower()
+    results, calls = await _voice_power(monkeypatch, [("power_control", "shutdown")])
+    assert "shutdown" in str(results[0]).lower()
+    assert "restart" not in str(results[0]).lower()
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_voice_confirm_is_single_use_for_restart(monkeypatch):
+    results, calls = await _voice_power(
+        monkeypatch,
+        [
+            ("confirm_power_action", "restart"),
+            ("power_control", "restart"),
+            ("power_control", "restart"),
+        ],
+    )
+    assert not isinstance(results[1], Exception)
+    assert isinstance(results[2], Exception)
+    assert calls == [("systemctl", "reboot")]

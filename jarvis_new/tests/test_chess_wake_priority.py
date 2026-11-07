@@ -39,7 +39,7 @@ async def build(
     tmp_path, text="pawn to e4", delay=0.0, watcher=None, time_control="untimed"
 ):
     game = ChessGame(
-        ChessSettings(announce_moves=False, difficulty="novice"),
+        ChessSettings(commentary_muted=False, announce_moves=False, difficulty="novice"),
         engine=MiniEngine(1),
         save_dir=tmp_path,
         autosave=False,
@@ -138,7 +138,7 @@ async def test_clock_is_paused_while_jarvis_is_active(tmp_path):
 
     t = [100.0]
     game = ChessGame(
-        ChessSettings(announce_moves=False),
+        ChessSettings(commentary_muted=False, announce_moves=False),
         engine=MiniEngine(1),
         save_dir=tmp_path,
         autosave=False,

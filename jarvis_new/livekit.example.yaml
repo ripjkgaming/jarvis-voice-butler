@@ -1,6 +1,7 @@
 # Jarvis local LiveKit server config — EXAMPLE ONLY. Never commit real keys.
-# The first-run wizard generates the real file at ~/.jarvis/livekit.yaml
-# (0600) with a fresh keypair via `openssl rand -hex` / os.urandom.
+# UNUSED since the LiveKit removal: the wizard no longer writes
+# ~/.jarvis/livekit.yaml; the voice transport is the in-repo WebSocket hub.
+# Kept for reference only.
 #
 # Required for the desktop app: loopback-only binding, a static keypair
 # shared with .env.local + frontend/.env.local, TURN off, and a short

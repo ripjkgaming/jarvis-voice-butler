@@ -42,6 +42,7 @@ def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_LOCAL", "1")
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")
     monkeypatch.setattr(chatgpt_cli.shutil, "which", lambda n: "/usr/bin/codex")
     return tmp_path
 

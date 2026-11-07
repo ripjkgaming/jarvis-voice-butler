@@ -27,7 +27,9 @@ def _fake_needle_module(complete_fn):
     mod.tool = tool
 
     class Needle:
-        def __init__(self, tools=None, weights=None):
+        def __init__(self, tools=None, weights=None, generation=None, stateless=False):
+            assert generation == 3
+            assert stateless is True
             self.tools = tools
             self.weights = weights
 
@@ -304,3 +306,9 @@ def test_worker_stub_disables_dumpability_before_test_body(tmp_path):
     )
     assert result.returncode == 0
     assert result.stdout.strip() == "0"
+
+
+def test_needle_is_opt_in_even_when_package_is_installed(monkeypatch):
+    monkeypatch.delenv("JARVIS_NEEDLE", raising=False)
+    monkeypatch.setitem(sys.modules, "needle", _fake_needle_module(lambda text: {}))
+    assert not needle_router.needle_enabled()

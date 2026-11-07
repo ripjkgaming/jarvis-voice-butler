@@ -14,9 +14,7 @@ import contextlib
 import html
 import re
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
-
+from jarvis_rt import RunContext, ToolError, function_tool
 from system import LocalSystemError, log_action, require_local
 
 
@@ -106,11 +104,15 @@ class WorkspaceTools:
             self.email_to_calendar,
             self.confirm_calendar_import,
             self.calendar_upcoming,
+            self.calendar_add,
+            self.calendar_events_on,
             self.exams_to_calendar,
             self.email_events,
             self.confirm_email_event,
             self.dismiss_email_event,
+            self.undo_calendar_add,
             self.ask_backend,
+            self.route_request,
         ]
 
     @function_tool()
@@ -712,6 +714,81 @@ class WorkspaceTools:
         }
 
     @function_tool()
+    async def calendar_add(
+        self,
+        context: RunContext,
+        title: str,
+        date: str,
+        start: str = "",
+        end: str = "",
+        location: str = "",
+        all_day: bool = False,
+    ) -> dict:
+        """Add ONE explicitly requested event to Google Calendar and verify it.
+
+        Use for 'add this event to my calendar', including a single exam.
+        This writes Google Calendar, unlike exam_schedule which only saves
+        the local exam list. Never invent times, year, title or an end time.
+        Ask for missing/ambiguous information before calling this tool.
+        Report success ONLY when ok=true and outcome.state=verified.
+
+        Args:
+            title: Exact event title supplied by the owner.
+            date: Exact ISO date YYYY-MM-DD with the confirmed year.
+            start: Confirmed local start time HH:MM (24-hour).
+            end: Confirmed local end time HH:MM (24-hour).
+            location: Confirmed location, or empty.
+            all_day: True only when owner explicitly requests an all-day event.
+        """
+        _guard()
+        import phone_session
+
+        if phone_session.guest_required():
+            raise ToolError(
+                "Google Calendar actions require the authenticated owner session."
+            )
+        import calendar_actions
+
+        try:
+            return await asyncio.to_thread(
+                calendar_actions.add,
+                {
+                    "title": title,
+                    "date": date,
+                    "start": start,
+                    "end": end,
+                    "location": location,
+                    "all_day": all_day,
+                },
+            )
+        except (ValueError, TypeError) as exc:
+            raise ToolError(str(exc)) from exc
+
+    @function_tool()
+    async def calendar_events_on(self, context: RunContext, date: str) -> dict:
+        """Read Google Calendar on an exact date to verify what is saved.
+
+        Args:
+            date: YYYY-MM-DD with the confirmed year. Use for 'check my
+                calendar on January 16 2027'; not the local exam schedule.
+        """
+        _guard()
+        import phone_session
+
+        if phone_session.guest_required():
+            raise ToolError(
+                "Google Calendar actions require the authenticated owner session."
+            )
+        import calendar_actions
+
+        try:
+            return await asyncio.to_thread(calendar_actions.events_on, date)
+        except Exception as exc:
+            raise ToolError(
+                "I could not read Google Calendar for that date; it is not verified."
+            ) from exc
+
+    @function_tool()
     async def email_events(self, context: RunContext) -> dict[str, str]:
         """Events Jarvis found in Sir's email and offered to add to his
         calendar, still waiting for a yes or no ("any events from my mail?")."""
@@ -760,6 +837,16 @@ class WorkspaceTools:
         return {
             "say": f"Added {ev['title']}, {event_extractor.when_text(ev)}, to your calendar."
         }
+
+    @function_tool()
+    async def undo_calendar_add(self, context: RunContext) -> dict[str, str]:
+        """Sir says 'undo that' about an event Jarvis added from email on its own."""
+        _guard()
+        import event_extractor
+
+        res = await asyncio.to_thread(event_extractor.undo_last_auto_event)
+        log_action("calendar", f"auto-event undo ok={res['ok']}")
+        return {"say": res["say"]}
 
     @function_tool()
     async def dismiss_email_event(
@@ -823,12 +910,40 @@ class WorkspaceTools:
         return {"say": ("Coming up: " + "; ".join(rows))[:1200]}
 
     @function_tool()
-    async def ask_backend(self, context: RunContext, task: str) -> dict[str, str]:
-        """Hand a slow, careful job to the backend model (GPT-6.1 Sol at medium reasoning): planning, careful reasoning, long rewrites.
+    async def route_request(self, context: RunContext, request: str) -> dict:
+        """Decide direct Jarvis vs backend when the owner's intent is unclear.
+
+        Advisory only: starts no job and executes no action. Obvious conversation,
+        volume/media/app controls and quick facts need no routing call. Preserve
+        the owner's full request including any explicit Claude/ChatGPT preference.
+        """
+        _guard()
+        import request_router
+
+        decision = await asyncio.to_thread(request_router.decide, request)
+        return {
+            **decision,
+            "backend_started": False,
+            "next_tool": {
+                "direct": "",
+                "backend": "ask_backend",
+                "research": "research_project",
+                "code": "code_project",
+            }[decision["route"]],
+            "guidance": "Handle directly using existing conversation/tools."
+            if decision["route"] == "direct"
+            else "Use the indicated existing tool with the unchanged full request; its normal guards still apply.",
+        }
+
+    @function_tool()
+    async def ask_backend(self, context: RunContext, task: str) -> dict:
+        """Check whether a task needs a background reasoning backend, then dispatch if appropriate.
 
         Runs in the BACKGROUND: this returns at once, so keep talking with Sir
         normally. When the backend finishes you'll be prompted with its answer
-        to pass on. Not for web research (use research_project) or chit-chat.
+        to pass on. Perplexity returns simple requests to Jarvis without starting
+        a job. Claude/ChatGPT preference is respected; actual usage-limit errors
+        can switch providers. Not for web research or coding: use their tools.
 
         Args:
             task: The full task with every detail the backend needs.
@@ -839,9 +954,34 @@ class WorkspaceTools:
         task = (task or "").strip()
         if len(task) < 3:
             raise ToolError("What should the backend work on, Sir?")
+        import request_router
+
+        decision = (
+            await asyncio.to_thread(request_router.decide, task)
+            if request_router.enabled()
+            else request_router.decide(task, default_route="backend")
+        )
+        if decision["route"] != "backend":
+            return {
+                **decision,
+                "backend_started": False,
+                "next_tool": {
+                    "direct": "",
+                    "research": "research_project",
+                    "code": "code_project",
+                }[decision["route"]],
+                "guidance": "Handle this directly with your existing tools/knowledge."
+                if decision["route"] == "direct"
+                else "Use the indicated dedicated tool. No backend reasoning job was started.",
+            }
 
         async def job() -> str:
-            reply, warning = await asyncio.to_thread(backend_model.backend_think, task)
+            reply, warning = await asyncio.to_thread(
+                backend_model.backend_think,
+                task,
+                preferred=decision["provider"],
+                allow_fallback=decision.get("allow_fallback", True),
+            )
             if warning:
                 return f"Tell Sir briefly that the backend job failed: {warning}."
             log_action("backend", task[:60])
@@ -857,7 +997,9 @@ class WorkspaceTools:
             fallback="The backend has finished, Sir. Shall I go through it?",
         )
         return {
-            "say": "On it, Sir. That's with the backend; I'll come back to you when it's done."
+            "route": "backend",
+            "backend_started": True,
+            "say": "On it, Sir. That's with the backend; I'll come back to you when it's done.",
         }
 
 

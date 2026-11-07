@@ -201,10 +201,14 @@ class CallQueue:
         A blocked occurrence remains blocked after reconnect or restart.
         """
         if (
-            not isinstance(key, str) or not 1 <= len(key) <= 200
-            or not isinstance(title, str) or not title.strip()
-            or type(now) not in (int, float) or not math.isfinite(now)
-            or type(deadline) not in (int, float) or not math.isfinite(deadline)
+            not isinstance(key, str)
+            or not 1 <= len(key) <= 200
+            or not isinstance(title, str)
+            or not title.strip()
+            or type(now) not in (int, float)
+            or not math.isfinite(now)
+            or type(deadline) not in (int, float)
+            or not math.isfinite(deadline)
         ):
             raise ValueError("Invalid scheduled invitation")
         import phone_session
@@ -212,19 +216,26 @@ class CallQueue:
         with self.db() as c:
             c.execute("BEGIN IMMEDIATE")
             previous = c.execute(
-                "SELECT status,reason,call_id FROM scheduled_call_receipts WHERE key=?", (key,)
+                "SELECT status,reason,call_id FROM scheduled_call_receipts WHERE key=?",
+                (key,),
             ).fetchone()
             if previous:
                 return dict(previous)
             self.expire(c, now)
             control = c.execute("SELECT * FROM control WHERE id=1").fetchone()
             reason = (
-                "expired" if deadline <= now
-                else "guest_mode" if phone_session.guest_required()
-                else "disabled" if not control["enabled"]
-                else "offline" if not 0 <= now - control["heartbeat"] < 60
-                else "quiet_hours" if quiet(now)
-                else "busy" if c.execute("SELECT 1 FROM calls WHERE status='ringing'").fetchone()
+                "expired"
+                if deadline <= now
+                else "guest_mode"
+                if phone_session.guest_required()
+                else "disabled"
+                if not control["enabled"]
+                else "offline"
+                if not 0 <= now - control["heartbeat"] < 60
+                else "quiet_hours"
+                if quiet(now)
+                else "busy"
+                if c.execute("SELECT 1 FROM calls WHERE status='ringing'").fetchone()
                 else ""
             )
             call_id = None
@@ -233,8 +244,16 @@ class CallQueue:
                 day = datetime.fromtimestamp(now, ZONE).date().isoformat()
                 c.execute(
                     "INSERT INTO calls VALUES (?,?,?,?,?,?,?,?)",
-                    (call_id, key, "scheduled", title.strip()[:300], now,
-                     min(now + TTL, deadline), "ringing", day),
+                    (
+                        call_id,
+                        key,
+                        "scheduled",
+                        title.strip()[:300],
+                        now,
+                        min(now + TTL, deadline),
+                        "ringing",
+                        day,
+                    ),
                 )
             status = "blocked" if reason else "invited"
             c.execute(
@@ -345,7 +364,8 @@ class CallQueue:
                     if row["kind"] == "calendar"
                     else control["updates"]
                     if row["kind"] == "update"
-                    else True if row["kind"] == "scheduled"
+                    else True
+                    if row["kind"] == "scheduled"
                     else c.execute(
                         "SELECT enabled FROM checkin_schedule WHERE id=1"
                     ).fetchone()[0]
@@ -455,7 +475,11 @@ def consume_announcement(call_id, identity, now=None):
     if not isinstance(call_id, str) or not re.fullmatch(r"[0-9a-f]{32}", call_id):
         return ""
     if phone_session.private():
-        if not phone_session.identity() or identity != phone_session.identity() or call_id != phone_session.invitation_id():
+        if (
+            not phone_session.identity()
+            or identity != phone_session.identity()
+            or call_id != phone_session.invitation_id()
+        ):
             return ""
     elif identity != "jarvis-phone-" + call_id:
         return ""
@@ -481,6 +505,7 @@ def poll_schedule(now=None):
     weekly = calls.poll_schedule(now)
     try:
         import bedtime_calls
+
         bedtime_calls.poll_schedule(calls, now)
     except Exception:
         pass  # An isolated bedtime source failure cannot break weekly calls.

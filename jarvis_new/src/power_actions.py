@@ -64,7 +64,9 @@ class ConfirmationStore:
 
 def argv(action):
     return {
-        "lock": ("loginctl", "lock-session"),
+        # Plural: bare lock-session only locks the caller's (seatless,
+        # systemd manager) session and returns 0 with the screen still open.
+        "lock": ("loginctl", "lock-sessions"),
         "suspend": ("systemctl", "suspend"),
         "reboot": ("systemctl", "reboot"),
         "shutdown": ("systemctl", "poweroff"),
@@ -85,6 +87,21 @@ def normalize(action):
 
 def parse_lock_active(text):
     return {"(true,)": True, "(false,)": False}.get(text.strip())
+
+
+def lock_state(run):
+    """Is the desktop screen locked right now? None when unreadable.
+
+    Runs LOCK_READ_ARGV (ScreenSaver.GetActive, 2 s timeout). Never raises.
+    Callers cache it (phone_control keeps a 2 s TTL).
+    """
+    try:
+        result = run(list(LOCK_READ_ARGV), capture_output=True, text=True, timeout=2.0)
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_lock_active(result.stdout or "")
 
 
 def receipt(action, rc, lock_active=None):

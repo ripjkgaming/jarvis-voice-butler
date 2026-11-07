@@ -1,0 +1,24 @@
+{
+  "iterations": 100,
+  "caption_limit": 20,
+  "measurements": [
+    {
+      "history_lines": 250,
+      "file_bytes": 126750,
+      "legacy_read_ms_median": 0.1481,
+      "tail_read_ms_median": 0.0184
+    },
+    {
+      "history_lines": 5000,
+      "file_bytes": 2535000,
+      "legacy_read_ms_median": 4.1949,
+      "tail_read_ms_median": 0.0521
+    },
+    {
+      "history_lines": 20000,
+      "file_bytes": 10140000,
+      "legacy_read_ms_median": 20.6727,
+      "tail_read_ms_median": 0.0192
+    }
+  ]
+}

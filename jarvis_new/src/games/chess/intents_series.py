@@ -30,7 +30,9 @@ import chess
 from games.chess import commands, templates
 from games.chess.reply import Reply
 
-SCORE_PHRASES = frozenset({"what's the score", "what is the score", "score", "whats the score"})
+SCORE_PHRASES = frozenset(
+    {"what's the score", "what is the score", "score", "whats the score"}
+)
 _ACTIVE = ("running", "paused")
 NOT_YET = "That is not available yet, Sir."
 
@@ -102,8 +104,15 @@ def route(game: Any, hit: commands.Intent, raw: str) -> commands.Intent:
         if name == "review_goto":
             return commands.Intent("hist_goto", dict(hit.args), "history")
     if name == "analyse" and _series_active(game):
-        words = commands.text_norm.clean(raw) if hasattr(commands, "text_norm") else raw.lower()
-        if any(v in SCORE_PHRASES for v in commands.text_norm.variants(raw)) or words in SCORE_PHRASES:
+        words = (
+            commands.text_norm.clean(raw)
+            if hasattr(commands, "text_norm")
+            else raw.lower()
+        )
+        if (
+            any(v in SCORE_PHRASES for v in commands.text_norm.variants(raw))
+            or words in SCORE_PHRASES
+        ):
             return commands.Intent("series_score", {}, "series")
     return hit
 
@@ -113,7 +122,10 @@ async def handle(game: Any, hit: commands.Intent, raw: str = "") -> Reply | None
     fn = _HANDLERS.get(hit.name)
     if fn is None:
         return None
-    out = fn(game, **{k: v for k, v in hit.args.items() if k in inspect.signature(fn).parameters})
+    out = fn(
+        game,
+        **{k: v for k, v in hit.args.items() if k in inspect.signature(fn).parameters},
+    )
     if inspect.isawaitable(out):
         out = await out
     if out is not None and hasattr(game, "_changed_soon"):
@@ -138,13 +150,19 @@ def _i_series_start(
         return _bad("A series is already running, Sir. Say 'cancel the series' first.")
     ctl = mod.SeriesController(store)
     try:
-        ctl.start(total=total, colour=colour, level=level, move_time=move_time, speak=speak)
+        ctl.start(
+            total=total, colour=colour, level=level, move_time=move_time, speak=speak
+        )
     except ValueError:
         return _bad("I can manage between one and a hundred games, Sir.")
     game.series = ctl
     _notify(game, "start")
     how = {"white": "as white", "black": "as black"}.get(colour, "alternating colours")
-    head = "until you say stop" if total is None else f"{_w(total)} game{'s' * (total != 1)}"
+    head = (
+        "until you say stop"
+        if total is None
+        else f"{_w(total)} game{'s' * (total != 1)}"
+    )
     return Reply(f"Very good, Sir. {head[0].upper() + head[1:]}, {how}.", kind="series")
 
 
@@ -188,7 +206,9 @@ def _i_series_left(game: Any) -> Reply:
     if left is None:
         return Reply("We're playing until you say stop, Sir.", kind="series")
     return Reply(
-        f"{_w(left).capitalize()} game{'s' * (left != 1)} to go, Sir." if left else "That was the last game, Sir.",
+        f"{_w(left).capitalize()} game{'s' * (left != 1)} to go, Sir."
+        if left
+        else "That was the last game, Sir.",
         kind="series",
     )
 
@@ -197,11 +217,22 @@ def _i_series_score(game: Any) -> Reply:
     if (r := _need_series(game)) is not None:
         return r
     s = game.series.state
-    return Reply(f"The series stands at {game.series.score_text()}, Sir.", kind="series", data={"series": _brief(s)})
+    return Reply(
+        f"The series stands at {game.series.score_text()}, Sir.",
+        kind="series",
+        data={"series": _brief(s)},
+    )
 
 
 def _brief(s: Any) -> dict:
-    return {"id": s.id, "wins": s.wins, "draws": s.draws, "losses": s.losses, "total": s.total, "status": s.status}
+    return {
+        "id": s.id,
+        "wins": s.wins,
+        "draws": s.draws,
+        "losses": s.losses,
+        "total": s.total,
+        "status": s.status,
+    }
 
 
 def _i_series_pause(game: Any) -> Reply:
@@ -210,7 +241,9 @@ def _i_series_pause(game: Any) -> Reply:
     if not game.series.pause():
         return _bad("The series is already paused, Sir.")
     _notify(game, "pause")
-    return Reply("Series paused, Sir. Say 'continue the series' when ready.", kind="series")
+    return Reply(
+        "Series paused, Sir. Say 'continue the series' when ready.", kind="series"
+    )
 
 
 def _i_series_resume(game: Any) -> Reply:
@@ -250,7 +283,9 @@ def _i_series_resume_offer(game: Any) -> Reply:
     game.series = ctl
     game.pending = None
     _notify(game, "resume")
-    return Reply(f"Resuming your series at game {_w(len(st.game_ids) + 1)}, Sir.", kind="series")
+    return Reply(
+        f"Resuming your series at game {_w(len(st.game_ids) + 1)}, Sir.", kind="series"
+    )
 
 
 # -------------------------------------------------------------------- history
@@ -261,7 +296,9 @@ def _i_list_games(game: Any) -> Reply:
     items = store.list(limit=20)
     if not items:
         game.games_list = []
-        return Reply("You have no games on record yet, Sir.", kind="history", data={"games": []})
+        return Reply(
+            "You have no games on record yet, Sir.", kind="history", data={"games": []}
+        )
     game.games_list = items
     top = items[0]
     say = (
@@ -272,7 +309,11 @@ def _i_list_games(game: Any) -> Reply:
 
 
 def _res(r: str | None) -> str:
-    return {"1-0": "one nil to white", "0-1": "one nil to black", "1/2-1/2": "in a draw"}.get(r or "", "unfinished")
+    return {
+        "1-0": "one nil to white",
+        "0-1": "one nil to black",
+        "1/2-1/2": "in a draw",
+    }.get(r or "", "unfinished")
 
 
 def _where(view: Any) -> str:
@@ -285,7 +326,13 @@ def _where(view: Any) -> str:
 
 
 def _hist_data(view: Any) -> dict:
-    return {"history": {"ply": view.current_ply, "total": view.total_plies, "fen": view.fen()}}
+    return {
+        "history": {
+            "ply": view.current_ply,
+            "total": view.total_plies,
+            "fen": view.fen(),
+        }
+    }
 
 
 def _i_open_game(game: Any, ref: str = "1") -> Reply:
@@ -322,7 +369,11 @@ def _i_hist_step(game: Any, delta: int = 1) -> Reply:
     before = v.current_ply
     v.step(delta)
     if v.current_ply == before:
-        return Reply("That's the " + ("start" if delta < 0 else "end") + " of the game, Sir.", kind="history", data=_hist_data(v))
+        return Reply(
+            "That's the " + ("start" if delta < 0 else "end") + " of the game, Sir.",
+            kind="history",
+            data=_hist_data(v),
+        )
     return Reply(f"{_where(v).capitalize()}.", kind="history", data=_hist_data(v))
 
 
@@ -362,7 +413,9 @@ async def _i_hist_branch(game: Any, n: int | None = None) -> Reply:
         rec = v.branch_here()
         game.hist_view = None
         await _load_branch(game, rec)
-        return Reply("Branching from here, Sir. The original game is untouched.", kind="history")
+        return Reply(
+            "Branching from here, Sir. The original game is untouched.", kind="history"
+        )
     st = game.state
     if n is None or not getattr(st, "move_count", 0):
         return _bad("Open a game first, Sir.", "history")
@@ -391,7 +444,9 @@ async def _i_analyse_board(game: Any) -> Reply:
     return await game.analyse_board_now()
 
 
-async def _i_explain(game: Any, n: int | None = None, which: str | None = None) -> Reply | None:
+async def _i_explain(
+    game: Any, n: int | None = None, which: str | None = None
+) -> Reply | None:
     """Explain from saved evals; None -> legacy engine explanation."""
     return await game.explain_saved(n)
 

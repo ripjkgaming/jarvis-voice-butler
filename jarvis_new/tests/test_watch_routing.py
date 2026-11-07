@@ -376,3 +376,9 @@ def test_suite_blocks_unmocked_guard_launch_and_session_lock():
         watch_mode.launch()
     with pytest.raises(AssertionError, match="fake session lock"):
         watch_mode.fail_safe_lock()
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 import briefing_job
@@ -93,7 +95,9 @@ async def test_main_dedupes_repeats(monkeypatch: pytest.MonkeyPatch, tmp_path) -
         return BUNDLE
 
     monkeypatch.setattr(briefing_job, "build_briefing", _bundle)
-    monkeypatch.setattr(notify.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        notify.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0)
+    )
     assert await briefing_job.main() == "notification+log"
     assert await briefing_job.main() == "skipped-duplicate"
 
@@ -114,6 +118,8 @@ async def test_main_skips_empty_bundle(
 def test_deliver_logs_full_bundle(tmp_path, monkeypatch) -> None:
     log = tmp_path / "briefings.log"
     monkeypatch.setattr(briefing_job, "BRIEFING_LOG", log)
-    monkeypatch.setattr(notify.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        notify.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0)
+    )
     assert briefing_job.deliver("short shaped", full_text=BUNDLE) == "notification+log"
     assert BUNDLE in log.read_text()

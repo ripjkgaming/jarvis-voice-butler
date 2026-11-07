@@ -437,3 +437,12 @@
     animation: none;
   }
 }
+
+/* A voice-opened workspace remains visible when presence has parked the HUD.
+   The HUD's global animation pause would freeze these entrance animations at
+   opacity zero. Modal surfaces use their final static state in that case. */
+:global(html.hud-hidden) .overlay,
+:global(html.hud-hidden) .dialog,
+:global(html.hud-hidden) .content {
+  animation: none !important;
+}

@@ -1,6 +1,6 @@
 # Dedicated headless Assigner routing
 
-This change is source-ready and inactive until `JARVIS_ASSIGNER_ROUTING=1` is
+This change is source-ready and active by default; set `JARVIS_ASSIGNER_ROUTING=0` to disable is
 explicitly configured for the bridge. No running service was restarted or live
 production job dispatched. With the switch absent, new coding requests fail
 closed; research remains unchanged. There is no opencode or ephemeral fallback.

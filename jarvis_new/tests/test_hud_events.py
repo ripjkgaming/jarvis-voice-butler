@@ -108,3 +108,13 @@ def test_bridge_activity_route_lists_items(tmp_path, monkeypatch) -> None:
     assert read_activity() == []
     activity.start("download", "ubuntu.iso", item_id="download-abc")
     assert [i["id"] for i in read_activity()] == ["download-abc"]
+
+
+def test_execution_status_comes_from_output_not_call():
+    from types import SimpleNamespace
+    from hud_events import tool_execution_results
+    calls = [SimpleNamespace(name='list_dir'), SimpleNamespace(name='run_command')]
+    outputs = [SimpleNamespace(is_error=True, output='denied'),
+               SimpleNamespace(is_error=False, output='{"rc": "124", "say": "timeout"}')]
+    event = SimpleNamespace(zipped=lambda: list(zip(calls, outputs)))
+    assert tool_execution_results(event) == [('list_dir', False), ('run_command', False)]

@@ -1,0 +1,312 @@
+{
+  "src/agent.py": [
+    "transfer_back_to_main",
+    "transfer_back_to_main",
+    "system_health_incident",
+    "latency_report",
+    "transfer_to_deep_research",
+    "transfer_to_system_control",
+    "launch_chess",
+    "transfer_back_to_main"
+  ],
+  "src/draft_tools.py": [
+    "draft_list",
+    "draft_read",
+    "draft_revise",
+    "draft_discard",
+    "draft_send",
+    "draft_approve_all",
+    "open_drafts_ui",
+    "close_drafts_ui"
+  ],
+  "src/event_monitor/voice.py": [
+    "monitor_create",
+    "monitor_list",
+    "monitor_status",
+    "monitor_stop"
+  ],
+  "src/goodnight_tools.py": [
+    "goodnight_status",
+    "goodnight_cancel"
+  ],
+  "src/notify_tools.py": [
+    "notify"
+  ],
+  "src/system/alternatives_tools.py": [
+    "find_cheaper_alternative"
+  ],
+  "src/system/background.py": [
+    "usage_stats",
+    "crash_report",
+    "webcam_snapshot",
+    "idle_status"
+  ],
+  "src/system/code_tools.py": [
+    "run_tests",
+    "explain_failure",
+    "confirm_open_pr",
+    "open_pr"
+  ],
+  "src/system/computer_use.py": [
+    "computer_use",
+    "computer_use_status",
+    "computer_use_cancel"
+  ],
+  "src/system/core.py": [
+    "tell_time",
+    "do_math",
+    "read_clipboard",
+    "take_os_screenshot",
+    "read_screen_text",
+    "set_volume",
+    "media_control",
+    "now_playing",
+    "play_media",
+    "set_brightness",
+    "battery_status",
+    "disk_space",
+    "find_files",
+    "list_dir",
+    "read_file",
+    "write_file",
+    "move_file",
+    "copy_file",
+    "delete_file",
+    "recent_downloads",
+    "manage_todo",
+    "remember_alias",
+    "run_alias",
+    "list_aliases",
+    "open_app",
+    "close_app",
+    "window_action",
+    "confirm_power_action",
+    "power_control",
+    "confirm_command_action",
+    "run_command"
+  ],
+  "src/system/daily.py": [
+    "exam_times",
+    "school_day",
+    "daily_briefing",
+    "study_plan",
+    "study_tick",
+    "build_slides",
+    "build_document",
+    "whatsapp_status",
+    "whatsapp_chats",
+    "whatsapp_read",
+    "whatsapp_draft",
+    "whatsapp_drafts",
+    "whatsapp_review",
+    "whatsapp_discard",
+    "whatsapp_mimic"
+  ],
+  "src/system/desktop.py": [
+    "desktop_screenshot",
+    "desktop_locate_text",
+    "confirm_desktop_action",
+    "desktop_click",
+    "desktop_type",
+    "desktop_key",
+    "desktop_scroll"
+  ],
+  "src/system/devices.py": [
+    "wifi_control",
+    "bluetooth_control",
+    "audio_output",
+    "keyboard_light",
+    "monitor_setup",
+    "open_on_monitor",
+    "usb_devices",
+    "phone_devices",
+    "home_control",
+    "play_game"
+  ],
+  "src/system/exam_tools.py": [
+    "exam_schedule"
+  ],
+  "src/system/files_tools.py": [
+    "find_files",
+    "open_path",
+    "describe_folder",
+    "organize_folder",
+    "confirm_organize",
+    "apply_organize_plan",
+    "undo_last_organize"
+  ],
+  "src/system/focus_tools.py": [
+    "lock_on",
+    "focus_status",
+    "end_focus",
+    "review_my_work"
+  ],
+  "src/system/inbox.py": [
+    "gmail_status",
+    "confirm_email_action",
+    "gmail_send",
+    "gmail_reply",
+    "gmail_inbox",
+    "gmail_read",
+    "gmail_thread",
+    "news_digest",
+    "weather_now",
+    "morning_briefing"
+  ],
+  "src/system/look_tools.py": [
+    "look_at_screen",
+    "look_through_camera"
+  ],
+  "src/system/memory_tools.py": [
+    "recall_memory",
+    "what_was_i_doing",
+    "pick_up_where_left_off",
+    "remember_that",
+    "forget_that"
+  ],
+  "src/system/muse_tools.py": [
+    "delegate_to_muse",
+    "confirm_muse_send"
+  ],
+  "src/system/osint.py": [
+    "dns_recon",
+    "whois_lookup",
+    "crt_enumerate",
+    "email_footprint",
+    "shodan_lookup",
+    "censys_lookup"
+  ],
+  "src/system/panel_tools.py": [
+    "show_panel",
+    "hide_panel",
+    "open_insights",
+    "close_insights"
+  ],
+  "src/system/pentest.py": [
+    "confirm_pentest_action",
+    "nmap_scan",
+    "nikto_sweep",
+    "gobuster_dir",
+    "hashcat_crack",
+    "msf_aux",
+    "msf_exploit",
+    "scope_allow",
+    "scope_revoke",
+    "scope_list",
+    "pentest_report",
+    "freeze_testing"
+  ],
+  "src/system/projects_tools.py": [
+    "research_project",
+    "code_project",
+    "open_projects",
+    "list_archive",
+    "navigate_archive"
+  ],
+  "src/system/quotes_tools.py": [
+    "quote_action"
+  ],
+  "src/system/recall_tools.py": [
+    "whatsapp_replies",
+    "email_activity",
+    "catch_me_up"
+  ],
+  "src/system/reddit.py": [
+    "reddit_front"
+  ],
+  "src/system/schedule_tools.py": [
+    "schedule_task",
+    "scheduled_tasks"
+  ],
+  "src/system/school_tools.py": [
+    "set_school_mode",
+    "confirm_loud_action"
+  ],
+  "src/system/suit_tools.py": [
+    "set_suit_diagnostics"
+  ],
+  "src/system/task_tools.py": [
+    "start_task",
+    "task_status",
+    "approve_task",
+    "cancel_task",
+    "cancel_tool",
+    "redirect_task",
+    "start_workshop",
+    "workshop_status"
+  ],
+  "src/system/vision_tools.py": [
+    "look_at_me",
+    "start_posture_watch",
+    "stop_posture_watch",
+    "posture_report",
+    "set_hand_gestures"
+  ],
+  "src/system/watch_tools.py": [
+    "start_watch_mode",
+    "stop_watch_mode",
+    "watch_mode_status",
+    "watch_mode_briefing",
+    "start_guard_mode"
+  ],
+  "src/system/window_tools.py": [
+    "list_windows",
+    "focus_window",
+    "arrange_windows",
+    "undo_layout"
+  ],
+  "src/system/workspace_tools.py": [
+    "drive_find",
+    "read_google_doc",
+    "create_google_doc",
+    "read_sheet",
+    "confirm_workspace_action",
+    "add_sheet_rows",
+    "notion_find",
+    "notion_read",
+    "notion_add_note",
+    "generate_document",
+    "import_schedule_to_calendar",
+    "email_to_calendar",
+    "confirm_calendar_import",
+    "exams_to_calendar",
+    "email_events",
+    "confirm_email_event",
+    "dismiss_email_event",
+    "calendar_upcoming",
+    "route_request",
+    "ask_backend"
+  ],
+  "src/tools.py": [
+    "open_link",
+    "open_visible_url",
+    "shopping_search",
+    "search_the_web",
+    "open_url",
+    "open_google_app",
+    "dismiss_popups",
+    "read_page",
+    "inspect_page",
+    "go_back",
+    "take_screenshot",
+    "click",
+    "confirm_browser_action",
+    "type_text",
+    "scroll",
+    "auto_scroll",
+    "press_key",
+    "open_helper_google",
+    "read_helper",
+    "close_helper",
+    "list_tabs",
+    "switch_tab",
+    "start_deep_research",
+    "read_research_page",
+    "close_deep_research"
+  ],
+  "src/youtube_download.py": [
+    "download_youtube_video",
+    "confirm_youtube_download",
+    "cancel_youtube_download"
+  ]
+}

@@ -92,7 +92,7 @@ class ChessSettings:
     stop_ack: str = "spoken"  # spoken | silent
     remember_analysis: bool = False
     commentary_volume: float = 1.0
-    commentary_muted: bool = False
+    commentary_muted: bool = True
     takeover_strength: str = "club"
     takeover_continuous: bool = True  # bare "take over" keeps playing new games
     hint_default: int = 1

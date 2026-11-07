@@ -153,14 +153,15 @@ class FakeWorker:
         self.calls += 1
         return {
             "proposal": proposal(),
-            "model": "gpt-6-astra",
-            "effort": "medium",
+            "model": "dots-studio/dots-3-note-preview:free",
+            "effort": "default",
             "usage": {"total_tokens": 2},
             "verification": {
                 "model_verified": True,
                 "effort_verified": True,
                 "tools_disabled": True,
-                "provider": "openai",
+                "provider": "openrouter",
+                "transport": "openrouter-chat-v1",
                 "cli_version": "codex-cli 0.159.2",
                 "turn_id": "test-turn",
             },

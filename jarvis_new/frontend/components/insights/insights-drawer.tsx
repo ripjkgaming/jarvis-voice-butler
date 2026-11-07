@@ -22,9 +22,15 @@ const PaperTradingPanel = dynamic(
   () => import('@/components/markets/PaperTradingPanel').then((module) => module.PaperTradingPanel),
   { ssr: false, loading: Loading }
 );
+const CalendarDashboard = dynamic(
+  () =>
+    import('@/components/calendar/calendar-dashboard').then((module) => module.CalendarDashboard),
+  { ssr: false, loading: Loading }
+);
 const TABS = [
   { id: 'usage', label: 'AI Usage', code: '01', description: 'Tokens & estimated spend' },
   { id: 'market', label: 'Paper Market', code: '02', description: 'Portfolio & performance' },
+  { id: 'calendar', label: 'Calendar', code: '03', description: 'Events & reminders' },
 ] as const;
 
 export default function InsightsDrawer({
@@ -116,9 +122,14 @@ export default function InsightsDrawer({
   const tabKeys = (event: KeyboardEvent) => {
     let next: InsightsTab;
     if (event.key === 'Home') next = 'usage';
-    else if (event.key === 'End') next = 'market';
+    else if (event.key === 'End') next = 'calendar';
     else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
-      next = tab === 'usage' ? 'market' : 'usage';
+      next =
+        TABS[
+          (TABS.findIndex((item) => item.id === tab) +
+            (event.key === 'ArrowRight' ? 1 : TABS.length - 1)) %
+            TABS.length
+        ].id;
     else return;
     event.preventDefault();
     onTab(next);
@@ -194,6 +205,8 @@ export default function InsightsDrawer({
         >
           {tab === 'usage' ? (
             <AiUsagePanel />
+          ) : tab === 'calendar' ? (
+            <CalendarDashboard embedded />
           ) : (
             <PaperTradingPanel embedded onClose={requestClose} />
           )}

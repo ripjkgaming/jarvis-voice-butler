@@ -35,7 +35,10 @@ const InsightsDrawer = dynamic(() => import('@/components/insights/insights-draw
 function useHiddenPause(): void {
   useEffect(() => {
     const root = document.documentElement;
-    const sync = () => root.classList.toggle('hud-hidden', document.hidden);
+    // Presence mode (components/stark/use-hud-presence.ts) keeps the class on
+    // while the HUD has fully dissolved into the wallpaper.
+    const sync = () =>
+      root.classList.toggle('hud-hidden', document.hidden || root.hasAttribute('data-hud-gone'));
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => {

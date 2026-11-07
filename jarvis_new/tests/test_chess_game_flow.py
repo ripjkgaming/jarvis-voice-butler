@@ -11,6 +11,7 @@ from games.chess.settings import ChessSettings
 
 
 def mk(tmp_path, fen=None, colour="white", **settings):
+    settings.setdefault("commentary_muted", False)
     g = ChessGame(
         ChessSettings(
             announce_moves=True, difficulty="novice", colour=colour, **settings

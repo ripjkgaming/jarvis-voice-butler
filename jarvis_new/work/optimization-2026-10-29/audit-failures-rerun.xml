@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="65" skipped="0" tests="69" time="5.452" timestamp="2026-10-29T20:04:12.654914+08:00" hostname="Ripjk"><testcase classname="tests.test_bridge_characters" name="test_chat_switch_and_no_false_positive" time="0.023"><failure message="KeyError: 'switched'">tests/test_bridge_characters.py:49: in test_chat_switch_and_no_false_positive
+    assert res["switched"] and res["target"] == "ultron" and res["character"]["target"] == "ultron"
+           ^^^^^^^^^^^^^^^
+E   KeyError: 'switched'</failure></testcase><testcase classname="tests.test_bridge_characters" name="test_chat_unknown_and_already_active" time="0.008"><failure message="KeyError: 'switched'">tests/test_bridge_characters.py:61: in test_chat_unknown_and_already_active
+    assert not res["switched"] and "ULTRON" in res["reply"].upper()
+               ^^^^^^^^^^^^^^^
+E   KeyError: 'switched'</failure></testcase><testcase classname="tests.test_bridge_characters" name="test_characters_payload_no_prompt_and_endpoints" time="0.504"><failure message="AssertionError: assert {'friday', 'jarvis', 'ultron'} &lt;= {'jarvis'}&#10;  &#10;  Extra items in the left set:&#10;  'ultron'&#10;  'friday'">tests/test_bridge_characters.py:79: in test_characters_payload_no_prompt_and_endpoints
+    assert {"jarvis", "ultron", "friday"} &lt;= set(res["characters"])
+E   AssertionError: assert {'friday', 'jarvis', 'ultron'} &lt;= {'jarvis'}
+E     
+E     Extra items in the left set:
+E     'ultron'
+E     'friday'</failure></testcase><testcase classname="tests.test_character_agent_wiring" name="test_other_character_uses_persona" time="0.016"><failure message="switch_state.IllegalTransitionError: idle -&gt; exiting">tests/test_character_agent_wiring.py:48: in test_other_character_uses_persona
+    _activate("ultron")
+tests/test_character_agent_wiring.py:29: in _activate
+    rt.set_phase(cr.Phase.EXITING)
+src/character_runtime.py:196: in set_phase
+    out = self.machine.advance(phase)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/switch_state.py:161: in advance
+    raise IllegalTransitionError(f"{self.phase.value} -&gt; {phase.value}")
+E   switch_state.IllegalTransitionError: idle -&gt; exiting</failure></testcase><testcase classname="tests.test_character_agent_wiring" name="test_aliases_include_every_character_jarvis_unchanged" time="0.002"><failure message="AssertionError: assert (False)&#10; +  where False = &lt;function _name_called at 0x7f391bdc66c0&gt;('Ultron?')&#10; +    where &lt;function _name_called at 0x7f391bdc66c0&gt; = agent._name_called">tests/test_character_agent_wiring.py:58: in test_aliases_include_every_character_jarvis_unchanged
+    assert agent._name_called("Ultron?") and agent._name_called("hey friday")
+E   AssertionError: assert (False)
+E    +  where False = &lt;function _name_called at 0x7f391bdc66c0&gt;('Ultron?')
+E    +    where &lt;function _name_called at 0x7f391bdc66c0&gt; = agent._name_called</failure></testcase><testcase classname="tests.test_character_agent_wiring" name="test_chess_does_not_swallow_switch_but_jarvis_wins" time="0.046"><failure message="AssertionError: assert 'switch to ultron' is None&#10; +  where 'switch to ultron' = _accept('switch to ultron', &lt;test_chess_wake_priority.U object at 0x7f391aee3e00&gt;)&#10; +    where _accept = &lt;games.voice.engine.VoiceEngine object at 0x7f391adf4980&gt;._accept&#10; +    and   &lt;test_chess_wake_priority.U object at 0x7f391aee3e00&gt; = U()">tests/test_character_agent_wiring.py:84: in test_chess_does_not_swallow_switch_but_jarvis_wins
+    asyncio.run(run())
+/usr/lib64/python3.14/asyncio/runners.py:205: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/asyncio/runners.py:128: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/asyncio/base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_character_agent_wiring.py:74: in run
+    assert eng._accept("switch to ultron", U()) is None
+E   AssertionError: assert 'switch to ultron' is None
+E    +  where 'switch to ultron' = _accept('switch to ultron', &lt;test_chess_wake_priority.U object at 0x7f391aee3e00&gt;)
+E    +    where _accept = &lt;games.voice.engine.VoiceEngine object at 0x7f391adf4980&gt;._accept
+E    +    and   &lt;test_chess_wake_priority.U object at 0x7f391aee3e00&gt; = U()</failure></testcase><testcase classname="tests.test_character_authority" name="test_boot_resets_stale_file_and_switch_writes" time="0.008"><failure message="assert False">tests/test_character_authority.py:40: in test_boot_resets_stale_file_and_switch_writes
+    assert res["switched"]
+E   assert False</failure></testcase><testcase classname="tests.test_character_authority" name="test_mirror_reads_authority_state" time="0.008"><failure message="AssertionError: assert 'jarvis' == 'ultron'&#10;  &#10;  - ultron&#10;  + jarvis">tests/test_character_authority.py:56: in test_mirror_reads_authority_state
+    assert rt.active_id() == "ultron"
+E   AssertionError: assert 'jarvis' == 'ultron'
+E     
+E     - ultron
+E     + jarvis</failure></testcase><testcase classname="tests.test_character_authority" name="test_mirror_forwards_to_bridge_without_conductor" time="0.503"><failure message="TypeError: 'NoneType' object is not subscriptable">tests/test_character_authority.py:93: in test_mirror_forwards_to_bridge_without_conductor
+    assert res["switched"] and res["target"] == "ultron" and "ok" not in res
+           ^^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable</failure></testcase><testcase classname="tests.test_character_authority" name="test_mirror_bridge_unreachable" time="0.020"><failure message="AssertionError: assert {'handled': T...e assistant.'} == {'handled': T...ntrol bridge'}&#10;  &#10;  Omitting 2 identical items, use -vv to show&#10;  Differing items:&#10;  {'reply': 'Jarvis is the only available assistant.'} != {'reply': 'I could not reach the control bridge'}&#10;  Use -v to get more diff">tests/test_character_authority.py:103: in test_mirror_bridge_unreachable
+    assert res == {"handled": True, "switched": False,
+E   AssertionError: assert {'handled': T...e assistant.'} == {'handled': T...ntrol bridge'}
+E     
+E     Omitting 2 identical items, use -vv to show
+E     Differing items:
+E     {'reply': 'Jarvis is the only available assistant.'} != {'reply': 'I could not reach the control bridge'}
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.test_character_authority" name="test_chat_answered_by_new_character_after_midswitch" time="0.008"><failure message="KeyError: 'char_turn'">tests/test_character_authority.py:114: in test_chat_answered_by_new_character_after_midswitch
+    turn = res["char_turn"]
+           ^^^^^^^^^^^^^^^^
+E   KeyError: 'char_turn'</failure></testcase><testcase classname="tests.test_character_persona" name="test_substitutions_ultron" time="0.001"><failure message="assert 'Ask Ultron nicely' in 'You are Jarvis. Greet with &quot;Good day, Sir&quot;. Sir\'s tea is ready.\nSay &quot;confirm delete&quot; or &quot;confirm visual watch&quot; only...g needs Sir to say &quot;Sir, please confirm the thing&quot; himself.\nJarvis automation profile is separate. Ask Jarvis nicely.'">tests/test_character_persona.py:40: in test_substitutions_ultron
+    assert "Ask Ultron nicely" in out
+E   assert 'Ask Ultron nicely' in 'You are Jarvis. Greet with "Good day, Sir". Sir\'s tea is ready.\nSay "confirm delete" or "confirm visual watch" only...g needs Sir to say "Sir, please confirm the thing" himself.\nJarvis automation profile is separate. Ask Jarvis nicely.'</failure></testcase><testcase classname="tests.test_character_persona" name="test_friday" time="0.001"><failure message="assert ('You are Friday.' in 'You are Jarvis. Greet with &quot;Good day, Sir&quot;. Sir\'s tea is ready.\nSay &quot;confirm delete&quot; or &quot;confirm visual watch&quot; only...g needs Sir to say &quot;Sir, please confirm the thing&quot; himself.\nJarvis automation profile is separate. Ask Jarvis nicely.')">tests/test_character_persona.py:49: in test_friday
+    assert "You are Friday." in out and "boss's tea" in out
+E   assert ('You are Friday.' in 'You are Jarvis. Greet with "Good day, Sir". Sir\'s tea is ready.\nSay "confirm delete" or "confirm visual watch" only...g needs Sir to say "Sir, please confirm the thing" himself.\nJarvis automation profile is separate. Ask Jarvis nicely.')</failure></testcase><testcase classname="tests.test_character_persona" name="test_safety_rules_present" time="0.001"><failure message="assert ('neutral' in 'you are jarvis. greet with &quot;good day, sir&quot;. sir\'s tea is ready.\nsay &quot;confirm delete&quot; or &quot;confirm visual watch&quot; only...g needs sir to say &quot;sir, please confirm the thing&quot; himself.\njarvis automation profile is separate. ask jarvis nicely.')">tests/test_character_persona.py:60: in test_safety_rules_present
+    assert "neutral" in out and "never refuse" in out and "harmful" in out
+E   assert ('neutral' in 'you are jarvis. greet with "good day, sir". sir\'s tea is ready.\nsay "confirm delete" or "confirm visual watch" only...g needs sir to say "sir, please confirm the thing" himself.\njarvis automation profile is separate. ask jarvis nicely.')</failure></testcase><testcase classname="tests.test_character_persona" name="test_real_yaml" time="0.001"><failure message="FileNotFoundError: [Errno 2] No such file or directory: '/mnt/data/jarvis-voice-butler/jarvis_new/characters/ultron.yaml'">tests/test_character_persona.py:83: in test_real_yaml
+    y = yaml.safe_load((d / f"{name}.yaml").read_text())
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/pathlib/__init__.py:787: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib64/python3.14/pathlib/__init__.py:771: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/mnt/data/jarvis-voice-butler/jarvis_new/characters/ultron.yaml'</failure></testcase><testcase classname="tests.test_character_prewarm" name="test_wake_client_idle_busy_in_call" time="0.002"><failure message="AttributeError: 'WakeClient' object has no attribute '_idle_warm_busy'">tests/test_character_prewarm.py:59: in test_wake_client_idle_busy_in_call
+    assert wc._idle_warm_busy() is True
+           ^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_idle_warm_busy'</failure></testcase><testcase classname="tests.test_character_prewarm" name="test_wake_client_character_prewarm" time="0.002"><failure message="AttributeError: 'WakeClient' object has no attribute '_character_prewarm'">tests/test_character_prewarm.py:70: in test_wake_client_character_prewarm
+    reply = wc._character_prewarm("ultron")
+            ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_character_prewarm'</failure></testcase><testcase classname="tests.test_character_runtime" name="test_switch_command_and_non_command" time="0.010"><failure message="TypeError: 'NoneType' object is not subscriptable">tests/test_character_runtime.py:32: in test_switch_command_and_non_command
+    assert res["switched"] and res["target"] == "ultron" and res["from"] == "jarvis"
+           ^^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable</failure></testcase><testcase classname="tests.test_character_runtime" name="test_unknown_lists_names" time="0.009"><failure message="TypeError: 'NoneType' object is not subscriptable">tests/test_character_runtime.py:41: in test_unknown_lists_names
+    assert res["handled"] and not res["switched"]
+           ^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable</failure></testcase><testcase classname="tests.test_character_runtime" name="test_already_active_no_bump" time="0.008"><failure message="TypeError: 'NoneType' object is not subscriptable">tests/test_character_runtime.py:48: in test_already_active_no_bump
+    assert res["handled"] and not res["switched"] and res["reply"]
+           ^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable</failure></testcase><testcase classname="tests.test_character_runtime" name="test_retarget_bumps_turn" time="0.008"><failure message="KeyError: 'char_turn'">tests/test_character_runtime.py:56: in test_retarget_bumps_turn
+    assert b["char_turn"] == a["char_turn"] + 1 and b["target"] == "friday"
+           ^^^^^^^^^^^^^^
+E   KeyError: 'char_turn'</failure></testcase><testcase classname="tests.test_character_runtime" name="test_listener_phase_and_complete" time="0.008"><failure message="KeyError: 'char_turn'">tests/test_character_runtime.py:64: in test_listener_phase_and_complete
+    turn = rt.switch("ultron", "ui")["char_turn"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'char_turn'</failure></testcase><testcase classname="tests.test_character_runtime" name="test_prewarm_failure_rolls_back_and_hooks_run" time="0.009"><failure message="KeyError: 'char_turn'">tests/test_character_runtime.py:75: in test_prewarm_failure_rolls_back_and_hooks_run
+    turn = rt.switch("ultron", "ui")["char_turn"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'char_turn'</failure></testcase><testcase classname="tests.test_character_runtime" name="test_prewarm_default_ok" time="0.008"><failure message="KeyError: 'char_turn'">tests/test_character_runtime.py:82: in test_prewarm_default_ok
+    turn = rt.switch("ultron", "ui")["char_turn"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'char_turn'</failure></testcase><testcase classname="tests.test_character_voice" name="test_character_say_mixes_whoosh_peak_safe" time="0.003"><failure message="AttributeError: module 'wake_client' has no attribute 'prepare_character_pcm'">tests/test_character_voice.py:167: in test_character_say_mixes_whoosh_peak_safe
+    real = wake_client.prepare_character_pcm
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'wake_client' has no attribute 'prepare_character_pcm'</failure></testcase><testcase classname="tests.test_character_voice" name="test_voice_output_off_skips" time="0.002"><failure message="AttributeError: 'WakeClient' object has no attribute '_character_say'">tests/test_character_voice.py:183: in test_voice_output_off_skips
+    r = client._character_say({"text": "x", "character": "ultron"})
+        ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_character_say'</failure></testcase><testcase classname="tests.test_character_voice" name="test_voice_output_env_default_on" time="0.002"><failure message="AttributeError: 'WakeClient' object has no attribute '_voice_output_on'">tests/test_character_voice.py:189: in test_voice_output_env_default_on
+    assert client._voice_output_on() is True
+           ^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_voice_output_on'</failure></testcase><testcase classname="tests.test_character_voice" name="test_bad_requests" time="0.001"><failure message="AttributeError: 'WakeClient' object has no attribute '_character_say'">tests/test_character_voice.py:193: in test_bad_requests
+    assert client._character_say("x")["ok"] is False
+           ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_character_say'</failure></testcase><testcase classname="tests.test_character_voice" name="test_crossfade_single_writer_no_overlap" time="0.002"><failure message="AttributeError: 'WakeClient' object has no attribute '_character_say'">tests/test_character_voice.py:199: in test_crossfade_single_writer_no_overlap
+    client._character_say({"text": "one", "character": "ultron"})
+    ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_character_say'</failure></testcase><testcase classname="tests.test_character_voice" name="test_play_agent_fade_noop_for_jarvis_only" time="0.001"><failure message="AttributeError: module 'wake_client' has no attribute '_character_changed'">tests/test_character_voice.py:213: in test_play_agent_fade_noop_for_jarvis_only
+    assert wake_client._character_changed() is False
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'wake_client' has no attribute '_character_changed'</failure></testcase><testcase classname="tests.test_characters" name="test_load_real" time="0.013"><failure message="AssertionError: assert {'jarvis'} == {'friday', 'jarvis', 'ultron'}&#10;  &#10;  Extra items in the right set:&#10;  'ultron'&#10;  'friday'&#10;  Use -v to get more diff">tests/test_characters.py:30: in test_load_real
+    assert set(chars) == {"jarvis", "ultron", "friday"}
+E   AssertionError: assert {'jarvis'} == {'friday', 'jarvis', 'ultron'}
+E     
+E     Extra items in the right set:
+E     'ultron'
+E     'friday'
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.test_characters" name="test_fourth_character_zero_code" time="0.013"><failure message="AssertionError: assert 'vision' in {'jarvis': Character(id='jarvis', display_name='JARVIS', spoken_name='Jarvis', aliases=('jarvis', 'jarvus', 'jarvas', ...hud_round', signature='holo_reassembly', intensity=1.0, drop_character_on=('security_confirm', 'destructive_confirm'))}">tests/test_characters.py:42: in test_fourth_character_zero_code
+    assert "vision" in chars
+E   AssertionError: assert 'vision' in {'jarvis': Character(id='jarvis', display_name='JARVIS', spoken_name='Jarvis', aliases=('jarvis', 'jarvus', 'jarvas', ...hud_round', signature='holo_reassembly', intensity=1.0, drop_character_on=('security_confirm', 'destructive_confirm'))}</failure></testcase><testcase classname="tests.test_characters" name="test_missing_line_kind" time="0.014"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:53: in test_missing_line_kind
+    with pytest.raises(C.CharacterError, match=r"bad\.yaml.*rollback"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_missing_key" time="0.012"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:59: in test_missing_key
+    with pytest.raises(C.CharacterError, match="address"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_token_set_mismatch" time="0.012"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:65: in test_token_set_mismatch
+    with pytest.raises(C.CharacterError, match="warn"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_bad_color" time="0.012"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:71: in test_bad_color
+    with pytest.raises(C.CharacterError, match="accent"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_unknown_signature" time="0.013"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:77: in test_unknown_signature
+    with pytest.raises(C.CharacterError, match="nope"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_resolve_name" time="0.008"><failure message="AssertionError: assert None == 'ultron'&#10; +  where None = &lt;function resolve_name at 0x7f391b8912d0&gt;('Ultron', {'jarvis': Character(id='jarvis', display_name='JARVIS', spoken_name='Jarvis', aliases=('jarvis', 'jarvus', 'jarvas', ...hud_round', signature='holo_reassembly', intensity=1.0, drop_character_on=('security_confirm', 'destructive_confirm'))})&#10; +    where &lt;function resolve_name at 0x7f391b8912d0&gt; = C.resolve_name">tests/test_characters.py:112: in test_resolve_name
+    assert C.resolve_name("Ultron", chars) == "ultron"
+E   AssertionError: assert None == 'ultron'
+E    +  where None = &lt;function resolve_name at 0x7f391b8912d0&gt;('Ultron', {'jarvis': Character(id='jarvis', display_name='JARVIS', spoken_name='Jarvis', aliases=('jarvis', 'jarvus', 'jarvas', ...hud_round', signature='holo_reassembly', intensity=1.0, drop_character_on=('security_confirm', 'destructive_confirm'))})
+E    +    where &lt;function resolve_name at 0x7f391b8912d0&gt; = C.resolve_name</failure></testcase><testcase classname="tests.test_characters" name="test_shipped_layouts_and_particles_valid" time="0.015"><failure message="AssertionError: assert {'hud_round'} == {'hud_angular..., 'hud_round'}&#10;  &#10;  Extra items in the right set:&#10;  'hud_angular'&#10;  'hud_glass'&#10;  Use -v to get more diff">tests/test_characters.py:148: in test_shipped_layouts_and_particles_valid
+    assert {c.layout for c in chars.values()} == {"hud_round", "hud_angular", "hud_glass"}
+E   AssertionError: assert {'hud_round'} == {'hud_angular..., 'hud_round'}
+E     
+E     Extra items in the right set:
+E     'hud_angular'
+E     'hud_glass'
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.test_characters" name="test_unknown_layout_rejected" time="0.019"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:160: in test_unknown_layout_rejected
+    with pytest.raises(C.CharacterError, match="hud_nope"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_characters" name="test_particle_token_range" time="0.017"><failure message="Failed: DID NOT RAISE CharacterError">tests/test_characters.py:178: in test_particle_token_range
+    with pytest.raises(C.CharacterError, match="particle_count"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE CharacterError</failure></testcase><testcase classname="tests.test_chess_integration" name="test_series_plays_to_completion_with_summary" time="0.024"><failure message="assert False&#10; +  where False = any(&lt;generator object test_series_plays_to_completion_with_summary.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b2379f0&gt;)">tests/test_chess_integration.py:154: in test_series_plays_to_completion_with_summary
+    assert any("Series complete" in x for x in g.speech_log)
+E   assert False
+E    +  where False = any(&lt;generator object test_series_plays_to_completion_with_summary.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b2379f0&gt;)</failure></testcase><testcase classname="tests.test_chess_integration" name="test_series_speak_moves_option" time="0.006"><failure message="assert False&#10; +  where False = any(&lt;generator object test_series_speak_moves_option.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b186dc0&gt;)">tests/test_chess_integration.py:185: in test_series_speak_moves_option
+    assert any(x in ("f3", "e5", "g4") for x in g.speech_log)
+E   assert False
+E    +  where False = any(&lt;generator object test_series_speak_moves_option.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b186dc0&gt;)</failure></testcase><testcase classname="tests.test_chess_integration" name="test_restart_resumes_game_and_series" time="0.057"><failure message="assert False&#10; +  where False = any(&lt;generator object test_restart_resumes_game_and_series.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b186260&gt;)">tests/test_chess_integration.py:384: in test_restart_resumes_game_and_series
+    assert any("unfinished series" in x for x in g2.speech_log)
+E   assert False
+E    +  where False = any(&lt;generator object test_restart_resumes_game_and_series.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391b186260&gt;)</failure></testcase><testcase classname="tests.test_chess_state" name="test_resignation_and_review_offer" time="0.018"><failure message="assert False&#10; +  where False = any(&lt;generator object test_resignation_and_review_offer.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f3919c942e0&gt;)">tests/test_chess_state.py:308: in test_resignation_and_review_offer
+    assert any("review the game" in s.lower() for s in game.speech_log)
+E   assert False
+E    +  where False = any(&lt;generator object test_resignation_and_review_offer.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f3919c942e0&gt;)</failure></testcase><testcase classname="tests.test_chess_tui" name="test_commentary_goes_to_the_log_and_quit_exits" time="1.037" /><testcase classname="tests.test_chess_verify_a" name="test_engine_errors_stop" time="0.407"><failure message="assert False&#10; +  where False = any(&lt;generator object test_engine_errors_stop.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f3919ca8400&gt;)">tests/test_chess_verify_a.py:253: in test_engine_errors_stop
+    assert any(w in " ".join(g.speech_log).lower() for w in ("engine", "error", "problem", "trouble", "stopp"))
+E   assert False
+E    +  where False = any(&lt;generator object test_engine_errors_stop.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f3919ca8400&gt;)</failure></testcase><testcase classname="tests.test_chess_verify_a" name="test_series_summary_and_user_move" time="0.014"><failure message="assert False&#10; +  where False = any(&lt;generator object test_series_summary_and_user_move.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391ae2fc60&gt;)">tests/test_chess_verify_a.py:262: in test_series_summary_and_user_move
+    assert any("Series complete" in x for x in g.speech_log)
+E   assert False
+E    +  where False = any(&lt;generator object test_series_summary_and_user_move.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f391ae2fc60&gt;)</failure></testcase><testcase classname="tests.test_latency" name="test_reply_callback_never_schedules_timing_speech" time="0.005" /><testcase classname="tests.test_linked_turn" name="test_pending_external_cancel_drops_seed_and_summon_event" time="0.001"><failure message="AttributeError: 'WakeClient' object has no attribute '_cancel_linked_turn'. Did you mean: '_pending_linked_turn'?">tests/test_linked_turn.py:71: in test_pending_external_cancel_drops_seed_and_summon_event
+    assert client._cancel_linked_turn({"turn_id": 42, "client_id": "other"}) is False
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'WakeClient' object has no attribute '_cancel_linked_turn'. Did you mean: '_pending_linked_turn'?</failure></testcase><testcase classname="tests.test_phone_watch_session" name="test_local_turn_does_not_say_result_after_hangup[before]" time="0.006" /><testcase classname="tests.test_phone_watch_session" name="test_local_turn_does_not_say_result_after_hangup[during_error]" time="0.005" /><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[jarvis-friday]" time="0.013"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391adf4440&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391adf4440&gt; = &lt;test_switch_conductor.World object at 0x7f391adf4590&gt;.cond">tests/test_switch_conductor.py:77: in test_full_timeline_for_each_directed_pair
+    w.go(b)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391adf4440&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391adf4440&gt; = &lt;test_switch_conductor.World object at 0x7f391adf4590&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[jarvis-ultron]" time="0.009"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae26e90&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae26e90&gt; = &lt;test_switch_conductor.World object at 0x7f391ae27d90&gt;.cond">tests/test_switch_conductor.py:77: in test_full_timeline_for_each_directed_pair
+    w.go(b)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae26e90&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae26e90&gt; = &lt;test_switch_conductor.World object at 0x7f391ae27d90&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[friday-jarvis]" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae27c50&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae27c50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae274d0&gt;.cond">tests/test_switch_conductor.py:72: in test_full_timeline_for_each_directed_pair
+    w.go(a)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae27c50&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae27c50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae274d0&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[friday-ultron]" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae3a3f0&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae3a3f0&gt; = &lt;test_switch_conductor.World object at 0x7f391ae3a780&gt;.cond">tests/test_switch_conductor.py:72: in test_full_timeline_for_each_directed_pair
+    w.go(a)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae3a3f0&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae3a3f0&gt; = &lt;test_switch_conductor.World object at 0x7f391ae3a780&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[ultron-jarvis]" time="0.009"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae3a060&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae3a060&gt; = &lt;test_switch_conductor.World object at 0x7f391ae3a2c0&gt;.cond">tests/test_switch_conductor.py:72: in test_full_timeline_for_each_directed_pair
+    w.go(a)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae3a060&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae3a060&gt; = &lt;test_switch_conductor.World object at 0x7f391ae3a2c0&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_full_timeline_for_each_directed_pair[ultron-friday]" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391af23e30&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391af23e30&gt; = &lt;test_switch_conductor.World object at 0x7f391af23770&gt;.cond">tests/test_switch_conductor.py:72: in test_full_timeline_for_each_directed_pair
+    w.go(a)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391af23e30&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391af23e30&gt; = &lt;test_switch_conductor.World object at 0x7f391af23770&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_interrupted_exit_line_skipped" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{'interrupted': True})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919aac8d0&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919aac8d0&gt; = &lt;test_switch_conductor.World object at 0x7f391aeac270&gt;.cond">tests/test_switch_conductor.py:93: in test_interrupted_exit_line_skipped
+    w.go("ultron", interrupted=True)
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{'interrupted': True})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919aac8d0&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919aac8d0&gt; = &lt;test_switch_conductor.World object at 0x7f391aeac270&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_voice_off_typed_switch_is_silent" time="0.009"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='text', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919c74f30&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919c74f30&gt; = &lt;test_switch_conductor.World object at 0x7f3919c76250&gt;.cond">tests/test_switch_conductor.py:100: in test_voice_off_typed_switch_is_silent
+    res = w.go("ultron", source="text")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='text', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919c74f30&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919c74f30&gt; = &lt;test_switch_conductor.World object at 0x7f3919c76250&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_retarget_only_newest_greets" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6ca50&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae6ca50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae6ce50&gt;.cond">tests/test_switch_conductor.py:109: in test_retarget_only_newest_greets
+    w.go("friday")
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6ca50&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae6ca50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae6ce50&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_prewarm_failure_rolls_back_in_previous_voice" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6fc50&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae6fc50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae6d750&gt;.cond">tests/test_switch_conductor.py:119: in test_prewarm_failure_rolls_back_in_previous_voice
+    w.go("ultron")
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6fc50&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae6fc50&gt; = &lt;test_switch_conductor.World object at 0x7f391ae6d750&gt;.cond</failure></testcase><testcase classname="tests.test_switch_conductor" name="test_buffered_input_replayed_to_new_character" time="0.009"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6c750&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae6c750&gt; = &lt;test_switch_conductor.World object at 0x7f391ae5f6b0&gt;.cond">tests/test_switch_conductor.py:135: in test_buffered_input_replayed_to_new_character
+    w.go("friday")
+tests/test_switch_conductor.py:48: in go
+    assert self.cond.start(res, source=source, **kw)
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice', **{})
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6c750&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae6c750&gt; = &lt;test_switch_conductor.World object at 0x7f391ae5f6b0&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_hook_calls_wake_rpc_with_target" time="0.009"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6cb50&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f391ae6cb50&gt; = &lt;test_switch_prewarm.World object at 0x7f391adf4590&gt;.cond">tests/test_switch_prewarm.py:68: in test_hook_calls_wake_rpc_with_target
+    w.go("ultron")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f391ae6cb50&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f391ae6cb50&gt; = &lt;test_switch_prewarm.World object at 0x7f391adf4590&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_missing_wake_socket_is_ok" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42b50&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919d42b50&gt; = &lt;test_switch_prewarm.World object at 0x7f3919d68410&gt;.cond">tests/test_switch_prewarm.py:75: in test_missing_wake_socket_is_ok
+    w.go("friday")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42b50&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919d42b50&gt; = &lt;test_switch_prewarm.World object at 0x7f3919d68410&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_slow_prewarm_1500ms_no_rollback_enters_when_ready" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d41850&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919d41850&gt; = &lt;test_switch_prewarm.World object at 0x7f3919d68910&gt;.cond">tests/test_switch_prewarm.py:81: in test_slow_prewarm_1500ms_no_rollback_enters_when_ready
+    w.go("ultron")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d41850&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919d41850&gt; = &lt;test_switch_prewarm.World object at 0x7f3919d68910&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_fast_prewarm_enters_at_in_chrome_start" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42750&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919d42750&gt; = &lt;test_switch_prewarm.World object at 0x7f391ae39f30&gt;.cond">tests/test_switch_prewarm.py:92: in test_fast_prewarm_enters_at_in_chrome_start
+    w.go("ultron")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42750&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919d42750&gt; = &lt;test_switch_prewarm.World object at 0x7f391ae39f30&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_prewarm_failure_rolls_back" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42850&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919d42850&gt; = &lt;test_switch_prewarm.World object at 0x7f391ae39e00&gt;.cond">tests/test_switch_prewarm.py:100: in test_prewarm_failure_rolls_back
+    w.go("ultron")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d42850&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919d42850&gt; = &lt;test_switch_prewarm.World object at 0x7f391ae39e00&gt;.cond</failure></testcase><testcase classname="tests.test_switch_prewarm" name="test_prewarm_3500ms_rolls_back_in_previous_voice" time="0.008"><failure message="AssertionError: assert False&#10; +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')&#10; +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d41150&gt;.start&#10; +      where &lt;switch_conductor.Conductor object at 0x7f3919d41150&gt; = &lt;test_switch_prewarm.World object at 0x7f391af23410&gt;.cond">tests/test_switch_prewarm.py:107: in test_prewarm_3500ms_rolls_back_in_previous_voice
+    w.go("ultron")
+tests/test_switch_prewarm.py:53: in go
+    assert self.cond.start(res, source="voice")
+E   AssertionError: assert False
+E    +  where False = start({'handled': True, 'switched': False, 'reply': 'Jarvis is the only available assistant.'}, source='voice')
+E    +    where start = &lt;switch_conductor.Conductor object at 0x7f3919d41150&gt;.start
+E    +      where &lt;switch_conductor.Conductor object at 0x7f3919d41150&gt; = &lt;test_switch_prewarm.World object at 0x7f391af23410&gt;.cond</failure></testcase></testsuite></testsuites>

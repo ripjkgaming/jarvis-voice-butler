@@ -173,7 +173,14 @@
       "error": null,
       "model": "gpt-6-astra",
       "effort": "high",
-      "actions": [{ "symbol": "SPY", "side": "sell", "notional_usd": null, "quantity": "0.1" }]
+      "actions": [
+        {
+          "symbol": "SPY",
+          "side": "sell",
+          "notional_usd": null,
+          "quantity": "0.1"
+        }
+      ]
     },
     {
       "id": "qa-buy-1",
@@ -184,10 +191,30 @@
       "model": "gpt-6-astra",
       "effort": "high",
       "actions": [
-        { "symbol": "AAPL", "side": "buy", "notional_usd": "200.00", "quantity": null },
-        { "symbol": "MSFT", "side": "buy", "notional_usd": "200.00", "quantity": null },
-        { "symbol": "NVDA", "side": "buy", "notional_usd": "180.00", "quantity": null },
-        { "symbol": "SPY", "side": "buy", "notional_usd": "50.00", "quantity": null }
+        {
+          "symbol": "AAPL",
+          "side": "buy",
+          "notional_usd": "200.00",
+          "quantity": null
+        },
+        {
+          "symbol": "MSFT",
+          "side": "buy",
+          "notional_usd": "200.00",
+          "quantity": null
+        },
+        {
+          "symbol": "NVDA",
+          "side": "buy",
+          "notional_usd": "180.00",
+          "quantity": null
+        },
+        {
+          "symbol": "SPY",
+          "side": "buy",
+          "notional_usd": "50.00",
+          "quantity": null
+        }
       ]
     }
   ],
@@ -249,8 +276,35 @@
     "last_error": null,
     "last_refresh_at": "2026-10-05T21:00:00Z",
     "last_refresh_error": "Synthetic outage case: latest attempt failed; last observed prices retained.",
-    "feed": "Synthetic QA feed — no live market data",
+    "feed": "Synthetic QA feed \u2014 no live market data",
     "fill_policy": "Synthetic QA fills only. This fixture validates the UI and does not represent actual trades or performance.",
-    "decision_interval_seconds": 1800
+    "decision_interval_seconds": 1800,
+    "historical_replay": {
+      "status": "running",
+      "start_date": "2016-12-01",
+      "end_date": "2016-12-30",
+      "sessions_total": 21,
+      "sessions_completed": 7,
+      "final_equity_usd": "1012.50",
+      "pnl_usd": "12.50",
+      "return_pct": "1.25",
+      "buy_hold_return_pct": "2.10",
+      "decision_score_pct": 66.67,
+      "correct_decisions": 4,
+      "scored_decisions": 6,
+      "model_errors": 1,
+      "max_drawdown_pct": "0.30",
+      "expected_finish_at": "2026-10-28T05:13:00Z",
+      "duration_hours": 3,
+      "scoring": "Synthetic QA: compare decisions after trading costs.",
+      "decisions": [
+        {
+          "date": "2016-12-09",
+          "correct": true,
+          "rationale": "Synthetic QA decision for replay layout.",
+          "equity_usd": "1012.50"
+        }
+      ]
+    }
   }
 }

@@ -3,7 +3,7 @@
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system.alternatives_tools import AlternativesTools, build_alternatives_topic
 

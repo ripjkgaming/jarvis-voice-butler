@@ -6,7 +6,7 @@ import datetime as dt
 import json
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import exams
 from system.exam_tools import ExamTools
@@ -20,7 +20,9 @@ def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_STUDY_PLAN", str(tmp_path / "plan.json"))
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr(exams, "_today", lambda: TODAY)
-    monkeypatch.setattr(exams, "_now", lambda: dt.datetime.combine(TODAY, dt.time(7, 0)))
+    monkeypatch.setattr(
+        exams, "_now", lambda: dt.datetime.combine(TODAY, dt.time(7, 0))
+    )
     return tmp_path
 
 
@@ -138,7 +140,10 @@ async def test_exam_tool_actions(home) -> None:
     added = await ExamTools.exam_schedule(  # type: ignore[arg-type]
         tools, None, action="add", subject="Maths Paper 2", date="14 Oct", time="9am"
     )
-    assert added["say"] == "Added: Maths Paper 2, Wed 14 Oct at 09:00 (in 13 days)."
+    assert (
+        added["say"]
+        == "Added in your local exam schedule: Maths Paper 2, Wed 14 Oct at 09:00 (in 13 days). Google Calendar was not changed."
+    )
     nxt = await ExamTools.exam_schedule(tools, None)  # type: ignore[arg-type]
     assert "Maths Paper 2" in nxt["say"]
     found = await ExamTools.exam_schedule(  # type: ignore[arg-type]
@@ -212,7 +217,14 @@ def test_current_exam(home) -> None:
 
 
 def test_next_exam_skips_paper_finished_earlier_today(home) -> None:
-    exams.add({"title": "Economics P2", "date": "2026-10-01", "start": "08:30", "end": "10:00"})
+    exams.add(
+        {
+            "title": "Economics P2",
+            "date": "2026-10-01",
+            "start": "08:30",
+            "end": "10:00",
+        }
+    )
     exams.add({"title": "Biology P2", "date": "2026-10-01", "start": "13:30"})
     exams.add({"title": "Hindi P1", "date": "2026-10-05", "start": "08:30"})
     morning = dt.datetime(2026, 10, 1, 8, 0)

@@ -1,12 +1,8 @@
-"""Needle 2 semantic routing: messy voice transcript -> action+params.
+"""Needle 3 semantic routing: messy voice transcript -> action+params.
 
-Needle 2 (Cactus Compute, Apache-2.0) is a 45M-parameter, 14MB
-tool-calling model that runs fully offline in ~28MB RAM at hundreds of
-tokens/sec on plain CPU. Its entire job is mapping a sentence onto a
-typed function signature with a calibrated confidence score — exactly
-the router's problem, and nothing else (it never chats, reasons, or
-sees the full prompt; the 256-token window only ever holds the
-utterance plus the routing tool catalogue).
+Needle 3 (Cactus Compute, Apache-2.0) maps a transcript onto a typed
+function signature locally. Each request is stateless so previous tool
+requests cannot leak into the next routing decision.
 
 Role in the resolver: semantic layer between exact aliases and the
 fuzzy matcher. Exact hits (1.0) and strong fuzzy hits (>=0.8) win
@@ -22,8 +18,8 @@ Safety:
   transfer_to_system_control handoff path, behind the voice-confirm
   gate, unreachable from here.
 - Optional dependency: disabled unless the ``cactus-needle`` package
-  is installed (``uv sync --extra needle``) and JARVIS_NEEDLE is not
-  "0". A failed engine init disables it for the session (no repeated
+  is installed (``uv sync --extra needle``) and JARVIS_NEEDLE=1.
+  A failed engine init disables it for the session (no repeated
   download stalls). Telemetry is forced off.
 
 Tuning path: the base model covers crisp phrasing; Jarvis-specific
@@ -58,6 +54,7 @@ import time
 from typing import Literal
 
 os.environ.setdefault("NEEDLE_TELEMETRY", "0")
+os.environ.setdefault("DO_NOT_TRACK", "1")
 
 WEIGHTS_ENV = "JARVIS_NEEDLE_WEIGHTS"
 
@@ -67,7 +64,7 @@ _dead = False
 
 def needle_enabled() -> bool:
     """True when the layer may run: opted in and package importable."""
-    if os.environ.get("JARVIS_NEEDLE", "1").strip().lower() in (
+    if os.environ.get("JARVIS_NEEDLE", "0").strip().lower() in (
         "0",
         "false",
         "no",
@@ -201,8 +198,8 @@ def _build_agent():
     ]
     weights = os.environ.get(WEIGHTS_ENV, "").strip()
     if weights:
-        return needle.Needle(weights=weights, tools=tools)
-    return needle.Needle(tools=tools)
+        return needle.Needle(weights=weights, tools=tools, generation=3, stateless=True)
+    return needle.Needle(tools=tools, generation=3, stateless=True)
 
 
 def _get_agent():

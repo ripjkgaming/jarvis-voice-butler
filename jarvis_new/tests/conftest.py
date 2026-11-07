@@ -229,3 +229,10 @@ def _character_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """In-process tests act as the bridge (authority) with a private state file."""
     monkeypatch.setenv("JARVIS_CHARACTER_STATE", str(tmp_path / "character_state.json"))
     monkeypatch.setenv("JARVIS_CHARACTER_AUTHORITY", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_local_access_preferences(monkeypatch):
+    """Keep legacy restricted-mode tests independent of the owner's preferences."""
+    monkeypatch.setenv("JARVIS_FULL_FILESYSTEM", "0")
+    monkeypatch.setenv("JARVIS_COMMAND_ACCESS", "0")

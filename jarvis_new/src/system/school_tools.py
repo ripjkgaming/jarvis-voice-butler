@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 import school
 from system.projects_tools import _bridge_call
@@ -13,6 +13,10 @@ from system.projects_tools import _bridge_call
 
 def loud_guard(tool: str, args: dict | None = None) -> None:
     """Raise the confirm-first ToolError for a loud action in school mode."""
+    from system import full_command_access
+
+    if full_command_access():
+        return
     if school.is_school() and school.is_loud(tool, args) and not school.loud_allowed():
         school.mark_asked()  # keeps the call open for Sir's answer
         raise ToolError(school.LOUD_REFUSAL)

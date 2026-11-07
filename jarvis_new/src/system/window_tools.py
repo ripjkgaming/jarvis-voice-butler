@@ -8,10 +8,10 @@ Closing stays with window_action behind the system handoff.
 from __future__ import annotations
 
 import asyncio
+import subprocess
+from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
-
+from jarvis_rt import EndCallTool, RunContext, ToolError, function_tool
 from system import LocalSystemError, log_action, require_local
 
 
@@ -34,9 +34,48 @@ class WindowTools:
         return [
             self.list_windows,
             self.focus_window,
+            self.maximize_window,
+            self.restore_window,
+            self.bring_to_attention,
+            self.move_window_to_monitor,
             self.arrange_windows,
             self.undo_layout,
+            self.hide_jarvis,
         ]
+
+    @function_tool()
+    async def hide_jarvis(self, context: RunContext) -> str:
+        """Fade Jarvis into the desktop wallpaper: "Jarvis hide" or "enter hidden mode"."""
+        _guard()
+        repo = Path(__file__).resolve().parents[2]
+        candidates = [
+            [
+                str(repo / "shell" / "src-tauri" / "target" / "debug" / "jarvis-shell"),
+                "hide",
+            ],
+            ["jarvis-shell", "hide"],
+            ["jarvis", "hide"],
+        ]
+        for argv in candidates:
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run, argv, timeout=5, capture_output=True, check=False
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if result.returncode == 0:
+                log_action("hud", "requested animated hide")
+                instruction = "Say a brief goodbye as Jarvis fades into the wallpaper, then end the call."
+            else:
+                continue
+            break
+        else:
+            log_action("hud", "hide animation unavailable; ending call anyway")
+            instruction = "Briefly tell Sir you couldn't reach the desktop display, then end the call."
+
+        # Reuse the normal end-call lifecycle so the goodbye can finish before
+        # the active voice session disconnects.
+        return await EndCallTool(end_instructions=instruction)._end_call(context)
 
     @function_tool()
     async def list_windows(self, context: RunContext) -> dict[str, str]:
@@ -69,6 +108,101 @@ class WindowTools:
 
         ok, say = await asyncio.to_thread(window_ctl.focus, title)
         log_action("window", f"focus {title[:60]} ok={ok}")
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
+
+    @function_tool()
+    async def maximize_window(
+        self, context: RunContext, title: str, fullscreen: bool = False
+    ) -> dict[str, str]:
+        """Bring a window to the front and maximise it, or make it full screen.
+
+        Use for "maximise the terminal", "make Spotify full screen", "make
+        Brave fill the screen", "maximise Dolphin". It reports honestly when
+        no such window exists or KWin does not confirm the new size.
+
+        Args:
+            title: Part of the window title or app name, e.g. "terminal".
+            fullscreen: True for full screen (no title bar), False to maximise.
+        """
+        _guard()
+        from system import window_ctl
+
+        ok, say = await asyncio.to_thread(window_ctl.maximize, title, bool(fullscreen))
+        log_action(
+            "window",
+            f"maximize {title[:60]} fullscreen={bool(fullscreen)} ok={ok}",
+        )
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
+
+    @function_tool()
+    async def restore_window(self, context: RunContext, title: str) -> dict[str, str]:
+        """Take a maximised or full-screen window back to normal size.
+
+        Use for "restore Spotify", "un-maximise the terminal", "make Brave
+        normal size again", "leave full screen".
+
+        Args:
+            title: Part of the window title or app name, e.g. "spotify".
+        """
+        _guard()
+        from system import window_ctl
+
+        ok, say = await asyncio.to_thread(window_ctl.restore_window, title)
+        log_action("window", f"restore {title[:60]} ok={ok}")
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
+
+    @function_tool()
+    async def bring_to_attention(
+        self, context: RunContext, title: str, maximize: bool = False
+    ) -> dict[str, str]:
+        """Bring a window that is behind others to Sir's attention, in front of
+        everything. Use for "bring Brave to the front", "bring the window to my
+        attention", "show me the browser", "bring up the chat", "put Spotify in
+        front". With maximize true it also maximises the window ("bring Brave to
+        the front and maximise it").
+
+        Args:
+            title: Part of the window title or app name, e.g. "browser", "brave".
+            maximize: True to also maximise the window once it is in front.
+        """
+        _guard()
+        from system import window_ctl
+
+        if maximize:
+            ok, say = await asyncio.to_thread(window_ctl.maximize, title, False)
+        else:
+            ok, say = await asyncio.to_thread(window_ctl.attention, title)
+        log_action(
+            "window", f"attention {title[:60]} maximize={bool(maximize)} ok={ok}"
+        )
+        if not ok:
+            raise ToolError(say)
+        return {"say": say}
+
+    @function_tool()
+    async def move_window_to_monitor(
+        self, context: RunContext, title: str, monitor: str = "other"
+    ) -> dict[str, str]:
+        """Move an already-open window to another screen; do not relaunch it.
+
+        Use for "move ChatGPT to my other monitor", "put Spotify on my
+        laptop screen", "move Firefox to the right display".
+
+        Args:
+            title: Existing application/window name, such as ChatGPT.
+            monitor: Other monitor, main, laptop, right, left, M1/M2/M3, DP-1.
+        """
+        _guard()
+        from system.monitor_window_move import move_window
+
+        ok, say = await asyncio.to_thread(move_window, title, monitor)
+        log_action("window", f"move {title[:60]} to {monitor[:35]} ok={ok}")
         if not ok:
             raise ToolError(say)
         return {"say": say}

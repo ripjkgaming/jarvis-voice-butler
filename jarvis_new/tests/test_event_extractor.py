@@ -8,7 +8,7 @@ import subprocess
 
 import chatgpt_cli
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import event_extractor as ex
 import google_api
@@ -33,7 +33,10 @@ NOW = dt.datetime(2026, 10, 1, 9, 0).timestamp()
 @pytest.fixture
 def home(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_TZ", "Asia/Singapore")
     monkeypatch.setenv("JARVIS_EMAIL_EVENTS", "1")
+    # Old suggest-then-confirm flow (env-off proof); auto-add is in test_event_auto_calendar.py.
+    monkeypatch.setenv("JARVIS_AUTO_CALENDAR", "0")
     monkeypatch.setenv("JARVIS_CHATGPT", "1")
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setattr(chatgpt_cli.shutil, "which", lambda n: "/usr/bin/codex")

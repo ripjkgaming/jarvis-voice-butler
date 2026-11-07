@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system.computer_use_ownership import (
     ControlBusyError,

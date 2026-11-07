@@ -95,6 +95,18 @@ _RULES: list[tuple[re.Pattern, str, dict]] = [
         "set_volume",
         {"action": "up"},
     ),
+    # Current-video descriptions should not need a model handoff. Keep
+    # suffixes anchored so questions and compound requests still pass through.
+    (
+        re.compile(
+            r"^pause (the |this |that )?(current )?video"
+            r"( (i'm watching|i am watching|i was on|i'm on|i am on|"
+            r"currently playing|for a (moment|second)|on youtube|"
+            r"(of|about) [a-z0-9]+( [a-z0-9]+){0,3}))?$"
+        ),
+        "media_control",
+        {"action": "pause"},
+    ),
     # media keys
     (
         re.compile(

@@ -212,6 +212,18 @@ pub fn show_overlay(app: &AppHandle) {
         // The window exists now: apply any click-through the HUD asked for
         // while it was hidden (see commands::set_overlay_click_through).
         crate::commands::apply_click_through(app);
+        // Presence can dissolve the HUD without hiding the native window.
+        // A repeated show must wake that HUD even without visibilitychange.
+        let _ = win.eval("window.dispatchEvent(new Event('jarvis-hud-show'))");
+    }
+}
+
+/// Run the HUD's animated return-to-wallpaper transition immediately.
+pub fn fade_overlay(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.eval("window.__jarvisPresence?.fade()");
+        }
     }
 }
 
@@ -236,7 +248,21 @@ pub fn toggle_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("overlay") {
         match win.is_visible() {
             Ok(true) => {
-                let _ = win.hide();
+                // A hotkey/tray summon should wake a dissolved HUD first.
+                // Keep the usual toggle-to-hide behaviour while present.
+                let target = win.clone();
+                if win.eval_with_callback(
+                    "(() => { const p = window.__jarvisPresence; if (p && (p.state === 'gone' || p.state === 'fading' || p.state === 'appearing')) { window.dispatchEvent(new Event('jarvis-hud-show')); return true; } return false; })()",
+                    move |value| {
+                        if value == "true" {
+                            let _ = target.set_focus();
+                        } else {
+                            let _ = target.hide();
+                        }
+                    },
+                ).is_err() {
+                    let _ = win.hide();
+                }
             }
             _ => show_overlay(app),
         }

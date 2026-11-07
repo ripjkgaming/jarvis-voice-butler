@@ -17,7 +17,8 @@ def helper():
     return ns["_wake_announce"]
 
 
-def test_manual_desktop_and_phone_announcement_are_distinct(monkeypatch):
+def test_manual_desktop_and_phone_announcement_are_distinct(monkeypatch, tmp_path):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     read = helper()
 
     def room(identity, attrs):

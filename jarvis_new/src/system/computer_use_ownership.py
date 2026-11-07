@@ -13,7 +13,7 @@ import functools
 import os
 from pathlib import Path
 
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 
 class ControlBusyError(RuntimeError):

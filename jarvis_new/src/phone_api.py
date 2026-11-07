@@ -48,7 +48,12 @@ def capabilities():
             "command": True,
             "session": True,
             "incoming_calls": True,
-            "incoming_monitor": True, "checkin_schedule": True,
+            "incoming_monitor": True,
+            "checkin_schedule": True,
+            # LOCKE//LINK PWA (docs/phone-app/PLAN.md §6).
+            "control": True,
+            "state": True,
+            "webauthn": True,
         },
         "limits": {"text": 2000, "history": 20},
         "policy": policy(),

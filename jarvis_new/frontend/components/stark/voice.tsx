@@ -1,12 +1,11 @@
 'use client';
 
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { GlyphBar } from '@/components/ascii/glyphs';
 import { useDecode } from '@/components/ascii/use-decode';
 import { useBootLog } from '@/hooks/hud/use-boot-log';
 import { type JarvisState } from '@/hooks/hud/use-jarvis-state';
 import { useCaptions, useLiveCaption, useRoom } from '@/hooks/hud/use-room-state';
-import { type BridgeSys } from '@/lib/bridge';
+import { useAscii } from '@/lib/character/hooks';
 import { useSaid } from '@/lib/hud-say';
 import { voiceCaptionFrom } from '@/lib/voice-caption';
 import { type VoiceLink } from '@/lib/voice-link';
@@ -32,7 +31,9 @@ export function StateReadout({
 }) {
   const word = muted === true ? 'MUTED' : link.phase !== 'idle' ? link.word : STATE_WORD[jarvis];
   const detail = muted !== true && link.phase !== 'idle' ? link.detail : '';
-  const shown = useDecode(word, 360);
+  const ascii = useAscii();
+  const decoded = useDecode(word, 360);
+  const shown = ascii ? decoded : word;
   return (
     <div className={s.readout} role="status" aria-live="polite">
       <span key={word} className={s.readoutWord} data-voice-readout={word}>
@@ -40,11 +41,13 @@ export function StateReadout({
             decode is presentation only */}
         <span className="sr-only">{word}</span>
         <span aria-hidden="true">{shown}</span>
-        <span className={s.readoutSignal} aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
+        {ascii ? (
+          <span className={s.readoutSignal} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
       </span>
       {detail ? <span className={s.readoutHint}>{detail}</span> : null}
     </div>
@@ -122,27 +125,5 @@ export function BootSequence() {
         ))}
       </ol>
     </div>
-  );
-}
-
-/** Running research jobs with progress (bridge /sys research). */
-export function Research({ sys }: { sys: BridgeSys | null }) {
-  const jobs = sys?.research ?? [];
-  if (jobs.length === 0) return null;
-  return (
-    <ul className={s.research} aria-label="Research in progress">
-      {jobs.slice(0, 2).map((j) => {
-        const pct = Math.max(0, Math.min(100, Math.round(j.progress)));
-        return (
-          <li key={j.id} className={s.researchJob}>
-            <span className={s.researchTag}>[RSCH]</span>
-            <span className={s.researchTitle}>{j.title}</span>
-            <span className={s.researchStage}>{j.stage}</span>
-            <span className={s.researchPct}>{pct}%</span>
-            <GlyphBar pct={pct} width={36} className={s.researchBar} />
-          </li>
-        );
-      })}
-    </ul>
   );
 }

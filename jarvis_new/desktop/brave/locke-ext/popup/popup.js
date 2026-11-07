@@ -2,26 +2,8 @@
   'use strict';
   const C = typeof chrome !== 'undefined' && chrome.tabs ? chrome : null;
   const $ = (id) => document.getElementById(id);
-  const NOISE = '▓▒░#%&@$01<>/\\=+*';
-  const DEF = { enabled: true, duration: 450, disabledHosts: [] };
-  let tabs = [], wins = [], sel = 0, shown = [], fx = { ...DEF }, curHost = '';
+  let tabs = [], wins = [], sel = 0, shown = [];
 
-  // text decode via scramble
-  function decode(el, ms = 300) {
-    const t = el.dataset.t, t0 = performance.now();
-    const f = (now) => {
-      const p = Math.min(1, (now - t0) / ms), n = Math.floor(p * t.length);
-      let s = t.slice(0, n);
-      for (let i = n; i < t.length; i++) s += t[i] === ' ' || t[i] === '/' ? t[i] : NOISE[(Math.random() * NOISE.length) | 0];
-      el.textContent = s;
-      if (p < 1) requestAnimationFrame(f);
-    };
-    requestAnimationFrame(f);
-  }
-  // rule fill with box-drawing
-  function rules() {
-    document.querySelectorAll('.rule').forEach((r) => { r.textContent = '─'.repeat(80); r.style.cssText = 'overflow:hidden;white-space:nowrap;color:#14566a;height:auto;flex:1;letter-spacing:0;font-weight:400'; });
-  }
   const host = (u) => { try { return new URL(u).hostname || u; } catch (_) { return u || ''; } };
 
   function fuzzy(q, s) {
@@ -48,7 +30,7 @@
       fr.appendChild(h);
       ts.forEach((t) => { shown.push(t); fr.appendChild(row(t, shown.length - 1)); });
     });
-    if (!shown.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = tabs.length ? '// no match' : '// no tab data (open as extension popup)'; fr.appendChild(e); }
+    if (!shown.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = tabs.length ? 'No matching tabs.' : 'No tabs available.'; fr.appendChild(e); }
     list.appendChild(fr);
     sel = Math.min(sel, Math.max(0, shown.length - 1));
     mark();
@@ -117,41 +99,6 @@
     load();
   });
 
-  // FX
-  function fxRender() {
-    const on = fx.enabled;
-    const b = $('fxOn'); b.textContent = on ? '● ON' : '○ OFF'; b.classList.toggle('on', on);
-    $('dur').value = fx.duration; $('durV').textContent = fx.duration + ' ms';
-    const off = !!curHost && fx.disabledHosts.includes(curHost);
-    const h = $('hostOff'); h.textContent = off ? '● OFF' : '○ ON'; h.classList.add('am'); h.classList.toggle('on', off);
-    h.disabled = !curHost; $('hostLbl').textContent = curHost ? 'mute on ' + curHost : 'mute on this host (n/a)';
-    $('fxState').textContent = on ? 'ARMED' : 'STANDBY';
-  }
-  function fxSave() {
-    fxRender();
-    try { C && chrome.storage.local.set({ lockeFx: fx }); } catch (_) {}
-  }
-  $('fxOn').addEventListener('click', () => { fx.enabled = !fx.enabled; fxSave(); });
-  $('dur').addEventListener('input', (e) => { fx.duration = +e.target.value; fxSave(); });
-  $('hostOff').addEventListener('click', () => {
-    if (!curHost) return;
-    const s = new Set(fx.disabledHosts); s.has(curHost) ? s.delete(curHost) : s.add(curHost);
-    fx.disabledHosts = [...s]; fxSave();
-  });
-  async function fxLoad() {
-    try {
-      if (C) {
-        const r = await chrome.storage.local.get('lockeFx');
-        if (r.lockeFx) fx = { ...DEF, ...r.lockeFx, disabledHosts: Array.isArray(r.lockeFx.disabledHosts) ? r.lockeFx.disabledHosts : [] };
-        const [t] = await C.tabs.query({ active: true, currentWindow: true });
-        if (t && /^https?:/.test(t.url || '')) curHost = host(t.url);
-      }
-    } catch (_) {}
-    fxRender();
-  }
-
-  rules();
-  document.querySelectorAll('.dec').forEach((e) => decode(e));
-  load(); fxLoad();
+  load();
   $('q').focus();
 })();

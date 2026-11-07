@@ -12,8 +12,8 @@ import asyncio
 import contextlib
 import time
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 import quotes as Q
 from system.projects_tools import _bridge_call
@@ -35,11 +35,15 @@ def vitals_line(sys: dict | None) -> str:
     bits = []
     temp = sys.get("cpu_temp_c")
     if isinstance(temp, (int, float)):
-        bits.append(f"core at {round(temp)} degrees" + (", running hot" if temp >= 85 else ""))
+        bits.append(
+            f"core at {round(temp)} degrees" + (", running hot" if temp >= 85 else "")
+        )
     load = sys.get("load_1_5_15") or []
     cores = sys.get("cpu_count") or 1
     with contextlib.suppress(Exception):
-        bits.append(f"load {round(float(load[0]) / cores * 100)} percent of {cores} cores")
+        bits.append(
+            f"load {round(float(load[0]) / cores * 100)} percent of {cores} cores"
+        )
     mem = sys.get("mem_bytes") or {}
     total, avail = mem.get("MemTotal"), mem.get("MemAvailable")
     if total and avail is not None:
@@ -135,7 +139,9 @@ class QuoteTools:
             return _said(await self.system.play_media(context, q.args["query"]))
         if a == "party":
             with contextlib.suppress(Exception):
-                await self.system.set_volume(context, "set", int(q.args.get("volume", 70)))
+                await self.system.set_volume(
+                    context, "set", int(q.args.get("volume", 70))
+                )
             return _said(await self.system.play_media(context, q.args["query"]))
         if a == "briefing":
             return _said(await self.inbox.morning_briefing(context))
@@ -158,7 +164,8 @@ class QuoteTools:
                 parts.append(_said(await self.system.battery_status(context)))
             parts.append(phone_line(await self._sys()))
             running = [
-                p for p in await asyncio.to_thread(projects.list_projects)
+                p
+                for p in await asyncio.to_thread(projects.list_projects)
                 if p.get("status") == "running"
             ]
             parts.append(

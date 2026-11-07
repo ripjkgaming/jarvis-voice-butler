@@ -209,3 +209,102 @@ def test_oversized_async_metadata_is_killed_and_reaped(monkeypatch):
     with pytest.raises(ValueError, match="metadata_limit"):
         asyncio.run(media_selection._run_async(["fixture"], 1))
     assert process.killed and process.waited
+
+
+def test_topic_search_chooses_best_supported_match():
+    first = video()
+    first.update(
+        title="Every Size Local AI In 24 Minutes",
+        description="A guide to local AI. Do not forget to subscribe.",
+    )
+    second = video("bbbbbbbbbbb")
+    second.update(
+        title="Local AI Explained", description="How to run local AI on your computer"
+    )
+    result = select("local AI", [first, second], now=100)
+    assert result.video_id == second["id"]
+
+
+def test_explaining_is_request_filler():
+    candidate = video()
+    candidate.update(
+        title="Local AI Explained", description="How to run local AI on your computer"
+    )
+    assert (
+        select("a video explaining local AI", [candidate], now=100).video_id
+        == candidate["id"]
+    )
+
+
+def test_details_fetch_is_metadata_only():
+    from media_selection import _args
+
+    args = _args("yt-dlp", "https://www.youtube.com/watch?v=aaaaaaaaaaa")
+    assert "--ignore-no-formats-error" in args
+    assert "--skip-download" in args
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_bad_candidate_does_not_abort_other_matches(async_mode):
+    def runner(argv, timeout):
+        if argv[-1].startswith("ytsearch5:"):
+            return json.dumps(
+                {"entries": [{"id": "aaaaaaaaaaa"}, {"id": "bbbbbbbbbbb"}]}
+            ).encode()
+        if argv[-1].endswith("aaaaaaaaaaa"):
+            raise ValueError("metadata_failed")
+        candidate = video("bbbbbbbbbbb")
+        candidate.update(title="Local AI Explained", description="How to run local AI")
+        return json.dumps(candidate).encode()
+
+    async def async_runner(argv, timeout):
+        return runner(argv, timeout)
+
+    result = (
+        asyncio.run(resolve_async("local AI", runner=async_runner, binary="fixture"))
+        if async_mode
+        else resolve("local AI", runner=runner, binary="fixture")
+    )
+    assert result.video_id == "bbbbbbbbbbb"
+
+
+def test_multiple_topic_matches_do_not_require_a_broadcaster():
+    candidates = [video(), video("bbbbbbbbbbb")]
+    for candidate in candidates:
+        candidate.update(title="AI Explained", description="An introduction to AI")
+    assert select("AI", candidates, now=100).decision == "selected"
+
+
+def test_unrelated_description_negation_does_not_reject_topic():
+    candidate = video()
+    candidate.update(
+        title="Local AI Explained",
+        description="A guide to local AI. Do not forget to subscribe.",
+    )
+    assert select("local AI", [candidate], now=100).video_id == candidate["id"]
+
+
+@pytest.mark.parametrize("async_mode", [False, True])
+def test_same_video_search_supplies_channel_id_missing_from_details(async_mode):
+    def runner(argv, timeout):
+        if argv[-1].startswith("ytsearch5:"):
+            return json.dumps(
+                {"entries": [{"id": "aaaaaaaaaaa", "channel_id": "search-source"}]}
+            ).encode()
+        candidate = video()
+        candidate.update(
+            title="Local AI Explained",
+            description="How to run local AI",
+            channel_id=None,
+        )
+        return json.dumps(candidate).encode()
+
+    async def async_runner(argv, timeout):
+        return runner(argv, timeout)
+
+    result = (
+        asyncio.run(resolve_async("local AI", runner=async_runner, binary="fixture"))
+        if async_mode
+        else resolve("local AI", runner=runner, binary="fixture")
+    )
+    assert result.video_id == "aaaaaaaaaaa"

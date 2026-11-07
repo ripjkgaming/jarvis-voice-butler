@@ -503,7 +503,19 @@ class BrowserManager:
         self._validate_url(url)
         last_error: Exception | None = None
         for _ in range(2):
-            page = await self._get_page(tab)
+            try:
+                # Browser (re)launch happens here, outside the page lock. A
+                # launch that races a closing context raises a raw Playwright
+                # error; map it to BrowserError (or retry once, as for pages).
+                page = await self._get_page(tab)
+            except BrowserError:
+                raise
+            except Exception as exc:
+                if self._is_close_error(exc):
+                    await self._recover_unlocked()
+                    last_error = exc
+                    continue
+                raise BrowserError(f"I could not start the browser: {exc}") from exc
             async with self._lock:
                 try:
                     await page.goto(url, wait_until="domcontentloaded")

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import difflib
 import logging
 import math
@@ -59,6 +60,7 @@ from notify_tools import NotifyTools
 from system.schedule_tools import ScheduleTools
 from system.exam_tools import ExamTools
 from system.muse_tools import MuseTools
+from system.aware_tools import AwareTools
 from system.memory_tools import MemoryTools
 from system.code_tools import CodeTools
 from system.look_tools import LookTools
@@ -70,6 +72,7 @@ from system.recall_tools import RecallTools
 from system.osint import OsintTools
 from system.pentest import PentestTools
 from system.projects_tools import ProjectTools
+from system.research_pdfs import ResearchPdfTools
 from system.quotes_tools import QuoteTools
 from system.school_tools import SchoolTools
 from system.suit_tools import SuitTools
@@ -187,6 +190,7 @@ class _HudLiveCaption(io.TextOutput):
         self._open = False
         # Set once the session exists: interrupts a looping reply.
         self.on_loop = None
+        self.on_text = None
         self._loop_fired = False
 
     def clear_sensitive(self) -> None:
@@ -203,6 +207,9 @@ class _HudLiveCaption(io.TextOutput):
             self._open = True
             self._loop_fired = False
         self._text += text
+        if self.on_text is not None:
+            with contextlib.suppress(Exception):
+                self.on_text(self._text)
         _write_live_caption(f"{os.getpid()}-{self._seq}", self._text, False)
         if self.on_loop and not self._loop_fired and is_repeating(self._text):
             self._loop_fired = True
@@ -291,7 +298,10 @@ def _wake_announce(room: object) -> str:
                 )
             if getattr(participant, "identity", "") == "jarvis-master":
                 attrs = getattr(participant, "attributes", None) or {}
-                return " ".join(str(attrs.get("jarvis.announce") or "").split())
+                text = " ".join(str(attrs.get("jarvis.announce") or "").split())
+                from announce_once import unconsumed
+
+                return text if unconsumed(text) else ""
     except Exception:
         pass
     return ""
@@ -300,12 +310,12 @@ def _wake_announce(room: object) -> str:
 DADDY_GREETING = "Welcome back, Sir."
 
 
-SCHOOL_FIRST_WINDOW_S = 12.0
+SCHOOL_FIRST_WINDOW_S = 30.0
 SCHOOL_BARE_REPLY = "Yes, Sir?"
 # Normal-mode wake calls: close this long after Jarvis's last reply, so
 # the HUD drops back to idle and the wake word listens again (the 180 s
 # engaged budget kept calls open while room chatter reset it).
-NORMAL_FOLLOW_UP_S = 15.0
+NORMAL_FOLLOW_UP_S = 45.0
 # Continuous sound can keep local VAD speaking without ending a turn.
 # Ask for a pause before the bounded hold ends; never commit possible noise.
 FOLLOW_UP_PAUSE_PROMPT_S = 20.0
@@ -462,7 +472,7 @@ def _background_task_running() -> bool:
 
 
 def _normal_follow_up_s() -> float:
-    """Normal-mode listening window (JARVIS_FOLLOW_UP, default 15 s)."""
+    """Normal-mode listening window (JARVIS_FOLLOW_UP, default 45 s)."""
     try:
         return max(
             5.0,
@@ -506,9 +516,10 @@ async def _school_follow_up(
 
     def _window() -> float:
         # A confirmation question waits longer for Sir's answer.
+        base = window if window is not None else school.FOLLOW_UP_S
         if school.awaiting_answer():
-            return school.CONFIRM_WAIT_S
-        return window if window is not None else school.FOLLOW_UP_S
+            return max(school.CONFIRM_WAIT_S, base)
+        return base
 
     def _update_deadline() -> None:
         nonlocal deadline
@@ -1700,6 +1711,8 @@ def _never_demote(tool_id: str) -> bool:
         or "confirm" in tool_id
         or tool_id
         in {
+            "calendar_add",
+            "calendar_events_on",
             "route_request",
             "ask_backend",
             "latency_report",
@@ -1708,6 +1721,7 @@ def _never_demote(tool_id: str) -> bool:
             "build_monitor_register",
             "build_monitor_status",
             "monitor_create",
+            "research_pdfs",
             "monitor_list",
             "monitor_status",
             "monitor_stop",
@@ -1727,6 +1741,14 @@ def _never_demote(tool_id: str) -> bool:
             "tell_time",
             "download_youtube_video",
             "cancel_youtube_download",
+            "code_project",
+            "find_and_delete",
+            "restore_from_trash",
+            "code_followup",
+            "code_jobs",
+            "maximize_window",
+            "restore_window",
+            "bring_to_attention",
         }
     )
 
@@ -1758,6 +1780,7 @@ class Assistant(Agent):
         self.schedule_tools = ScheduleTools()
         self.osint_tools = OsintTools()
         self.project_tools = ProjectTools()
+        self.research_pdf_tools = ResearchPdfTools()
         self.quote_tools = QuoteTools(
             system=self.system_tools, inbox=self.inbox_tools, browser=self.browser_tools
         )
@@ -1779,6 +1802,7 @@ class Assistant(Agent):
         self.exam_tools = ExamTools()
         self.muse_tools = MuseTools()
         self.memory_tools = MemoryTools()
+        self.aware_tools = AwareTools()
         self.window_tools = WindowTools()
         self.look_tools = LookTools()
         self.code_tools = CodeTools()
@@ -1821,6 +1845,7 @@ class Assistant(Agent):
             # Background research (ChatGPT) / coding (opencode) projects
             # + the voice-only Project Archive window.
             *self.project_tools.tools,
+            *self.research_pdf_tools.tools,
             # Movie / meme lines -> fixed safe actions (src/quotes.py).
             *self.quote_tools.tools,
             # School mode switch + loud-action confirmation.
@@ -1851,6 +1876,8 @@ class Assistant(Agent):
             *self.muse_tools.tools,
             # Long-term memory: recall, last time, remember/forget.
             *self.memory_tools.tools,
+            # Always Aware: on/off/pause/what did you see/offers/spend cap.
+            *self.aware_tools.tools,
             # Windows: list / focus / arrange / undo (reversible, logged).
             *self.window_tools.tools,
             # Vision on demand: the active window or one camera frame.
@@ -1906,6 +1933,7 @@ class Assistant(Agent):
         always |= {t.id for t in self._end_call_tool.tools}
         always |= {t.id for t in self.notify_tools.tools}
         always |= {t.id for t in self.schedule_tools.tools}
+        always |= {"calendar_add", "calendar_events_on"}
         # Gemini Live gets its tool list once per connection, so demoting
         # saves nothing per turn there. It costs a lot: a handoff changes the
         # tool list, which forces a full Gemini reconnect on the way out and
@@ -1929,6 +1957,12 @@ class Assistant(Agent):
         import watch_mode
 
         self._owner_instructions = _persona_instructions()
+        try:
+            import session_awareness
+
+            self._owner_instructions += session_awareness.build_awareness_block()
+        except Exception:
+            pass
         self._watch_guest = phone_session.guest_required()
         instructions = (
             watch_mode.GUEST_INSTRUCTIONS
@@ -2044,6 +2078,10 @@ class Assistant(Agent):
                     raise StopResponse()
                 if not self._watch_guest:
                     await self.update_instructions(watch_mode.GUEST_INSTRUCTIONS)
+                    # Flag must track applied instructions, else the guest loop
+                    # sees guest==False==flag after watch ends and never restores
+                    # owner instructions (permanent guest mode).
+                    self._watch_guest = True
                 return
             features = getattr(self.session, "jarvis_features", None)
             # Fresh SDK user messages own visual consent; model tools cannot
@@ -2148,6 +2186,8 @@ class Assistant(Agent):
             if text:
                 import protocols
 
+                if await self._aware_fast_route(text):
+                    raise StopResponse()
                 proto = protocols.parse(text)
                 if proto is not None:
                     # Protocols answer only "Protocol N engaged" (nothing when
@@ -2201,6 +2241,26 @@ class Assistant(Agent):
 
                 log_action("fastpath", "error; deferring to Gemini")
             return
+
+    async def _aware_fast_route(self, text: str) -> bool:
+        """Clear Always Aware phrasings ("always aware off", "pause awareness
+        for an hour") are answered without the model. Owner only."""
+        try:
+            from aware import control as aware_control
+
+            hit = aware_control.route(text)
+            if hit is None or phone_session.guest_required():
+                return False
+            say = await asyncio.to_thread(aware_control.handle, *hit)
+        except Exception:
+            return False
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("fastpath", f"aware {hit[0]}")
+        with contextlib.suppress(Exception):
+            await self.session.say(say, add_to_chat_ctx=False)
+        return True
 
     @function_tool()
     async def system_health_incident(
@@ -2549,6 +2609,12 @@ async def my_agent(ctx: JobContext):
         if _features.sensitive_active:
             return
         item = getattr(event, "item", None)
+        if getattr(item, "role", "") == "user":
+            # Typed chat and a seeded wake call enter as user history items,
+            # without a speech-transcription callback. They need the same
+            # calendar proof boundary as microphone requests.
+            _cg.GUARD.note_user(str(getattr(item, "text_content", "") or ""))
+            return
         if getattr(item, "role", "") != "assistant" or not _cg.enabled():
             return
         verdict = _cg.GUARD.check(str(getattr(item, "text_content", "") or ""))
@@ -2841,8 +2907,22 @@ async def my_agent(ctx: JobContext):
 
     # P0 turn phases: thinking/speaking transitions timestamp the model's
     # think time and voice start inside every turn's latency breakdown.
+    _duck_held = {"on": False}
+
     @session.on("agent_state_changed")
     def _on_agent_state_changed(event) -> None:
+        try:  # duck other audio while Jarvis speaks (0.6 s release tail)
+            import audio_duck as _duck
+
+            _speaking = str(getattr(event, "new_state", "")) == "speaking"
+            if _speaking and not _duck_held["on"]:
+                _duck_held["on"] = True
+                _duck.duck()
+            elif not _speaking and _duck_held["on"]:
+                _duck_held["on"] = False
+                _duck.unduck()
+        except Exception:
+            pass
         try:
             if str(getattr(event, "new_state", "")) in ("thinking", "speaking"):
                 import latency as _lat_state
@@ -2933,6 +3013,36 @@ async def my_agent(ctx: JobContext):
                         await session.aclose()
                         return
 
+    async def _awareness_loop() -> None:
+        import session_awareness
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                if assistant._watch_guest:
+                    continue
+                old = assistant._owner_instructions
+                base = old.split("\n\n[Session awareness]\n", 1)[0]
+                new = base + session_awareness.build_awareness_block()
+                if new != old:
+                    assistant._owner_instructions = new
+                    await assistant.update_instructions(new)
+            except Exception:
+                pass
+
+    _awareness_task = asyncio.create_task(_awareness_loop())
+    _background_tasks.add(_awareness_task)
+    _awareness_task.add_done_callback(_background_tasks.discard)
+
+    async def _stop_awareness() -> None:
+        _awareness_task.cancel()
+        with contextlib.suppress(Exception):
+            import session_awareness
+
+            await asyncio.to_thread(session_awareness.record_session_end)
+
+    ctx.add_shutdown_callback(_stop_awareness)
+
     _watch_guest_task = asyncio.create_task(_watch_guest_loop())
     _background_tasks.add(_watch_guest_task)
     _watch_guest_task.add_done_callback(_background_tasks.discard)
@@ -2981,6 +3091,7 @@ async def my_agent(ctx: JobContext):
             session.interrupt()
 
     _live_caption.on_loop = _on_reply_loop
+    _live_caption.on_text = _echo.note_agent
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
@@ -3386,12 +3497,20 @@ async def my_agent(ctx: JobContext):
 
     async def _stop_presence() -> None:
         _presence["stopped"] = True
+        with contextlib.suppress(Exception):
+            import audio_duck as _duck_end
+
+            await asyncio.to_thread(_duck_end.release_all)
         _presence_task.cancel()
         _watchdog_task.cancel()
         with contextlib.suppress(Exception):
             await _presence_task
 
     ctx.add_shutdown_callback(_stop_presence)
+    with contextlib.suppress(Exception):
+        import audio_duck as _duck_start
+
+        _duck_start.repair()
 
 
 if __name__ == "__main__":

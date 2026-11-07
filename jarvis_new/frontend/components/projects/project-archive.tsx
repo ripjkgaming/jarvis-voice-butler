@@ -24,6 +24,7 @@ import {
   listProjects,
   pollUiCommands,
 } from '@/lib/projects';
+import { startVisiblePoll } from '@/lib/visible-poll';
 import styles from './project-archive.module.css';
 
 type Filter = 'all' | 'research' | 'code';
@@ -113,8 +114,9 @@ export function ProjectArchive() {
   visibleRef.current = visible;
 
   // --- data --------------------------------------------------------------
-  const refreshList = useCallback(async () => {
-    const list = await listProjects();
+  const refreshList = useCallback(async (signal?: AbortSignal) => {
+    const list = await listProjects(signal);
+    if (signal?.aborted) return;
     if (list === null) {
       setOffline(true);
       return;
@@ -124,9 +126,7 @@ export function ProjectArchive() {
   }, []);
 
   useEffect(() => {
-    refreshList();
-    const t = window.setInterval(refreshList, 4000);
-    return () => window.clearInterval(t);
+    return startVisiblePoll(refreshList, 4000);
   }, [refreshList]);
 
   useEffect(() => {
@@ -144,17 +144,13 @@ export function ProjectArchive() {
       setDetail(null);
       return;
     }
-    let alive = true;
-    const load = async () => {
-      const d = await getProject(selectedId);
-      if (alive && d) setDetail(d);
-    };
-    load();
-    const t = window.setInterval(load, selectedRunning ? 3000 : 15000);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
+    return startVisiblePoll(
+      async (signal) => {
+        const d = await getProject(selectedId, signal);
+        if (!signal.aborted && d) setDetail(d);
+      },
+      selectedRunning ? 3000 : 15000
+    );
   }, [selectedId, selectedRunning]);
 
   // --- auto-scroll -------------------------------------------------------
@@ -331,25 +327,14 @@ export function ProjectArchive() {
   runRef.current = runCommand;
   useEffect(() => {
     let cursor: number | null = null;
-    let alive = true;
-    let busy = false;
-    const tick = async () => {
-      if (busy) return;
-      busy = true;
-      const r = await pollUiCommands(cursor);
-      busy = false;
-      if (!alive || !r) return;
+    return startVisiblePoll(async (signal) => {
+      const r = await pollUiCommands(cursor, signal);
+      if (signal.aborted || !r) return;
       if (cursor !== null) {
         for (const c of r.commands) runRef.current(c);
       }
       cursor = r.seq;
-    };
-    tick();
-    const t = window.setInterval(tick, 600);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
+    }, 600);
   }, []);
 
   // --- derived -----------------------------------------------------------

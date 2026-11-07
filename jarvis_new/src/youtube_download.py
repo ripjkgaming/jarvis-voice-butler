@@ -24,8 +24,8 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
@@ -929,7 +929,18 @@ class YouTubeDownloadTools:
                     await session.say(job_say(job))
                 return
 
-        task = asyncio.create_task(watch())
+        from hud_voice_state import execution_scope
+
+        # Acquire before returning the tool result; release even if the watcher
+        # is cancelled before its first coroutine step or fails while polling.
+        work = execution_scope(session)
+        work.__enter__()
+        try:
+            task = asyncio.create_task(watch())
+        except BaseException:
+            work.__exit__(None, None, None)
+            raise
+        task.add_done_callback(lambda _: work.__exit__(None, None, None))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

@@ -34,10 +34,23 @@ def _emit(action, *, run=subprocess.run, **identity):
     if (Path.home() / ".local/share/kwin/effects/jarvis-ascii").exists():
         # Best effort: the ASCII transition effect reads the same cue.
         for argv in [
-            ["kwriteconfig6", "--file", "kwinrc", "--group", "Effect-jarvis-ascii",
-             "--key", "ActionRequest", payload],
-            ["qdbus", "org.kde.KWin", "/Effects",
-             "org.kde.kwin.Effects.reconfigureEffect", "jarvis-ascii"],
+            [
+                "kwriteconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "Effect-jarvis-ascii",
+                "--key",
+                "ActionRequest",
+                payload,
+            ],
+            [
+                "qdbus",
+                "org.kde.KWin",
+                "/Effects",
+                "org.kde.kwin.Effects.reconfigureEffect",
+                "jarvis-ascii",
+            ],
         ]:
             try:
                 run(argv, capture_output=True, text=True, timeout=0.8)
@@ -67,9 +80,19 @@ def _emit(action, *, run=subprocess.run, **identity):
     return True
 
 
-def mark_window(action, window_id, *, run=subprocess.run):
+def mark_window(action, window_id, *, run=subprocess.run, **extras):
     if (
-        action not in ("close", "focus", "minimize", "maximize", "interact")
+        action
+        not in (
+            "close",
+            "focus",
+            "minimize",
+            "maximize",
+            "interact",
+            "portal",
+            "portal-commit",
+            "portal-cancel",
+        )
         or not enabled()
     ):
         return False
@@ -95,7 +118,7 @@ def mark_window(action, window_id, *, run=subprocess.run):
         pid, caption = info["pid"]["data"], info["caption"]["data"]
         if not pid or not caption:
             return False
-        return _emit(action, pid=pid, caption=caption, run=run)
+        return _emit(action, pid=pid, caption=caption, run=run, **extras)
     except Exception:
         return False
 

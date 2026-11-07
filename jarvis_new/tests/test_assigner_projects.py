@@ -12,7 +12,7 @@ def isolated(tmp_path, monkeypatch):
 
 
 def test_disabled_route_has_no_fallback(tmp_path, monkeypatch):
-    monkeypatch.delenv("JARVIS_ASSIGNER_ROUTING")
+    monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "0")
     meta = projects.start_code("write hello", directory=str(tmp_path), request_id="r")
     assert meta["status"] == "blocked"
     assert "not activated" in meta["error"]
@@ -201,3 +201,47 @@ def test_context_hashes_and_exact_proposal_remain_in_archive(tmp_path, monkeypat
         document["name"] == "proposal.patch" and document["text"] == "exact patch"
         for document in projects.documents(meta["id"])
     )
+
+
+class _KickService:
+    def __init__(self, root):
+        self.jobs = Jobs(root)
+        self.kicks = 0
+
+    def submit(self, *args, **kwargs):
+        return self.jobs.submit(*args, **kwargs)
+
+    def kick(self):
+        self.kicks += 1
+
+
+def test_routing_defaults_on_when_env_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("JARVIS_ASSIGNER_ROUTING")
+    service = _KickService(tmp_path / "ledger")
+    monkeypatch.setattr(projects, "_assigner_service", lambda: service)
+    monkeypatch.setattr(projects, "resolve_directory", lambda *a: (tmp_path, None))
+    meta = projects.start_code("write hello", directory=str(tmp_path), request_id="r")
+    assert meta["status"] != "blocked"
+    assert service.jobs.get("r") is not None
+
+
+def test_refresh_kicks_queued_job_when_env_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("JARVIS_ASSIGNER_ROUTING")
+    service = _KickService(tmp_path / "ledger")
+    monkeypatch.setattr(projects, "_assigner_service", lambda: service)
+    monkeypatch.setattr(projects, "resolve_directory", lambda *a: (tmp_path, None))
+    meta = projects.start_code("write hello", directory=str(tmp_path), request_id="r")
+    before = service.kicks
+    projects.get_project(meta["id"])
+    assert service.kicks == before + 1
+
+
+def test_refresh_does_not_kick_when_routing_disabled(tmp_path, monkeypatch):
+    service = _KickService(tmp_path / "ledger")
+    monkeypatch.setattr(projects, "_assigner_service", lambda: service)
+    monkeypatch.setattr(projects, "resolve_directory", lambda *a: (tmp_path, None))
+    meta = projects.start_code("write hello", directory=str(tmp_path), request_id="r")
+    monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "0")
+    before = service.kicks
+    projects.get_project(meta["id"])
+    assert service.kicks == before

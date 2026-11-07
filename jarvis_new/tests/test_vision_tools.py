@@ -2,7 +2,7 @@
 hub patch. Hermetic: stubbed eyes/gestures/camera_hub, no hardware."""
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import presence
 from system.vision_tools import VisionTools

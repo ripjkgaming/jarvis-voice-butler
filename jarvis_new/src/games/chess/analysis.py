@@ -625,6 +625,8 @@ class AnalysisMixin:
     # -------------------------------------------------------------- settings
     async def _setting(self, say: str | None = "Very good, Sir.", **kw: Any) -> Reply:
         self.settings.update(**kw)
+        if self.settings.commentary_muted and self.on_stop_speech:
+            self.on_stop_speech()
         if self._persist:
             from games.chess.settings import save
 

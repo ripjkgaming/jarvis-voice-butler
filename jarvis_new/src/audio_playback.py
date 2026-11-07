@@ -12,14 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 class AudioPlayback:
-    def __init__(self, turn_id=None) -> None:
+    def __init__(self) -> None:
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="jarvis-speaker"
         )
-        from playback_gate import get_playback_gate
-
-        self._gate = get_playback_gate()
-        self._session = self._gate.session(turn_id)
         self._output = None
         self._closed = False
         self._close_task: asyncio.Task | None = None
@@ -27,69 +23,26 @@ class AudioPlayback:
     def _write(self, samples, sample_rate: int) -> None:
         import sounddevice as sd
 
-        if self._session.cancelled.is_set():
-            if self._output is not None:
-                self._session.fade(sample_rate, self._write_pcm)
-            return
-        if not self._session._acquired and not self._session.acquire():
-            return
         if self._output is None or self._output.samplerate != sample_rate:
             self._close_output()
             self._output = sd.OutputStream(
                 samplerate=sample_rate, channels=1, dtype="int16"
             )
             self._output.start()
-        self._session.write(samples.tobytes(), sample_rate, self._write_pcm)
-
-    def _write_pcm(self, pcm):
-        import numpy as np
-
-        self._output.write(np.frombuffer(pcm, dtype=np.int16))
-
-    def cancel(self, turn_id=None):
-        self._gate.cancel(self._session.turn_id if turn_id is None else turn_id)
-
-    def set_turn(self, turn_id):
-        # Session changes are ordered on the device worker by _switch_turn.
-        self._pending_turn = turn_id
-
-    def _switch_turn(self, turn_id):
-        if turn_id == self._session.turn_id:
-            return
-        if self._output is not None and self._session.cancelled.is_set():
-            self._session.fade(self._output.samplerate, self._write_pcm)
-        self._session.close()
-        self._session = self._gate.session(turn_id)
+        self._output.write(samples)
 
     def _close_output(self) -> None:
         output, self._output = self._output, None
         if output is not None:
-            if self._session.cancelled.is_set():
-                self._session.fade(
-                    output.samplerate,
-                    lambda pcm: output.write(
-                        __import__("numpy").frombuffer(pcm, dtype="int16")
-                    ),
-                )
             output.close()
 
-    async def write(self, samples, sample_rate: int, turn_id=None) -> None:
+    async def write(self, samples, sample_rate: int) -> None:
         """Await each frame before submitting another; samples remain unchanged."""
         if self._closed:
             raise RuntimeError("speaker is closed")
-        loop = asyncio.get_running_loop()
-        turn_id = (
-            turn_id if turn_id is not None else getattr(self, "_pending_turn", None)
+        await asyncio.get_running_loop().run_in_executor(
+            self._executor, self._write, samples, sample_rate
         )
-        if turn_id is not None:
-            await loop.run_in_executor(self._executor, self._switch_turn, turn_id)
-        try:
-            await loop.run_in_executor(
-                self._executor, self._write, samples, sample_rate
-            )
-        except asyncio.CancelledError:
-            self.cancel()
-            raise
 
     async def _close(self) -> None:
         try:
@@ -99,7 +52,6 @@ class AudioPlayback:
                 self._executor, self._close_output
             )
         finally:
-            self._session.close()
             self._executor.shutdown(wait=False)
 
     async def aclose(self) -> None:
@@ -108,3 +60,131 @@ class AudioPlayback:
             self._close_task = asyncio.create_task(self._close())
         # Even repeated cancellation must leave the worker able to close.
         await asyncio.shield(self._close_task)
+
+
+class FastAudioPlayback:
+    """Continuous callback-based PCM output, locally muteable without a model RTT.
+
+    The output callback always fills its block; cancellation atomically drops
+    the pending PCM and returns silence on the next hardware callback. A
+    bounded 250 ms queue avoids adding an unbounded audible interruption tail.
+    The legacy blocking AudioPlayback above remains available as fallback.
+    """
+
+    QUEUE_SECONDS = 0.25
+    CALLBACK_SECONDS = 0.01
+
+    def __init__(self):
+        import threading
+        from collections import deque
+
+        self._guard = threading.Lock()
+        self._queue = deque()
+        self._queued_samples = 0
+        self._muted = False
+        self._closed = False
+        self._stream = None
+        self._rate = None
+        self._open_lock = asyncio.Lock()
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="jarvis-fast-speaker"
+        )
+
+    def mute(self) -> None:
+        """Synchronous, thread-safe and independent of slow model calls."""
+        with self._guard:
+            self._muted = True
+            self._queue.clear()
+            self._queued_samples = 0
+
+    def resume(self) -> None:
+        with self._guard:
+            self._queue.clear()
+            self._queued_samples = 0
+            self._muted = False
+
+    def _callback(self, outdata, frames, _time_info, _status):
+        # Never block on the network, STT, TTS, or asyncio event loop here.
+        outdata.fill(0)
+        with self._guard:
+            if self._muted:
+                return
+            pos = 0
+            while pos < frames and self._queue:
+                data = self._queue[0]
+                take = min(frames - pos, len(data))
+                outdata[pos : pos + take, 0] = data[:take]
+                pos += take
+                self._queued_samples -= take
+                if take == len(data):
+                    self._queue.popleft()
+                else:
+                    self._queue[0] = data[take:]
+
+    def _open(self, rate):
+        import sounddevice as sd
+
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+        self._rate = rate
+        self._stream = sd.OutputStream(
+            samplerate=rate,
+            channels=1,
+            dtype="int16",
+            blocksize=max(1, int(rate * self.CALLBACK_SECONDS)),
+            latency="low",
+            callback=self._callback,
+        )
+        self._stream.start()
+
+    async def write(self, samples, sample_rate: int) -> None:
+        import numpy as np
+
+        if self._closed:
+            raise RuntimeError("speaker is closed")
+        if not len(samples):
+            return
+        rate = int(sample_rate)
+        if rate <= 0:
+            raise ValueError("invalid sample rate")
+        async with self._open_lock:
+            if self._stream is None or self._rate != rate:
+                await asyncio.get_running_loop().run_in_executor(
+                    self._executor, self._open, rate
+                )
+        pending = np.asarray(samples, dtype=np.int16).reshape(-1).copy()
+        cursor = 0
+        limit = max(1, int(rate * self.QUEUE_SECONDS))
+        while cursor < len(pending):
+            if self._closed:
+                raise RuntimeError("speaker is closed")
+            with self._guard:
+                if self._muted:
+                    return
+                capacity = max(0, limit - self._queued_samples)
+                if capacity:
+                    count = min(capacity, len(pending) - cursor)
+                    self._queue.append(pending[cursor : cursor + count])
+                    self._queued_samples += count
+                    cursor += count
+            if cursor < len(pending):
+                await asyncio.sleep(self.CALLBACK_SECONDS / 2)
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.mute()
+        async with self._open_lock:
+
+            def close():
+                stream, self._stream = self._stream, None
+                if stream is not None:
+                    stream.stop()
+                    stream.close()
+
+            try:
+                await asyncio.get_running_loop().run_in_executor(self._executor, close)
+            finally:
+                self._executor.shutdown(wait=False, cancel_futures=True)

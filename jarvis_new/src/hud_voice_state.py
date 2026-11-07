@@ -151,22 +151,12 @@ class VoiceStateMonitor:
         ]
         for emitter, event, callback in self.listeners:
             emitter.on(event, callback)
-        manager = getattr(session, "jarvis_turn_manager", None)
-        if manager is not None:
-            manager.on_state(self.refresh)
         _monitors[session] = self
         self.refresh()
 
     def refresh(self, *_):
-        agent = getattr(self.session, "agent_state", "initializing")
-        manager = getattr(self.session, "jarvis_turn_manager", None)
-        if manager is not None and agent not in ("closed", "disconnected"):
-            # Native state events may arrive after interruption. The turn
-            # owner knows whether the corresponding reply is still relevant.
-            state = manager.state.value
-            agent = "initializing" if state == "loading" else state
         self.publisher.update(
-            agent=agent,
+            agent=getattr(self.session, "agent_state", "initializing"),
             user=getattr(self.session, "user_state", "listening"),
             executing=self.executing,
         )
@@ -204,16 +194,25 @@ class VoiceStateMonitor:
             self.task.cancel()
 
 
+def execution_pending(session):
+    """Actual work remains active even without an installed HUD monitor."""
+    return bool(getattr(session, "_jarvis_executing", 0))
+
+
 @contextlib.contextmanager
 def execution_scope(session):
     """Actual tool lifetime outranks SDK speech; errors/cancellation release it."""
     monitor = _monitors.get(session) if session is not None else None
+    if session is not None:
+        session._jarvis_executing = getattr(session, "_jarvis_executing", 0) + 1
     if monitor:
         monitor.executing += 1
         monitor.refresh()
     try:
         yield
     finally:
+        if session is not None:
+            session._jarvis_executing = max(0, session._jarvis_executing - 1)
         if monitor:
             monitor.executing = max(0, monitor.executing - 1)
             monitor.refresh()

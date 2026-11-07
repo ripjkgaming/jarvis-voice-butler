@@ -21,7 +21,10 @@ JARVIS_WA_AUTOREPLY = live (default) | dry (log only) | 0.
 JARVIS_WA_MODEL = model for the replies (default gpt-6-luna).
 JARVIS_WA_NOTIFY_CHAT = optional WhatsApp chat for a summary of what was sent.
 Mimic list (wa_mimic): chats in JARVIS_WA_MIMIC / ~/.jarvis/wa_mimic.txt are
-answered AS Sir in his own texting style instead of as Jarvis;
+eligible for replies in Sir's texting style. Perplexity selects the permitted
+writer mode; explicit requests to Jarvis use the assistant writer instead.
+Uncertain/failed routing uses polite Jarvis. JARVIS_WA_DECIDER=0 restores
+the previous list-based routing. Trusted contacts never receive rude Jarvis.
 JARVIS_WA_ONLY_MIMIC=1 answers only those chats.
 Install (every 5 minutes):
     */5 * * * * cd /mnt/data/jarvis-voice-butler/jarvis_new && PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin JARVIS_LOCAL=1 .venv/bin/python src/wa_autoreply.py
@@ -38,6 +41,7 @@ import re
 import subprocess
 import sys
 import time
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
@@ -53,6 +57,7 @@ SENT_KEEP = 20
 MAX_REPLY_CHARS = 300
 SELF_CHATS = ("message yourself", "you", "(you)")
 _START, _END = "<<<CHAT_START>>>", "<<<CHAT_END>>>"
+_REPLY_MODE: ContextVar[str | None] = ContextVar("wa_reply_mode", default=None)
 
 REPLY_SYSTEM = (
     "You are Jarvis, the automated assistant of {owner}, chatting on WhatsApp "
@@ -553,13 +558,15 @@ EXAM_RULE = (
 )
 
 
-def reply_system() -> str:
+def reply_system(reply_mode: str | None = None) -> str:
     """Jarvis's system prompt. Default: one polite, helpful note (no
     takeover, no rudeness); JARVIS_WA_RUDE=1 restores tone matching."""
     import wa_mimic
 
+    reply_mode = reply_mode or _REPLY_MODE.get()
+    allow_rude = rude_enabled() and reply_mode != "jarvis"
     base = REPLY_SYSTEM.format(owner=owner_title())
-    if not rude_enabled():
+    if not allow_rude:
         base = base.replace(_TAKEOVER, _HELPFUL)
         a, b = base.index(_RUDE_START), base.index(_RUDE_END) + len(_RUDE_END)
         base = base[:a] + _POLITE + base[b:]
@@ -568,10 +575,19 @@ def reply_system() -> str:
         "bloody, crap, piss off) and everyday insults suit an annoying person "
         "(idiot, buffoon, clown, nitwit, muppet) in a butler's cutting "
         "register; never slurs of any kind, nor the rest of the limits below."
-        if rude_enabled() and wa_mimic.swearing()
+        if allow_rude and wa_mimic.swearing()
         else ""
     )
     return base + EXAM_RULE.format(owner=owner_title()) + extra
+
+
+def _ask_for_mode(ask, prompt: str, reply_mode: str | None):
+    """Keep per-chat persona instructions isolated across concurrent workers."""
+    token = _REPLY_MODE.set(reply_mode)
+    try:
+        return ask(prompt)
+    finally:
+        _REPLY_MODE.reset(token)
 
 
 def ask_chatgpt(
@@ -690,9 +706,9 @@ async def handle_chat(
 ) -> str:
     """One unread chat -> reason-coded outcome. Never raises.
 
-    Chats on the mimic list (wa_mimic) are answered AS Sir in his style;
-    everyone else gets Jarvis. JARVIS_WA_ONLY_MIMIC=1 leaves everyone else
-    alone.
+    The configured decision model selects a permitted persona after skip
+    checks. Only approved mimic chats may use owner style; trusted contacts
+    cannot receive rude Jarvis. JARVIS_WA_ONLY_MIMIC=1 still filters chats.
     """
     import wa_mimic
 
@@ -742,7 +758,19 @@ async def handle_chat(
             3,
             describe_photo,
         )
-    if mimic_note is not None:
+    import wa_reply_router
+
+    share = low in trusted_chats()
+    route = await asyncio.to_thread(
+        wa_reply_router.select_mode,
+        messages,
+        mimic_allowed=mimic_note is not None,
+        trusted=share,
+        rude_allowed=rude_enabled(),
+    )
+    cs["reply_route"] = route
+    reply_mode = route["mode"]
+    if reply_mode == "owner_style" and mimic_note is not None:
         import wa_analyst
 
         own = wa_mimic.genuine_own(messages, cs.get("sent_texts") or [])
@@ -790,7 +818,6 @@ async def handle_chat(
         return await _send_reply(
             wa, state, cs, name, is_group, incoming, parsed, now, live, as_owner=True
         )
-    share = low in trusted_chats()
     prompt = build_prompt(
         name,
         is_group,
@@ -801,10 +828,21 @@ async def handle_chat(
         trusted=share,
         status=status,
     )
-    parsed, warning = await asyncio.to_thread(ask, prompt)
+    parsed, warning = await asyncio.to_thread(
+        _ask_for_mode,
+        ask,
+        prompt,
+        None if route["source"] == "disabled" else reply_mode,
+    )
     cs["last_fp"] = fp
     if parsed is None:
         return f"skip-model:{warning}"
+    if (
+        route["source"] != "disabled"
+        and reply_mode != "rude_jarvis"
+        and parsed.get("rude")
+    ):
+        return "skip-route-mismatch"
     if share and (parsed["rude"] or parsed.get("disengage")):
         # Trusted chats are never answered rudely: send nothing and never mute.
         parsed.update(reply="", rude=False, disengage=False)

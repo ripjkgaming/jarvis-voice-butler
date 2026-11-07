@@ -5,7 +5,7 @@ import re
 import shutil
 from urllib.parse import quote, urlsplit
 
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import action_guard
 import phone_session

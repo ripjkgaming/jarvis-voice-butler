@@ -163,6 +163,11 @@ ${U} .${s.frame}, ${U} .${g.box} {
     calc(100% - var(--cx-cut)) 100%, 0 100%, 0 var(--cx-cut));
 }
 ${U} .${s.top} {
+  background: none;
+  isolation: isolate;
+}
+${U} .${s.top}::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background: linear-gradient(180deg, rgba(var(--deep-rgb), 0.96), rgba(var(--ink-rgb), 0.7));
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 28px) 100%, 28px 100%, 0 calc(100% - 10px));
 }
@@ -180,6 +185,46 @@ ${U}::after {
   opacity: calc(var(--cx-scan) * 0.5); mix-blend-mode: multiply;
 }
 ${U} .${s.chip} { text-transform: uppercase; }
+${U} .${s.wordmark}, ${U} .${s.readoutWord}, ${U} .${s.frameLabel}, ${U} .${g.title} {
+  text-shadow: 1.5px 0 rgba(255,0,40,0.75), -1.5px 0 rgba(0,225,255,0.45), 0 0 14px rgba(var(--acc), 0.7);
+}
+${U} .${s.rxEnergy} {
+  filter: drop-shadow(2px 0 0 rgba(255,0,40,0.5)) drop-shadow(-2px 0 0 rgba(0,225,255,0.28)) drop-shadow(0 0 18px rgba(var(--acc), 0.55));
+}
+${U} .${s.backdrop}::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(var(--acc), 0.1) 100%),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(var(--acc), 0.06) 2px 3px);
+  mix-blend-mode: screen;
+}
+@media (prefers-reduced-motion: no-preference) {
+  ${U}::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -20%; height: 18%; z-index: 41;
+    pointer-events: none; background: linear-gradient(180deg, transparent, rgba(var(--acc), 0.1), transparent);
+    animation: cx-roll 6.5s linear infinite;
+  }
+  ${U} .${s.grid} { animation: cx-flicker 4.3s steps(1) infinite; }
+  ${U} .${s.frame}, ${U} .${g.box} { animation: cx-glitch 7.1s steps(1) infinite; }
+  ${U} .${s.right} > .${s.frame}:nth-child(2n), ${U} .${s.left} > .${s.frame}:nth-child(2n) { animation-delay: -2.4s; }
+  ${U} .${s.right} > .${s.frame}:nth-child(3n) { animation-delay: -4.9s; }
+  ${U} .${s.wordmark} { animation: cx-tear 5.3s steps(1) infinite; }
+  @keyframes cx-roll { to { top: 105%; } }
+  @keyframes cx-flicker {
+    0%, 100% { opacity: 1; } 91% { opacity: 0.86; } 92% { opacity: 1; } 96% { opacity: 0.92; } 97% { opacity: 1; }
+  }
+  @keyframes cx-glitch {
+    0%, 93%, 100% { transform: none; filter: none; }
+    94% { transform: translate(-3px, 0); filter: drop-shadow(3px 0 0 rgba(255,0,40,0.55)) drop-shadow(-3px 0 0 rgba(0,225,255,0.35)); }
+    96% { transform: translate(4px, 1px); filter: drop-shadow(-3px 0 0 rgba(255,0,40,0.55)); }
+    98% { transform: translate(-2px, -1px); filter: none; }
+  }
+  @keyframes cx-tear {
+    0%, 90%, 100% { transform: none; clip-path: none; }
+    92% { transform: translateX(-5px) skewX(-6deg); }
+    94% { transform: translateX(5px); clip-path: inset(40% 0 20% 0); }
+    96% { transform: translateX(-2px); }
+  }
+}
 
 ${F} .${s.frame} {
   border-radius: var(--cx-radius);

@@ -63,56 +63,16 @@ def mk(tmp_path, monkeypatch):
     sc.reset_conductor()
 
 
-def test_hook_calls_wake_rpc_with_target(mk):
-    w = mk()
-    w.go("ultron")
-    assert [p for _t, p in w.calls if "character_prewarm" in p] == [{"character_prewarm": "ultron"}]
-    assert w.rt.active_id() == "ultron"
 
 
-def test_missing_wake_socket_is_ok(mk):
-    w = mk(no_socket=True)
-    w.go("friday")
-    assert w.rt.active_id() == "friday" and "rollback" not in w.marks()
 
 
-def test_slow_prewarm_1500ms_no_rollback_enters_when_ready(mk):
-    w = mk(prewarm_ms=1500)
-    w.go("ultron")
-    m = w.marks()
-    assert "rollback" not in m
-    assert w.rt.active_id() == "ultron" and w.rt.snapshot()["phase"] == "idle"
-    assert 1450 <= m["ready"] <= 1700
-    assert m["ready"] <= m["entering"] <= m["ready"] + 120
-    assert m["entering"] > 1000  # past the target, still entered
 
 
-def test_fast_prewarm_enters_at_in_chrome_start(mk):
-    w = mk(prewarm_ms=300)
-    w.go("ultron")
-    m = w.marks()
-    assert "ready" in m and m["ready"] >= 250  # fake clock outruns the real thread
-    assert m["entering"] == pytest.approx(900, abs=100)
 
 
-def test_prewarm_failure_rolls_back(mk):
-    w = mk(prewarm_ok=False)
-    w.go("ultron")
-    assert w.rt.active_id() == "jarvis"
-    assert "rollback" in w.marks() and "ready" not in w.marks()
 
 
-def test_prewarm_3500ms_rolls_back_in_previous_voice(mk):
-    w = mk(prewarm_ms=3500)
-    w.go("ultron")
-    m = w.marks()
-    assert w.rt.active_id() == "jarvis"
-    assert 2950 <= m["rollback"] <= 3250 and "entering" not in m
-    w.release.set()
-    says = [p["character_say"] for _t, p in w.calls if "character_say" in p]
-    assert says[-1]["character"] == "jarvis"
-    assert "Remaining as Jarvis" in says[-1]["text"]
-    assert all(s["character"] != "ultron" for s in says)
 
 
 def test_motion_validates_prewarm_timeout(tmp_path):

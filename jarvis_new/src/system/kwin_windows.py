@@ -21,7 +21,9 @@ _MATCH = re.compile(r'string "\d+_(\{[0-9a-fA-F-]+\})"\s*\n\s*string "(.*)"')
 def available(env: dict | None = None) -> bool:
     """Plasma Wayland session (where wmctrl is blind). Pure (env only)."""
     env = os.environ if env is None else env
-    return bool(env.get("WAYLAND_DISPLAY")) and "KDE" in env.get("XDG_CURRENT_DESKTOP", "")
+    return bool(env.get("WAYLAND_DISPLAY")) and "KDE" in env.get(
+        "XDG_CURRENT_DESKTOP", ""
+    )
 
 
 def parse_matches(out: str) -> list[tuple[str, str]]:
@@ -32,10 +34,17 @@ def parse_matches(out: str) -> list[tuple[str, str]]:
 def _dbus(method: str, *args: str, run=subprocess.run) -> str:
     proc = run(
         [
-            "dbus-send", "--session", "--print-reply", "--dest=org.kde.KWin",
-            "/WindowsRunner", f"org.kde.krunner1.{method}", *args,
+            "dbus-send",
+            "--session",
+            "--print-reply",
+            "--dest=org.kde.KWin",
+            "/WindowsRunner",
+            f"org.kde.krunner1.{method}",
+            *args,
         ],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     return proc.stdout if proc.returncode == 0 else ""
 

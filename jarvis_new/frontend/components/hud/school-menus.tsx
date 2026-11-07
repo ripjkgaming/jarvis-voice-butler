@@ -10,8 +10,10 @@ import {
   useState,
 } from 'react';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
+import type { CalendarStatus } from '@/lib/auto-calendar';
 import { ICON_MISS_TTL_MS, bridgeAppIcon, bridgeGet, bridgeLaunch, bridgePost } from '@/lib/bridge';
 import { PowerConfirmation } from '@/lib/power-confirmation';
+import { useSharedPoll } from '@/lib/shared-poll';
 
 /** School taskbar menus. They open upward out of the bar: the shell grows
  *  the window by MENU_EXTRA (school.rs `school_menu`), the area around a
@@ -300,6 +302,7 @@ function Slider({
   muted,
   onMute,
   max = 100,
+  min = 0,
 }: {
   label: string;
   value: number;
@@ -308,6 +311,7 @@ function Slider({
   onMute?: () => void;
   /** Above 100 = boost range (PipeWire goes to 150%); marked at 100. */
   max?: number;
+  min?: number;
 }) {
   return (
     <label
@@ -329,7 +333,7 @@ function Slider({
       <input
         type="range"
         aria-label={label}
-        min={1}
+        min={min}
         max={max}
         value={value}
         style={{ '--v': `${(value / max) * 100}%` } as CSSProperties}
@@ -347,6 +351,33 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const pending = useRef<Record<string, Record<string, unknown>>>({});
   const lastEdit = useRef<Record<string, number>>({});
+  const writes = useRef<Promise<void>>(Promise.resolve());
+  const busy = useRef(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const write = (body: Record<string, unknown>, key: string) => {
+    const edit = { ...lastEdit.current };
+    busy.current++;
+    writes.current = writes.current.then(async () => {
+      try {
+        const result = await bridgePost<{ ok?: boolean; volume?: Quick['volume'] }>('/quick', body);
+        if (lastEdit.current[key] !== edit[key]) return;
+        if (
+          (key === 'volume' || key === 'mute') &&
+          (lastEdit.current.volume !== edit.volume || lastEdit.current.mute !== edit.mute)
+        )
+          return;
+        setError(result?.ok ? null : 'Could not apply quick setting. Try again.');
+        if (key === 'volume' || key === 'mute') {
+          const actual = result?.volume ?? (await bridgeGet<Quick>('/quick'))?.volume;
+          if (actual) setQ((current) => ({ ...current, volume: actual }));
+          setVol(null);
+        }
+      } finally {
+        busy.current--;
+      }
+    });
+  };
 
   useEffect(() => {
     let live = true;
@@ -356,16 +387,26 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
       clearTimeout(timer);
       if (!live || document.hidden || inFlight) return;
       inFlight = true;
+      const edit = { ...lastEdit.current };
+      const wasBusy = busy.current > 0;
       const j = await bridgeGet<Quick & { ok?: boolean }>('/quick');
       inFlight = false;
       if (!live) return;
       if (j) {
-        setQ(j);
-        // Release the drag override once a later poll can confirm the value.
-        if (Date.now() - (lastEdit.current.volume ?? 0) > 1500) setVol(null);
-        if (Date.now() - (lastEdit.current.brightness ?? 0) > 1500) setBri(null);
+        setQ((current) => ({
+          ...j,
+          volume:
+            wasBusy ||
+            busy.current > 0 ||
+            pending.current.volume ||
+            edit.volume !== lastEdit.current.volume ||
+            edit.mute !== lastEdit.current.mute
+              ? (current?.volume ?? j.volume)
+              : j.volume,
+        }));
+        if (!pending.current.brightness && busy.current === 0) setBri(null);
       }
-      if (!document.hidden) timer = setTimeout(poll, 3000);
+      if (!document.hidden) timer = setTimeout(poll, 750);
     };
     void poll();
     document.addEventListener('visibilitychange', poll);
@@ -375,7 +416,7 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
       document.removeEventListener('visibilitychange', poll);
       // Preserve the final slider value even if the menu closes before debounce.
       Object.values(timers.current).forEach(clearTimeout);
-      Object.values(pending.current).forEach((body) => void bridgePost('/quick', body));
+      Object.entries(pending.current).forEach(([key, body]) => write(body, key));
       timers.current = {};
       pending.current = {};
     };
@@ -383,17 +424,19 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
 
   const send = (body: Record<string, unknown>, then?: (q: Quick) => Quick) => {
     if (then) setQ((current) => (current ? then(current) : current));
-    void bridgePost('/quick', body);
+    const key = String(body.action);
+    lastEdit.current[key] = (lastEdit.current[key] ?? 0) + 1;
+    write(body, key);
   };
   const debounced = (key: string, body: Record<string, unknown>) => {
-    lastEdit.current[key] = Date.now();
+    lastEdit.current[key] = (lastEdit.current[key] ?? 0) + 1;
     pending.current[key] = body;
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(() => {
       delete pending.current[key];
       delete timers.current[key];
-      void bridgePost('/quick', body);
-    }, 100);
+      write(body, key);
+    }, 60);
   };
 
   const wifi = q?.wifi ?? null;
@@ -439,6 +482,7 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
           }
         />
       </div>
+      {error ? <p role="alert">{error}</p> : null}
       {volume ? (
         <Slider
           label="VOLUME"
@@ -460,6 +504,7 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
       {bright ? (
         <Slider
           label="BRIGHTNESS"
+          min={1}
           value={bri ?? bright.pct}
           onChange={(v) => {
             setBri(v);
@@ -474,6 +519,7 @@ function QuickMenu({ ambientActive }: { ambientActive: boolean }) {
 /* ------------------------------ calendar ------------------------------ */
 
 function CalendarMenu({ ambientActive }: { ambientActive: boolean }) {
+  const activity = useSharedPoll<CalendarStatus>('/auto-calendar/status', 5000, true, 15000);
   const today = new Date();
   const [offset, setOffset] = useState(0);
   const first = new Date(today.getFullYear(), today.getMonth() + offset, 1);
@@ -519,6 +565,26 @@ function CalendarMenu({ ambientActive }: { ambientActive: boolean }) {
             </span>
           )
         )}
+      </div>
+      <div className="smenu__agenda" aria-label="Calendar automation status">
+        <div>
+          <b>AUTO CALENDAR</b>
+          <span>
+            {!activity?.ok ? 'Unavailable' : activity.enabled ? 'Automatic' : 'Suggestions'}
+          </span>
+        </div>
+        <p>
+          {!activity?.ok
+            ? 'Waiting for Jarvis to reconnect.'
+            : `${(activity.pending?.length || 0) + (activity.retry?.length || 0)} need attention · ${activity.reminders?.deferred || 0} deferred reminders`}
+        </p>
+        <p>
+          {activity?.whatsapp?.connected
+            ? 'WhatsApp connected'
+            : activity?.whatsapp?.enabled
+              ? 'WhatsApp enabled · connection unverified'
+              : 'WhatsApp events disabled'}
+        </p>
       </div>
     </div>
   );

@@ -27,8 +27,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local
 from system.core import DATA_DIR, TODOS_PATH
@@ -40,6 +40,7 @@ GMAIL_RECONNECT_HINT = (
 )
 NEWS_CACHE_TTL = 15 * 60
 WEATHER_CACHE_TTL = 30 * 60
+
 
 async def _gmail_metadata_batch(token: str, messages: list[dict]) -> list[object]:
     """At most three independent GETs active, ten rows, stable source order.
@@ -915,6 +916,8 @@ class InboxTools:
         # confirm_email_action stores a draft fingerprint; gmail_send and
         # gmail_reply only fire on an exact match, then clear it.
         self._confirmed_draft: str | None = None
+        self._confirmed_request: str | None = None
+        self._confirmation_expires_at: float = 0
 
     @property
     def tools(self) -> list:
@@ -977,15 +980,63 @@ class InboxTools:
         if not _extract_email(to):
             raise ToolError(f"{to!r} is not a valid recipient address.")
         self._confirmed_draft = _draft_key(to, subject, body)
+        if os.environ.get("JARVIS_POWER_OUTBOUND_LEDGER") == "1":
+            import time
+            import uuid
+
+            self._confirmed_request = uuid.uuid4().hex
+            self._confirmation_expires_at = time.monotonic() + 300
         return f"Authorized one email to {to.strip()}."
 
-    def _consume_confirm(self, to: str, subject: str, body: str) -> None:
+    def _consume_confirm(self, to: str, subject: str, body: str) -> str | None:
+        if os.environ.get("JARVIS_AUTO_APPROVE", "1") != "0":
+            self._confirmed_draft = self._confirmed_request = None
+            return None  # owner pre-approved sends
+        if os.environ.get("JARVIS_POWER_OUTBOUND_LEDGER") == "1":
+            import time
+
+            if (
+                not self._confirmed_request
+                or time.monotonic() >= self._confirmation_expires_at
+            ):
+                self._confirmed_draft = None
+                self._confirmed_request = None
+                raise ToolError(
+                    "Email approval expired. Please review and approve again."
+                )
         if self._confirmed_draft != _draft_key(to, subject, body):
             raise ToolError(
                 "That email is not authorized. Read the draft back and ask "
                 "the user to confirm it before sending."
             )
         self._confirmed_draft = None
+        request_id = self._confirmed_request
+        self._confirmed_request = None
+        return request_id
+
+    @staticmethod
+    def _ledger_claim(request_id, action, to, subject, body):
+        if not request_id:
+            return None
+        from power_foundation.integration import home
+        from power_foundation.operations import OutboundLedger, fingerprint
+
+        ledger = OutboundLedger(home() / "foundation" / "outbound.sqlite3")
+        if not ledger.claim(
+            request_id,
+            action,
+            fingerprint(
+                {
+                    "to": to.casefold(),
+                    "subject": subject,
+                    "body": body,
+                }
+            ),
+        ):
+            raise ToolError(
+                "This approved action was already attempted. Review before retry."
+            )
+        return ledger
 
     @function_tool()
     async def gmail_send(
@@ -1012,11 +1063,20 @@ class InboxTools:
             raise ToolError("An email needs a body.")
         if len(body) > 10_000:
             raise ToolError("That body is too long (10k character cap).")
-        self._consume_confirm(to_addr, subject, body)
-        token = await asyncio.to_thread(_gmail_access_token)
-        sent = await asyncio.to_thread(
-            _gmail_send_api, token, build_mime_b64(to_addr, subject, body)
-        )
+        request_id = self._consume_confirm(to_addr, subject, body)
+        ledger = self._ledger_claim(request_id, "gmail_send", to_addr, subject, body)
+        try:
+            token = await asyncio.to_thread(_gmail_access_token)
+            sent = await asyncio.to_thread(
+                _gmail_send_api, token, build_mime_b64(to_addr, subject, body)
+            )
+        except BaseException:
+            # Network uncertainty means the mail may have been dispatched.
+            if ledger:
+                ledger.settle(request_id, "failed_unverified")
+            raise
+        if ledger:
+            ledger.settle(request_id, "completed_unverified")
         log_action("gmail", f"send to={to_addr} id={str(sent.get('id', ''))[:20]}")
         _mail_log("sent", to=to_addr, subject=subject, body=body)
         return {"say": f"Sent to {to_addr}: {subject[:120]}."}
@@ -1058,21 +1118,31 @@ class InboxTools:
         orig_from = _extract_email(_header(full, "From"))
         if not orig_from:
             raise ToolError("I could not tell who sent that email.")
-        self._consume_confirm(orig_from, reply_subject, body)
+        request_id = self._consume_confirm(orig_from, reply_subject, body)
+        ledger = self._ledger_claim(
+            request_id, "gmail_reply", orig_from, reply_subject, body
+        )
         message_id = _header(full, "Message-ID")
         thread_id = str(full.get("threadId", "") or "")
-        sent = await asyncio.to_thread(
-            _gmail_send_api,
-            token,
-            build_mime_b64(
-                orig_from,
-                reply_subject,
-                body,
-                message_id,
-                references=_header(full, "References"),
-            ),
-            thread_id or None,
-        )
+        try:
+            sent = await asyncio.to_thread(
+                _gmail_send_api,
+                token,
+                build_mime_b64(
+                    orig_from,
+                    reply_subject,
+                    body,
+                    message_id,
+                    references=_header(full, "References"),
+                ),
+                thread_id or None,
+            )
+        except BaseException:
+            if ledger:
+                ledger.settle(request_id, "failed_unverified")
+            raise
+        if ledger:
+            ledger.settle(request_id, "completed_unverified")
         log_action("gmail", f"reply {msg_id[:20]} id={str(sent.get('id', ''))[:20]}")
         _mail_log("sent", to=orig_from, subject=reply_subject, body=body)
         return {"say": f"Replied to {orig_from}: {reply_subject[:120]}."}

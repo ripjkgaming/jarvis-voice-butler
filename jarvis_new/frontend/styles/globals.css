@@ -142,6 +142,15 @@ html:root {
   }
 }
 
+/* Overlay HUD window (Tauri, transparent: true): nothing may paint an opaque
+   page background, or the wallpaper cannot show through. color-scheme must not
+   be dark here either (a dark scheme gives the canvas an opaque dark colour). */
+html[data-overlay],
+html[data-overlay] body {
+  background: transparent !important;
+  color-scheme: normal !important;
+}
+
 .jarvis-background {
   position: fixed;
   inset: 0;
@@ -5659,4 +5668,31 @@ canvas[data-ambient-particles] {
   background: none;
   box-shadow: none;
   color: #5af0a0;
+}
+
+/* Calendar automation: compact read-only state inside the unfocusable school menu. */
+.smenu__agenda {
+  margin: 0 14px 14px;
+  padding: 12px 2px 0;
+  border-top: 1px solid var(--line);
+}
+.smenu__agenda > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+}
+.smenu__agenda b {
+  color: var(--sbar-accent);
+  letter-spacing: .12em;
+}
+.smenu__agenda span {
+  color: var(--subtle);
+}
+.smenu__agenda p {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font-size: 10px;
+  line-height: 1.4;
 }

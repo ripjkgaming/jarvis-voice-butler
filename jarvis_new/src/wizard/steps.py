@@ -5,13 +5,13 @@ executes the install/probe. The runner consults persisted state and
 skips green steps unless ``--force``. A step is marked green only when
 its check passes after run; run failures mark it red (so a rerun retries).
 
-Steps (plan order): sysdeps -> livekit -> venvs -> models -> keys ->
-audio -> gate. I/O steps shell out via the module helpers above.
+Steps (plan order): sysdeps -> venvs -> models -> keys -> audio -> gate.
+The voice transport is in-repo (agent worker hub), so there is no LiveKit
+server step. I/O steps shell out via the module helpers above.
 """
 
 from __future__ import annotations
 
-import contextlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,71 +72,6 @@ def _sysdeps_run() -> str:
     if not results:
         return ""
     return "run these (sudo may prompt), then rerun the wizard:\n" + "\n".join(results)
-
-
-def _livekit_check() -> tuple[str, str]:
-    from wizard.livekit import resolve_livekit_bin
-
-    bin_path = resolve_livekit_bin()
-    if bin_path.is_file() and os.access(bin_path, os.X_OK):
-        return GREEN, f"livekit-server present ({bin_path})"
-    return AMBER, f"livekit-server missing ({bin_path})"
-
-
-def _livekit_run() -> str:
-    from wizard.livekit import (
-        build_livekit_yaml,
-        ensure_archive,
-        generate_keypair,
-        livekit_env_updates,
-        resolve_livekit_bin,
-        write_env,
-    )
-
-    home = os.environ.get("JARVIS_HOME", "").strip() or str(Path.home() / ".jarvis")
-    bin_path = resolve_livekit_bin(home)
-    try:
-        ensure_archive(bin_path)
-    except Exception as exc:
-        return f"livekit-server download failed: {exc}"
-
-    # Preserve an existing keypair so the yaml + env files stay in sync
-    # across reruns; only generate fresh when nothing exists yet.
-    yaml_path = Path(home) / "livekit.yaml"
-    api_key, api_secret = _read_existing_keypair(yaml_path) or generate_keypair()
-    yaml_path.write_text(build_livekit_yaml(api_key, api_secret))
-    with contextlib.suppress(OSError):
-        os.chmod(yaml_path, 0o600)
-
-    repo = repo_root()
-    url = "ws://127.0.0.1:7880"
-    updates = livekit_env_updates(url, api_key, api_secret)
-    write_env(repo / ".env.local", updates)
-    write_env(repo / "frontend" / ".env.local", updates)
-    return ""
-
-
-def _read_existing_keypair(yaml_path: Path) -> tuple[str, str] | None:
-    """Parse the api key + secret out of an existing livekit.yaml. Pure."""
-    try:
-        lines = yaml_path.read_text().splitlines()
-    except OSError:
-        return None
-    in_keys = False
-    key = secret = ""
-    for line in lines:
-        stripped = line.strip()
-        if stripped == "keys:":
-            in_keys = True
-            continue
-        if in_keys and stripped and not stripped.startswith("#") and ":" in stripped:
-            k, _, v = stripped.partition(":")
-            if not key:
-                key = k.strip()
-            secret = v.strip()
-    if key and secret:
-        return key, secret
-    return None
 
 
 def _venvs_check() -> tuple[str, str]:
@@ -272,13 +207,6 @@ STEPS: list[Step] = [
         _sysdeps_check,
         _sysdeps_run,
         10,
-    ),
-    Step(
-        "livekit",
-        "Bundled livekit-server + local config",
-        _livekit_check,
-        _livekit_run,
-        20,
     ),
     Step("venvs", "Python venvs (uv sync x2)", _venvs_check, _venvs_run, 30),
     Step("models", "Piper voice + wake-word models", _models_check, _models_run, 40),

@@ -84,7 +84,9 @@ def _other_wake_re() -> re.Pattern[str] | None:
         for cid, ch in get_runtime().chars.items():
             if cid != "jarvis":
                 names.update(
-                    re.escape(clean(n)) for n in (*ch.wake_names, ch.spoken_name) if clean(n)
+                    re.escape(clean(n))
+                    for n in (*ch.wake_names, ch.spoken_name)
+                    if clean(n)
                 )
         if not names:
             return None

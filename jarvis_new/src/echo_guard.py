@@ -34,6 +34,8 @@ _AFFIRM = frozenset(
         "confirm",
         "cancel",
         "stop",
+        "repeat",
+        "restate",
     ]
 )
 _AFFIRM_MAX_WORDS = 8
@@ -48,48 +50,26 @@ def _words(text: str) -> list[str]:
 class EchoGuard:
     def __init__(self, window_s: float = WINDOW_S) -> None:
         self.window_s = window_s
-        self.speaking = False
-        self._said: deque[tuple[float, list[str]]] = deque(maxlen=32)
+        self._said: deque[tuple[float, set[str]]] = deque(maxlen=32)
 
     def note_agent(self, text: str, now: float | None = None) -> None:
-        words = _words(text)
+        words = set(_words(text))
         if words:
             self._said.append((time.monotonic() if now is None else now, words))
 
     def is_echo(self, transcript: str, now: float | None = None) -> bool:
         """True when 80%+ of a 4+ word transcript is vocabulary Jarvis just used."""
         heard = _words(transcript)
-        if not heard:
+        if len(heard) < MIN_WORDS:
             return False
         if heard[0] in _AFFIRM and len(heard) <= _AFFIRM_MAX_WORDS:
             return False
         t = time.monotonic() if now is None else now
+        recent: set[str] = set()
         for at, words in self._said:
-            if t - at > self.window_s:
-                continue
-            if len(heard) < MIN_WORDS:
-                # Three-word exact fragments are useful only during active
-                # playout. Short controls and confirmations remain user input.
-                if (
-                    self.speaking
-                    and len(heard) >= 3
-                    and any(
-                        words[i : i + len(heard)] == heard
-                        for i in range(len(words) - len(heard) + 1)
-                    )
-                ):
-                    return True
-                continue
-            # Ordered matching avoids suppressing a real command composed of
-            # the same vocabulary as our previous sentence.
-            cursor = 0
-            hits = 0
-            for word in heard:
-                try:
-                    cursor = words.index(word, cursor) + 1
-                    hits += 1
-                except ValueError:
-                    pass
-            if hits / len(heard) >= MIN_COVERAGE:
-                return True
-        return False
+            if t - at <= self.window_s:
+                recent |= words
+        if not recent:
+            return False
+        hit = sum(1 for w in heard if w in recent)
+        return hit / len(heard) >= MIN_COVERAGE

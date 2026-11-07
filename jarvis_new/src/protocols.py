@@ -107,24 +107,43 @@ _VERB_RUN = r"(?:initiate|execute|engage|activate|run|launch|start)"
 _VERB_SET = r"(?:assign|set|bind|map|link|attach|program)"
 _LEAD = r"^(?:please\s+|can you\s+|could you\s+)?"
 
-_RUN = re.compile(_LEAD + _VERB_RUN + r"\s+protocol\s+(?:number\s+)?" + _NUM + r"[.!]?$")
+_RUN = re.compile(
+    _LEAD + _VERB_RUN + r"\s+protocol\s+(?:number\s+)?" + _NUM + r"[.!]?$"
+)
 _ASSIGN = re.compile(
-    _LEAD + _VERB_SET + r"\s+protocol\s+(?:number\s+)?" + _NUM + r"\s+(?:to|as|for|so that|so it)\s+(.+)$"
+    _LEAD
+    + _VERB_SET
+    + r"\s+protocol\s+(?:number\s+)?"
+    + _NUM
+    + r"\s+(?:to|as|for|so that|so it)\s+(.+)$"
 )
 _ASSIGN_REV = re.compile(
-    _LEAD + _VERB_SET + r"\s+(.+?)\s+(?:to|as|on)\s+protocol\s+(?:number\s+)?" + _NUM + r"[.!]?$"
+    _LEAD
+    + _VERB_SET
+    + r"\s+(.+?)\s+(?:to|as|on)\s+protocol\s+(?:number\s+)?"
+    + _NUM
+    + r"[.!]?$"
 )
 _FLAG = re.compile(
-    _LEAD + r"(?:make|set|mark)\s+protocol\s+(?:number\s+)?" + _NUM + r"\s+(hidden|silent|visible|audible|quiet|loud)[.!]?$"
+    _LEAD
+    + r"(?:make|set|mark)\s+protocol\s+(?:number\s+)?"
+    + _NUM
+    + r"\s+(hidden|silent|visible|audible|quiet|loud)[.!]?$"
 )
 _CLEAR = re.compile(
-    _LEAD + r"(?:clear|unassign|remove|delete|forget|unbind)\s+protocol\s+(?:number\s+)?" + _NUM + r"[.!]?$"
+    _LEAD
+    + r"(?:clear|unassign|remove|delete|forget|unbind)\s+protocol\s+(?:number\s+)?"
+    + _NUM
+    + r"[.!]?$"
 )
 _LIST = re.compile(
-    _LEAD + r"(?:list|show|read)(?:\s+(?:me\s+)?(?:all\s+)?(?:my\s+)?(?:the\s+)?)?protocols?[.!]?$"
+    _LEAD
+    + r"(?:list|show|read)(?:\s+(?:me\s+)?(?:all\s+)?(?:my\s+)?(?:the\s+)?)?protocols?[.!]?$"
     r"|^what protocols (?:do i have|are (?:assigned|set))[.?!]?$"
 )
-_STAND_DOWN = re.compile(r"^(?:jarvis[,\s]+)?(?:stand down|stand-down|abort protocol|disengage)[.!]?$")
+_STAND_DOWN = re.compile(
+    r"^(?:jarvis[,\s]+)?(?:stand down|stand-down|abort protocol|disengage)[.!]?$"
+)
 
 
 def parse_number(token: str) -> int | None:
@@ -172,17 +191,30 @@ def parse(text: str) -> dict | None:
             return None
         word = m.group(2)
         flag = "hidden" if word in ("hidden", "visible") else "silent"
-        return {"op": "flag", "n": n, "flag": flag, "value": word in ("hidden", "silent", "quiet")}
+        return {
+            "op": "flag",
+            "n": n,
+            "flag": flag,
+            "value": word in ("hidden", "silent", "quiet"),
+        }
     m = _ASSIGN.match(t)
     if m:
         n = parse_number(m.group(1))
         action = m.group(2).strip(" .!")
-        return {"op": "assign", "n": n, "action": action} if n is not None and action else None
+        return (
+            {"op": "assign", "n": n, "action": action}
+            if n is not None and action
+            else None
+        )
     m = _ASSIGN_REV.match(t)
     if m:
         n = parse_number(m.group(2))
         action = m.group(1).strip(" .!")
-        return {"op": "assign", "n": n, "action": action} if n is not None and action else None
+        return (
+            {"op": "assign", "n": n, "action": action}
+            if n is not None and action
+            else None
+        )
     return None
 
 
@@ -199,7 +231,9 @@ def notice() -> dict[str, Any]:
     return dict(_notice)
 
 
-def _reply(text: str, *, ok: bool = True, silent: bool = False, notice_text: str | None = None) -> dict:
+def _reply(
+    text: str, *, ok: bool = True, silent: bool = False, notice_text: str | None = None
+) -> dict:
     """Result dict. ``say`` is what is spoken; "" means say nothing."""
     if notice_text is None:
         notice_text = text
@@ -250,7 +284,9 @@ def handle(
         if op == "assign":
             action = str(cmd["action"]).strip()
             if action.startswith("builtin:"):
-                return _reply("Builtin protocols cannot be assigned by voice.", ok=False)
+                return _reply(
+                    "Builtin protocols cannot be assigned by voice.", ok=False
+                )
             keep = rec or {}
             data[key] = {
                 "action": action,
@@ -270,7 +306,9 @@ def handle(
                 return _reply(f"Protocol {n} is unassigned.", ok=False)
             rec[cmd["flag"]] = bool(cmd["value"])
             save(data, path)
-            return _reply(f"Protocol {n} is now {'' if cmd['value'] else 'not '}{cmd['flag']}.")
+            return _reply(
+                f"Protocol {n} is now {'' if cmd['value'] else 'not '}{cmd['flag']}."
+            )
     return {"ok": False, "say": "", "error": "unknown protocol op"}
 
 
@@ -316,8 +354,10 @@ def _default_text(action: str) -> bool:
         from bridge import handle_route
 
         code, payload = handle_route({"text": action})
-        return code == 200 and bool(payload.get("ok")) and (
-            (payload.get("action") or {}).get("ok", True) is not False
+        return (
+            code == 200
+            and bool(payload.get("ok"))
+            and ((payload.get("action") or {}).get("ok", True) is not False)
         )
     except Exception:
         return False

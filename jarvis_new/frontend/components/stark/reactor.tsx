@@ -1,31 +1,105 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef } from 'react';
 import { AsciiReactor } from '@/components/ascii/ascii-reactor';
-import { VoiceLinkReticle } from '@/components/hud/voice-link';
 import type { JarvisState } from '@/hooks/hud/use-jarvis-state';
+import { useAscii } from '@/lib/character/hooks';
 import type { VoiceLink } from '@/lib/voice-link';
+import { ClassicReactorEnergy } from './classic';
+import { arc, pt } from './geometry';
+import intro from './intro.module.css';
 import { type Metrics, fmtBytes, metricWarnings, reactorWarnings } from './metrics';
 import { ReactorWarningLight } from './reactor-plasma';
+import { ReactorProgress } from './reactor-progress';
 import s from './stark.module.css';
+import { WALL_FRAME_EVENT, refreshWallFrame, wallEmblemOnScreen } from './wall-emblem';
 
-/** Coordinates rounded to 0.01: the static export and the webview disagree
- *  in the last float digit, which breaks hydration. */
 const MUTED = '#6b7280';
 
-const r2 = (v: number) => Math.round(v * 100) / 100;
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-function pt(r: number, deg: number): [number, number] {
-  const a = (deg * Math.PI) / 180;
-  return [r2(r * Math.cos(a)), r2(r * Math.sin(a))];
-}
+/** The ASCII sphere / scale ring radius in reactor viewBox units (880 x 600). */
+const ORB_RADIUS_UNITS = 276;
+/** How far the registration may move / grow the reactor (keeps a small or
+ *  windowed overlay sane: the wallpaper emblem only lines up when the window
+ *  covers the screen). */
+const ALIGN_MAX_SCALE = 1.15;
+const ALIGN_MIN_SCALE = 0.8;
 
-/** SVG arc from a0 to a1 degrees (clockwise, 0 = east). */
-function arc(r: number, a0: number, a1: number): string {
-  const [x0, y0] = pt(r, a0);
-  const [x1, y1] = pt(r, a1);
-  const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
-  return `M${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
+/** Register the live orb over the wallpaper's static emblem: translate + scale
+ *  the reactor box so its outer ring has the emblem's centre and radius
+ *  (wall-emblem.ts). Measured un-transformed, re-run on resize. */
+function useWallRegistration(ref: React.RefObject<HTMLDivElement | null>): void {
+  useIsoLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const apply = () => {
+      el.style.setProperty('--wx', '0px');
+      el.style.setProperty('--wy', '0px');
+      el.style.setProperty('--wk', '1');
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      if (r.width < 40 || r.height < 40 || vh < 200) return;
+      const unit = r.width / 880;
+      const target = wallEmblemOnScreen(vw, vh);
+      const k = Math.max(
+        ALIGN_MIN_SCALE,
+        Math.min(ALIGN_MAX_SCALE, target.r / (ORB_RADIUS_UNITS * unit))
+      );
+      const dx = Math.max(-0.1 * vw, Math.min(0.1 * vw, target.cx - (r.left + r.width / 2)));
+      const dy = Math.max(-0.12 * vh, Math.min(0.16 * vh, target.cy - (r.top + r.height / 2)));
+      el.style.setProperty('--wx', `${dx.toFixed(1)}px`);
+      el.style.setProperty('--wy', `${dy.toFixed(1)}px`);
+      el.style.setProperty('--wk', k.toFixed(4));
+      // dev self-check: window.__jarvisAlign.check() re-measures the live orb
+      // against the wallpaper emblem (residuals should be ~0 px).
+      const w = window as unknown as { __jarvisAlign?: Record<string, unknown> };
+      w.__jarvisAlign = {
+        ...w.__jarvisAlign,
+        dx,
+        dy,
+        k,
+        target,
+        check: () => {
+          const b = el.getBoundingClientRect();
+          const live = {
+            cx: b.left + b.width / 2,
+            cy: b.top + b.height / 2,
+            r: ORB_RADIUS_UNITS * (b.width / 880),
+          };
+          return {
+            dx: live.cx - target.cx,
+            dy: live.cy - target.cy,
+            dr: live.r - target.r,
+            live,
+            target,
+          };
+        },
+      };
+    };
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(apply);
+    };
+    apply();
+    refreshWallFrame();
+    const onResize = () => {
+      schedule();
+      refreshWallFrame();
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener(WALL_FRAME_EVENT, schedule);
+    const ro = new ResizeObserver(schedule);
+    if (el.parentElement) ro.observe(el.parentElement);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener(WALL_FRAME_EVENT, schedule);
+      ro.disconnect();
+    };
+  }, [ref]);
 }
 
 const TICKS = Array.from({ length: 120 }, (_, i) => i);
@@ -34,9 +108,9 @@ const DEGREE_LABELS = Array.from({ length: 12 }, (_, i) => i * 30);
 /** Static scale ring: 120 ticks + bearings. Never re-renders. */
 const ScaleRing = memo(function ScaleRing() {
   return (
-    <g className={s.rxScale}>
-      <circle r="276" className={s.rxHair} />
-      <circle r="252" className={s.rxHairFaint} />
+    <g className={s.rxScale} data-ix-layer="6">
+      <circle r="276" className={s.rxHair} pathLength={1} data-ix-draw />
+      <circle r="252" className={s.rxHairFaint} pathLength={1} data-ix-draw />
       {TICKS.map((i) => {
         const deg = i * 3;
         const major = i % 10 === 0;
@@ -89,14 +163,17 @@ function DataCallout({ c }: { c: Callout }) {
   const mid = (c.from + c.to) / 2;
   const [mx, my] = pt(DATA_R, mid);
   const [kx, ky] = pt(DATA_R + 56, mid);
-  const ex = c.side === 'left' ? -312 : 312;
-  const tx = c.side === 'left' ? -430 : 430;
+  // Text columns sit well inside the reactor box: the orb is registered onto the
+  // wallpaper emblem (shifted/scaled), so the old +-430 text edge ran under the
+  // side panels and clipped the unit ("12 GB" -> "12").
+  const ex = c.side === 'left' ? -272 : 272;
+  const tx = c.side === 'left' ? -372 : 372;
   const anchor = c.side === 'left' ? 'start' : 'end';
   const fill = c.from + ((c.to - c.from) * Math.max(0, Math.min(100, c.pct))) / 100;
   const labelY = c.up ? ky - 28 : ky + 14;
   const valueY = c.up ? ky - 6 : ky + 38;
   return (
-    <g className={s.rxCallout} data-warn={c.warn ? 'true' : undefined}>
+    <g className={s.rxCallout} data-warn={c.warn ? 'true' : undefined} data-ix-layer="7">
       <path d={arc(DATA_R, c.from, c.to)} className={s.rxDataTrack} />
       {c.pct > 0.5 ? <path d={arc(DATA_R, c.from, fill)} className={s.rxDataFill} /> : null}
       <path d={`M${mx} ${my} L${kx} ${ky} H${ex}`} className={s.rxLeader} />
@@ -192,26 +269,42 @@ export function Reactor({
   muted: boolean;
 }) {
   const warning = reactorWarnings(m, muted, link.phase);
+  const ascii = useAscii();
+  const ref = useRef<HTMLDivElement>(null);
+  useWallRegistration(ref);
   return (
-    <div className={s.reactor} data-energizing={link.joining && !muted ? 'true' : undefined}>
-      <VoiceLinkReticle link={link} />
-      <svg className={s.rxStatic} viewBox="-440 -300 880 600" aria-hidden="true">
-        <ScaleRing />
-        {callouts(m).map((c) => (
-          <DataCallout key={c.key} c={c} />
-        ))}
-      </svg>
-      <div className={s.rxEnergy} data-reactor-energy="true" aria-hidden="true">
-        <AsciiReactor
-          className={s.rxLayer}
-          color={muted ? MUTED : color}
-          jarvis={jarvis}
-          muted={muted}
-          activation={link.activation}
-          energizing={link.joining && !muted}
-        />
+    <div ref={ref} className={s.reactor} data-hud-reactor="true">
+      <div className={intro.orbBody}>
+        <i className={intro.orbGlow} aria-hidden="true" />
+        <svg className={s.rxStatic} viewBox="-440 -300 880 600" aria-hidden="true">
+          <ScaleRing />
+          {callouts(m).map((c) => (
+            <DataCallout key={c.key} c={c} />
+          ))}
+        </svg>
+        <div
+          className={s.rxEnergy}
+          data-reactor-energy="true"
+          data-ix-layer={ascii ? '0' : undefined}
+          aria-hidden="true"
+        >
+          {ascii ? (
+            <AsciiReactor
+              className={s.rxLayer}
+              color={muted ? MUTED : color}
+              jarvis={jarvis}
+              muted={muted}
+              activation={link.activation}
+            />
+          ) : (
+            <ClassicReactorEnergy color={color} jarvis={jarvis} muted={muted} />
+          )}
+        </div>
+        <ReactorProgress />
+        <ReactorWarningLight warning={warning} />
       </div>
-      <ReactorWarningLight warning={warning} />
+      <i className={intro.orbWave} aria-hidden="true" />
+      <i className={intro.orbWave} aria-hidden="true" />
     </div>
   );
 }

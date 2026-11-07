@@ -1,0 +1,8 @@
+{
+  "iterations": 50,
+  "notes": 24,
+  "paragraphs_per_note": 48,
+  "cold_recall_ms_median": 1.5562,
+  "warm_recall_ms_median": 1.0793,
+  "speedup": 1.442
+}

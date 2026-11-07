@@ -227,3 +227,9 @@ async def test_live_video_rate_and_budget(monkeypatch):
     observer._video_frames = 7200
     with pytest.raises(ScreenError, match="budget"):
         await observer.video_frame()
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

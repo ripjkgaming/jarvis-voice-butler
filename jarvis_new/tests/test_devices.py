@@ -1,5 +1,5 @@
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system.devices import (
     DeviceTools,
@@ -41,6 +41,9 @@ def test_logical_monitors_m1_m2_m3() -> None:
     assert m["M1"] == "DP-1"
     assert m["M2"] == "eDP-1"
     assert m["M3"] == "HDMI-A-2"
+    actual = logical_monitors(["HDMI-A-2", "DP-1", "eDP-1"])
+    assert actual["M1"] == "HDMI-A-2"
+    assert actual["M3"] == "DP-1"
 
 
 def test_logical_monitors_laptop_only() -> None:

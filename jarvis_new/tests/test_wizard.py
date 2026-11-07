@@ -1,9 +1,9 @@
-"""Wizard pure-logic tests: state, deps catalog, livekit builders,
+"""Wizard pure-logic tests: state, deps catalog, env helpers,
 venv commands, model paths, HF cache audit. No network, no sounddevice."""
 
 from __future__ import annotations
 
-from wizard import deps, gate, livekit, models, steps, venvs
+from wizard import deps, gate, keys, livekit, models, steps, venvs
 from wizard.state import WizardState, state_path
 
 # ------------------------------------------------------------------ state
@@ -151,62 +151,7 @@ def test_tool_installed_via_flatpak_or_binary(monkeypatch) -> None:
     assert sober.installed(which=lambda b: None) is False
 
 
-# ---------------------------------------------------------------- livekit
-
-
-def test_arch_golang_maps_common_machines(monkeypatch) -> None:
-    monkeypatch.setattr(
-        livekit.os, "uname", lambda: type("U", (), {"machine": "x86_64"})
-    )
-    assert livekit.arch_golang() == "amd64"
-    monkeypatch.setattr(
-        livekit.os, "uname", lambda: type("U", (), {"machine": "aarch64"})
-    )
-    assert livekit.arch_golang() == "arm64"
-
-
-def test_download_url_is_per_arch(monkeypatch) -> None:
-    url = livekit.download_url("1.13.7", "arm64")
-    assert url.endswith("livekit_1.13.7_linux_arm64.tar.gz")
-    assert "releases/download/v1.13.7/" in url
-
-
-def test_keypair_shapes() -> None:
-    key, secret = livekit.generate_keypair(rand=lambda n: b"a" * n)
-    assert key == "devkey"
-    assert len(secret) == livekit.DEFAULT_KEY_LEN * 2  # hex of 32 bytes
-
-
-def test_livekit_yaml_content() -> None:
-    text = livekit.build_livekit_yaml("devkey", "deadbeef")
-    assert "port: 7880" in text
-    assert "devkey: deadbeef" in text
-    assert "127.0.0.1" in text
-    assert "empty_timeout: 60" in text
-    assert "enabled: false" in text  # TURN off
-
-
-def test_livekit_yaml_uses_only_real_server_keys() -> None:
-    """Phase 4.5 guard: livekit-server has NO egress-firewall/allowlist
-    config (verified against v1.13.7 `help-verbose` + docs: "egress" there
-    is the separate     recording service, not a firewall). The generated
-    config must therefore stay within the real key set — a fake `egress:`
-    stanza would achieve zero restriction while risking a strict-parse
-    boot failure. Real containment is OS-level (owner sudo, post-v1)."""
-    text = livekit.build_livekit_yaml("devkey", "deadbeef")
-    top_keys = {
-        line.split(":")[0]
-        for line in text.splitlines()
-        if line and not line.startswith((" ", "#"))
-    }
-    assert top_keys <= {"port", "bind_addresses", "keys", "rtc", "room", "turn"}, (
-        top_keys
-    )
-
-
-def test_resolve_livekit_bin_prefers_env(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("JARVIS_LIVEKIT_BIN", str(tmp_path / "custom"))
-    assert livekit.resolve_livekit_bin() == tmp_path / "custom"
+# ---------------------------------------------------------------- env
 
 
 def test_read_write_env_merge(tmp_path) -> None:
@@ -305,6 +250,51 @@ def test_voice_dir_honors_jarvis_home(tmp_path, monkeypatch) -> None:
 
 
 # ------------------------------------------------------------------ steps
+
+
+def test_step_order_has_no_livekit_and_is_strictly_ordered() -> None:
+    ids = steps.STEP_IDS
+    assert ids == ["sysdeps", "venvs", "models", "keys", "audio", "gate"]
+    assert "livekit" not in ids
+    assert steps.step_by_id("livekit") is None
+    orders = [s.order for s in steps.ORDER]
+    assert orders == sorted(orders) and len(set(orders)) == len(orders)
+    assert steps.step_by_id("venvs").order < steps.step_by_id("gate").order
+
+
+def test_stale_livekit_yaml_and_env_are_tolerated(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    yaml_path = home / "livekit.yaml"
+    yaml_path.write_text("keys:\n  devkey: deadbeef\n")
+    repo = tmp_path / "repo"
+    (repo / "frontend").mkdir(parents=True)
+    env = repo / ".env.local"
+    env.write_text(
+        "LIVEKIT_URL=ws://127.0.0.1:7880\nLIVEKIT_API_KEY=devkey\n"
+        "LIVEKIT_API_SECRET=deadbeef\nGOOGLE_API_KEY=g-key\n"
+    )
+    monkeypatch.setenv("JARVIS_HOME", str(home))
+
+    report = livekit.legacy_livekit_state(home, [env])
+    assert report["yaml"] is True
+    assert report["env_keys"] == [
+        "LIVEKIT_URL",
+        "LIVEKIT_API_KEY",
+        "LIVEKIT_API_SECRET",
+    ]
+    # Read-only: stale files are neither deleted nor rewritten.
+    assert yaml_path.read_text() == "keys:\n  devkey: deadbeef\n"
+    assert "LIVEKIT_API_SECRET=deadbeef" in env.read_text()
+
+    # Keys step still reads the Google key and ignores LIVEKIT_* entirely.
+    summary = keys.keys_summary(repo)
+    assert summary["google"] is True
+
+
+def test_legacy_state_empty_when_nothing_stale(tmp_path) -> None:
+    report = livekit.legacy_livekit_state(tmp_path, [tmp_path / "missing.env"])
+    assert report == {"yaml": False, "env_keys": []}
 
 
 def test_repo_root_prefers_env_and_walks_up(monkeypatch, tmp_path) -> None:

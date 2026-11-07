@@ -224,9 +224,11 @@ def main() -> None:
             "response_type": "code",
             "scope": " ".join(scopes),
             "access_type": "offline",
-            # select_account: always show the picker so Sir can choose his
-            # school account when connecting --account school.
-            "prompt": "select_account consent",
+            # For the saved personal profile, nudge Google toward the exact
+            # account we validate below. School connections still show the
+            # account picker.
+            "prompt": "consent" if profile else "select_account consent",
+            **({"login_hint": profile["email"]} if profile else {}),
         }
     )
     print("Opening the consent page in your browser...")

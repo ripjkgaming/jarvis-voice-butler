@@ -631,3 +631,39 @@ def test_monitors_native_kde_and_negative_coordinates():
         )
 
     assert watch_mode.monitors(run) == [(-1920, 0, 1920, 1080)]
+
+
+def test_intro_marker_is_fresh_then_expires(tmp_path, monkeypatch):
+    import watch_mode
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    watch_mode.state_dir().mkdir(parents=True)
+    assert watch_mode.read_intro() is None
+    watch_mode.write_intro(now=1000.0)
+    got = watch_mode.read_intro(now=1001.0)
+    assert got == {
+        "at": 1000.0,
+        "blackout_at": watch_mode.INTRO_BLACKOUT_AT_S,
+        "cover": watch_mode.INTRO_COVER_S,
+    }
+    assert watch_mode.read_intro(now=1000.0 + watch_mode.INTRO_HUD_S + 1) is None
+    assert watch_mode.read_intro(now=999.0) is None
+
+
+def test_intro_marker_corrupt_is_none(tmp_path, monkeypatch):
+    import watch_mode
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    watch_mode.state_dir().mkdir(parents=True)
+    watch_mode.intro_path().write_text("{not json")
+    assert watch_mode.read_intro() is None
+
+
+def test_launch_writes_intro(tmp_path, monkeypatch):
+    import watch_mode
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(watch_mode, "enter_guest", lambda: None)
+    watch_mode.state_dir().mkdir(parents=True)
+    assert watch_mode.launch(popen=lambda *a, **k: None)["ok"]
+    assert watch_mode.read_intro() is not None

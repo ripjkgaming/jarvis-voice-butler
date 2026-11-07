@@ -17,8 +17,8 @@ import json
 import urllib.request
 import uuid
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 POLL_S = 15.0
 TERMINAL = {"done", "failed", "blocked", "cancelled", "timed_out"}
@@ -76,6 +76,8 @@ class ProjectTools:
         return [
             self.research_project,
             self.code_project,
+            self.code_followup,
+            self.code_jobs,
             self.open_projects,
             self.list_archive,
             self.navigate_archive,
@@ -143,12 +145,13 @@ class ProjectTools:
         directory: str = "",
         effort: str = "",
     ) -> dict[str, str]:
-        """Delegate a CODING request to the dedicated headless Assigner.
+        """Delegate a CODING request to Claude Code (Sonnet 5.5).
 
-        For "write / build / fix / refactor code", "make me a script that…".
-        Queues read-only workers that return code or patches to the Project
-        Archive for owner review. This tool does not approve file changes,
-        deployment, external messages, or other consequential actions.
+        For "write / build / fix / refactor code", "make me a script that…",
+        and tasks on Jarvis himself ("restart yourself"). Claude Code does
+        the work for real (edits, runs, verifies) in the background and
+        sends Sir progress updates. Pass Sir's request as given; no file
+        names or details are needed from him, the job expands it.
 
         Args:
             task: The complete coding task, with every detail Sir gave.
@@ -172,24 +175,72 @@ class ProjectTools:
             if call_id
             else uuid.uuid4().hex
         )
-        body = {
-            "kind": "code",
-            "task": task,
-            "directory": directory.strip(),
-            "request_id": request_id,
-        }
-        if effort.strip().lower() in ("high", "max"):
-            body["variant"] = effort.strip().lower()
-        got = await asyncio.to_thread(_bridge_call, "POST", "/projects", body)
-        meta = (got or {}).get("project")
-        if not meta:
-            raise ToolError("The coding engine isn't reachable right now.")
-        if meta.get("status") in {"failed", "blocked"}:
-            raise ToolError(meta.get("error") or "The coding job could not start.")
-        self._report_when_done(context, meta["id"])
+        import claude_code_launch
+
+        job = await asyncio.to_thread(claude_code_launch.launch, task, directory)
+        if not job.get("ok"):
+            raise ToolError(job.get("error") or "The coding job could not start.")
         return {
-            "say": "Handing that to Assigner, Sir. I'll report back when the code or patch is ready for review.",
-            "project_id": meta["id"],
+            "say": "Starting the coding job, Sir. I'll keep you updated as it works.",
+            "job_id": job["id"],
+        }
+
+    @function_tool()
+    async def code_followup(
+        self, context: RunContext, text: str, job: str = "latest"
+    ) -> dict[str, str]:
+        """Give Claude Code a FOLLOW-UP on something it already built or did.
+
+        Use when Sir wants to change, extend, fix or continue earlier coding
+        work ("make the button blue", "now also add X", "that broke, fix it").
+        Claude Code continues the same conversation with full context, so
+        no file names or details are needed.
+
+        Args:
+            text: Sir's follow-up request as he said it.
+            job: Job id from code_jobs; "latest" (default) = the most recent.
+        """
+        import phone_session
+
+        private_error = phone_session.private_tool_error("code_followup")
+        if private_error:
+            raise ToolError(private_error)
+        phone_session.check_approval_effect(current=True)
+        text = (text or "").strip()
+        if not 3 <= len(text) <= 4000:
+            raise ToolError("What should I change, Sir?")
+        import claude_code_launch
+
+        res = await asyncio.to_thread(claude_code_launch.followup, job, text)
+        if not res.get("ok"):
+            raise ToolError(res.get("error") or "The coding job could not continue.")
+        return {
+            "say": "Passing that along, Sir. I'll keep you updated.",
+            "job_id": res["id"],
+        }
+
+    @function_tool()
+    async def code_jobs(self, context: RunContext) -> dict[str, str]:
+        """Report the state of Sir's recent Claude Code jobs (running, done, failed)."""
+        import phone_session
+
+        private_error = phone_session.private_tool_error("code_jobs")
+        if private_error:
+            raise ToolError(private_error)
+        import claude_code_launch
+
+        jobs = await asyncio.to_thread(claude_code_launch.list_jobs, 5)
+        if not jobs:
+            return {"say": "There are no coding jobs yet, Sir."}
+        parts = []
+        for j in jobs:
+            line = f"{j['task'][:60]}: {j['state']}"
+            if j.get("summary") and j["state"] != "running":
+                line += f", {str(j['summary'])[:100]}"
+            parts.append(line)
+        return {
+            "say": "Recent coding jobs. " + ". ".join(parts) + ".",
+            "latest_job_id": jobs[0]["id"],
         }
 
     @function_tool()

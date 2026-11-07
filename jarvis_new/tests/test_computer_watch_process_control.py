@@ -5,7 +5,7 @@ import json
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import bridge
 import computer_watch

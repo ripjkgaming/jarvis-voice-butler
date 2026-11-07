@@ -58,14 +58,18 @@ export type UiCommand = {
   speed?: 'slow' | 'medium' | 'fast';
 };
 
-export async function listProjects(): Promise<ProjectMeta[] | null> {
-  const j = await bridgeGet<{ ok?: boolean; projects?: ProjectMeta[] }>('/projects');
+export async function listProjects(signal?: AbortSignal): Promise<ProjectMeta[] | null> {
+  const j = await bridgeGet<{ ok?: boolean; projects?: ProjectMeta[] }>('/projects', undefined, {
+    signal,
+  });
   return j?.projects ?? null;
 }
 
-export async function getProject(id: string): Promise<ProjectDetail | null> {
+export async function getProject(id: string, signal?: AbortSignal): Promise<ProjectDetail | null> {
   const j = await bridgeGet<{ ok?: boolean; project?: ProjectDetail }>(
-    `/projects/${encodeURIComponent(id)}`
+    `/projects/${encodeURIComponent(id)}`,
+    undefined,
+    { signal }
   );
   return j?.project ?? null;
 }
@@ -92,11 +96,14 @@ export async function cancelProject(id: string): Promise<boolean> {
 
 /** Poll the UI command bus. `since` null = fetch the cursor only. */
 export async function pollUiCommands(
-  since: number | null
+  since: number | null,
+  signal?: AbortSignal
 ): Promise<{ seq: number; commands: UiCommand[] } | null> {
   const q = since === null ? '' : `?since=${since}`;
   const j = await bridgeGet<{ ok?: boolean; seq?: number; commands?: UiCommand[] }>(
-    `/projects/ui${q}`
+    `/projects/ui${q}`,
+    undefined,
+    { signal }
   );
   if (!j || typeof j.seq !== 'number') return null;
   return { seq: j.seq, commands: j.commands ?? [] };

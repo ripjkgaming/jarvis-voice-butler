@@ -258,6 +258,7 @@ export function PaperTradingPanel({
     ? snapshot.experiment.status === 'expired' ||
       (now > 0 && Date.parse(snapshot.experiment.expires_at) <= now)
     : false;
+  const replay = snapshot?.runtime.historical_replay;
   const complete = snapshot?.account.valuation_complete === true;
   const staleMarks = snapshot?.account.valuation_fresh === false;
 
@@ -324,6 +325,86 @@ export function PaperTradingPanel({
         </div>
       ) : (
         <>
+          {replay && (
+            <section className={styles.replayCard} aria-label="30-day accelerated paper simulation">
+              <div className={styles.replayHeading}>
+                <div>
+                  <span className={styles.eyebrow}>
+                    30 DAYS IN {replay.duration_hours} HOURS · HISTORICAL REPLAY
+                  </span>
+                  <h3>
+                    {human(replay.status)} · {replay.sessions_completed}/{replay.sessions_total}{' '}
+                    sessions
+                  </h3>
+                </div>
+                <strong>
+                  {Number(replay.pnl_usd) >= 0 ? '+' : ''}${replay.pnl_usd}
+                </strong>
+              </div>
+              <progress
+                max={replay.sessions_total}
+                value={replay.sessions_completed}
+                aria-label="Replay progress"
+              />
+              <p>
+                AAPL · {replay.start_date} to {replay.end_date} ·{' '}
+                {replay.status === 'running'
+                  ? `Expected finish ${dateLabel(replay.expected_finish_at, true)}`
+                  : 'Run finished'}
+              </p>
+              <dl className={styles.replayMetrics}>
+                <div>
+                  <dt>Paper equity</dt>
+                  <dd>${replay.final_equity_usd}</dd>
+                </div>
+                <div>
+                  <dt>Return</dt>
+                  <dd>{replay.return_pct}%</dd>
+                </div>
+                <div>
+                  <dt>Decision score</dt>
+                  <dd>
+                    {replay.decision_score_pct === null
+                      ? 'Pending'
+                      : `${replay.decision_score_pct}%`}{' '}
+                    ({replay.correct_decisions}/{replay.scored_decisions})
+                  </dd>
+                </div>
+                <div>
+                  <dt>Buy &amp; hold</dt>
+                  <dd>{replay.buy_hold_return_pct}%</dd>
+                </div>
+                <div>
+                  <dt>Max drawdown</dt>
+                  <dd>{replay.max_drawdown_pct}%</dd>
+                </div>
+                <div>
+                  <dt>Unscored errors</dt>
+                  <dd>{replay.model_errors}</dd>
+                </div>
+              </dl>
+              <p>
+                Outcome score compares decisions with the next session’s result after trading costs.
+                Errors receive no score. Open positions are valued at the latest replay close.
+              </p>
+              <details>
+                <summary>Latest decisions and scoring</summary>
+                <p>{replay.scoring}</p>
+                {replay.decisions
+                  .slice(-5)
+                  .reverse()
+                  .map((d) => (
+                    <p key={d.date}>
+                      <b>
+                        {d.date} ·{' '}
+                        {d.correct === null ? 'Unscored' : d.correct ? 'Correct' : 'Incorrect'}
+                      </b>{' '}
+                      · {d.error || d.rationale} · ${d.equity_usd}
+                    </p>
+                  ))}
+              </details>
+            </section>
+          )}
           <div className={styles.statusStrip}>
             <span className={snapshot.market.is_open ? styles.marketOpen : styles.marketClosed}>
               <i />
@@ -401,9 +482,11 @@ export function PaperTradingPanel({
                 <div>
                   <dt>Decision model</dt>
                   <dd>
-                    {snapshot.experiment.model === 'gpt-6-astra'
-                      ? 'Astra'
-                      : snapshot.experiment.model}{' '}
+                    {snapshot.experiment.model === 'dots-studio/dots-3-note-preview:free'
+                      ? 'Dots 3 Note Preview'
+                      : snapshot.experiment.model === 'gpt-6-astra'
+                        ? 'Astra'
+                        : snapshot.experiment.model}{' '}
                     <span className={styles.effort}>{snapshot.experiment.effort}</span>
                   </dd>
                 </div>

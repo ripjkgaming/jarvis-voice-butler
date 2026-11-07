@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from src.command_parse import SwitchCmd, parse_switch
+from command_parse import SwitchCmd, parse_switch
 
 NAMES = {
     "jarvis": ("jarvis",),

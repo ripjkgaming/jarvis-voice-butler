@@ -25,7 +25,9 @@ import datetime as dt
 import json
 import os
 import re
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 SWITCH_ENV = "JARVIS_MEMORY"
@@ -410,34 +412,89 @@ def _notes() -> list[Path]:
     return out
 
 
+_note_cache_lock = threading.Lock()
+_note_cache: OrderedDict[Path, tuple[tuple, tuple, int]] = OrderedDict()
+_NOTE_CACHE_FILES = 64
+_NOTE_CACHE_CHARS = 256 * 1024
+_NOTE_CACHE_FILE_CHARS = 64 * 1024
+
+
+def _note_paragraphs(note: Path, stat) -> tuple[tuple[str, str], ...]:
+    """Reuse parsed notes, checking filesystem identity on every recall.
+
+    Bound both entry count and retained source characters. Large notes remain
+    searchable without occupying the cache; edited/replaced notes replace their
+    old entry. Ctime also detects same-size edits with restored mtimes.
+    """
+    key = note.absolute()
+    fingerprint = (
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+        stat.st_size,
+    )
+    with _note_cache_lock:
+        cached = _note_cache.get(key)
+        if cached and cached[0] == fingerprint:
+            _note_cache.move_to_end(key)
+            return cached[1]
+    text = note.read_text()
+    paragraphs = tuple(
+        (para, para.lower()) for para in re.split(r"\n(?=#{2,3} )|\n\n(?=\S)", text)
+    )
+    with _note_cache_lock:
+        _note_cache.pop(key, None)
+        if len(text) <= _NOTE_CACHE_FILE_CHARS:
+            _note_cache[key] = (fingerprint, paragraphs, len(text))
+            while (
+                len(_note_cache) > _NOTE_CACHE_FILES
+                or sum(entry[2] for entry in _note_cache.values()) > _NOTE_CACHE_CHARS
+            ):
+                _note_cache.popitem(last=False)
+    return paragraphs
+
+
 def recall(query: str, limit: int = MAX_SNIPPETS, brain=None) -> list[dict]:
     """≤limit snippets: vault paragraphs by keyword score, then brain files."""
     terms = [w for w in _words(query) if w not in _STOP]
     if not terms:
         return []
+    unique_terms = set(terms)
+    now = time.time()
     scored = []
     for note in _notes():
         with contextlib.suppress(OSError):
-            text = note.read_text()
-            mtime = note.stat().st_mtime
-            for para in re.split(r"\n(?=#{2,3} )|\n\n(?=\S)", text):
-                low = para.lower()
+            stat = note.stat()
+            mtime = stat.st_mtime
+            recency = 1.0 / (1.0 + max(0.0, now - mtime) / 86400 / 7)
+            for para, low in _note_paragraphs(note, stat):
                 hits = sum(low.count(t) for t in terms)
-                cover = sum(1 for t in set(terms) if t in low)
+                cover = sum(1 for t in unique_terms if t in low)
                 if not cover:
                     continue
-                recency = 1.0 / (1.0 + max(0.0, time.time() - mtime) / 86400 / 7)
                 score = cover * 3 + min(hits, 10) + recency
-                scored.append((score, note, para.strip()))
+                scored.append((score, note, para.strip(), mtime))
     scored.sort(key=lambda s: -s[0])
+    provenance = os.environ.get("JARVIS_POWER_MEMORY_EVIDENCE") == "1"
     out = [
         {
             "source": str(note.relative_to(vault_dir()))
             if note.is_relative_to(vault_dir())
             else note.name,
             "text": " ".join(para.split())[:300],
+            **(
+                {
+                    "evidence_status": "attributed_unverified",
+                    "source_modified_at": mtime,
+                    "source_age_days": round(max(0, time.time() - mtime) / 86400, 1),
+                    "contradiction_status": "not_assessed",
+                }
+                if provenance
+                else {}
+            ),
         }
-        for _, note, para in scored[:limit]
+        for _, note, para, mtime in scored[:limit]
     ]
     if len(out) < limit:
         with contextlib.suppress(Exception):
@@ -448,6 +505,16 @@ def recall(query: str, limit: int = MAX_SNIPPETS, brain=None) -> list[dict]:
                     {
                         "source": f"file {node.get('path') or node.get('label')}",
                         "text": str(node.get("label") or "")[:200],
+                        **(
+                            {
+                                "evidence_status": "attributed_unverified",
+                                "source_modified_at": None,
+                                "source_age_days": None,
+                                "contradiction_status": "not_assessed",
+                            }
+                            if provenance
+                            else {}
+                        ),
                     }
                 )
     return out[:limit]
@@ -467,7 +534,12 @@ def day_summary(day: dt.date) -> str:
         for ln in block.strip().splitlines()
         if ln[2:] != "(none)"
     ]
+    # Always Aware spans (src/aware/memory_feed.py) land under "## Seen".
+    seen_blocks = re.findall(r"## Seen\n((?:- .+\n?)+)", text)
+    seen = [ln[2:] for block in seen_blocks for ln in block.strip().splitlines()]
     parts = [f"At {t}: {s}" for t, s in sessions[-5:]]
+    if seen:
+        parts.append("Seen: " + "; ".join(seen[-6:]))
     if open_items:
         parts.append("Left open: " + "; ".join(open_items[-4:]))
     return " ".join(parts)

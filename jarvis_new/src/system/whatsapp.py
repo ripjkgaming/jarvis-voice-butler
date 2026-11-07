@@ -216,8 +216,8 @@ _MSG_JS = """JSON.stringify([...document.querySelectorAll(
   const qi = m.querySelector('[data-testid="quoted-message"]');
   const tx = m.querySelector('[data-testid="msg-text"]')
     || m.querySelector('.copyable-text .selectable-text')
-    || m.querySelector('.copyable-text')
-    || m.querySelector('.selectable-text');
+    || m.querySelector('.selectable-text')
+    || m.querySelector('.copyable-text');
   const cp = m.querySelector('.copyable-text');
   const pre = m.getAttribute('data-pre-plain-text')
     || (cp && cp.getAttribute ? cp.getAttribute('data-pre-plain-text') : '')
@@ -227,10 +227,12 @@ _MSG_JS = """JSON.stringify([...document.querySelectorAll(
     || !!m.querySelector('[data-testid="msg-dblcheck"],'
       + '[data-testid="msg-check"],[data-testid="msg-dblcheck-ack"],'
       + '[data-icon="msg-dblcheck"],[data-icon="msg-check"]');
-  return {me: out,
+  return {id: m.getAttribute('data-id') || m.closest('[data-id]')?.getAttribute('data-id') || '',
+    me: out,
     tailOut: !!m.querySelector('[data-testid="tail-out"]'),
     pre: (pre || '').slice(0, 80),
-    text: ((tx || {}).innerText || '').slice(0, 500),
+    text: ((tx || {}).innerText || '').slice(0, 3500),
+    textSource: tx === cp ? 'copyable' : 'message',
     meta: ((m.querySelector('[data-testid="msg-meta"]') || {}).innerText || '').slice(0, 30),
     quote: ((qi || {}).innerText || '').slice(0, 200),
     mention: !!m.querySelector('[data-testid="mention"]')};
@@ -342,9 +344,14 @@ def parse_messages(rows: list[dict]) -> list[dict]:
     out = []
     for (sender, when, tail, tick), m in zip(prelim, rows):
         try:
-            text = clean(str(m.get("text", "")))[:500]
-            # copyable-text fallback includes the trailing timestamp.
-            text = re.sub(r"\s*\d{1,2}:\d{2}\s*(am|pm)?\s*$", "", text).strip()
+            text = clean(str(m.get("text", "")))[:3500]
+            # Dedicated message text can legitimately end in an event time.
+            # Remove a rendered timestamp only from the broad copyable fallback
+            # when it exactly matches the separate metadata suffix.
+            if m.get("textSource") == "copyable":
+                meta = clean(str(m.get("meta") or ""))
+                if meta and text.endswith(meta):
+                    text = text[: -len(meta)].rstrip()
             img = str(m.get("img") or "")
             if not text and not img:
                 continue  # sticker/reaction-only row (or a photo we did not grab)
@@ -357,6 +364,7 @@ def parse_messages(rows: list[dict]) -> list[dict]:
             out.append(
                 {
                     **photo,
+                    "id": str(m.get("id") or "")[:240],
                     "me": me,
                     "sender": sender,
                     "when": when,
@@ -406,11 +414,13 @@ async def list_chats(limit: int = 20) -> list[dict]:
         )
     except Exception:
         top0 = 0
-    for _ in range(6):
+    for _ in range(16):
+        if len(seen) >= max(1, limit):
+            break
         before = len(seen)
         await cdp(
             "(()=>{const p=document.querySelector('#pane-side'); "
-            "if(p) p.scrollTop=p.scrollHeight; return 1;})()"
+            "if(p) p.scrollTop+=Math.max(300,p.clientHeight*0.8); return 1;})()"
         )
         await asyncio.sleep(1.2)
         raw = await cdp(_LIST_JS)
@@ -462,9 +472,7 @@ async def cdp_once(expr: str, timeout: int = 25, *, authorized=None):
 
 
 def _same_chat(header: str, name: str) -> bool:
-    return (
-        clean(str(header).split("\n")[0]).casefold()[:50] == clean(name).casefold()[:50]
-    )
+    return clean(str(header).split("\n")[0]).casefold() == clean(name).casefold()
 
 
 async def open_chat(name: str, timeout_s: int = 12) -> dict:
@@ -474,13 +482,33 @@ async def open_chat(name: str, timeout_s: int = 12) -> dict:
 
 async def read_chat(name: str, n: int = 30) -> dict:
     async with _page_session():
-        return await _read_chat_unlocked(name, n)
+        result = await _read_chat_unlocked(name, n)
+        # The header can change mid-read (WhatsApp Web re-renders its
+        # title/subtitle when a chat updates). Re-open and read once more.
+        if result.get("err") == "conversation changed while reading":
+            result = await _read_chat_unlocked(name, n)
+        if result.get("ok"):
+            # Stage locally only; extraction runs in the calendar worker so a
+            # voice read never waits for a model or Calendar request.
+            with contextlib.suppress(Exception):
+                import whatsapp_calendar
+
+                whatsapp_calendar.ingest_messages(
+                    name,
+                    result.get("messages") or [],
+                    is_group=result.get("group_state") != "contact",
+                )
+        return result
 
 
 async def send_chat(name: str, text: str, timeout_s: int = 15) -> dict:
     import phone_session
+
     if phone_session.private():
-        return {"ok": False, "err": "Private phone WhatsApp sends require exact spoken draft approval."}
+        return {
+            "ok": False,
+            "err": "Private phone WhatsApp sends require exact spoken draft approval.",
+        }
     async with _page_session():
         return await _send_chat_unlocked(name, text, timeout_s)
 
@@ -495,10 +523,19 @@ async def _open_chat_unlocked(name: str, timeout_s: int = 12) -> dict:
     chats = await list_chats(30)
     if not chats:
         return {"ok": False, "err": "chat list unreachable"}
-    hit = match_chat(name, chats)
-    if hit is None:
-        return {"ok": False, "err": f"no chat matches '{name[:40]}'"}
-    want = hit["name"]
+    exact = [
+        chat
+        for chat in chats
+        if clean(str(chat.get("name") or "")).casefold() == clean(name).casefold()
+    ]
+    if len(exact) > 1:
+        return {
+            "ok": False,
+            "err": "ambiguous exact chat name; open the intended conversation manually",
+        }
+    # A virtualized list may omit the requested exact name. Walk its rows,
+    # but never substitute a fuzzy/substring match for a calendar source.
+    want = exact[0]["name"] if exact else name
     esc = want.lower().replace("\\", "\\\\").replace("'", "\\'")
     click_js = (
         """(()=>{const rows=[...document.querySelectorAll(
@@ -507,39 +544,42 @@ async def _open_chat_unlocked(name: str, timeout_s: int = 12) -> dict:
         + esc
         + """';
           let hit=null;
+          let matches=0;
           for (const r of rows) {
             const t=((r.querySelector('[data-testid="cell-frame-title"]')||{})
               .textContent||'').trim().toLowerCase();
-            if (t === want) { hit=r; break; }
+            if (t === want) { hit=r; matches++; }
           }
-          if (!hit) for (const r of rows) {
-            const t=((r.querySelector('[data-testid="cell-frame-title"]')||{})
-              .textContent||'').trim().toLowerCase();
-            if (t && (t.includes(want)||want.includes(t))) { hit=r; break; }
-          }
+          if(matches > 1) return 'ambiguous';
           if (!hit) return 'norow:'+rows.length;
           const t=hit.querySelector('[data-testid="cell-frame-container"]')||hit;
           hit.scrollIntoView({block:'center'});
           for (const e of ['mousedown','mouseup','click'])
             t.dispatchEvent(new MouseEvent(e,{bubbles:true,cancelable:true,view:window}));
-          return 'fired:'+((hit.querySelector('[data-testid="cell-frame-title"]')||{}).textContent||'').trim().slice(0,50);
+          return 'fired:'+((hit.querySelector('[data-testid="cell-frame-title"]')||{}).textContent||'').trim();
         })()"""
     )
     fired = None
-    for _ in range(3):
-        # Newest chats mount at the top; scroll there and let React settle.
-        with contextlib.suppress(Exception):
+    # Try the current mounted rows first. Then walk overlapping viewports;
+    # jumping to top on every retry could never open virtualized lower chats.
+    for page in range(16):
+        if page:
             await cdp(
                 "(()=>{const p=document.querySelector('#pane-side'); "
-                "if(p) p.scrollTop=0; return 1;})()"
+                + (
+                    "if(p) p.scrollTop=0;"
+                    if page == 1
+                    else "if(p) p.scrollTop+=Math.max(300,p.clientHeight*0.8);"
+                )
+                + " return 1;})()"
             )
-        await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
         fired = await cdp(click_js)
         if isinstance(fired, str) and fired.startswith("fired:"):
             break
     if not isinstance(fired, str) or not fired.startswith("fired:"):
         return {"ok": False, "err": f"row click failed ({fired})"}
-    clicked = fired.split(":", 1)[1][:50] or want
+    clicked = fired.split(":", 1)[1] or want
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         hdr = (
@@ -579,6 +619,37 @@ async def _read_chat_unlocked(name: str, n: int = 30) -> dict:
             attach_images(
                 rows, json.loads(raw_imgs) if isinstance(raw_imgs, str) else []
             )
+    # WhatsApp virtualizes history as well as the chat list. Page upwards
+    # until the requested bounded history is collected, then return to latest.
+    history = list(rows)
+    for _ in range(6):
+        if len(history) >= max(1, min(60, n)):
+            break
+        moved = await cdp("""(() => {
+          const main = document.querySelector('#main');
+          const msg = main?.querySelector('[data-testid="msg-container"]');
+          let p = msg?.parentElement;
+          while(p && p !== main && p.scrollHeight <= p.clientHeight + 10) p=p.parentElement;
+          if(!p || p === main) return false;
+          p.scrollTop=Math.max(0,p.scrollTop-Math.max(300,p.clientHeight*0.8));
+          return true;
+        })()""")
+        if moved is not True:
+            break
+        await asyncio.sleep(0.35)
+        older = await cdp(_MSG_JS % max(1, min(60, n)))
+        try:
+            prior = json.loads(older) if isinstance(older, str) else []
+        except (TypeError, ValueError):
+            break
+        merged = {}
+        for row in (prior if isinstance(prior, list) else []) + history:
+            key = (row.get("pre"), row.get("text"), row.get("me"), row.get("tailOut"))
+            merged.setdefault(key, row)
+        if len(merged) == len(history):
+            break
+        history = list(merged.values())
+    rows = history[-max(1, min(60, n)) :]
     msgs = parse_messages(rows)
     hdr = (
         await cdp(
@@ -589,17 +660,38 @@ async def _read_chat_unlocked(name: str, n: int = 30) -> dict:
     )
     if not _same_chat(hdr, opened.get("name", name)):
         return {"ok": False, "err": "conversation changed while reading"}
+    # Prefer explicit accessibility labels. A newline is also present in
+    # private-chat online/status headers and is not proof of a group.
+    group_state = await cdp("""(() => {
+      const h = document.querySelector('#main header');
+      const labels = h ? [...h.querySelectorAll('[title],[aria-label]')]
+        .map(e => `${e.getAttribute('title') || ''} ${e.getAttribute('aria-label') || ''}`).join(' ').toLowerCase() : '';
+      if (/group info/.test(labels)) return 'group';
+      if (/contact info/.test(labels)) return 'contact';
+      return 'unknown';
+    })()""")
     return {
         "ok": True,
         "name": opened.get("name", name),
         "header": hdr,
-        "is_group": "\n" in (hdr or ""),
+        "is_group": group_state == "group",
+        "group_state": group_state
+        if group_state in ("group", "contact")
+        else "unknown",
         "messages": msgs,
+        "history_limit": max(1, min(60, n)),
+        "history_count": len(msgs),
     }
 
 
-async def _send_chat_unlocked(name: str, text: str, timeout_s: int = 15,
-                              *, approved_target=None, authorized=lambda: True) -> dict:
+async def _send_chat_unlocked(
+    name: str,
+    text: str,
+    timeout_s: int = 15,
+    *,
+    approved_target=None,
+    authorized=lambda: True,
+) -> dict:
     """One send attempt, verified against a fresh exact outgoing message."""
     text = (text or "").strip()[:500]
     if not text:
@@ -615,7 +707,11 @@ async def _send_chat_unlocked(name: str, text: str, timeout_s: int = 15,
         ):
             return {"ok": False, "err": "exact recipient unavailable"}
         opened = await _open_chat_unlocked(name)
-    matches = opened.get("name") == name if approved_target else _same_chat(opened.get("name", ""), name)
+    matches = (
+        opened.get("name") == name
+        if approved_target
+        else _same_chat(opened.get("name", ""), name)
+    )
     if not opened.get("ok") or not matches:
         return {"ok": False, "err": opened.get("err", "recipient mismatch")}
     if approved_target:
@@ -728,16 +824,25 @@ _APPROVAL_SNAPSHOT_JS = """JSON.stringify({
 def approval_identity(snapshot: dict, name: str) -> dict:
     """Exact mounted title + verified opaque chat JID; no global uniqueness claim."""
     names = snapshot.get("names", [])
-    if (not isinstance(names, list) or names.count(name) != 1
-            or snapshot.get("name") != name):
-        return {"ok": False, "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation."}
+    if (
+        not isinstance(names, list)
+        or names.count(name) != 1
+        or snapshot.get("name") != name
+    ):
+        return {
+            "ok": False,
+            "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation.",
+        }
     jids = set()
     for value in snapshot.get("ids", []):
         match = re.match(r"^(?:true|false)_([0-9-]+@(?:g\.us|c\.us))_", str(value))
         if match:
             jids.add(match.group(1))
     if len(jids) != 1:
-        return {"ok": False, "err": "WhatsApp did not expose one stable conversation ID. Nothing will be sent."}
+        return {
+            "ok": False,
+            "err": "WhatsApp did not expose one stable conversation ID. Nothing will be sent.",
+        }
     return {"ok": True, "name": name, "jid": jids.pop()}
 
 
@@ -761,7 +866,10 @@ async def _open_approval_chat_unlocked(name: str) -> dict:
         + ");if(hits.length!==1)return 'unavailable';hits[0].click();return 'opened';})()"
     )
     if await cdp_once(script) != "opened":
-        return {"ok": False, "err": "Exact visible conversation unavailable or ambiguous; select the intended chat and review again."}
+        return {
+            "ok": False,
+            "err": "Exact visible conversation unavailable or ambiguous; select the intended chat and review again.",
+        }
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
         fresh = await _approval_snapshot_unlocked(name)
@@ -777,27 +885,42 @@ async def resolve_approval_recipient(name: str) -> dict:
         try:
             raw = await cdp(_APPROVAL_SNAPSHOT_JS)
             snapshot = json.loads(raw) if isinstance(raw, str) else {}
-            if not isinstance(snapshot, dict) or snapshot.get("names", []).count(name) != 1:
-                return {"ok": False, "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation."}
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("names", []).count(name) != 1
+            ):
+                return {
+                    "ok": False,
+                    "err": "Select the intended conversation and give its exact full title; visible duplicates require disambiguation.",
+                }
         except (ValueError, TypeError, AttributeError):
             return {"ok": False, "err": "WhatsApp chat list is unavailable."}
         opened = await _open_approval_chat_unlocked(name)
         if not opened.get("ok"):
-            return {"ok": False, "err": "WhatsApp conversation could not be opened for review."}
+            return {
+                "ok": False,
+                "err": "WhatsApp conversation could not be opened for review.",
+            }
         return await _approval_snapshot_unlocked(name)
 
 
 def _approval_guard(target: dict) -> str:
     return (
         "const hdr=(document.querySelector('#main header')||{innerText:''}).innerText;"
-        "if(hdr.split('\\n')[0].trim()!==" + json.dumps(target["name"]) + ") return 'wrongchat';"
+        "if(hdr.split('\\n')[0].trim()!=="
+        + json.dumps(target["name"])
+        + ") return 'wrongchat';"
         "const names=[...document.querySelectorAll('#pane-side [data-testid^=\"list-item-\"]')]"
         ".map(r=>(r.querySelector('[data-testid=\"cell-frame-title\"]')?.textContent||'').trim());"
-        "if(names.filter(n=>n===" + json.dumps(target["name"]) + ").length!==1) return 'ambiguous';"
+        "if(names.filter(n=>n==="
+        + json.dumps(target["name"])
+        + ").length!==1) return 'ambiguous';"
         "const jids=new Set([...document.querySelectorAll('#main [data-id]')].map(r=>"
         "(r.getAttribute('data-id')||'').match(/^(?:true|false)_([0-9-]+@(?:g\\.us|c\\.us))_/))"
         ".filter(Boolean).map(m=>m[1]));"
-        "if(jids.size!==1||!jids.has(" + json.dumps(target["jid"]) + ")) return 'wrongidentity';"
+        "if(jids.size!==1||!jids.has("
+        + json.dumps(target["jid"])
+        + ")) return 'wrongidentity';"
     )
 
 
@@ -806,5 +929,132 @@ async def send_approved_chat(target: dict, text: str, authorized) -> dict:
     async with _page_session():
         if not authorized():
             return {"ok": False, "err": "owner authorization ended"}
-        return await _send_chat_unlocked(target["name"], text,
-                                        approved_target=target, authorized=authorized)
+        return await _send_chat_unlocked(
+            target["name"], text, approved_target=target, authorized=authorized
+        )
+
+
+async def send_approved_image(
+    target: dict, caption: str, image: dict, authorized
+) -> dict:
+    """One approval-gated image attempt, no fuzzy chat selection or automatic retry.
+
+    Whatsie exposes a file input through QtWebEngine. We create a browser File
+    from the reviewed PNG without relying on sandbox filesystem visibility.
+    This transport intentionally refuses if the attachment UI is unfamiliar.
+    """
+    import base64
+    from pathlib import Path
+
+    from wa_image import verify_image
+
+    if not authorized() or not verify_image(image):
+        return {"ok": False, "err": "Authorization or image fingerprint invalid."}
+    if image["size"] > 4 * 1024 * 1024:
+        return {
+            "ok": False,
+            "err": "This Whatsie attachment path currently limits PNGs to 4 MB.",
+        }
+    async with _page_session():
+        if not authorized():
+            return {"ok": False, "err": "Authorization ended."}
+        opened = await _open_approval_chat_unlocked(target["name"])
+        if not opened.get("ok") or opened.get("jid") != target["jid"]:
+            return {"ok": False, "err": "Recipient identity changed."}
+        if not verify_image(image):
+            return {"ok": False, "err": "The PNG changed since review."}
+        before = await cdp_once(
+            "(()=>{"
+            + _approval_guard(target)
+            + "return [...document.querySelectorAll('#main [data-id]')].filter(x=>(x.getAttribute('data-id')||'').startsWith('true_')).length})()",
+            authorized=authorized,
+        )
+        if not isinstance(before, int):
+            return {"ok": False, "err": "Cannot establish media send baseline."}
+        encoded = base64.b64encode(Path(image["path"]).read_bytes()).decode("ascii")
+        if not authorized() or not verify_image(image):
+            return {"ok": False, "err": "Authorization or PNG changed."}
+        # The preview is staged and never treated as a completed send.
+        stage = (
+            "(()=>{"
+            + _approval_guard(target)
+            + "const inputs=[...document.querySelectorAll('input[type=file]')];"
+            "const input=inputs.find(e=>e.accept==='*' || e.accept.includes('image'));"
+            "if(!input) return 'noinput';"
+            "const binary=atob(" + json.dumps(encoded) + ");"
+            "const bytes=new Uint8Array(binary.length);"
+            "for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);"
+            "const file=new File([bytes],'jarvis-image.png',{type:'image/png'});"
+            "const dt=new DataTransfer();dt.items.add(file);"
+            "input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));"
+            "return 'staged';})()"
+        )
+        if await cdp_once(stage, timeout=30, authorized=authorized) != "staged":
+            return {"ok": False, "err": "Whatsie rejected the image attachment."}
+        # The upload preview may render asynchronously. Require a real preview
+        # with a nonempty Send button before clicking it, and recheck identity.
+        preview = (
+            "(()=>{"
+            + _approval_guard(target)
+            + (
+                "const dialogs=[...document.querySelectorAll('[role=dialog], [data-testid*=media], [data-testid*=preview]')];"
+                "const send=[...document.querySelectorAll('button,[role=button]')].filter(b=>"
+                "(b.getAttribute('aria-label')||b.getAttribute('data-testid')||'').toLowerCase().includes('send'));"
+                "return {preview:dialogs.length,send:send.length};})()"
+            )
+        )
+        ready = None
+        for _ in range(12):
+            if not authorized():
+                return {"ok": False, "err": "Authorization ended; no send attempted."}
+            ready = await cdp_once(preview, authorized=authorized)
+            if isinstance(ready, dict) and ready.get("preview") and ready.get("send"):
+                break
+            await asyncio.sleep(0.25)
+        if (
+            not isinstance(ready, dict)
+            or not ready.get("preview")
+            or not ready.get("send")
+        ):
+            return {"ok": False, "err": "Whatsie preview not verified; nothing sent."}
+        # Do not send an unreviewed caption. Text-only captioning can be added
+        # once verified DOM semantics are available.
+        if caption.strip():
+            return {
+                "ok": False,
+                "err": "Captioned image sending is not verified; nothing sent.",
+            }
+        if not authorized() or not verify_image(image):
+            return {"ok": False, "err": "Authorization or image changed."}
+        clicked = await cdp_once(
+            "(()=>{"
+            + _approval_guard(target)
+            + "const btn=[...document.querySelectorAll('button,[role=button]')].filter(b=>"
+            "(b.getAttribute('aria-label')||b.getAttribute('data-testid')||'').toLowerCase().includes('send'));"
+            "if(btn.length!==1)return 'ambiguous-send';btn[0].click();return 'clicked';})()",
+            authorized=authorized,
+        )
+        if clicked != "clicked":
+            return {
+                "ok": False,
+                "err": "Image send was refused or uncertain; never retry automatically.",
+            }
+        for _ in range(20):
+            if not authorized():
+                return {
+                    "ok": False,
+                    "err": "Authorization ended; send status uncertain.",
+                }
+            count = await cdp_once(
+                "(()=>{"
+                + _approval_guard(target)
+                + "return [...document.querySelectorAll('#main [data-id]')].filter(x=>(x.getAttribute('data-id')||'').startsWith('true_')).length})()",
+                authorized=authorized,
+            )
+            if isinstance(count, int) and count > before:
+                return {"ok": True, "name": target["name"]}
+            await asyncio.sleep(0.25)
+        return {
+            "ok": False,
+            "err": "Image send unverified; will not retry automatically.",
+        }

@@ -201,3 +201,22 @@ def test_match_async_agrees_with_match_and_offloads_resolver():
     hit = asyncio.run(fast_path.match_async("got the time on you", resolve))
     assert hit == ("tell_time", {}, "needle")
     assert seen["thread"] is not threading.main_thread()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "pause the video I'm watching",
+        "pause the video I was on",
+        "pause this video for a moment",
+        "pause the current video",
+        "pause the video of Moon",
+        "pause the video on YouTube",
+    ],
+)
+def test_current_video_pause_avoids_model_handoff(text):
+    assert fast_path.match(text, resolve=_no_resolver) == (
+        "media_control",
+        {"action": "pause"},
+        "grammar",
+    )

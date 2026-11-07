@@ -19,8 +19,10 @@ export type ReplyDraft = {
   priority?: 'high' | 'normal' | string;
 };
 
-export async function listDrafts(): Promise<ReplyDraft[] | null> {
-  const j = await bridgeGet<{ ok?: boolean; drafts?: ReplyDraft[] }>('/drafts');
+export async function listDrafts(signal?: AbortSignal): Promise<ReplyDraft[] | null> {
+  const j = await bridgeGet<{ ok?: boolean; drafts?: ReplyDraft[] }>('/drafts', undefined, {
+    signal,
+  });
   return j?.drafts ?? null;
 }
 

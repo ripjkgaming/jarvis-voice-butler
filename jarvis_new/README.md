@@ -1,5 +1,7 @@
 # Jarvis
 
+
+Calendar automation and the **Insights → Calendar** activity dashboard are documented in [Calendar activity](docs/calendar-activity.md). WhatsApp setup, source connection status, pending review, write retries, and deferred return reminders are covered there.
 Jarvis is a voice butler for the desktop, with a phone companion. Its voice
 path is the in-repo runtime `src/jarvis_rt`; no LiveKit packages are used.
 
@@ -29,6 +31,22 @@ uv run python src/agent.py start     # hub with info logging (Docker CMD)
   `wss://` address. It does not change the bind address.
 - Remote access (phone or another machine) must go through a tunnel to the
   loopback hub. Do not open a public port for the hub.
+
+## Phone (LOCKE//LINK)
+
+The phone client is an installable web app in `phone-web/`, served over the tailnet by
+`tailscale serve` (one HTTPS origin: `/` the app, `/api` the bridge, `/voice` the hub).
+Plan and contract: [docs/phone-app/](docs/phone-app/PLAN.md). API:
+[docs/PHONE_API.md](docs/PHONE_API.md). Install and on-phone checks:
+[docs/phone-app/RUNBOOK.md](docs/phone-app/RUNBOOK.md).
+
+- Device auth needs `JARVIS_PHONE_ORIGIN=https://<host>.<tailnet>.ts.net` in the bridge
+  environment. `JARVIS_PHONE_GATE` overrides the passphrase file (`~/.config/locke/gate`);
+  `JARVIS_PHONE_PRESENCE=0` stops the camera presence probe.
+- Pair a phone: `uv run python scripts/phone_pair.py` (QR), `--list`, `--revoke <id>`.
+- Build and deploy: `scripts/phone_web_deploy.sh` (see the runbook).
+- The native JarvisLink 3.x APK (`phone/`) still works until it is retired
+  ([docs/phone-app/RETIRE.md](docs/phone-app/RETIRE.md)).
 
 ## Setup
 

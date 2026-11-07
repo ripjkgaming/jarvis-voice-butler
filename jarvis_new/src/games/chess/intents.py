@@ -419,7 +419,9 @@ class IntentsMixin:
         from .takeover import GameAdapter, TakeoverLoop
 
         series = self._series_proxy()
-        scoped = self.takeover_remaining is not None or bool(getattr(self, "_finish_fast", False))
+        scoped = self.takeover_remaining is not None or bool(
+            getattr(self, "_finish_fast", False)
+        )
         cont = bool(series) or (
             bool(getattr(self.settings, "takeover_continuous", True)) and not scoped
         )

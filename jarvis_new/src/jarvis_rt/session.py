@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Protocol
 
 from .agent import Agent
@@ -130,18 +131,30 @@ class AgentSession(EventEmitter):
         self.input = _Input(self)
         self.output = _Output()
         self._agent: Agent | None = None
+        #: Agents this session has been on before the current one. The live
+        #: model can still call tools declared for them until it reconnects.
+        self._previous_agents: list[Agent] = []
         self._history = ChatContext.empty()
         self._user_state = "listening"
         self._agent_state = "initializing"
         self._speech: SpeechHandle | None = None
         self._agent_text = ""
         self._agent_audio_seen = False
+        self._validated_audio: list[bytes] = []
+        self._validated_audio_bytes = 0
+        self._validation_overflow = False
         self._started = False
         self._room_io: Any = None
         self._closed = False
         self._tool_tasks: set[asyncio.Task] = set()
         self._away_task: asyncio.Task | None = None
         self.session_open_at = time.monotonic()
+        self._input_epoch = 0
+        self._input_id = "implicit-0"
+        self._input_explicit = False
+        self._input_receipts: OrderedDict[str, str] = OrderedDict()
+        self._input_partial = ""
+        self._tool_receipts: OrderedDict[str, None] = OrderedDict()
 
     # ---- read-only state -------------------------------------------------
     @property
@@ -319,6 +332,9 @@ class AgentSession(EventEmitter):
         self._speech = handle
         self._agent_text = ""
         self._agent_audio_seen = False
+        self._validated_audio = []
+        self._validated_audio_bytes = 0
+        self._validation_overflow = False
         self.emit(
             "speech_created",
             SpeechCreatedEvent(
@@ -347,7 +363,14 @@ class AgentSession(EventEmitter):
             self.backend.push_text(text)
 
     def clear_user_turn(self) -> None:
-        pass
+        self._remember_input(self._input_id, "cancelled")
+        self._input_partial = ""
+
+    def _remember_input(self, key: str, outcome: str) -> None:
+        self._input_receipts[key] = outcome
+        self._input_receipts.move_to_end(key)
+        while len(self._input_receipts) > 128:
+            self._input_receipts.popitem(last=False)
 
     # ---- agent swaps -----------------------------------------------------
     def update_agent(self, agent: Agent) -> None:
@@ -358,6 +381,8 @@ class AgentSession(EventEmitter):
         if old is not None:
             old._session = None
         self._agent = agent
+        if old is not None and all(a is not old for a in self._previous_agents):
+            self._previous_agents.append(old)
         if agent.chat_ctx.items == [] and old is not None:
             agent._chat_ctx = old.chat_ctx.copy()
         self._spawn(self._enter_agent(old, agent))
@@ -390,7 +415,19 @@ class AgentSession(EventEmitter):
             return
         handler(**data)
 
-    def _on_user_speech_started(self) -> None:
+    def _on_user_speech_started(self, utterance_id: str | None = None) -> None:
+        if utterance_id is not None:
+            if utterance_id in self._input_receipts or (
+                self._input_explicit and utterance_id == self._input_id
+            ):
+                return
+            self._input_id = utterance_id
+            self._input_explicit = True
+        elif self._user_state != "speaking":
+            self._input_epoch += 1
+            self._input_id = f"implicit-{self._input_epoch}"
+            self._input_explicit = False
+        self._input_partial = ""
         self._set_user_state("speaking")
         speech = self._speech
         if speech is not None and not speech.done() and self._agent_state == "speaking":
@@ -400,12 +437,25 @@ class AgentSession(EventEmitter):
         self._set_user_state("listening")
         self._arm_away()
 
-    def _on_user_transcript(self, text: str, final: bool) -> None:
+    def _on_user_transcript(
+        self, text: str, final: bool, utterance_id: str | None = None
+    ) -> None:
+        text = " ".join(str(text or "").split())
+        key = utterance_id or self._input_id
+        if not text or key in self._input_receipts:
+            return
+        if utterance_id and self._input_explicit and key != self._input_id:
+            return  # delayed callback from an older, superseded utterance
+        if not final and text == self._input_partial:
+            return
+        self._input_partial = text
+        if final:
+            self._remember_input(key, "final")  # before callbacks: reentrancy safe
         self.emit(
             "user_input_transcribed",
-            UserInputTranscribedEvent(transcript=text, is_final=final),
+            UserInputTranscribedEvent(transcript=text, is_final=final, item_id=key),
         )
-        if final and text.strip():
+        if final:
             self._add_item(ChatMessage(role="user", content=[text]))
 
     def _on_interrupted(self) -> None:
@@ -416,17 +466,30 @@ class AgentSession(EventEmitter):
             self._agent_audio_seen = True
             if self._speech is None or self._speech.done():
                 handle = SpeechHandle.create(allow_interruptions=True)
+                pending_text = self._agent_text
                 self._begin_speech(
                     handle, user_initiated=False, source="generate_reply"
                 )
+                self._agent_text = pending_text
             self._agent_audio_seen = True
             self._set_agent_state("speaking")
+        if getattr(self.backend, "requires_response_validation", False):
+            self._validated_audio_bytes += len(pcm24k)
+            if self._validated_audio_bytes <= 24_000 * 2 * 60:
+                self._validated_audio.append(pcm24k)
+            else:
+                self._validation_overflow = True
+            return
         if self.output.audio_enabled and self.output.audio is not None:
             self.output.audio(pcm24k)
 
     def _on_agent_text(self, text: str) -> None:
         self._agent_text += text
-        if self.output.transcription_enabled and self.output.transcription is not None:
+        if (
+            not getattr(self.backend, "requires_response_validation", False)
+            and self.output.transcription_enabled
+            and self.output.transcription is not None
+        ):
             self.output.transcription(text, False)
 
     def _on_turn_complete(self) -> None:
@@ -434,6 +497,37 @@ class AgentSession(EventEmitter):
 
     def _finish_turn(self, *, interrupted: bool) -> None:
         text = self._agent_text.strip()
+        blocked_line = ""
+        if getattr(self.backend, "requires_response_validation", False):
+            import claim_guard
+
+            safe = claim_guard.calendar_safe_text(text)
+            blocked = (
+                safe != text
+                or self._validation_overflow
+                or (self._validated_audio and not text)
+            )
+            if blocked:
+                if not interrupted:
+                    blocked_line = (
+                        safe
+                        if safe != text
+                        else "I could not verify that response, Sir."
+                    )
+                text = ""  # Never retain a rejected or cancelled false claim.
+            elif not interrupted:
+                if (
+                    self.output.transcription_enabled
+                    and self.output.transcription is not None
+                    and text
+                ):
+                    self.output.transcription(text, False)
+                if self.output.audio_enabled and self.output.audio is not None:
+                    for packet in self._validated_audio:
+                        self.output.audio(packet)
+            self._validated_audio = []
+            self._validated_audio_bytes = 0
+            self._validation_overflow = False
         if text:
             self._add_item(
                 ChatMessage(role="assistant", content=[text], interrupted=interrupted)
@@ -452,20 +546,47 @@ class AgentSession(EventEmitter):
         if not self._closed and self._agent_state != "thinking":
             self._set_agent_state("listening")
         self._arm_away()
+        if blocked_line and not self._closed:
+            self.say(blocked_line)
 
     def _on_error(self, error: Any, source: Any = None) -> None:
         self.emit("error", ErrorEvent(error=error, source=source))
 
     def _on_tool_calls(self, calls: list[FunctionCall]) -> None:
-        self._set_agent_state("thinking")
-        self._spawn(self._run_tools(calls))
+        fresh = []
+        for call in calls:
+            if call.call_id and call.call_id in self._tool_receipts:
+                log.info("ignoring replayed tool call id=%s", call.call_id)
+                continue
+            if call.call_id:
+                self._tool_receipts[call.call_id] = None
+                while len(self._tool_receipts) > 256:
+                    self._tool_receipts.popitem(last=False)
+            fresh.append(call)
+        if fresh:
+            self._set_agent_state("thinking")
+            self._spawn(self._run_tools(fresh))
+
+    def _callable_tools(self, agent: Agent) -> dict[str, Any]:
+        """Tools a call may resolve to: the current agent's, then earlier agents'.
+
+        The live model may still call tools declared for an agent this session
+        has just left (until it reconnects with the new declarations). Those
+        names resolve here; the current agent's tool wins on a name clash, and
+        the most recently left agent wins among earlier ones.
+        """
+        tools: dict[str, Any] = {}
+        for prev in self._previous_agents:
+            tools.update({t.id: t for t in prev.tools})
+        tools.update({t.id: t for t in agent.tools})
+        return tools
 
     async def _run_tools(self, calls: list[FunctionCall]) -> None:
         agent = self._agent
         if agent is None:
             return
         self._set_agent_state("thinking")
-        tools = {t.id: t for t in agent.tools}
+        tools = self._callable_tools(agent)
         for call in calls:
             self._history.items.append(call)
             agent.chat_ctx.items.append(call)

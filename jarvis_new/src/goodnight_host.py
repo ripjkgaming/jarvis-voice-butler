@@ -127,6 +127,7 @@ def control(operation):
     fence = Fence()
     if (fence.directory / "detached" / "capability.json").exists():
         from goodnight_supervisor import client_control
+
         return client_control(operation)
     try:
         with fence():

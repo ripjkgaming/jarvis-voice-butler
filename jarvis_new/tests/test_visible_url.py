@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import action_guard
 import phone_session as ps

@@ -1,3 +1,45 @@
+# Accelerated historical replay
+
+`./jarvis_new/scripts/paper-market replay --seed 42 --duration-hours 3` replays
+30 calendar days in roughly three hours (the last inference may add up to 90 seconds).
+This is historical replay, not future live prices. Seed 42 selects December 1–30,
+2016: 21 observed AAPL trading sessions. Weekends and holidays contain no invented
+bars. The seed selects a past month and per-session adverse slippage of 5, 10 or
+20 basis points. Prices themselves are never randomized. Starting cash is $1,000;
+positions are long-only, limited to 35% of equity.
+
+The exact requested OpenRouter model uses the existing server-side key resolver
+(`OPENROUTER_API_KEY`, private Jarvis keys file, or existing OpenCode credentials).
+It has no tools and no fallback model. Model identity and proposal schema are
+validated. Only the prior 21 observed daily bars are sent; proposals execute at
+the next session open and are marked at that close. Daily replay uses a different
+cadence from the existing live intraday strategy.
+
+The paper-market UI shows a separate replay card with progress, P&L, decision
+score, full-investment buy-and-hold return, drawdown and unscored errors. An action
+is correct when it beats leaving existing holdings unchanged over that session,
+after slippage. Cash holds pass when a new long would not profit after slippage;
+stock holds pass when that session rises. This is a hindsight outcome score and
+cannot establish whether the reasoning was correct. Failed/invalid proposals do
+not trade or receive a decision score. Open positions are valued at the latest
+observed close, without an invented liquidation. No dividends, taxes or market
+impact are included. The model may have memorized this historical period.
+
+The replay runs separately from the expired/live ledger and never resets its
+balance or expiry. Every session atomically writes `replay-latest.json` in the
+private state directory and updates `runtime.historical_replay` for the existing
+read-only UI bridge. A separate process lock prevents duplicate replay writers.
+Logs: `journalctl --user -u jarvis-paper-replay.service`. The one-shot process
+requires the computer to remain running; it is not a recurring scheduler.
+
+Data: committed `data/paper-market/aapl-2015-2017.csv`, downloaded from
+[Plotly's historical finance dataset](https://raw.githubusercontent.com/plotly/datasets/master/finance-charts-apple.csv).
+Only dated raw OHLCV columns are used; precomputed chart indicators and adjusted
+prices are excluded. The report includes the source and a SHA-256 of normalized
+input rows. Test mode can run immediately with `--duration-hours 0`.
+
+---
+
 # Jarvis paper-market experiment
 
 This is a local intraday paper exchange using timestamped Yahoo Finance quotes and minute bars. It does
@@ -52,7 +94,7 @@ Raw observed bars stay in the local decision audit; the model receives compact
 computed features, current holdings/cash and two short recent rationales.
 
 Scraping, signal calculation, risk checks and accounting use **no model tokens**.
-No supporting model is needed. **GPT-6 Astra at medium effort** only chooses the
+No supporting model is needed. **`dots-studio/dots-3-note-preview:free` through OpenRouter** only chooses the
 final buy/sell/hold proposal and sizing. With no holdings, it is invoked only
 when at least one symbol has positive 5-/15-minute momentum above VWAP. These
 are candidate technical setups, not predicted profits or mandatory trades. It

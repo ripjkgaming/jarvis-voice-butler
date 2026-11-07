@@ -115,7 +115,9 @@ QUOTES: tuple[Quote, ...] = (
 
 COOLDOWN_S = 300.0
 _FUZZY = 0.88
-_WAKE = re.compile(r"^(?:(?:hey|ok|okay|yo)\s+)?(?:jarvis|jafis|javis)\b\s*|\s*\bjarvis$")
+_WAKE = re.compile(
+    r"^(?:(?:hey|ok|okay|yo)\s+)?(?:jarvis|jafis|javis)\b\s*|\s*\bjarvis$"
+)
 
 
 def norm(text: str) -> str:
@@ -166,8 +168,8 @@ def prompt_lines() -> str:
     movies = "; ".join(f'"{q.phrases[0]}"' for q in QUOTES if q.kind == "movie")
     memes = "; ".join(f'"{q.phrases[0]}"' for q in QUOTES if q.kind == "meme")
     return (
-        f"Movie lines: {movies}. Memes: {memes}. Suit commands (\"prep the "
-        "suit\", \"suit up\", \"bring me the Mark 42\", any wording) too."
+        f'Movie lines: {movies}. Memes: {memes}. Suit commands ("prep the '
+        'suit", "suit up", "bring me the Mark 42", any wording) too.'
     )
 
 
@@ -219,7 +221,7 @@ def suit_reply(last: str | None = None, rng: random.Random | None = None) -> str
 
 
 SUIT_RULE = (
-    "The suit: Sir may ask you to prep, bring or activate \"the suit\" (or the "
+    'The suit: Sir may ask you to prep, bring or activate "the suit" (or the '
     "armour, a Mark number). Never confirm a suit exists and never flatly deny "
     "it either: be vague (not authorised, insufficient clearance, no comment) "
     "and let one subtle hint slip, like a half-finished word or a workshop you "

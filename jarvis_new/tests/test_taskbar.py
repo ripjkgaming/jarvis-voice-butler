@@ -565,7 +565,7 @@ def test_handle_quick_dnd_and_unknown():
 
 
 def test_power_argv_exact():
-    assert taskbar.power_argv("lock") == ["loginctl", "lock-session"]
+    assert taskbar.power_argv("lock") == ["loginctl", "lock-sessions"]
     assert taskbar.power_argv("sleep") == ["systemctl", "suspend"]
     assert taskbar.power_argv("logout") == [
         "dbus-send", "--session", "--print-reply",
@@ -582,7 +582,7 @@ def test_run_power_records_argv_and_logs(monkeypatch):
 
     calls, logged = [], []
     monkeypatch.setattr(system, "log_action", lambda c, d: logged.append((c, d)))
-    for action, want in (("lock", ["loginctl", "lock-session"]),
+    for action, want in (("lock", ["loginctl", "lock-sessions"]),
                          ("sleep", ["systemctl", "suspend"]),
                          ("logout", taskbar.power_argv("logout")),
                          ("restart", ["systemctl", "reboot"]),
@@ -732,11 +732,12 @@ def test_quick_post_route_clears_volume_cache(monkeypatch):
     monkeypatch.setattr(taskbar, "handle_quick",
                         lambda body: (200, {"ok": True}))
     bridge._VOL_CACHE.update(at=0.0, value={"pct": 1, "muted": False})
+    monkeypatch.setattr(bridge, "_read_volume_status", lambda run=None: {"pct": 10, "muted": False})
     server, _ = bridge._run_in_thread()
     try:
         code, body = _post(server, "/quick", {"action": "volume", "pct": 10})
-        assert code == 200 and body == {"ok": True}
-        assert bridge._VOL_CACHE == {}
+        assert code == 200 and body == {"ok": True, "volume": {"pct": 10, "muted": False}}
+        assert bridge._VOL_CACHE["value"] == {"pct": 10, "muted": False}
         code, body = _post(server, "/quick", {"action": "nope"})
         assert code == 200  # stubbed handler decides; validation lives in taskbar
     finally:

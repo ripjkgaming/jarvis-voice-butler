@@ -12,6 +12,7 @@ import { AsciiBox, SayHint } from '@/components/ascii/glyphs';
 import { Decode } from '@/components/ascii/use-decode';
 import { useSurfaceVisibility } from '@/hooks/hud/use-surface-visibility';
 import { type ReplyDraft, closeIfEmpty, listDrafts } from '@/lib/drafts';
+import { startVisiblePoll } from '@/lib/visible-poll';
 import styles from './drafts-window.module.css';
 
 const POLL_MS = 2000;
@@ -45,10 +46,9 @@ export function DraftsWindow() {
   const had = useRef(false);
 
   useEffect(() => {
-    let alive = true;
-    const tick = async () => {
-      const list = await listDrafts();
-      if (!alive) return;
+    return startVisiblePoll(async (signal) => {
+      const list = await listDrafts(signal);
+      if (signal.aborted) return;
       setNow(Date.now());
       setDrafts(list);
       if (list === null) return;
@@ -59,13 +59,7 @@ export function DraftsWindow() {
         had.current = false;
         void closeIfEmpty();
       }
-    };
-    void tick();
-    const id = setInterval(() => void tick(), POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
+    }, POLL_MS);
   }, []);
 
   const offline = drafts === null;

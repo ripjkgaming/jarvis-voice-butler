@@ -276,7 +276,7 @@ def test_interleaved_actions_keep_their_echoes():
 
 
 def test_failed_model_launch_can_be_retried_by_route(monkeypatch):
-    from livekit.agents.llm import ToolError
+    from jarvis_rt import ToolError
 
     from system import core, launcher
 

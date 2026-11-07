@@ -142,8 +142,6 @@ PRIVATE_UNSAFE_TOOLS = frozenset(
         "run_tests",
         "show_panel",
         "hide_panel",
-        "open_insights",
-        "close_insights",
         "open_projects",
         "navigate_archive",
         "projects_ui",

@@ -359,7 +359,9 @@ def _note_windows(items: list[dict]) -> None:
             live = {item.get("id", "") for item in items}
             for gone in [key for key in _windows_order if key not in live]:
                 del _windows_order[gone]
-            _windows = sorted(items, key=lambda w: _windows_order.get(w.get("id", ""), 0))
+            _windows = sorted(
+                items, key=lambda w: _windows_order.get(w.get("id", ""), 0)
+            )
     except Exception:
         pass
 

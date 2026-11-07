@@ -61,7 +61,9 @@ def _save(names: list[str]) -> None:
     from phone_session import private
 
     if private():
-        raise PermissionError("A private phone call cannot change shared desktop panels.")
+        raise PermissionError(
+            "A private phone call cannot change shared desktop panels."
+        )
     with contextlib.suppress(OSError):
         state_path().parent.mkdir(parents=True, exist_ok=True)
         state_path().write_text(json.dumps({"visible": names, "ts": time.time()}))
@@ -84,7 +86,7 @@ def hide(name: str) -> list[str]:
 
 # --- Insights drawer (AI usage / paper market), opened by voice ---
 
-INSIGHTS_TABS = ("usage", "market")
+INSIGHTS_TABS = ("usage", "market", "calendar")
 
 
 def insights_path() -> Path:
@@ -92,7 +94,7 @@ def insights_path() -> Path:
 
 
 def insights() -> dict:
-    """{"tab": usage|market|None, "seq": n}. seq bumps on every request so
+    """{"tab": usage|market|calendar|None, "seq": n}. seq bumps on every request so
     the HUD reopens the drawer even when the same tab is asked twice."""
     try:
         data = json.loads(insights_path().read_text())
@@ -110,7 +112,9 @@ def set_insights(tab: str | None) -> dict:
     from phone_session import private
 
     if private():
-        raise PermissionError("A private phone call cannot change shared desktop panels.")
+        raise PermissionError(
+            "A private phone call cannot change shared desktop panels."
+        )
     state = {
         "tab": tab if tab in INSIGHTS_TABS else None,
         "seq": insights()["seq"] + 1,

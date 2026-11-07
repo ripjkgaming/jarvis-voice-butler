@@ -9,7 +9,7 @@ voice-shaped wrapper around it.
 
 from __future__ import annotations
 
-from livekit.agents import RunContext, function_tool
+from jarvis_rt import RunContext, function_tool
 
 
 class NotifyTools:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import time
+from zoneinfo import ZoneInfo
 
 from proactive.signals import Signal
 
@@ -131,8 +132,14 @@ def _start_end(e: dict) -> tuple[float, float] | None:
         return None
 
 
+def _calendar_time(ts: float) -> dt.datetime:
+    import google_api
+
+    return dt.datetime.fromtimestamp(ts, ZoneInfo(google_api.local_timezone()))
+
+
 def _clock(ts: float) -> str:
-    return dt.datetime.fromtimestamp(ts).strftime("%H:%M")
+    return _calendar_time(ts).strftime("%H:%M")
 
 
 def signals_for(events: list[dict], now: float) -> list[Signal]:
@@ -161,13 +168,13 @@ def signals_for(events: list[dict], now: float) -> list[Signal]:
                 out.append(
                     Signal(
                         kind="calendar",
-                        key=f"cal:{eid}:{stage}",
+                        key=f"cal:{eid}:{int(start)}:{stage}",
                         title=say,
-                        detail=f"{title} at {_clock(start)}"
+                        detail=f"{title} at {_calendar_time(start).strftime('%d %b %H:%M')}"
                         + (f" ({where})" if where else ""),
                         urgency=urgency,
                         ts=now,
-                        action={"event_id": eid},
+                        action={"event_id": eid, "expires_at": max(end, start + 3600)},
                     )
                 )
                 break

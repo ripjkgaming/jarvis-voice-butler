@@ -81,6 +81,32 @@ export type PaperMarketSnapshot = {
     realized_pnl_usd: string;
   }[];
   runtime: {
+    historical_replay?: {
+      status: string;
+      start_date: string;
+      end_date: string;
+      sessions_total: number;
+      sessions_completed: number;
+      final_equity_usd: string;
+      pnl_usd: string;
+      return_pct: string;
+      buy_hold_return_pct: string;
+      decision_score_pct: number | null;
+      correct_decisions: number;
+      scored_decisions: number;
+      model_errors: number;
+      max_drawdown_pct: string;
+      expected_finish_at: string;
+      duration_hours: number;
+      scoring: string;
+      decisions: {
+        date: string;
+        correct: boolean | null;
+        rationale?: string;
+        error?: string;
+        equity_usd: string;
+      }[];
+    };
     autotrading_enabled?: boolean;
     risk_interval_seconds?: number;
     last_cycle_at: string | null;
@@ -182,6 +208,45 @@ export function parsePaperMarketSnapshot(value: unknown): PaperMarketSnapshot | 
         strings(f, ['id', 'at', 'symbol', 'side']) &&
         decimals(f, ['quantity', 'price_usd', 'notional_usd', 'realized_pnl_usd'])
     )
+  )
+    return null;
+  const replay = r.historical_replay;
+  if (
+    replay !== undefined &&
+    (!record(replay) ||
+      !strings(replay, ['status', 'start_date', 'end_date', 'expected_finish_at', 'scoring']) ||
+      !decimals(replay, [
+        'final_equity_usd',
+        'pnl_usd',
+        'return_pct',
+        'buy_hold_return_pct',
+        'max_drawdown_pct',
+      ]) ||
+      ![
+        'sessions_total',
+        'sessions_completed',
+        'correct_decisions',
+        'scored_decisions',
+        'model_errors',
+        'duration_hours',
+      ].every(
+        (key) => typeof replay[key] === 'number' && Number.isFinite(replay[key]) && replay[key] >= 0
+      ) ||
+      !(
+        replay.decision_score_pct === null ||
+        (typeof replay.decision_score_pct === 'number' &&
+          Number.isFinite(replay.decision_score_pct) &&
+          replay.decision_score_pct >= 0 &&
+          replay.decision_score_pct <= 100)
+      ) ||
+      !items(
+        replay.decisions,
+        (d) =>
+          strings(d, ['date', 'equity_usd']) &&
+          (d.correct === null || typeof d.correct === 'boolean') &&
+          (d.rationale === undefined || typeof d.rationale === 'string') &&
+          (d.error === undefined || typeof d.error === 'string')
+      ))
   )
     return null;
   return value as PaperMarketSnapshot;

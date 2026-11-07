@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
-
+from jarvis_rt import RunContext, ToolError, function_tool
 from system import LocalSystemError, log_action, require_local
 
 
@@ -21,8 +19,6 @@ class PanelTools:
         return [
             self.show_panel,
             self.hide_panel,
-            self.open_insights,
-            self.close_insights,
         ]
 
     @function_tool()
@@ -72,38 +68,3 @@ class PanelTools:
         return {
             "say": "Panels cleared." if name == "all" else f"{name.title()} hidden."
         }
-
-    @function_tool()
-    async def open_insights(
-        self, context: RunContext, view: str = "usage"
-    ) -> dict[str, str]:
-        """Open the full Insights screen on the HUD. Use for "check AI usage",
-        "open my AI usage", "show token spend" (view=usage) and "open paper
-        trading", "show the paper market", "how's my portfolio" (view=market).
-
-        Args:
-            view: usage or market.
-        """
-        _guard()
-        import hud_panels
-
-        v = (view or "usage").strip().lower()
-        tab = (
-            "market"
-            if any(w in v for w in ("market", "trad", "portfolio"))
-            else "usage"
-        )
-        hud_panels.set_insights(tab)
-        log_action("hud", f"insights {tab}")
-        return {"say": "Paper market is up." if tab == "market" else "AI usage is up."}
-
-    @function_tool()
-    async def close_insights(self, context: RunContext) -> dict[str, str]:
-        """Close the Insights screen ("close AI usage", "close paper trading",
-        "close insights")."""
-        _guard()
-        import hud_panels
-
-        hud_panels.set_insights(None)
-        log_action("hud", "insights closed")
-        return {"say": "Closed."}

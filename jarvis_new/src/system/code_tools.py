@@ -7,11 +7,14 @@ confirm_open_pr arms exactly one PR (project + title), open_pr uses it once.
 from __future__ import annotations
 
 import asyncio
+import os
+import time
+import uuid
 import re
 import subprocess
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local
 
@@ -32,6 +35,8 @@ class CodeTools:
     def __init__(self, run=subprocess.run) -> None:
         self._run = run
         self._armed_pr: str | None = None
+        self._armed_pr_request: str | None = None
+        self._armed_pr_expiry: float = 0
 
     @property
     def tools(self) -> list:
@@ -90,6 +95,9 @@ class CodeTools:
         if not (title or "").strip():
             raise ToolError("A pull request needs a title.")
         self._armed_pr = _pr_key(project, title)
+        if os.environ.get("JARVIS_POWER_OUTBOUND_LEDGER") == "1":
+            self._armed_pr_request = uuid.uuid4().hex
+            self._armed_pr_expiry = time.monotonic() + 300
         log_action("code", "pr armed")
         return {"say": f"Authorised: pull request '{title.strip()[:80]}'."}
 
@@ -112,10 +120,35 @@ class CodeTools:
                 "Not authorised. Read the project and title back to Sir and ask "
                 "yes or no; if yes call confirm_open_pr, then open_pr again."
             )
+        request_id = self._armed_pr_request
+        if os.environ.get("JARVIS_POWER_OUTBOUND_LEDGER") == "1":
+            if not request_id or time.monotonic() >= self._armed_pr_expiry:
+                self._armed_pr = None
+                self._armed_pr_request = None
+                raise ToolError(
+                    "Pull request approval expired. Ask for fresh approval."
+                )
         self._armed_pr = None
+        self._armed_pr_request = None
         root = code_assist.resolve_project(project)
         if root is None:
             raise ToolError(f"I can't find a project called {project}.")
+        ledger = None
+        if request_id and os.environ.get("JARVIS_POWER_OUTBOUND_LEDGER") == "1":
+            from power_foundation.integration import home
+            from power_foundation.operations import OutboundLedger, fingerprint
+
+            ledger = OutboundLedger(home() / "foundation" / "outbound.sqlite3")
+            if not ledger.claim(
+                request_id,
+                "github_open_pr",
+                fingerprint(
+                    {"project": str(root.resolve()), "title": title.strip()[:200]}
+                ),
+            ):
+                raise ToolError(
+                    "This PR approval was already attempted. Review before retry."
+                )
         try:
             proc = await asyncio.to_thread(
                 self._run,
@@ -126,11 +159,21 @@ class CodeTools:
                 timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
+            if ledger:
+                ledger.settle(request_id, "failed_unverified")
             raise ToolError(f"gh failed: {exc}") from exc
+        except BaseException:
+            if ledger:
+                ledger.settle(request_id, "failed_unverified")
+            raise
         if proc.returncode != 0:
+            if ledger:
+                ledger.settle(request_id, "failed_unverified")
             raise ToolError(
                 f"GitHub said no: {(proc.stderr or proc.stdout).strip()[-200:]}"
             )
+        if ledger:
+            ledger.settle(request_id, "completed_unverified")
         url = (proc.stdout or "").strip().splitlines()[-1:] or [""]
         log_action("code", f"pr opened {url[0][:120]}")
         return {

@@ -187,10 +187,11 @@ def test_calendar_stages_and_clash() -> None:
     sigs = calendar_source.signals_for(events, NOW)
     by_key = {s.key: s for s in sigs}
     assert (
-        by_key["cal:a:10min"].title == "Chemistry starts in 10 minutes, Sir, at Lab 2."
+        by_key[f"cal:a:{int(NOW + 600)}:10min"].title
+        == "Chemistry starts in 10 minutes, Sir, at Lab 2."
     )
-    assert by_key["cal:b:5min"].urgency == "high"
-    assert by_key["cal:c:now"].title == "Call is starting now, Sir."
+    assert by_key[f"cal:b:{int(NOW + 240)}:5min"].urgency == "high"
+    assert by_key[f"cal:c:{int(NOW)}:now"].title == "Call is starting now, Sir."
     assert "cal-clash:d:e" in by_key
     assert not any("x" in k.split(":")[1] for k in by_key if k.startswith("cal:"))
 
@@ -204,7 +205,7 @@ def test_calendar_poll_uses_account_and_caches(monkeypatch) -> None:
         return [_event("a", "Maths", 10)]
 
     calendar_source._cache.update(at=0.0, events=[])
-    assert calendar_source.poll(NOW, lister)[0].key == "cal:a:10min"
+    assert calendar_source.poll(NOW, lister)[0].key == f"cal:a:{int(NOW + 600)}:10min"
     assert seen == ["school"]
     assert calendar_source.fetch(NOW + 10)[0]["id"] == "a"  # cached, no lister
 

@@ -73,6 +73,7 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
         self.step_delay = step_delay
         self.state = GameState(now=now)
         # hooks (all optional)
+        self.on_log: Callable[[str], Awaitable | None] | None = None
         self.on_say: Callable[[str], Awaitable | None] | None = None
         self.on_stop_speech: Callable[[], None] | None = None
         self.on_change: Callable[[], Awaitable | None] | None = None
@@ -257,6 +258,10 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
             return
         self.last_say = text
         self.log.append(text)
+        if self.on_log:
+            r = self.on_log(text)
+            if inspect.isawaitable(r):
+                await r
         if self.settings.commentary_muted:
             return
         if not (self.listening or self.settings.speak_explanations):
@@ -377,7 +382,11 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
                 "paused": self.paused,
                 "pending": None
                 if not self.pending
-                else {k: v for k, v in self.pending.items() if k not in ("moves", "intent")},
+                else {
+                    k: v
+                    for k, v in self.pending.items()
+                    if k not in ("moves", "intent")
+                },
                 "disambiguation": disamb,
                 "thinking": self.thinking,
                 "arrow": self.arrow,
@@ -688,7 +697,9 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
             if rr and rr.intent:
                 from games.chess import intents_series
 
-                if (sr := await intents_series.handle(self, rr.intent, raw)) is not None:
+                if (
+                    sr := await intents_series.handle(self, rr.intent, raw)
+                ) is not None:
                     return sr
                 return await self.run_intent(rr.intent)
             if rr and rr.clarify:
@@ -716,13 +727,16 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
     def _route_ctx(self) -> chess_router.RouteCtx:
         st = self.state
         s = self.series.state if self.series is not None else None
-        status = s.status if s is not None and s.status in ("running", "paused") else None
+        status = (
+            s.status if s is not None and s.status in ("running", "paused") else None
+        )
         return chess_router.RouteCtx(
             series=status,
             history=bool(self.hist_view),
             takeover=st.mode == "takeover",
-            is_move=lambda t: voice_moves.parse_move(t, st.board, self._ctx).kind
-            != "none",
+            is_move=lambda t: (
+                voice_moves.parse_move(t, st.board, self._ctx).kind != "none"
+            ),
         )
 
     async def _miss(self) -> Reply:
@@ -818,7 +832,9 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
                     return Reply(ok=False, kind="empty")
                 from games.chess import intents_series
 
-                if (sr := await intents_series.handle(self, it, p.get("raw", raw))) is not None:
+                if (
+                    sr := await intents_series.handle(self, it, p.get("raw", raw))
+                ) is not None:
                     return sr
                 return await self.run_intent(it)
             if hit and hit.name == "no":
@@ -1040,6 +1056,8 @@ class ChessGame(SessionMixin, IntentsMixin, AnalysisMixin):
 
     def _set_settings(self, args: dict[str, Any]) -> Reply:
         changed = self.settings.update(**args)
+        if self.settings.commentary_muted and self.on_stop_speech:
+            self.on_stop_speech()
         if "difficulty" in args and "difficulty" in changed:
             pass
         if self._persist:

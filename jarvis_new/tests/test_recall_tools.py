@@ -6,7 +6,7 @@ import json
 import time
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import mail_log
 from system import recall_tools

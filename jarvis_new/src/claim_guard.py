@@ -163,6 +163,7 @@ class _Turn:
     outcomes: list = field(default_factory=list)
     unverified: list[str] = field(default_factory=list)
     corrections: int = 0
+    calendar_read_titles: list[str] = field(default_factory=list)
 
 
 def enabled() -> bool:
@@ -255,9 +256,23 @@ class ClaimGuard:
     def __init__(self, clock=time.monotonic) -> None:
         self._clock = clock
         self._turn = _Turn()
+        self.calendar_context = False
 
     def note_user(self, text: str) -> None:
         """A new final user transcript starts a new turn."""
+        cleaned = _norm(text)
+        self.calendar_context = bool(re.search(r"\bcalendar\b", cleaned)) or (
+            self.calendar_context
+            and (
+                not _REQUEST.search(cleaned)
+                or bool(
+                    re.search(
+                        r"\b(?:confirm|yes|added|scheduled|january|february|march|april|may|june|july|august|september|october|november|december|20\d{2})\b",
+                        cleaned,
+                    )
+                )
+            )
+        )
         self._turn = _Turn(text=text or "", at=self._clock())
 
     def note_tool(self, name: str, ok: bool) -> None:
@@ -273,11 +288,56 @@ class ClaimGuard:
         outcome = parse_outcome(result)
         if outcome is not None and not is_error:
             self._turn.outcomes.append((name, outcome))
+            if (
+                outcome.verified
+                and outcome.effect == "calendar.read"
+                and isinstance(result, dict)
+            ):
+                self._turn.calendar_read_titles.extend(
+                    _norm(str(item.get("title") or ""))
+                    for item in result.get("events", [])[:250]
+                    if isinstance(item, dict) and item.get("title")
+                )
         else:
             self.note_tool(name, not is_error)
 
     def _backed(self, category: str, sentence: str = "") -> bool:
         outcomes = self._turn.outcomes
+        # A local exam-list write or a Calendar read is not a provider mutation.
+        # Calendar claims require a structured verified readback receipt.
+        calendar_context = self.calendar_context or bool(
+            re.search(r"\bcalendar\b", _norm(sentence) + " " + _norm(self._turn.text))
+        )
+        if calendar_context and category in {"create", "delete", "done"}:
+            # A fresh read may verify an existing state, never a first-person
+            # mutation claim such as 'I added/updated it'.
+            if (
+                category == "create"
+                and re.search(
+                    r"\b(?:is|was|has been)\s+(?:now\s+)?(?:scheduled|added|booked|saved)\b",
+                    sentence,
+                    re.I,
+                )
+                and not _FIRST_PERSON.search(_norm(sentence))
+                and any(
+                    title and title in _norm(sentence)
+                    for title in self._turn.calendar_read_titles
+                )
+            ):
+                return True
+            required = (
+                "calendar.delete"
+                if category == "delete"
+                else "calendar.update"
+                if re.search(
+                    r"\b(?:updated|changed|moved|rescheduled)\b", sentence, re.I
+                )
+                else "calendar.create"
+            )
+            return any(
+                outcome.verified and outcome.effect == required
+                for _, outcome in outcomes
+            )
         if category == "done":
             if self._turn.unverified or any(not o.verified for _, o in outcomes):
                 return False
@@ -347,7 +407,9 @@ class ClaimGuard:
     def check(self, assistant_text: str) -> Verdict | None:
         """A Verdict when Jarvis claimed an action nothing backs up."""
         turn = self._turn
-        if not turn.text or self._clock() - turn.at > USER_WINDOW_S:
+        if not turn.text or (
+            self._clock() - turn.at > USER_WINDOW_S and not self.calendar_context
+        ):
             return None  # proactive speech / no request to answer
         if (
             not turn.tools_ok
@@ -361,7 +423,7 @@ class ClaimGuard:
                 claim=(assistant_text or "")[:160],
                 reason="no-tool",
             )
-        if not _REQUEST.search(_norm(turn.text)):
+        if not _REQUEST.search(_norm(turn.text)) and not self.calendar_context:
             return None  # chit-chat, not a command
         found = claims(assistant_text)
         if (
@@ -382,6 +444,16 @@ class ClaimGuard:
             and not _NEGATED.search(_norm(assistant_text))
         ):
             found.append(("window", assistant_text))
+        if (
+            self.calendar_context
+            and re.search(
+                r"\b(?:is|was|has been)\s+(?:now\s+)?(?:scheduled|added|booked|updated|saved)\b",
+                assistant_text,
+                re.I,
+            )
+            and not _NEGATED.search(_norm(assistant_text))
+        ):
+            found.append(("create", assistant_text))
         for category, sentence in found:
             if self._backed(category, sentence):
                 continue
@@ -455,3 +527,33 @@ def fixed_line(verdict: Verdict) -> str:
         "Correction, Sir: I said that was done, but it wasn't. "
         "Nothing actually happened. Please ask me again."
     )
+
+
+def calendar_safe_text(text: str) -> str:
+    """Calendar mutation claims need proof even if final input was lost.
+
+    This boundary does not rely on a timely user transcript: native audio can
+    precede transcription, and speculative speech can predate request context.
+    """
+    if not enabled():
+        return text
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        normalized = _norm(sentence)
+        domain = GUARD.calendar_context or bool(
+            re.search(r"\b(?:calendar|event|appointment)\b", normalized)
+        )
+        if not domain or _NEGATED.search(normalized) or "?" in sentence:
+            continue
+        categories = [category for category, _ in claims(sentence)]
+        if re.search(
+            r"\b(?:scheduled|booked|added|saved|created|updated|changed)\b", normalized
+        ):
+            categories.append("create")
+        if re.search(r"\b(?:deleted|removed|cancelled|canceled)\b", normalized):
+            categories.append("delete")
+        for category in categories:
+            if category in {"create", "delete", "done"} and not GUARD._backed(
+                category, sentence
+            ):
+                return "I haven't verified that Google Calendar change yet, Sir."
+    return text

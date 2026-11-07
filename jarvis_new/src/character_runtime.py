@@ -7,18 +7,14 @@ import logging
 import os
 import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
 try:
     import characters as _chars
-    import command_parse as _parse
     import switch_state as _ss
 except ImportError:  # imported as src.character_runtime
     from src import characters as _chars  # type: ignore[no-redef]
-    from src import command_parse as _parse  # type: ignore[no-redef]
     from src import switch_state as _ss  # type: ignore[no-redef]
 
 logger = logging.getLogger("jarvis-character-runtime")
@@ -104,7 +100,10 @@ class CharacterRuntime:
         """Authority state from disk, cached by mtime (checked every 100 ms)."""
         now = time.monotonic()
         with self._lock:
-            if self._mirror_state is not None and now - self._mirror_checked < _STATE_POLL_S:
+            if (
+                self._mirror_state is not None
+                and now - self._mirror_checked < _STATE_POLL_S
+            ):
                 return self._mirror_state
             self._mirror_checked = now
             path = state_path()
@@ -137,10 +136,7 @@ class CharacterRuntime:
 
     # -- state ------------------------------------------------------
     def active_id(self) -> str:
-        if not is_authority():
-            return self._read_mirror()["active"]
-        with self._lock:
-            return self.machine.active
+        return BOOT_ID
 
     def active(self):
         return self.chars[self.active_id()]
@@ -153,17 +149,13 @@ class CharacterRuntime:
         return out
 
     def snapshot(self) -> dict[str, Any]:
-        if not is_authority():
-            return {**self._read_mirror(), "characters": list(self.chars)}
-        with self._lock:
-            m = self.machine
-            return {
-                "active": m.active,
-                "target": m.target,
-                "phase": m.phase.value,
-                "char_turn": m.turn_id,
-                "characters": list(self.chars),
-            }
+        return {
+            "active": BOOT_ID,
+            "target": None,
+            "phase": "idle",
+            "char_turn": 0,
+            "characters": [BOOT_ID],
+        }
 
     # -- listeners --------------------------------------------------
     def subscribe(self, cb: Callable[[dict], None]) -> None:
@@ -189,87 +181,16 @@ class CharacterRuntime:
         except (KeyError, IndexError):
             return ""
 
-    def _mirror_switch(self, target: str, source: str) -> dict:
-        active = self.chars[self.active_id()]
-        if target not in self.chars:
-            names = ", ".join(c.display_name for c in self.chars.values())
-            return {
-                "handled": True,
-                "switched": False,
-                "reply": self._line(active, "unknown_name", names=names),
-            }
-        if target == active.id and self._read_mirror()["phase"] == "idle":
-            return {
-                "handled": True,
-                "switched": False,
-                "reply": self._line(active, "already_active"),
-            }
-        port = os.environ.get("JARVIS_BRIDGE_PORT", "4317").strip() or "4317"
-        headers = {"Content-Type": "application/json"}
-        token = _bridge_token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}/character/switch",
-            data=json.dumps({"target": target, "source": "voice"}).encode(),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=_BRIDGE_TIMEOUT_S) as resp:
-                res = json.load(resp)
-            if not isinstance(res, dict) or not res.get("ok"):
-                raise ValueError("bridge refused")
-        except (OSError, ValueError, urllib.error.URLError):
-            return {"handled": True, "switched": False, "reply": _UNREACHABLE}
-        res.pop("ok", None)
-        res.pop("character", None)
-        self._mirror_checked = 0.0
-        return res
-
     def switch(self, target: str, source: str = "ui") -> dict:
-        if not is_authority():
-            return self._mirror_switch(target, source)
-        with self._lock:
-            active = self.chars[self.machine.active]
-            if target not in self.chars:
-                names = ", ".join(c.display_name for c in self.chars.values())
-                return {
-                    "handled": True,
-                    "switched": False,
-                    "reply": self._line(active, "unknown_name", names=names),
-                }
-            d = self.machine.request(target, source)
-            if d.kind == "already_active":
-                return {
-                    "handled": True,
-                    "switched": False,
-                    "reply": self._line(active, "already_active"),
-                }
-            frm = self.chars.get(d.from_id, active)
-            result = {
-                "handled": True,
-                "switched": True,
-                "target": d.to_id,
-                "from": d.from_id,
-                "char_turn": d.turn_id,
-                "play_exit_line": d.play_exit_line,
-                "replay_signature": d.replay_signature,
-                "exit_line": self._line(frm, "exit"),
-                "reply": self._line(self.chars[d.to_id], "switch_in"),
-            }
-        self._notify()
-        return result
+        return {
+            "handled": True,
+            "switched": False,
+            "reply": "Jarvis is the only available assistant.",
+        }
 
     def handle_text(self, text: str, source: str = "text") -> dict | None:
-        cmd = _parse.parse_switch(text, self.names_map())
-        if cmd is None:
-            return None
-        if cmd.kind == "unknown" or not cmd.target:
-            return self.switch("", source)
-        return self.switch(cmd.target, source)
+        return None
 
-    # -- phases -----------------------------------------------------
     def set_phase(self, phase: Phase) -> Phase:
         with self._lock:
             out = self.machine.advance(phase)

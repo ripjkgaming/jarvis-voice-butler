@@ -108,6 +108,22 @@ class Desktop(SUIT.Desktop):
                 json={"ok": True, "visible": [], "panels": {}, "insights": self.voice},
                 headers={"Access-Control-Allow-Origin": "*"},
             )
+        if parsed.path == "/auto-calendar/status":
+            return await route.fulfill(
+                json={
+                    "ok": True,
+                    "enabled": True,
+                    "timezone": "Asia/Singapore",
+                    "pending": [],
+                    "retry": [],
+                    "recent": [],
+                    "whatsapp": {"enabled": True, "connected": False},
+                    "calendar": {"configured": True},
+                    "reminders": {"deferred": 2},
+                    "presence": {"state": "input"},
+                },
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
         if parsed.path == "/paper-market":
             self.paper_requests += 1
             return await route.fulfill(
@@ -147,6 +163,11 @@ async def check(browser, url, output, school=False, width=1600):
         await page.wait_for_timeout(500)
     base_paper = desktop.paper_requests
     if school:
+        # A voice request can open Insights while presence has parked the HUD.
+        # Exercise actual entrance CSS without reduced-motion hiding the bug.
+        await page.emulate_media(reduced_motion="no-preference")
+        await page.evaluate("document.documentElement.classList.add('hud-hidden')")
+    if school:
         await page.locator('[data-insights-launch="usage"]').click()
     else:
         # The normal HUD is voice-only: "check AI usage" bumps the /panels seq.
@@ -157,6 +178,13 @@ async def check(browser, url, output, school=False, width=1600):
         desktop.voice = {"tab": "usage", "seq": 1}
     dialog = page.get_by_role("dialog", name="Insights", exact=True)
     await dialog.wait_for()
+    if school:
+        await page.wait_for_timeout(350)
+        for selector in ("[data-insights]", "[role=dialog]", "[role=tabpanel]"):
+            assert await page.locator(selector).evaluate(
+                "e => Number(getComputedStyle(e).opacity) > .99"
+            ), f"Parked HUD hid {selector}"
+        await page.emulate_media(reduced_motion="reduce")
     await page.get_by_text("REPORT READY", exact=True).wait_for()
     assert await page.get_by_text("12,345,678", exact=True).count() >= 1
     assert await page.get_by_text("Reported: 42.123456789 USD", exact=True).count() == 1
@@ -208,7 +236,33 @@ async def check(browser, url, output, school=False, width=1600):
         "Paper market service is unavailable. Retrying automatically.", exact=True
     ).wait_for()
     assert len(desktop.usage_requests) == before
-    assert 1 <= desktop.paper_requests - base_paper <= 2  # Dev StrictMode may replay the mount.
+    assert (
+        1 <= desktop.paper_requests - base_paper <= 2
+    )  # Dev StrictMode may replay the mount.
+    # Calendar is reachable in the existing native-focus dialog; tab arrows wrap.
+    calendar_tab = page.get_by_role(
+        "tab", name="03 Calendar Events & reminders", exact=True
+    )
+    await calendar_tab.click()
+    await page.get_by_role(
+        "heading", name="Recent calendar activity", exact=True
+    ).wait_for()
+    assert await page.get_by_text("Configured · unverified", exact=True).count() == 1
+    assert await dialog.locator("main").evaluate(
+        "e => e.scrollWidth <= e.clientWidth"
+    ), "Calendar overflow"
+    await page.screenshot(
+        path=str(output / f"calendar-insights-{'school' if school else width}.png")
+    )
+    await calendar_tab.focus()
+    await page.keyboard.press("ArrowRight")
+    assert (
+        await page.get_by_role(
+            "tab", name="01 AI Usage Tokens & estimated spend", exact=True
+        ).get_attribute("aria-selected")
+        == "true"
+    )
+    await calendar_tab.click()
     # Returning to the inactive tab mounts a fresh reader; failure is not $0.
     desktop.offline = True
     await page.get_by_role(

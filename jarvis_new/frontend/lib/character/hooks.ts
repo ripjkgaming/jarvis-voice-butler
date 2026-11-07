@@ -1,6 +1,5 @@
 'use client';
 
-import { useCharacters } from './store';
 import type { CharacterPublic } from './types';
 
 export type Skin = {
@@ -10,9 +9,15 @@ export type Skin = {
 };
 
 export function useSkin(): Skin {
-  const st = useCharacters();
-  const ch = st.active !== 'jarvis' ? (st.characters[st.active] ?? null) : null;
-  return { id: ch ? st.active : 'jarvis', ch };
+  return { id: 'jarvis', ch: null };
+}
+
+/** Only Ultron wears the glyph (ASCII) HUD; Jarvis and Friday keep the
+ *  classic vector instruments. */
+export const ASCII_SKINS: readonly string[] = [];
+
+export function useAscii(): boolean {
+  return ASCII_SKINS.includes(useSkin().id);
 }
 
 /** J.A.R.V.I.S. -> U.L.T.R.O.N. */

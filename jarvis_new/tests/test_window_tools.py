@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from livekit.agents.llm import ToolError
 
 import active_window
+from jarvis_rt import ToolError
 from system import kwin_windows, window_layout
 from system.window_tools import WindowTools, split_names
 
@@ -38,7 +38,9 @@ async def test_list_and_focus(monkeypatch) -> None:
     monkeypatch.setattr(
         kwin_windows,
         "act",
-        lambda action, q, run=None: ("Spotify Premium", 1) if action == "focus" else None,
+        lambda action, q, run=None: (
+            ("Spotify Premium", 1) if action == "focus" else None
+        ),
     )
     said = await WindowTools.focus_window(WindowTools(), None, title="spotify")  # type: ignore[arg-type]
     assert said["say"] == "Spotify Premium is in front."
@@ -46,6 +48,34 @@ async def test_list_and_focus(monkeypatch) -> None:
     monkeypatch.setattr(window_ctl.shutil, "which", lambda n: None)
     with pytest.raises(ToolError):
         await WindowTools.focus_window(WindowTools(), None, title="nothing")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_hide_jarvis_requests_animated_shell_fade(monkeypatch) -> None:
+    calls = []
+    hangups = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr("subprocess.run", run)
+
+    class EndCall:
+        def __init__(self, *, end_instructions):
+            hangups.append(end_instructions)
+
+        async def _end_call(self, context):
+            return "goodbye before disconnect"
+
+    monkeypatch.setattr("system.window_tools.EndCallTool", EndCall)
+    out = await WindowTools.hide_jarvis(WindowTools(), None)  # type: ignore[arg-type]
+    assert calls and calls[0][0][-1] == "hide"
+    assert calls[0][0][0].endswith("jarvis-shell")
+    assert out == "goodbye before disconnect"
+    assert hangups == [
+        "Say a brief goodbye as Jarvis fades into the wallpaper, then end the call."
+    ]
 
 
 @pytest.mark.asyncio
@@ -73,4 +103,14 @@ async def test_arrange_and_undo(monkeypatch) -> None:
 
 def test_nothing_destructive_here() -> None:
     ids = [t.id for t in WindowTools().tools]
-    assert ids == ["list_windows", "focus_window", "arrange_windows", "undo_layout"]
+    assert ids == [
+        "list_windows",
+        "focus_window",
+        "maximize_window",
+        "restore_window",
+        "bring_to_attention",
+        "move_window_to_monitor",
+        "arrange_windows",
+        "undo_layout",
+        "hide_jarvis",
+    ]

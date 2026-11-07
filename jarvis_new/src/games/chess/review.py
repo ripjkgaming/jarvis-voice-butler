@@ -32,9 +32,22 @@ from games.chess.engine import (
 
 CLASSES = ("best", "good", "inaccuracy", "mistake", "blunder")
 MATE_CLAMP = 1000
-_VAL = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
-_NAME = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop",
-         chess.ROOK: "rook", chess.QUEEN: "queen", chess.KING: "king"}
+_VAL = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+    chess.KING: 100,
+}
+_NAME = {
+    chess.PAWN: "pawn",
+    chess.KNIGHT: "knight",
+    chess.BISHOP: "bishop",
+    chess.ROOK: "rook",
+    chess.QUEEN: "queen",
+    chess.KING: "king",
+}
 _COLOUR = {chess.WHITE: "White", chess.BLACK: "Black"}
 
 
@@ -89,11 +102,16 @@ class _ReviewStockfish(StockfishEngine):
             raise RuntimeError("stockfish unavailable")
         async with self._lock:
             info = await self._engine.analyse(
-                board, chess.engine.Limit(depth=min(depth, 12), time=0.3))
+                board, chess.engine.Limit(depth=min(depth, 12), time=0.3)
+            )
         score = info["score"].white()
         pv = list(info.get("pv", []))[:5]
-        return Analysis(Eval(score.score(), score.mate()), pv[0] if pv else None, pv,
-                        info.get("depth", depth))
+        return Analysis(
+            Eval(score.score(), score.mate()),
+            pv[0] if pv else None,
+            pv,
+            info.get("depth", depth),
+        )
 
 
 class MoveEvaluator:
@@ -101,7 +119,12 @@ class MoveEvaluator:
 
     DEPTH = 12
 
-    def __init__(self, engine_factory: Callable[[], Any], store: Any, on_done: Callable | None = None):
+    def __init__(
+        self,
+        engine_factory: Callable[[], Any],
+        store: Any,
+        on_done: Callable | None = None,
+    ):
         self._factory = engine_factory
         self._store = store
         self._on_done = on_done
@@ -111,7 +134,9 @@ class MoveEvaluator:
         self._cache: dict[str, Analysis] = {}
         self._closed = False
 
-    def enqueue(self, game_id: str, ply: int, fen_before: str, fen_after: str, move: Any) -> bool:
+    def enqueue(
+        self, game_id: str, ply: int, fen_before: str, fen_after: str, move: Any
+    ) -> bool:
         if self._closed:
             return False
         try:
@@ -187,11 +212,13 @@ class MoveEvaluator:
         if before.best is not None and before.best.uci() == uci:
             loss = 0
         fields = {
-            "eval_cp": after.eval.cp, "eval_mate": after.eval.mate,
+            "eval_cp": after.eval.cp,
+            "eval_mate": after.eval.mate,
             "depth": after.depth,
             "best_uci": before.best.uci() if before.best else None,
             "pv_uci": [m.uci() for m in before.pv[:5]],
-            "cp_loss": loss, "cls": classify_loss(loss),
+            "cp_loss": loss,
+            "cls": classify_loss(loss),
         }
         r = self._store.set_eval(gid, ply, **fields)
         if inspect.isawaitable(r):
@@ -215,9 +242,16 @@ def _hanging_for(board: chess.Board, colour: chess.Color) -> list[dict]:
         defended = bool(board.attackers(colour, sq))
         low = min(_VAL[board.piece_type_at(a)] for a in att)
         if not defended or low < _VAL[p.piece_type]:
-            out.append({"piece": _NAME[p.piece_type], "square": chess.square_name(sq),
-                        "colour": _COLOUR[colour].lower(),
-                        "reason": "undefended" if not defended else "attacked by a cheaper piece"})
+            out.append(
+                {
+                    "piece": _NAME[p.piece_type],
+                    "square": chess.square_name(sq),
+                    "colour": _COLOUR[colour].lower(),
+                    "reason": "undefended"
+                    if not defended
+                    else "attacked by a cheaper piece",
+                }
+            )
     return out
 
 
@@ -245,15 +279,27 @@ def position_facts(fen: str) -> dict:
             sq = chess.square_name(m.to_square)
             wins = sq in opp_hang or _VAL[victim.piece_type] > _VAL[att.piece_type]
             if wins:
-                threats.append({"by": _COLOUR[nb.turn], "san": nb.san(m),
-                                "victim": _NAME[victim.piece_type], "square": sq})
+                threats.append(
+                    {
+                        "by": _COLOUR[nb.turn],
+                        "san": nb.san(m),
+                        "victim": _NAME[victim.piece_type],
+                        "square": sq,
+                    }
+                )
         for m in nb.legal_moves:
             nb.push(m)
             mate = nb.is_checkmate()
             nb.pop()
             if mate:
-                threats.append({"by": _COLOUR[nb.turn], "san": nb.san(m),
-                                "victim": "king", "square": chess.square_name(m.to_square)})
+                threats.append(
+                    {
+                        "by": _COLOUR[nb.turn],
+                        "san": nb.san(m),
+                        "victim": "king",
+                        "square": chess.square_name(m.to_square),
+                    }
+                )
     st = []
     for h in hanging:
         st.append(f"The {h['colour']} {h['piece']} on {h['square']} is {h['reason']}.")
@@ -261,8 +307,16 @@ def position_facts(fen: str) -> dict:
         if t["victim"] == "king":
             st.append(f"{t['by']} threatens mate with {t['san']}.")
         else:
-            st.append(f"{t['by']} threatens {t['san']}, winning the {t['victim']} on {t['square']}.")
-    return {"fen": fen, "hanging": hanging, "threats": threats, "checks": checks, "statements": st}
+            st.append(
+                f"{t['by']} threatens {t['san']}, winning the {t['victim']} on {t['square']}."
+            )
+    return {
+        "fen": fen,
+        "hanging": hanging,
+        "threats": threats,
+        "checks": checks,
+        "statements": st,
+    }
 
 
 # ------------------------------------------------------------ explaining
@@ -299,7 +353,11 @@ def explain_facts(rec: Any, ply: int) -> dict | None:
     if ply < 1 or ply > len(moves):
         return None
     m = moves[ply - 1]
-    fen_before = moves[ply - 2]["fen_after"] if ply >= 2 else (_g(rec, "start_fen") or chess.STARTING_FEN)
+    fen_before = (
+        moves[ply - 2]["fen_after"]
+        if ply >= 2
+        else (_g(rec, "start_fen") or chess.STARTING_FEN)
+    )
     mover = chess.Board(fen_before).turn
     loss = m.get("cp_loss")
     if loss is None:
@@ -308,14 +366,24 @@ def explain_facts(rec: Any, ply: int) -> dict | None:
         loss = cp_loss(prev, cur, mover) if prev and cur else None
     cls = m.get("cls") or (classify_loss(loss) if loss is not None else None)
     best_uci = m.get("best_uci")
-    pv = _san_line(fen_before, list(m.get("pv_uci") or ([best_uci] if best_uci else [])))
+    pv = _san_line(
+        fen_before, list(m.get("pv_uci") or ([best_uci] if best_uci else []))
+    )
     best_san = pv[0] if pv else None
     pf = position_facts(m["fen_after"])
     f = {
-        "ply": ply, "mover": _COLOUR[mover], "played": m.get("san"), "played_uci": m.get("uci"),
-        "cp_loss": loss, "cls": cls, "best_uci": best_uci, "best_san": best_san, "pv": pv,
+        "ply": ply,
+        "mover": _COLOUR[mover],
+        "played": m.get("san"),
+        "played_uci": m.get("uci"),
+        "cp_loss": loss,
+        "cls": cls,
+        "best_uci": best_uci,
+        "best_san": best_san,
+        "pv": pv,
         "eval": _eval_of(m).as_dict() if _eval_of(m) else None,
-        "hanging": pf["hanging"], "threats": pf["threats"],
+        "hanging": pf["hanging"],
+        "threats": pf["threats"],
     }
     st = []
     if cls in ("inaccuracy", "mistake", "blunder") and m.get("san"):
@@ -324,7 +392,9 @@ def explain_facts(rec: Any, ply: int) -> dict | None:
             s += f" {best_san} was better."
         st.append(s)
     elif cls:
-        st.append(f"{m.get('san')} was {'the best move' if cls == 'best' else 'a good move'}.")
+        st.append(
+            f"{m.get('san')} was {'the best move' if cls == 'best' else 'a good move'}."
+        )
     st += pf["statements"][:2]
     f["statements"] = st
     return f
@@ -340,7 +410,13 @@ def _eval_phrase(e: Eval | None) -> str:
     if abs(cp) < 30:
         return "The position is roughly equal"
     side = "White" if cp > 0 else "Black"
-    size = "slightly better" if abs(cp) < 100 else "clearly better" if abs(cp) < 300 else "winning"
+    size = (
+        "slightly better"
+        if abs(cp) < 100
+        else "clearly better"
+        if abs(cp) < 300
+        else "winning"
+    )
     return f"{side} is {size} at {abs(cp) / 100:.1f} pawns"
 
 
@@ -366,19 +442,28 @@ def key_moments(rec: Any, n: int = 3) -> list[dict]:
             prev, cur = _eval_of(moves[i - 1]), _eval_of(m)
             if prev and cur:
                 try:
-                    loss = cp_loss(prev, cur, chess.Board(moves[i - 1]["fen_after"]).turn)
+                    loss = cp_loss(
+                        prev, cur, chess.Board(moves[i - 1]["fen_after"]).turn
+                    )
                 except Exception:
                     loss = None
         if loss is None or loss <= 50:
             continue
-        out.append({"ply": m.get("ply", i + 1), "san": m.get("san"), "cp_loss": loss,
-                    "cls": m.get("cls") or classify_loss(loss)})
+        out.append(
+            {
+                "ply": m.get("ply", i + 1),
+                "san": m.get("san"),
+                "cp_loss": loss,
+                "cls": m.get("cls") or classify_loss(loss),
+            }
+        )
     out.sort(key=lambda d: -d["cp_loss"])
     return out[:n]
 
 
 def _tokens(s: str) -> set[str]:
     import re
+
     return set(re.findall(r"[a-h][1-8]|\d+", s.lower()))
 
 
@@ -392,6 +477,10 @@ def phrase_facts(facts: dict, llm: Callable[[list[str]], str] | None = None) -> 
             cand = llm(list(st))
         except Exception:
             cand = None
-        if isinstance(cand, str) and cand.strip() and _tokens(cand) <= _tokens(" ".join(st)):
+        if (
+            isinstance(cand, str)
+            and cand.strip()
+            and _tokens(cand) <= _tokens(" ".join(st))
+        ):
             text = cand.strip()
     return {"text": text, "facts": [s for s in st if s in st]}

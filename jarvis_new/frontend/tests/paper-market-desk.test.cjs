@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -47,6 +48,8 @@ const { Desk } = compile('../components/stark/desk.tsx', {
     estimatedCost: () => '',
     tokenCount: () => '',
   },
+  '@/lib/character/hooks': { useAscii: () => true },
+  './classic': { ClassicDeskSpark: () => null },
   '@/lib/paper-market': lib,
   '@/lib/shared-poll': { useSharedPoll: () => ({ drafts: [] }) },
   './frame': {

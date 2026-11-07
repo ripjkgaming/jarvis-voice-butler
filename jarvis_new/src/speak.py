@@ -14,6 +14,7 @@ Never raises; synthesis + playback run on a daemon thread.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -91,19 +92,18 @@ def should_voice(status: dict, school_mode: bool) -> bool:
 
 
 def _notify(text: str, title: str) -> None:
-    try:
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run(
             ["notify-send", "-a", "Jarvis", "-t", "7000", title, text[:300]],
             timeout=5,
             capture_output=True,
         )
-    except (OSError, subprocess.SubprocessError):
-        pass
 
 
 def _synth_wav(text: str) -> bytes:
-    from local_voice import resolve_voice_path
     from piper import PiperVoice
+
+    from local_voice import resolve_voice_path
 
     if _voice["obj"] is None:
         _voice["obj"] = PiperVoice.load(str(resolve_voice_path()))
@@ -114,22 +114,14 @@ def _synth_wav(text: str) -> bytes:
 
 
 def _play(wav: bytes) -> None:
-    from games.voice.tts import SoundDeviceSink
-    from playback_gate import get_playback_gate
-
-    session = get_playback_gate().session()
-    sink = None
     try:
-        if not session.acquire():
-            return
-        with wave.open(io.BytesIO(wav), "rb") as audio:
-            rate = audio.getframerate()
-            sink = SoundDeviceSink(rate)
-            session.write(audio.readframes(audio.getnframes()), rate, sink.write)
-    finally:
-        if sink is not None:
-            sink.close()
-        session.close()
+        import audio_duck
+
+        ctx = audio_duck.ducking()
+    except Exception:
+        ctx = contextlib.nullcontext()
+    with ctx:
+        subprocess.run(["paplay"], input=wav, timeout=60, capture_output=True)
 
 
 def _run(text: str, title: str, voice: bool) -> None:
@@ -142,10 +134,8 @@ def _run(text: str, title: str, voice: bool) -> None:
     _notify(text, title)
     if not voice:
         return
-    try:
+    with contextlib.suppress(Exception):
         _play(_synth_wav(text))
-    except Exception:
-        pass
 
 
 def speak(
@@ -155,6 +145,7 @@ def speak(
     min_gap_s: float = DEFAULT_GAP_S,
     title: str = "Jarvis",
     force_quiet: bool = False,
+    require_voice: bool = False,
 ) -> bool:
     """Say one line out of call. Returns False when rate-limited or empty."""
     from phone_session import private
@@ -171,6 +162,8 @@ def speak(
     except Exception:
         school_mode = False
     voice = not force_quiet and should_voice(wake_status(), school_mode)
+    if require_voice and not voice:
+        return False
     if voice and announce_call_enabled() and announce_via_call(text):
         # Spoken inside the call (it captions itself); the toast is the
         # visible receipt in case the first words are missed.

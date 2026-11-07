@@ -1,0 +1,247 @@
+/* HUD load-in (components/stark/use-hud-intro.ts).
+
+   The motion itself is Web Animations (JS), so replays restart cleanly. This
+   file only holds the hide/placeholder states:
+
+   - `data-intro` on the HUD root: pre (before the layout effect has run;
+     targets hidden, with a CSS failsafe that reveals them after 6 s even if
+     JS never starts) | run | late | done | off.
+   - `data-ix="empty"` on a box while it is a small empty placeholder: its
+     content is hidden and only the cyan hairline ghost frame shows.
+   - `data-ix-zone` marks a container whose direct children are boxes;
+     `data-ix-orb` marks the reactor cell; `data-ix-deco` a bar whose rules
+     fade in once the boxes have landed.
+   - `data-ix-layer="0..7"` tags the reactor layers the orb unfolds (nucleus,
+     inner ring, plasma disc, coils, spin rings, outer rim, scale ring,
+     callouts + progress); `data-ix-draw` marks a ring drawn on by stroke;
+     `data-ix-spin` a ring that whirls up. `data-ix-bg="grid"` is the
+     hairline backdrop the scan reveals; the ambient glyph field is revealed
+     by a radial clip. All of it is animated from use-hud-intro.ts. */
+
+.root {
+  --ix: 1;
+}
+
+/* ---- before JS: hide every box + the orb (failsafe: reveal after 6 s) ---- */
+.root[data-intro='pre'] [data-ix-zone] > *:not([data-ix-zone]):not([data-ix-orb]),
+.root[data-intro='pre'] .orbBody,
+.root[data-intro='pre'] [data-ix-bg],
+.root[data-intro='pre'] canvas[data-ambient-particles='hud'] {
+  opacity: 0;
+  animation: ixFailsafe 1ms linear 6s forwards;
+}
+
+@keyframes ixFailsafe {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---- a box that is still a small empty placeholder ---- */
+.root [data-ix='empty'] {
+  background: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+  color: transparent !important;
+}
+.root [data-ix='empty']::before,
+.root [data-ix='empty']::after {
+  visibility: hidden !important;
+}
+.root [data-ix='empty'] > *:not(.ghost) {
+  opacity: 0 !important;
+}
+
+/* The placeholder frame: cyan hairline, dim fill. Border width is animated
+   (thicker while small so it stays visible at 30% scale). */
+.ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+  border: 3px solid rgba(110, 225, 255, 0.8);
+  background: rgba(10, 42, 68, 0.42);
+  box-shadow:
+    0 0 14px rgba(95, 227, 255, 0.3),
+    inset 0 0 16px rgba(95, 227, 255, 0.14);
+}
+
+.ghostScan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(190, 248, 255, 0.95), transparent);
+  box-shadow: 0 0 8px rgba(120, 235, 255, 0.8);
+}
+
+/* Bar rules (top glyph rule, footer dash) and plates fade in once the boxes
+   landed. The transition belongs to the DESTINATION state: entering `run`
+   (a replay: the plates must be gone at once, matching the wallpaper) is
+   instant; leaving it for `late` / `done` is a long eased fade. */
+.root [data-ix-deco]::after,
+.root [data-ix-deco]::before {
+  transition: none;
+}
+.root[data-intro='late'] [data-ix-deco]::after,
+.root[data-intro='late'] [data-ix-deco]::before,
+.root[data-intro='done'] [data-ix-deco]::after,
+.root[data-intro='done'] [data-ix-deco]::before {
+  transition: opacity 1200ms ease-in-out;
+}
+.root[data-intro='pre'] [data-ix-deco]::after,
+.root[data-intro='run'] [data-ix-deco]::after,
+.root[data-intro='pre'] [data-ix-deco]::before,
+.root[data-intro='run'] [data-ix-deco]::before {
+  opacity: 0;
+}
+.root [data-ix-deco] {
+  transition: none;
+}
+.root[data-intro='late'] [data-ix-deco],
+.root[data-intro='done'] [data-ix-deco] {
+  transition: border-color 1200ms ease-in-out;
+}
+.root[data-intro='pre'] [data-ix-deco],
+.root[data-intro='run'] [data-ix-deco] {
+  border-color: transparent !important;
+}
+
+/* ------------------------------------------------------------ the orb */
+
+/* The wallpaper emblem replica (wall-replica.tsx): sits exactly over the
+   wallpaper, pixel-identical while static. Positioned in JS (fill scale). */
+.replica {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  image-rendering: auto;
+}
+
+.orbBody {
+  position: absolute;
+  inset: 0;
+}
+
+.orbGlow {
+  position: absolute;
+  inset: -8%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--state, #5fe3ff) 0%, transparent 62%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.orbWave {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34%;
+  aspect-ratio: 1;
+  border: 2px dotted var(--state, #5fe3ff);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+/* ---- the descending dot (created by the timeline, removed when it ends) ---- */
+
+.dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 60;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.dotTrail {
+  position: absolute;
+  left: -1px;
+  bottom: 0;
+  width: 2px;
+  height: 120px;
+  transform-origin: 50% 100%;
+  background: linear-gradient(to top, rgba(190, 248, 255, 0.95), rgba(95, 227, 255, 0));
+}
+
+.dotGlow {
+  position: absolute;
+  left: -16px;
+  top: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(150, 240, 255, 0.95) 0%, rgba(95, 227, 255, 0) 70%);
+}
+
+.dotCore {
+  position: absolute;
+  left: -2.5px;
+  top: -2.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f4fdff;
+  box-shadow: 0 0 8px 2px rgba(95, 227, 255, 0.9);
+}
+
+.ping {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  z-index: 59;
+  pointer-events: none;
+  border: 1px solid #bff8ff;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+/* ---- background spawn ---- */
+
+.ripple {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px dotted rgba(140, 238, 255, 0.85);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+/* Hairline + glyph ticks that lead the grid reveal down the screen. */
+.scanLine {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 7px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(
+        90deg,
+        transparent,
+        rgba(190, 248, 255, 0.95) 12%,
+        rgba(190, 248, 255, 0.95) 88%,
+        transparent
+      )
+      0 3px / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, rgba(150, 240, 255, 0.85) 0 2px, transparent 2px 40px);
+  box-shadow: 0 0 10px rgba(95, 227, 255, 0.5);
+}

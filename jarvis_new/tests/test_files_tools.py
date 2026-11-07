@@ -4,7 +4,7 @@ import json
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import second_brain
 from system import files_tools
@@ -122,7 +122,7 @@ async def test_open_path_result_index(local, monkeypatch):
         calls.append(argv)
         return 0, "", ""
 
-    monkeypatch.setattr(files_tools, "run_cmd", fake)
+    monkeypatch.setattr(files_tools, "launch_gui", fake)
     tools = FilesTools()
     tools._last_results = [str(f)]
     out = await FilesTools.open_path(tools, _ctx(), path_or_result_index="1")
@@ -138,7 +138,7 @@ async def test_open_folder_uses_dolphin(local, monkeypatch):
         calls.append(argv)
         return 0, "", ""
 
-    monkeypatch.setattr(files_tools, "run_cmd", fake)
+    monkeypatch.setattr(files_tools, "launch_gui", fake)
     out = await FilesTools.open_path(
         FilesTools(), _ctx(), path_or_result_index=str(base)
     )
@@ -237,3 +237,39 @@ async def test_organize_refuses_unsafe(local):
         await FilesTools.organize_folder(
             FilesTools(), _ctx(), path="/etc", dry_run=True
         )
+
+
+@pytest.mark.parametrize('needle', ['quarterly revenue', 'total [42]', '--follow'])
+async def test_content_search_uses_real_ripgrep_with_literal_text(local, needle):
+    """Exercise the command line; stubbed backends hid invalid rg flags."""
+    base = local / 'content'
+    base.mkdir()
+    match = base / 'match.txt'
+    match.write_text(f'Notes: {needle}\n')
+    (base / 'other.txt').write_text('unrelated text')
+    _write_config(local, base)
+    tools = FilesTools()
+    result = await tools.find_files(
+        _ctx(), query=f'files containing {needle}', kind='file'
+    )
+    assert result.get('paths') == str(match)
+    assert tools._last_results == [str(match)]
+
+
+async def test_content_search_reports_backend_failure(local, monkeypatch):
+    _write_config(local, local)
+
+    async def failed(*args, **kwargs):
+        return 124, '', 'timed out'
+
+    monkeypatch.setattr(files_tools, 'run_cmd', failed)
+    with pytest.raises(ToolError, match='could not finish'):
+        await FilesTools().find_files(_ctx(), query='files containing notes')
+
+
+def test_relative_open_paths_start_at_user_home(local, monkeypatch):
+    app = local / 'app'
+    app.mkdir()
+    monkeypatch.chdir(app)
+    monkeypatch.setattr(files_tools.Path, 'home', classmethod(lambda cls: local))
+    assert resolve_safe('Videos/Jarvis Watch') == local / 'Videos/Jarvis Watch'

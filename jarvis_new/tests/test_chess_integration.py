@@ -64,7 +64,7 @@ async def nosleep(_s):
 def mk(tmp_path, **kw):
     kw.setdefault("store_root", tmp_path / "games")
     g = ChessGame(
-        ChessSettings(colour="white", announce_moves=False),
+        ChessSettings(colour="white", announce_moves=False, commentary_muted=False),
         engine=kw.pop("engine", FakeEngine()),
         save_dir=tmp_path / "saves",
         step_delay=0.0,

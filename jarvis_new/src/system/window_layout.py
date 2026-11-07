@@ -152,7 +152,7 @@ picked.forEach(function (w, i) {{
 }});
 if (picked.length) workspace.activeWindow = picked[0];
 }}
-{_motion_gate('picked')}
+{_motion_gate("picked")}
 """
 
 
@@ -169,7 +169,7 @@ snap.forEach(function (s) {{
 }});
 }}
 var picked = snap.map(function(s) {{return byId[s.id];}}).filter(function(w) {{return !!w;}});
-{_motion_gate('picked')}
+{_motion_gate("picked")}
 """
 
 

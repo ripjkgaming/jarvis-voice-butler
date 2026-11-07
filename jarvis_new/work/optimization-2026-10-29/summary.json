@@ -1,0 +1,72 @@
+{
+  "full_audit": {
+    "passed": 6916,
+    "failed": 69,
+    "skipped": 7,
+    "deselected": 15,
+    "seconds": 853.07,
+    "note": "Started before final source fixes; final focused suites and failure rerun use final source."
+  },
+  "final_audit_failure_rerun": {
+    "passed": 4,
+    "failed": 65,
+    "remaining_failure_modules": {
+      "tests.test_bridge_characters": 3,
+      "tests.test_character_agent_wiring": 3,
+      "tests.test_character_authority": 5,
+      "tests.test_character_persona": 4,
+      "tests.test_character_prewarm": 2,
+      "tests.test_character_runtime": 7,
+      "tests.test_character_voice": 6,
+      "tests.test_characters": 11,
+      "tests.test_chess_integration": 3,
+      "tests.test_chess_state": 1,
+      "tests.test_chess_verify_a": 2,
+      "tests.test_linked_turn": 1,
+      "tests.test_switch_conductor": 11,
+      "tests.test_switch_prewarm": 6
+    }
+  },
+  "remaining_failures": {
+    "legacy_character_switch_expectations": 58,
+    "legacy_unmuted_chess_expectations": 6,
+    "removed_linked_turn_expectation": 1
+  },
+  "frontend": {
+    "tests_passed": 253,
+    "typecheck": "passed",
+    "production_build_and_export": "passed"
+  },
+  "caption_benchmark": {
+    "iterations": 100,
+    "caption_limit": 20,
+    "measurements": [
+      {
+        "history_lines": 250,
+        "file_bytes": 126750,
+        "legacy_read_ms_median": 0.1481,
+        "tail_read_ms_median": 0.0184
+      },
+      {
+        "history_lines": 5000,
+        "file_bytes": 2535000,
+        "legacy_read_ms_median": 4.1949,
+        "tail_read_ms_median": 0.0521
+      },
+      {
+        "history_lines": 20000,
+        "file_bytes": 10140000,
+        "legacy_read_ms_median": 20.6727,
+        "tail_read_ms_median": 0.0192
+      }
+    ]
+  },
+  "memory_benchmark": {
+    "iterations": 50,
+    "notes": 24,
+    "paragraphs_per_note": 48,
+    "cold_recall_ms_median": 1.5562,
+    "warm_recall_ms_median": 1.0793,
+    "speedup": 1.442
+  }
+}

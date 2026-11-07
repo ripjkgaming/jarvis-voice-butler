@@ -32,6 +32,20 @@ const MAX_BACKOFF_MS = 15000;
 const pollers = new Map<string, Poller>();
 let visibilityHooked = false;
 
+/** A poll that succeeds after this many consecutive failures means the
+ *  bridge was down (restart / crash / never up at load) and is back. */
+const RECOVER_AFTER_FAILURES = 2;
+const recoverListeners = new Set<() => void>();
+
+/** Called whenever any bridge poll succeeds after the bridge was unreachable
+ *  (>= 2 consecutive failures). Returns the unsubscribe function. */
+export function onBridgeRecover(cb: () => void): () => void {
+  recoverListeners.add(cb);
+  return () => {
+    recoverListeners.delete(cb);
+  };
+}
+
 function isHidden(): boolean {
   return typeof document !== 'undefined' && document.hidden;
 }
@@ -84,7 +98,9 @@ async function run(p: Poller): Promise<void> {
   if (next === null) {
     p.failures += 1; // keep the last good value
   } else {
+    const recovered = p.failures >= RECOVER_AFTER_FAILURES;
     p.failures = 0;
+    if (recovered) recoverListeners.forEach((cb) => cb());
     p.receivedAt = Date.now();
     const sig = JSON.stringify(next);
     if (sig !== p.sig) {

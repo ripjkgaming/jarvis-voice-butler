@@ -30,7 +30,7 @@ NORMAL = "normal"
 
 WAKE_THRESHOLD = 0.65
 WAKE_FRAMES = 2  # consecutive openWakeWord frames at or above the threshold
-FOLLOW_UP_S = 8.0
+FOLLOW_UP_S = 45.0
 # After "Are you sure?" the call waits this long for Sir's answer: at 8 s
 # a quiet "yes" that the VAD missed let the call close mid-question.
 CONFIRM_WAIT_S = 15.0
@@ -63,7 +63,7 @@ def mode_path(home: Path | None = None) -> Path:
 
 
 def current(home: Path | None = None) -> str:
-    """"school" or "normal". Missing/corrupt file = normal. Cached by mtime."""
+    """ "school" or "normal". Missing/corrupt file = normal. Cached by mtime."""
     path = mode_path(home)
     try:
         mtime = path.stat().st_mtime
@@ -94,7 +94,9 @@ def since(home: Path | None = None) -> float:
 FLIP_GUARD_S = 20.0
 
 
-def flip_refusal(want: str, home: Path | None = None, now: float | None = None) -> str | None:
+def flip_refusal(
+    want: str, home: Path | None = None, now: float | None = None
+) -> str | None:
     """Why a model-initiated switch to `want` should not run, else None. Pure-ish.
 
     "already" when the mode already matches (no-op, no transition), a
@@ -174,8 +176,15 @@ def read_meta_shortcut(run=None) -> str:
     """
     try:
         proc = _meta_run(
-            ["kreadconfig6", "--file", "kwinrc",
-             "--group", "ModifierOnlyShortcuts", "--key", "Meta"],
+            [
+                "kreadconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "ModifierOnlyShortcuts",
+                "--key",
+                "Meta",
+            ],
             run,
         )
         if proc.returncode != 0:
@@ -188,8 +197,14 @@ def read_meta_shortcut(run=None) -> str:
 def _meta_reconfigure(run=None) -> None:
     with contextlib.suppress(Exception):
         _meta_run(
-            ["dbus-send", "--session", "--type=method_call",
-             "--dest=org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
+            [
+                "dbus-send",
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.KWin",
+                "/KWin",
+                "org.kde.KWin.reconfigure",
+            ],
             run,
         )
 
@@ -209,16 +224,24 @@ def meta_enter_school(run=None, home: Path | None = None) -> bool:
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 tmp = backup.with_suffix(".tmp")
                 tmp.write_text(
-                    json.dumps({"had_value": bool(current_value),
-                                "value": current_value})
+                    json.dumps(
+                        {"had_value": bool(current_value), "value": current_value}
+                    )
                 )
                 tmp.replace(backup)
             except (OSError, ValueError):
                 pass
         proc = _meta_run(
-            ["kwriteconfig6", "--file", "kwinrc",
-             "--group", "ModifierOnlyShortcuts", "--key", "Meta",
-             META_JARVIS_VALUE],
+            [
+                "kwriteconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "ModifierOnlyShortcuts",
+                "--key",
+                "Meta",
+                META_JARVIS_VALUE,
+            ],
             run,
         )
         ok = proc.returncode == 0
@@ -251,17 +274,32 @@ def meta_exit_school(run=None, home: Path | None = None) -> bool:
             return True
         if had_value:
             proc = _meta_run(
-                ["kwriteconfig6", "--file", "kwinrc",
-                 "--group", "ModifierOnlyShortcuts", "--key", "Meta", value],
+                [
+                    "kwriteconfig6",
+                    "--file",
+                    "kwinrc",
+                    "--group",
+                    "ModifierOnlyShortcuts",
+                    "--key",
+                    "Meta",
+                    value,
+                ],
                 run,
             )
             ok = proc.returncode == 0
         else:
             try:
                 proc = _meta_run(
-                    ["kwriteconfig6", "--file", "kwinrc",
-                     "--group", "ModifierOnlyShortcuts", "--key", "Meta",
-                     "--delete"],
+                    [
+                        "kwriteconfig6",
+                        "--file",
+                        "kwinrc",
+                        "--group",
+                        "ModifierOnlyShortcuts",
+                        "--key",
+                        "Meta",
+                        "--delete",
+                    ],
                     run,
                 )
                 ok = proc.returncode == 0
@@ -301,7 +339,7 @@ _EXIT = re.compile(
 
 
 def parse_command(text: str) -> str | None:
-    """"school" / "normal" for an enter/exit command, else None. Pure.
+    """ "school" / "normal" for an enter/exit command, else None. Pure.
 
     Takes the wake-word-stripped, lowercased command text. A bare
     "school mode" means enter.
@@ -360,7 +398,7 @@ def question_after_address(text: str) -> str:
     text = (text or "").strip()
     misheard = _MISHEARD.match(text)
     if misheard and not _ADDRESSED.search(text):
-        rest = text[misheard.end():].lstrip(" ,.!?:")
+        rest = text[misheard.end() :].lstrip(" ,.!?:")
     else:
         rest = _ADDRESS_PREFIX.sub("", text, count=1).strip()
     return rest if re.search(r"[a-z0-9]", rest, re.I) else ""
@@ -412,7 +450,7 @@ def loud_allowed(now: float | None = None) -> bool:
 
 
 LOUD_REFUSAL = (
-    "School mode: launching Sober needs a yes first. Ask Sir (\"Are you sure, "
+    'School mode: launching Sober needs a yes first. Ask Sir ("Are you sure, '
     "Sir? That's Roblox in school mode.\"). Only if Sir says yes, call "
     "confirm_loud_action, then call this tool again."
 )

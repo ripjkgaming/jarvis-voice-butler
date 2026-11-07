@@ -1,0 +1,384 @@
+tests/test_acks.py :: 1 failed, 5 passed, 1 warning in 0.52s
+tests/test_action_guard.py :: 35 passed in 0.35s
+tests/test_action_outcome.py :: 9 passed in 0.07s
+tests/test_action_verify.py :: 10 passed in 0.06s
+tests/test_active_window.py :: 26 passed in 0.08s
+tests/test_activity.py :: 14 passed in 0.07s
+tests/test_activity_watch.py :: 17 passed in 0.28s
+tests/test_agent.py :: 38 passed, 3 skipped, 1 warning in 0.90s
+tests/test_agent_tasks.py :: 6 passed in 0.24s
+tests/test_agent_turn_integration.py :: 1 passed, 1 warning in 0.57s
+tests/test_alternatives_tools.py :: 6 passed in 0.22s
+tests/test_announce_call.py :: 7 passed, 1 warning in 0.78s
+tests/test_assigner_bridge.py :: 3 passed in 0.08s
+tests/test_assigner_context.py :: 48 passed in 0.14s
+tests/test_assigner_headless.py :: 12 passed in 0.12s
+tests/test_assigner_projects.py :: 8 passed in 0.10s
+tests/test_assigner_runtime.py :: 30 passed, 1 skipped in 0.20s
+tests/test_assigner_voice.py :: 3 passed in 0.27s
+tests/test_audio_aec.py :: 23 passed in 0.10s
+tests/test_audio_ctl.py :: 14 passed in 0.08s
+tests/test_audio_dsp.py :: 4 passed in 0.16s
+tests/test_audio_output.py :: 6 passed in 0.07s
+tests/test_audio_playback.py :: 7 passed in 0.31s
+tests/test_audit_calendar.py :: 18 passed in 0.26s
+tests/test_audit_mail_log.py :: 5 passed in 0.07s
+tests/test_audit_persistence.py :: 5 passed in 0.07s
+tests/test_audit_proactive_delivery.py :: 6 passed in 0.08s
+tests/test_backend_model.py :: 16 passed in 0.08s
+tests/test_backend_pool.py :: 3 passed in 0.06s
+tests/test_backend_reliability_upgrade.py :: 32 passed in 0.23s
+tests/test_background.py :: 6 passed in 0.27s
+tests/test_bedtime_calls.py :: 29 passed in 0.12s
+tests/test_bridge_auth_startup.py :: 6 passed in 0.07s
+tests/test_bridge_characters.py :: 3 failed, 4 passed in 0.64s
+tests/test_bridge_execution.py :: 6 passed in 0.36s
+tests/test_bridge_memory_guard.py :: 6 passed in 0.07s
+tests/test_bridge_polling.py :: 13 passed in 0.22s
+tests/test_bridge.py :: 105 passed in 19.12s
+tests/test_bridge_setting_outcomes.py :: 2 passed in 0.19s
+tests/test_bridge_turn_protocol.py :: 10 passed in 0.08s
+tests/test_bridge_turns.py :: 10 passed in 0.11s
+tests/test_briefing_job.py :: 9 passed in 0.19s
+tests/test_browser.py :: 28 passed in 30.28s
+tests/test_budget.py :: 5 passed in 0.06s
+tests/test_build_monitor_bridge.py :: 11 passed in 0.09s
+tests/test_build_monitor.py :: 21 passed in 0.14s
+tests/test_build_monitor_tools.py :: 44 passed in 0.47s
+tests/test_calendar_reconnect.py :: 14 passed in 0.09s
+tests/test_camera_hub.py :: 12 passed in 4.02s
+tests/test_cancellation_adapters.py :: 3 passed, 3 skipped in 0.06s
+tests/test_cancellation_control.py :: 10 passed in 0.07s
+tests/test_caption_storage.py :: 6 passed in 0.10s
+tests/test_character_agent_wiring.py :: 3 failed, 1 passed, 2 warnings in 0.88s
+tests/test_character_authority.py :: 5 failed in 0.63s
+tests/test_character_persona.py :: 4 failed, 5 passed in 0.11s
+tests/test_character_prewarm.py :: 1 failed, 6 passed in 0.33s
+tests/test_character_runtime.py :: 7 failed, 2 passed in 0.17s
+tests/test_characters.py :: 11 failed, 9 passed in 0.35s
+tests/test_character_voice.py :: 12 passed in 0.61s
+tests/test_chatgpt_cli.py :: 14 passed in 0.23s
+tests/test_chess_cli.py :: 47 passed, 1 warning in 1.69s
+tests/test_chess_commands_new.py :: 241 passed, 1 warning in 0.79s
+tests/test_chess_commands.py :: 521 passed in 0.99s
+tests/test_chess_commentary.py :: 23 passed in 0.26s
+tests/test_chess_dialogue_controls.py :: 7 passed, 1 warning in 0.43s
+tests/test_chess_docs.py :: 4 passed in 0.10s
+tests/test_chess_game_flow.py :: 28 passed, 1 warning in 2.83s
+tests/test_chess_history.py :: 9 passed in 0.10s
+tests/test_chess_hookup.py :: 8 passed, 1 warning in 0.20s
+tests/test_chess_integration.py :: 3 failed, 16 passed, 1 warning in 0.45s
+tests/test_chess_intro.py :: 44 passed in 1.00s
+tests/test_chess_isolation.py :: 5 passed, 1 warning in 28.09s
+tests/test_chess_levels.py :: 74 passed, 1 warning in 0.23s
+tests/test_chess_on_demand.py :: 12 passed, 1 warning in 1.08s
+tests/test_chess_review.py :: 17 passed, 1 warning in 0.50s
+tests/test_chess_router.py :: 61 passed in 0.39s
+tests/test_chess_series.py :: 27 passed in 0.15s
+tests/test_chess_state.py :: 1 failed, 24 passed, 1 warning in 0.60s
+tests/test_chess_stockfish_strength.py :: 3 passed, 1 warning in 0.09s
+tests/test_chess_store.py :: 10 passed, 1 warning in 0.11s
+tests/test_chess_takeover.py :: 12 passed in 0.09s
+tests/test_chess_text_output.py :: 5 passed, 1 warning in 0.18s
+tests/test_chess_tts_lifecycle.py :: 4 passed in 0.37s
+tests/test_chess_tui.py :: 10 passed, 1 warning in 7.89s
+tests/test_chess_ui_wiring.py :: 3 passed, 1 warning in 0.19s
+tests/test_chess_verify_a.py :: 2 failed, 4 passed, 1 warning in 1.41s
+tests/test_chess_verify_b.py :: 9 passed, 1 warning in 1.08s
+tests/test_chess_verify_fixes.py :: 12 passed, 1 warning in 0.94s
+tests/test_chess_voice_engine.py :: 1 failed, 17 passed, 1 warning in 15.47s
+tests/test_chess_voice_hold.py :: 3 passed in 0.40s
+tests/test_chess_voice_moves.py :: 529 passed in 2.82s
+tests/test_chess_wake_priority.py :: 14 passed, 1 warning in 7.75s
+tests/test_chess_wizard.py :: 4 passed in 0.28s
+tests/test_cinematic.py :: 5 passed in 0.07s
+tests/test_claim_guard.py :: 24 passed in 0.09s
+tests/test_claude_backend.py :: 3 passed in 0.05s
+tests/test_closer.py :: 18 passed in 0.36s
+tests/test_code_assist.py :: 6 passed in 0.27s
+tests/test_codex_worker.py :: 20 passed, 1 skipped in 0.17s
+tests/test_computer_focus.py :: 33 passed in 0.18s
+tests/test_computer_freshness.py :: 68 passed in 1.88s
+tests/test_computer_model_routing.py :: 10 passed in 0.24s
+tests/test_computer_surface.py :: 75 passed in 2.97s
+tests/test_computer_use_ownership.py :: 8 passed in 0.29s
+tests/test_computer_use.py :: 25 passed, 1 warning in 0.82s
+tests/test_computer_watch_adversarial.py :: 16 passed in 0.09s
+tests/test_computer_watch_process_control.py :: 7 passed in 0.24s
+tests/test_computer_watch.py :: 12 passed in 0.08s
+tests/test_computer_watch_visual_lifecycle.py :: 18 passed in 0.21s
+tests/test_daily.py :: 16 passed in 0.31s
+tests/test_decision_budget.py :: 14 passed in 0.08s
+tests/test_desktop.py :: 30 passed in 0.34s
+tests/test_devices.py :: 11 passed in 0.24s
+tests/test_diagnostics.py :: 8 passed in 0.08s
+tests/test_direct_perf.py :: 3 passed in 33.04s
+tests/test_dnd.py :: 8 passed in 0.09s
+tests/test_docgen.py :: 16 passed in 0.09s
+tests/test_draft_engine.py :: 23 passed in 0.12s
+tests/test_draft_notify.py :: 13 passed in 0.14s
+tests/test_drafts_ui.py :: 40 passed in 0.14s
+tests/test_draft_tools.py :: 2 failed, 22 passed in 0.50s
+tests/test_dragfx_field.py :: 1 skipped in 0.03s
+tests/test_echo_guard.py :: 5 passed in 0.06s
+tests/test_english_whisper.py :: 11 passed in 0.26s
+tests/test_event_extractor.py :: 18 passed in 0.29s
+tests/test_event_monitor_host.py :: 23 passed in 0.35s
+tests/test_event_monitor.py :: 27 passed in 0.35s
+tests/test_event_monitor_registration.py :: 5 passed, 1 warning in 0.72s
+tests/test_event_monitor_summary.py :: 21 passed in 0.26s
+tests/test_event_suggest.py :: 8 passed in 0.20s
+tests/test_exams.py :: 12 passed, 6 warnings in 0.36s
+tests/test_exam_timetable.py :: 9 passed in 0.24s
+tests/test_eyes.py :: 16 passed in 1.05s
+tests/test_fast_barge_in.py :: 6 passed in 0.22s
+tests/test_fast_path.py :: 43 passed in 0.13s
+tests/test_feature_sessions.py :: 2 failed, 19 passed, 1 warning in 0.72s
+tests/test_file_search_responsiveness.py :: 2 passed in 0.23s
+tests/test_files_tools.py :: 22 passed in 0.31s
+tests/test_focus.py :: 22 passed in 0.11s
+tests/test_focus_tools.py :: 6 passed in 0.23s
+tests/test_follow_up_state.py :: 1 failed, 9 passed, 1 warning in 0.81s
+tests/test_full_local_access.py :: 9 passed, 1 warning in 0.59s
+tests/test_games_server.py :: 23 passed, 1 skipped, 1 warning in 0.60s
+tests/test_gemini_watchdog.py :: 23 passed, 1 warning in 3.38s
+tests/test_gestures.py :: 10 passed in 0.17s
+tests/test_goal_routes.py :: 24 passed in 0.10s
+tests/test_goodnight_detached.py :: 20 passed in 3.38s
+tests/test_goodnight_evidence.py :: 9 passed in 0.11s
+tests/test_goodnight_host.py :: 15 passed in 0.22s
+tests/test_goodnight_ingress.py :: 17 passed in 0.08s
+tests/test_goodnight.py :: 2 passed in 0.06s
+tests/test_goodnight_runtime.py :: 5 passed in 0.07s
+tests/test_goodnight_supported.py :: 7 passed in 0.17s
+tests/test_goodnight_v2.py :: 24 passed in 0.10s
+tests/test_google_api.py :: 31 passed in 0.11s
+tests/test_google_apps.py :: 11 passed in 0.07s
+tests/test_google_token_cache.py :: 2 passed in 0.06s
+tests/test_greeting_retry.py :: 19 passed, 1 warning in 5.99s
+tests/test_handoff_completion.py :: 9 passed, 1 warning in 0.57s
+tests/test_handoff_desktop.py :: 1 passed, 1 warning in 0.53s
+tests/test_handoff.py :: 6 passed, 1 warning in 0.62s
+tests/test_handoff_recovery.py :: 10 passed, 1 warning in 0.64s
+tests/test_handoff_task.py :: 9 passed, 1 warning in 0.62s
+tests/test_health_incident_tool.py :: 6 passed in 0.38s
+tests/test_health_recorder_bridge.py :: 14 passed in 0.08s
+tests/test_health_recorder_client.py :: 11 passed in 0.09s
+tests/test_health_recorder.py :: 26 passed in 0.11s
+tests/test_hud_events.py :: 11 passed in 0.10s
+tests/test_hud_panels.py :: 7 passed in 0.78s
+tests/test_hud_voice_state.py :: 20 passed in 1.35s
+tests/test_inbox_concurrency.py :: 2 passed in 0.27s
+tests/test_inbox.py :: 3 failed, 45 passed in 0.53s
+tests/test_input_activity_lifecycle.py :: 7 passed, 1 warning in 1.47s
+tests/test_input_idle.py :: 24 passed in 0.09s
+tests/test_insights_proxy.py :: 54 passed in 2.39s
+tests/test_intent.py :: 16 passed in 0.07s
+tests/test_jarvis_requested_improvements.py :: 17 passed in 0.26s
+tests/test_jobs.py :: 10 passed in 0.10s
+tests/test_keyword_spot.py :: 17 passed in 0.17s
+tests/test_kwin_windows.py :: 3 passed in 0.06s
+tests/test_latency_log_summary.py :: 1 passed in 0.06s
+tests/test_latency.py :: 42 passed, 1 warning in 0.98s
+tests/test_latency_rollup.py :: 3 passed in 0.06s
+tests/test_launch_chess.py :: 11 passed, 1 warning in 0.69s
+tests/test_launcher.py :: 27 passed in 0.13s
+tests/test_launch_ownership.py :: 17 passed, 1 warning in 0.66s
+tests/test_librarian_pdf.py :: 11 passed in 1.22s
+tests/test_librarian.py :: 23 passed in 0.17s
+tests/test_librarian_source_selection.py :: 2 passed in 0.07s
+tests/test_librarian_sources.py :: 6 passed in 0.08s
+tests/test_librarian_tools.py :: 4 passed in 0.27s
+tests/test_linked_turn.py :: 7 passed in 0.26s
+tests/test_local_stt.py :: 19 passed, 1 warning in 6.74s
+tests/test_local_voice_lifecycle.py :: 8 passed in 0.59s
+tests/test_local_voice.py :: 15 passed in 5.82s
+tests/test_look.py :: 6 passed in 0.22s
+tests/test_mail_link.py :: 80 passed in 0.68s
+tests/test_mail_watch_job.py :: 33 passed in 0.45s
+tests/test_media_integration.py :: 13 passed in 0.28s
+tests/test_media_selection.py :: 27 passed in 0.12s
+tests/test_memory.py :: 21 passed, 1 warning in 0.66s
+tests/test_memory_retrieval_cache.py :: 6 passed in 0.09s
+tests/test_mercury_decide.py :: 11 passed in 0.08s
+tests/test_mic_clean.py :: 6 passed in 0.19s
+tests/test_mic_uplink_framing.py :: 3 passed in 0.26s
+tests/test_mint_token.py :: 16 passed in 0.54s
+tests/test_monitor_window_move.py :: 9 passed in 0.24s
+tests/test_muse.py :: 14 passed in 0.26s
+tests/test_nav_tools.py :: 16 passed in 0.31s
+tests/test_needle_router.py :: 17 passed in 0.35s
+tests/test_notify.py :: 43 passed in 0.30s
+tests/test_notify_tools.py :: 6 passed in 0.21s
+tests/test_notion_api.py :: 14 passed in 0.08s
+tests/test_on_demand_without_background.py :: 9 passed in 0.09s
+tests/test_openrouter_chat.py :: 15 passed in 0.08s
+tests/test_osint.py :: 7 passed in 0.22s
+tests/test_outcome_adapters.py :: 4 passed in 0.22s
+tests/test_outcome_worker_ownership.py :: 4 passed in 0.24s
+tests/test_paper_market_atomic.py :: 22 passed in 0.27s
+tests/test_paper_market_calendar.py :: 46 passed in 0.13s
+tests/test_paper_market_engine.py :: 14 passed in 0.13s
+tests/test_paper_market_feed.py :: 64 passed in 0.17s
+tests/test_paper_market_intraday.py :: 14 passed in 0.15s
+tests/test_paper_market_replay.py :: 5 passed in 0.11s
+tests/test_paper_market_service.py :: 10 passed in 4.60s
+tests/test_paper_market_worker.py :: 45 passed in 0.22s
+tests/test_pdf_fetch.py :: 11 passed in 0.07s
+tests/test_pentest_cancellation.py :: 12 passed in 0.61s
+tests/test_pentest.py :: 14 passed in 0.24s
+tests/test_persona.py :: 3 passed in 0.06s
+tests/test_phone_announce_helper.py :: 1 passed in 0.08s
+tests/test_phone_api.py :: 5 passed in 0.58s
+tests/test_phone_calls.py :: 15 passed in 0.78s
+tests/test_phone_monitor_lifecycle.py :: 2 passed in 0.06s
+tests/test_phone.py :: 18 passed in 2.81s
+tests/test_phone_watch_session.py :: 57 passed, 1 warning in 0.75s
+tests/test_playback_gate.py :: 3 passed in 0.35s
+tests/test_play_media.py :: 15 passed in 0.10s
+tests/test_power_actions.py :: 3 failed, 21 passed in 0.83s
+tests/test_power_foundation_allowlist.py :: 2 passed in 0.12s
+tests/test_power_foundation_mcp_transport.py :: 6 passed in 0.66s
+tests/test_power_foundation_memory.py :: 2 passed in 0.06s
+tests/test_power_foundation_outbound.py :: 2 failed, 1 passed in 0.50s
+tests/test_power_foundation_pass2.py :: 6 passed in 0.08s
+tests/test_power_foundation_pass3.py :: 5 passed in 0.09s
+tests/test_power_foundation_pass4.py :: 3 passed in 0.07s
+tests/test_power_foundation_pr.py :: no tests ran in 0.04s
+tests/test_power_foundation.py :: 18 passed in 0.10s
+tests/test_power_foundation_review.py :: 1 passed in 0.05s
+tests/test_power_foundation_status5.py :: 1 passed in 0.06s
+tests/test_presence.py :: 9 passed in 0.57s
+tests/test_proactive_engine.py :: 29 passed in 0.13s
+tests/test_proactive.py :: 20 passed in 0.09s
+tests/test_proactive_watcher_responsiveness.py :: 4 passed in 0.13s
+tests/test_projects.py :: 30 passed in 1.22s
+tests/test_projects_tools.py :: 5 passed in 0.26s
+tests/test_prompts.py :: 21 passed, 1 warning in 0.60s
+tests/test_quotes.py :: 62 passed in 0.34s
+tests/test_realtime_native_turns.py :: 8 passed, 1 warning in 1.66s
+tests/test_recall_tools.py :: 6 passed in 0.26s
+tests/test_reddit.py :: 10 passed in 0.23s
+tests/test_remote_session.py :: 7 passed in 0.11s
+tests/test_request_router.py :: 9 passed in 0.25s
+tests/test_robot_arm.py :: 16 passed in 0.33s
+tests/test_routing_dryrun.py :: 7 skipped, 1 warning in 0.56s
+tests/test_rt_captions.py :: 4 passed in 0.55s
+tests/test_rt_chat_context.py :: 9 passed in 0.50s
+tests/test_rt_data_topics.py :: 9 passed in 0.31s
+tests/test_rt_end_call.py :: 1 passed in 0.55s
+tests/test_rt_events.py :: 2 passed in 0.23s
+tests/test_rt_executor.py :: 5 passed in 0.26s
+tests/test_rt_live.py :: 11 passed, 1 warning in 2.60s
+tests/test_rt_pipeline_direct.py :: 17 passed, 1 warning in 1.63s
+tests/test_rt_session.py :: 7 passed in 0.54s
+tests/test_rt_speech_handle.py :: 17 passed in 0.31s
+tests/test_rt_stt_tts_vad.py :: 27 passed in 1.01s
+tests/test_rt_tools_schema.py :: 2 passed, 1 warning in 1.06s
+tests/test_rt_transport_client.py :: 9 passed in 0.36s
+tests/test_rt_transport_frames.py :: 21 passed in 0.22s
+tests/test_rt_transport_server.py :: 16 passed in 1.32s
+tests/test_rt_transport_tokens.py :: 27 passed in 0.25s
+tests/test_rt_worker.py :: 3 passed in 1.74s
+tests/test_sandbox_computer_use.py :: 9 passed in 0.23s
+tests/test_sandbox_core.py :: 4 passed in 0.22s
+tests/test_scheduled_phone_delivery.py :: 5 passed in 0.09s
+tests/test_scheduled_tasks.py :: 27 passed in 0.15s
+tests/test_schedule_tools.py :: 6 passed in 0.26s
+tests/test_schedule_wiring.py :: 2 passed, 1 warning in 0.59s
+tests/test_school_monitors.py :: 24 passed in 4.77s
+tests/test_school.py :: 85 passed, 1 warning in 0.89s
+tests/test_school_shell_invariants.py :: 15 passed in 0.17s
+tests/test_screen_control_socket.py :: 7 passed in 0.23s
+tests/test_screen_host.py :: 4 failed, 5 passed in 0.59s
+tests/test_screen_occlusion.py :: 9 passed in 0.11s
+tests/test_screen_session_holder.py :: TIMEOUT
+tests/test_screen_understanding.py :: 37 passed in 0.36s
+tests/test_screen_video.py :: 1 failed, 12 passed in 0.26s
+tests/test_search_latency.py :: 3 passed in 0.29s
+tests/test_secondary_wake_removed.py :: 6 passed in 0.38s
+tests/test_second_brain.py :: 13 passed in 0.08s
+tests/test_session_launcher.py :: 6 passed in 0.06s
+tests/test_setting_outcomes.py :: 6 passed in 0.06s
+tests/test_shopping_bridge.py :: 2 passed in 1.07s
+tests/test_shopping_tool.py :: 3 passed in 0.25s
+tests/test_sidecars.py :: 4 passed in 0.06s
+tests/test_single_jarvis.py :: 2 passed, 1 warning in 0.53s
+tests/test_stt_quality.py :: 4 passed in 0.18s
+tests/test_suit_diagnostics.py :: 51 passed, 1 warning in 0.62s
+tests/test_summons.py :: 9 passed, 1 warning in 0.51s
+tests/test_switch_conductor.py :: 11 failed, 1 passed in 0.21s
+tests/test_switch_parse.py :: 93 passed in 0.17s
+tests/test_switch_prewarm.py :: 6 failed, 1 passed in 0.15s
+tests/test_switch_state.py :: 15 passed in 0.07s
+tests/test_system_action_cancellation.py :: 24 passed in 0.44s
+tests/test_system.py :: 42 passed in 5.83s
+tests/test_talk_gate.py :: 5 passed in 0.18s
+tests/test_taskbar.py :: 41 passed in 3.78s
+tests/test_taskbar_sandbox.py :: 5 passed in 0.24s
+tests/test_task_cancellation_tools.py :: 9 passed in 0.23s
+tests/test_task_cancel_races.py :: 20 passed in 0.13s
+tests/test_task_lookup.py :: 19 passed in 0.33s
+tests/test_telegram_bot.py :: 23 passed in 0.17s
+tests/test_telemetry.py :: 5 passed in 0.07s
+tests/test_tool_usage.py :: 8 passed, 1 warning in 0.66s
+tests/test_turn_manager.py :: 23 passed in 0.14s
+tests/test_urgency_judge.py :: 16 passed in 0.08s
+tests/test_verified_action_guards.py :: 7 passed in 0.07s
+tests/test_verified_tools.py :: 3 passed in 0.31s
+tests/test_visible_url.py :: 31 passed in 0.87s
+tests/test_vision_tools.py :: 10 passed in 0.62s
+tests/test_voice_barge_signals.py :: 6 passed in 0.06s
+tests/test_voice_fixtures.py :: 6 passed in 2.36s
+tests/test_voice_fx.py :: 14 passed in 0.21s
+tests/test_voice_job_cleanup.py :: 1 failed, 1 warning in 0.60s
+tests/test_voice_matrix.py :: 7 passed in 0.24s
+tests/test_voice_regressions.py :: 5 passed in 8.72s
+tests/test_voice_transport_recovery.py :: 6 passed, 1 warning in 1.72s
+tests/test_voice_upgrade.py :: 8 passed, 1 warning in 0.59s
+tests/test_wa_approvals.py :: 38 passed in 0.15s
+tests/test_wa_approval_transport.py :: 13 passed in 0.12s
+tests/test_wa_autoreply.py :: 79 passed in 0.34s
+tests/test_wa_complete_readback.py :: 10 passed in 0.24s
+tests/test_wa_headless.py :: 6 passed in 0.12s
+tests/test_wa_image.py :: 4 passed in 0.08s
+tests/test_wake_client.py :: 38 passed in 0.47s
+tests/test_wake_connection_recovery.py :: 4 passed in 0.23s
+tests/test_wake_events_character.py :: 1 passed in 0.06s
+tests/test_wake_events.py :: 9 passed in 0.78s
+tests/test_wake_join_audio.py :: 19 passed in 3.81s
+tests/test_wake_recovery.py :: 27 passed in 0.34s
+tests/test_wa_mimic.py :: 26 passed in 0.11s
+tests/test_wa_private_effects.py :: 24 passed in 0.44s
+tests/test_wa_reply_router.py :: 19 passed in 0.10s
+tests/test_wa_rules.py :: 10 passed in 0.09s
+tests/test_watch_ascii.py :: 11 passed in 0.20s
+tests/test_watch_capture_package.py :: 3 passed in 0.06s
+tests/test_watch_control.py :: 9 failed, 7 passed, 1 warning in 0.79s
+tests/test_watch_eyes.py :: 4 passed in 0.36s
+tests/test_watch_guest.py :: 5 passed, 1 warning in 1.17s
+tests/test_watch_mode.py :: 61 passed in 0.31s
+tests/test_watch_native_adversarial.py :: 24 passed in 0.17s
+tests/test_watch_particles.py :: 13 passed in 0.53s
+tests/test_watch_routing.py :: 1 failed, 32 passed, 2 warnings in 1.33s
+tests/test_watch_visual.py :: 33 passed, 1 warning in 0.65s
+tests/test_wa_vision.py :: 12 passed in 0.10s
+tests/test_web_search.py :: 30 passed in 0.35s
+tests/test_whatsapp.py :: 14 passed in 0.26s
+tests/test_whatsapp_session.py :: 9 passed in 0.15s
+tests/test_window_ctl.py :: 12 passed in 0.26s
+tests/test_window_layout.py :: 6 passed in 0.47s
+tests/test_window_monitor.py :: 22 passed in 0.14s
+tests/test_window_sampler.py :: 12 passed in 0.26s
+tests/test_window_tools.py :: 4 passed in 0.30s
+tests/test_wizard.py :: 32 passed in 0.12s
+tests/test_workshop.py :: 4 passed in 0.26s
+tests/test_workspace_tools.py :: 26 passed in 0.72s
+tests/test_youtube_direct.py :: 15 passed in 1.18s
+tests/test_youtube_download_bridge.py :: 6 passed in 2.80s
+tests/test_youtube_download.py :: 16 passed in 0.24s
+tests/test_youtube_download_site.py :: 3 passed in 4.71s
+tests/test_youtube_extended.py :: 16 passed in 0.31s
+tests/test_youtube_history.py :: 18 passed in 0.12s
+tests/test_youtube_resolve.py :: 25 passed in 0.10s
+DONE

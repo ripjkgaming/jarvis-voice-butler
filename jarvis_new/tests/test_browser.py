@@ -641,3 +641,36 @@ async def test_dismiss_popups_clicks_safe_button_only() -> None:
         danger_server.shutdown()
         banner_thread.join(timeout=2)
         danger_thread.join(timeout=2)
+
+
+async def test_open_url_maps_launch_race_to_browser_error(monkeypatch) -> None:
+    """A browser launch that races a closing context must not leak a raw
+    Playwright error (the executor would report it as an internal error)."""
+    manager = BrowserManager(headless=True)
+    calls = []
+
+    async def failing_get_page(tab=None):
+        calls.append(tab)
+        raise RuntimeError(
+            "BrowserType.launch_persistent_context: Target page, context or browser has been closed"
+        )
+
+    async def no_recover():
+        return None
+
+    monkeypatch.setattr(manager, "_get_page", failing_get_page)
+    monkeypatch.setattr(manager, "_recover_unlocked", no_recover)
+    with pytest.raises(BrowserError):
+        await manager.open_url("https://example.com/")
+    assert len(calls) == 2  # one retry after the close race, as for pages
+
+
+async def test_open_url_other_launch_failure_is_browser_error(monkeypatch) -> None:
+    manager = BrowserManager(headless=True)
+
+    async def broken_get_page(tab=None):
+        raise OSError("no such executable")
+
+    monkeypatch.setattr(manager, "_get_page", broken_get_page)
+    with pytest.raises(BrowserError, match="could not start the browser"):
+        await manager.open_url("https://example.com/")

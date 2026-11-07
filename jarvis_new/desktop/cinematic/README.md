@@ -528,3 +528,35 @@ coordinates, so they flow across monitor seams. A fault there only ends the help
 Run: `python3 dragfx/dragfx.py` (autostart entry `~/.config/autostart/jarvis-dragfx.desktop`);
 stop: `qdbus org.jarvis.DragFx /Drag org.jarvis.DragFx.Quit`. The agent-built resize trace and
 Brave fullscreen modes in `jarvis-energy` are not installed (see `verify-resize-fullscreen.cjs`).
+
+### Particle Portal: cross-monitor Jarvis moves (2026-10-28)
+
+The monitor_window_move.py tool uses KWin getWindowInfo for true Wayland
+geometry (XWayland wmctrl may report doubled coordinates). Automatic
+"other monitor" requests exclude both the source display and the screen
+containing the jarvis-shell interface. Explicit targets override the rule.
+
+Moves first hide the real window with a finite 10s fail-safe, commit and verify
+its destination geometry, then start the 7.2s compositor shader. The shader
+uses the saved source screen and the actual destination rectangle (including
+maximization, panel work area and shadows). Its transforms are based on the
+already-moved window, so the final frame hands off directly to that window.
+Failed moves cancel the hidden stage. The ASCII effect yields geometry and
+focus transitions during this handoff. No timed sleep races the shader endpoint.
+Shader mode 6 splits the window and dissolves it into 6,144 tiny blue pinpoints
+with bright cyan cores and individual soft halos matching the supplied reference.
+The separating halves ignite as cyan flashes. Quintic easing, rounded monitor
+corners, and short analytic motion trails smooth the orbit and transfer. The particles spread to all four edges of the actual
+source monitor, orbit its full outline clockwise in three brighter swarms, then
+stream across to the destination window and settle into the reconstructed image.
+Source monitor geometry is passed in canvas coordinates; the redirected canvas
+includes the entire source screen, outward halves, and destination gather.
+The destination texture is fully reconstructed at the endpoint.
+No screenshots are saved. A bounded texture (<= 8.5 million pixels) avoids
+large compositor allocations, and a missing effect falls back to a plain move.
+
+Run offline GPU tests with:
+uv run --no-project --with moderngl --with pillow --python /usr/bin/python3 python desktop/cinematic/verify-portal.py
+
+An installation backup was saved under ~/.local/share/jarvis-desktop-backups/
+in a portal-prefixed directory. Only the jarvis-energy effect was reloaded.

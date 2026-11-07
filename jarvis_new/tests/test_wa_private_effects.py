@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import wa_approvals
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import phone_session as ps
 from system import LocalSystemError, desktop, whatsapp

@@ -883,3 +883,55 @@
   right: -2px;
   bottom: -3px;
 }
+
+.replayCard {
+  margin: 20px;
+  padding: 20px;
+  border: 1px solid rgba(70, 210, 220, 0.35);
+  border-radius: 12px;
+  background: rgba(20, 75, 85, 0.12);
+}
+.replayHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.replayHeading h3 {
+  margin: 8px 0;
+}
+.replayHeading > strong {
+  font-size: 24px;
+}
+.replayCard progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #62d9da;
+}
+.replayCard p {
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+.replayMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.replayMetrics dt {
+  font-size: 11px;
+  opacity: 0.65;
+}
+.replayMetrics dd {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .replayMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .replayCard {
+    margin: 10px;
+    padding: 14px;
+  }
+}

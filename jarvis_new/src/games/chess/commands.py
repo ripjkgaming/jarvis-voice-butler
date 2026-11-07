@@ -282,8 +282,23 @@ def _lv_word(args: dict, _t: str) -> dict | None:
 
 def _lv_adjust_phrases(words: list[str]) -> list[str]:
     pre = ["", "make it ", "go ", "play ", "can you make it ", "could you make it "]
-    mod = ["", "a bit ", "a little ", "slightly ", "a notch ", "a touch ", "a tad ", "much "]
-    return [f"{a}{m}{w}" for a in pre for m in mod for w in words if m or a not in ("", "make it ")]
+    mod = [
+        "",
+        "a bit ",
+        "a little ",
+        "slightly ",
+        "a notch ",
+        "a touch ",
+        "a tad ",
+        "much ",
+    ]
+    return [
+        f"{a}{m}{w}"
+        for a in pre
+        for m in mod
+        for w in words
+        if m or a not in ("", "make it ")
+    ]
 
 
 _LEVEL_RULES = [
@@ -317,7 +332,6 @@ _LEVEL_RULES = [
 ]  # fmt: skip
 
 
-
 RULES: list[Rule] = []
 
 
@@ -335,7 +349,9 @@ _SERIES_MAX = 100
 
 def parse_count(text: str) -> int | None:
     """Number of games: digits or words, 'a hundred' = 100. No range check."""
-    words = [_COUNT_FIX.get(w, w) for w in (text or "").lower().replace("-", " ").split()]
+    words = [
+        _COUNT_FIX.get(w, w) for w in (text or "").lower().replace("-", " ").split()
+    ]
     if len(words) > 1 and words[0] in ("a", "an"):
         words = words[1:]
     return parse_number(" ".join(words)) if words else None
@@ -348,13 +364,20 @@ def _num_any(text: str) -> int | None:
 
 _NW = "(?:" + "|".join([*_UNITS, "hundred", "thousand", "ate", "tin", "and"]) + ")"
 _CNT = r"(?P<n>(?:an? )?(?:\d+|" + _NW + r"(?:[ -]" + _NW + r"){0,3}))"
-_COLOUR_WORD = {"white": "white", "black": "black", "alternate": "alternate", "alternating": "alternate"}
+_COLOUR_WORD = {
+    "white": "white",
+    "black": "black",
+    "alternate": "alternate",
+    "alternating": "alternate",
+}
 _REST_COLOUR = re.compile(
     r"^(?: as (?P<c1>white|black|alternating|alternate)(?: colou?rs?)?"
     r"| (?P<c2>alternating|alternate)(?: colou?rs?)?)"
 )
 _REST_LEVEL = re.compile(r"^ at level (?P<lv>\d+|[a-z]+)")
-_REST_TIME = re.compile(r"^ (?:with |at )?(?P<t>\d+|[a-z]+) seconds?(?: (?:per|a|each) move)?")
+_REST_TIME = re.compile(
+    r"^ (?:with |at )?(?P<t>\d+|[a-z]+) seconds?(?: (?:per|a|each) move)?"
+)
 
 
 def _series_rest(rest: str, args: dict) -> bool:
@@ -511,7 +534,11 @@ add(
         "continue the series|resume the series|resume series|continue series|carry on with the series|"
         "restart the series",
     ),
-    R("series_cancel", "series", "cancel the series|stop the series|end the series|cancel series|abort the series"),
+    R(
+        "series_cancel",
+        "series",
+        "cancel the series|stop the series|end the series|cancel series|abort the series",
+    ),
     R(
         "series_resume_offer",
         "series",
@@ -536,7 +563,12 @@ add(
         rx=r"open (?:the )?game (?P<ref>\d{4}-\d{2}-\d{2}|\d+|latest|last|newest|most recent|[a-z]+(?:[ -][a-z]+)?)",
         post=_open_ref,
     ),
-    R("open_game", "history", "open the last game|open the latest game|open the newest game", ref="1"),
+    R(
+        "open_game",
+        "history",
+        "open the last game|open the latest game|open the newest game",
+        ref="1",
+    ),
     R(
         "review_goto",
         "review",
@@ -546,7 +578,8 @@ add(
     R(
         "hist_branch",
         "history",
-        rx=r"(?:rewind|go back|roll back|take it back) (?:to|two|too) move " + _CNT
+        rx=r"(?:rewind|go back|roll back|take it back) (?:to|two|too) move "
+        + _CNT
         + r"(?: and (?:continue|carry on|keep going|play|play on)(?: from here| on)?)?",
         post=_rewind,
     ),

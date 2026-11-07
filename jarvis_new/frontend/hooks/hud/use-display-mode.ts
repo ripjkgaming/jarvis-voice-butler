@@ -8,7 +8,7 @@ export type HudMode = DisplayMode;
 // v2 key: v1 persisted the *auto-detected* mode, which locked the 1280x720
 // overlay into solo on screens whose reported width trips the old
 // single-screen heuristic. Fresh key → fresh auto-detect.
-const KEY = 'jarvis:display-mode-v2';
+const KEY = 'jarvis:display-mode-v3';
 
 function detectNarrow(): boolean {
   if (typeof window === 'undefined') return false;

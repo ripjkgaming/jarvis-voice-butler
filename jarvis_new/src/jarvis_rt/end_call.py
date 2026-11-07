@@ -31,6 +31,40 @@ Don't generate any other text or response when the tool is called.
 """
 
 FAREWELL_WAIT_S = 5.0
+#: Hard cap on how long a goodbye may hold the session open.
+FAREWELL_MAX_S = 25.0
+#: Extra time after the last audio sample is due, for client-side buffering.
+PLAYOUT_TAIL_S = 0.6
+_POLL_S = 0.1
+
+
+class _PlayoutClock:
+    """Wraps ``session.output.audio`` to learn when the queued audio ends.
+
+    Realtime backends stream audio faster than it plays, so a speech handle is
+    "done" (turn complete) well before the listener has heard the end of it.
+    Closing then cuts the farewell off mid-sentence. This tracks the wall-clock
+    moment the last pushed sample finishes playing.
+    """
+
+    def __init__(self, session: Any) -> None:
+        self._output = getattr(session, "output", None)
+        self._inner = getattr(self._output, "audio", None)
+        self.seen = False
+        self.until = 0.0
+        if self._output is not None and self._inner is not None:
+            self._output.audio = self._push
+
+    def _push(self, pcm24k: bytes) -> None:
+        now = asyncio.get_running_loop().time()
+        self.seen = True
+        self.until = max(self.until, now) + len(pcm24k) / 2 / 24000
+        self._inner(pcm24k)
+
+    def restore(self) -> None:
+        if self._output is not None and self._inner is not None:
+            if getattr(self._output, "audio", None) == self._push:
+                self._output.audio = self._inner
 
 
 class EndCallTool:
@@ -62,20 +96,51 @@ class EndCallTool:
                 created.set_result(ev.speech_handle)
 
         session.once("speech_created", _on_created)
+        clock = _PlayoutClock(session)
         self._task = asyncio.get_running_loop().create_task(
-            self._shutdown(session, created)
+            self._shutdown(session, created, clock, _on_created)
         )
         return self._end_instructions
 
-    async def _shutdown(self, session: Any, created: asyncio.Future) -> None:
+    async def _shutdown(
+        self,
+        session: Any,
+        created: asyncio.Future,
+        clock: _PlayoutClock,
+        on_created: Any,
+    ) -> None:
+        """Close once the farewell has been generated AND heard.
+
+        The farewell may arrive as a new speech (speech_created) or as more
+        audio on a speech that was still open when the tool ran; either counts
+        as started. Then wait for the turn to complete and for the queued audio
+        to finish playing.
+        """
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
         try:
-            handle = await asyncio.wait_for(created, FAREWELL_WAIT_S)
-            await handle.wait_for_playout()
-        except asyncio.TimeoutError:
-            log.warning("farewell reply timed out, closing session")
+            while True:
+                await asyncio.sleep(_POLL_S)
+                now = loop.time()
+                if now - t0 > FAREWELL_MAX_S:
+                    log.warning("farewell still playing after %.0fs, closing", FAREWELL_MAX_S)
+                    break
+                started = created.done() or clock.seen
+                if not started:
+                    if now - t0 > FAREWELL_WAIT_S:
+                        log.warning("farewell reply timed out, closing session")
+                        break
+                    continue
+                speech = getattr(session, "_speech", None)
+                if speech is not None and not speech.done():
+                    continue
+                if now >= clock.until + PLAYOUT_TAIL_S:
+                    break
         except Exception:
             log.exception("waiting for farewell failed")
         finally:
-            session.off("speech_created", lambda _: None)
+            clock.restore()
+            with contextlib.suppress(Exception):
+                session.off("speech_created", on_created)
             with contextlib.suppress(Exception):
                 await session.aclose(CloseReason.USER_INITIATED)

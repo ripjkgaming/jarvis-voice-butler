@@ -2,8 +2,8 @@
 
 import os
 
-MODEL = os.environ.get("PAPER_MARKET_MODEL", "gpt-6-astra")
-EFFORT = os.environ.get("PAPER_MARKET_EFFORT", "medium")
+MODEL = os.environ.get("PAPER_MARKET_MODEL", "dots-studio/dots-3-note-preview:free")
+EFFORT = os.environ.get("PAPER_MARKET_EFFORT", "default")
 SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
 DECISION_INTERVAL_SECONDS = 300
 MAX_QUOTE_AGE_SECONDS = 120

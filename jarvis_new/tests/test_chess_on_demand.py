@@ -54,6 +54,7 @@ def make_game(tmp_path, engine, handler=None, key="sk-or-test-key-1", **settings
         )
         commentary = Commentary(router)
         chat = Chat(router)
+    settings.setdefault("commentary_muted", False)
     s = ChessSettings(difficulty="novice", **settings)
     g = ChessGame(
         s,

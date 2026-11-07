@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system import kwin_windows, window_ctl
 
@@ -95,7 +95,7 @@ async def test_focus_window_tool_raises_when_it_fails(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_play_media_returns_focus_to_previous_window(monkeypatch) -> None:
+async def test_play_media_does_not_bury_player_behind_previous_window(monkeypatch) -> None:
     import asyncio
 
     from system import core
@@ -144,7 +144,8 @@ async def test_play_media_returns_focus_to_previous_window(monkeypatch) -> None:
     # verifies launch evidence and focus restoration, not visual playback.
     assert out["outcome"]["state"] == "launch_requested"
     assert "not visually verified" in out["say"]
-    assert restored and restored[0] == "Chemistry notes - Kate"
+    # The player must stay in front: nothing may refocus the previous window.
+    assert restored == []
 
 
 @pytest.mark.asyncio
@@ -199,17 +200,15 @@ def test_focus_waits_for_a_slow_window_to_come_forward(monkeypatch) -> None:
     assert ok
 
 
-def test_background_new_brave_minimizes_only_the_new_window(monkeypatch) -> None:
-    from system import kwin_windows
-
-    calls = []
+def test_background_new_brave_never_minimizes(monkeypatch) -> None:
     seen = iter([{"old"}, {"old"}, {"old", "new"}])
     monkeypatch.setattr(window_ctl, "brave_window_ids", lambda **k: next(seen))
-    monkeypatch.setattr(kwin_windows, "act_on", lambda a, u, **k: calls.append((a, u)))
-    monkeypatch.setattr(window_ctl, "restore", lambda t, **k: calls.append(("restore", t)))
-    ok = window_ctl.background_new_brave({"old"}, "Konsole", sleep=lambda s: None)
-    assert ok
-    assert calls == [("minimize", "new"), ("restore", "Konsole")]
+    monkeypatch.setattr(
+        window_ctl,
+        "reveal_new_brave",
+        lambda before, previous="", **k: {"found": True},
+    )
+    assert window_ctl.background_new_brave({"old"}, "Konsole", sleep=lambda s: None)
 
 
 def test_background_new_brave_gives_up_when_nothing_opens(monkeypatch) -> None:

@@ -357,3 +357,9 @@ async def test_screen_whisper_only_uses_already_local_model_assets(monkeypatch):
     assert provider._load() is provider._load()
     assert len(calls) == 1 and calls[0]["local_files_only"] is True
     await provider.aclose()
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

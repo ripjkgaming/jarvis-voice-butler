@@ -7,7 +7,7 @@ import hashlib
 import re
 import threading
 
-from livekit.agents import RunContext, function_tool
+from jarvis_rt import RunContext, function_tool
 
 import action_guard
 import build_monitor

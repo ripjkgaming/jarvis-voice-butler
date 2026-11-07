@@ -1,6 +1,8 @@
 'use client';
 
 import { GlyphBar, GlyphChart, GlyphLamp } from '@/components/ascii/glyphs';
+import { useAscii } from '@/lib/character/hooks';
+import { ClassicCells, ClassicLamp, ClassicSpark } from './classic';
 import { type Metrics, type Sample, fmtBytes, metricWarnings } from './metrics';
 import s from './stark.module.css';
 
@@ -17,6 +19,7 @@ function Trend({
   values: number[];
   warn?: boolean;
 }) {
+  const ascii = useAscii();
   return (
     <div className={s.trend} data-warn={warn ? 'true' : undefined}>
       <div className={s.trendHead}>
@@ -25,15 +28,19 @@ function Trend({
       </div>
       <div className={s.trendRow}>
         <span className={s.trendValue}>{value}</span>
-        <GlyphChart
-          values={values}
-          width={26}
-          rows={2}
-          lo={0}
-          hi={100}
-          tone={warn ? 'warn' : undefined}
-          className={s.spark}
-        />
+        {ascii ? (
+          <GlyphChart
+            values={values}
+            width={26}
+            rows={2}
+            lo={0}
+            hi={100}
+            tone={warn ? 'warn' : undefined}
+            className={s.spark}
+          />
+        ) : (
+          <ClassicSpark values={values} warn={warn} />
+        )}
       </div>
     </div>
   );
@@ -73,6 +80,8 @@ export function Trends({ m, history }: { m: Metrics; history: Sample[] }) {
 
 /** Glyph cell bar: 20 cells, lit up to pct. */
 function Cells({ pct, warn }: { pct: number; warn?: boolean }) {
+  const ascii = useAscii();
+  if (!ascii) return <ClassicCells pct={pct} warn={warn} />;
   return <GlyphBar pct={pct} width={24} tone={warn ? 'warn' : undefined} className={s.cells} />;
 }
 
@@ -170,11 +179,12 @@ function links(m: Metrics): Link[] {
 
 /** Link status lamps: network, phone, voice call, audio, storage. */
 export function Links({ m }: { m: Metrics }) {
+  const ascii = useAscii();
   return (
     <ul className={s.links}>
       {links(m).map((l) => (
         <li key={l.label} className={s.link} data-state={l.state}>
-          <GlyphLamp state={l.state} />
+          {ascii ? <GlyphLamp state={l.state} /> : <ClassicLamp />}
           <span className={s.linkLabel}>{l.label}</span>
           <span className={s.linkValue}>{l.value}</span>
         </li>

@@ -1,6 +1,6 @@
 """Localhost control plane for embedding Jarvis in a desktop shell.
 
-A desktop app (Electron/Tauri) cannot reach into the LiveKit worker or the
+A desktop app (Electron/Tauri) cannot reach into the agent worker or the
 wake-word listener directly, so this module exposes host-side state over a
 loopback-only HTTP server using stdlib only (no new dependencies)::
 
@@ -9,9 +9,11 @@ loopback-only HTTP server using stdlib only (no new dependencies)::
 
 Endpoints (all JSON):
     GET  /health    liveness + uptime + version
-    GET  /status    voice pipeline state: livekit configured (presence only,
-                   never secret values), pipeline mode, wake threshold,
-                   voice model present, WhatsApp CDP reachable, log stats
+    GET  /status    voice pipeline state: voice_transport_ready (TCP connect
+                   to the worker's WebSocket hub on 127.0.0.1:$JARVIS_VOICE_PORT,
+                   0.2 s), pipeline mode, wake threshold, voice model present,
+                   WhatsApp CDP reachable, log stats. livekit_configured is a
+                   deprecated alias that is always true (LiveKit was removed).
     GET  /actions   tail of ~/.jarvis/actions.log (?limit=1..200, default 50)
     GET  /sys       cpu load + memory + home-disk (Linux /proc; degraded
                    JSON elsewhere instead of crashing)
@@ -31,7 +33,7 @@ Endpoints (all JSON):
     GET  /room      live wake room for HUD receive-only join
                    {"ok": true, "room": name|null} (null = no call)
     GET  /captions  tail of ~/.jarvis/captions.log (?limit=1..50, default 20)
-                    [{ts, role, text}] for HUDs without a LiveKit client
+                    [{ts, role, text}] for HUDs without a voice client
     POST /window    {"id": window UUID, "action": activate|minimize}
     POST /launch    {"desktop": "x.desktop"} -> launch a pinned/menu app
     GET  /apps      all visible apps for the launcher menu
@@ -39,8 +41,8 @@ Endpoints (all JSON):
     POST /quick     toggle wifi/bluetooth/dnd, set volume/mute/brightness
     POST /power     {"action": lock|sleep|logout|restart|shutdown}
 Deliberately NOT here: hangup, sendText, hotword events. Those live
-inside the LiveKit room (token via the shell's mint_token command) and
-have no out-of-process API yet. Every endpoint is fail-soft: a missing
+inside the voice session (WebSocket hub, call token via the shell's
+mint_token command) and have no out-of-process API yet. Every endpoint is fail-soft: a missing
 file, binary, or socket degrades one field, never the whole response.
 
 Phone API (JarvisLink Android app over Tailscale): the same server, with
@@ -406,7 +408,11 @@ def _match_voice_tool(
         action = computer_watch.parse_command(lowered)
         # Starting Watch Mode means the fullscreen ASCII card + camera guard
         # (src/watch_mode.py), stopped by Ctrl+Alt+Shift+W / jarvis-watch-stop.
-        if action == "start" and _watch.enabled():
+        if (
+            action == "start"
+            and not computer_watch.screen_share_request(lowered)
+            and _watch.enabled()
+        ):
             return ("watch_mode", {}, "Watching the laptop, Sir.")
         if action is not None:
             return ("computer_watch", {"action": action}, None)
@@ -833,6 +839,7 @@ SIDECAR_THREADS = (
     # Email drafts + urgency triage every minute; WhatsApp replies every 5.
     ("mail_watch_job", "JARVIS_MAIL_WATCH"),
     ("wa_autoreply", "JARVIS_WA_WATCH"),
+    ("whatsapp_calendar", "JARVIS_WHATSAPP_EVENTS"),
     # Exam reminders: the evening before and the morning of each exam.
     ("exams", "JARVIS_EXAM_REMIND"),
     # Proactive engine: calendar/mail/jobs/disk/deadline signals, one policy.
@@ -846,6 +853,12 @@ SIDECAR_THREADS = (
     ("agent_tasks", "JARVIS_TASKS"),
     # Queued notifications are announced once Sir is back at the keyboard.
     ("notify", "JARVIS_NOTIFY_QUEUE"),
+    # Personal Google OAuth testing grants expire after seven days. Reopen
+    # the existing same-account consent flow before that deadline.
+    ("google_auth_reminder", "JARVIS_GOOGLE_AUTH_REMINDER"),
+    # Always Aware (docs/always-aware): ships OFF; idles until "always aware
+    # on" sets ~/.jarvis/aware/state.json enabled. JARVIS_AWARE=0 kills it.
+    ("aware.sidecar", "JARVIS_AWARE"),
 )
 
 
@@ -870,6 +883,14 @@ def start_sidecar_threads() -> None:
             importlib.import_module(module).start_thread()
         except Exception as exc:
             print(f"{module} unavailable: {exc}", flush=True)
+    # An Always Aware offer is spoken, then one listening turn opens for the
+    # yes/no (same path as /summon). Only wired when the sidecar is loaded.
+    import sys
+
+    aware_mod = sys.modules.get("aware.sidecar")
+    if aware_mod is not None:
+        with contextlib.suppress(Exception):
+            aware_mod.set_listener(lambda _text: _launch_voice({"talk": True}, {}))
 
 
 def start_brave_orb_watch() -> None:
@@ -1235,7 +1256,7 @@ _NET_CACHE: dict = {}
 _NET_TTL_S = 5.0
 _NET_LOCK = Lock()
 _VOL_CACHE: dict = {}
-_VOL_TTL_S = 5.0
+_VOL_TTL_S = 0.5
 _VOL_LOCK = Lock()
 
 
@@ -1325,7 +1346,7 @@ def _volume_status(run=None, clock=None) -> dict | None:
     """Sink volume pct (0-150) + muted. None when no backend works.
 
     Tries `wpctl get-volume`, falls back to pactl volume + mute.
-    Results cached 5s. Injectable run/clock like _net_status. Never raises.
+    Results cached briefly. Injectable run/clock like _net_status. Never raises.
     """
     return _cached_sensor(
         _VOL_CACHE, _VOL_LOCK, _VOL_TTL_S, lambda: _read_volume_status(run), clock
@@ -1333,7 +1354,9 @@ def _volume_status(run=None, clock=None) -> dict | None:
 
 
 def _read_volume_status(run=None) -> dict | None:
-    runner = run or subprocess.run
+    import audio_output
+
+    runner = run or audio_output.run
     value: dict | None = None
     try:
         proc = runner(
@@ -1776,22 +1799,9 @@ def _sys_stats() -> dict:
 
 
 def _tail_log(path: Path, limit: int) -> list[str]:
-    try:
-        with path.open("rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            size = fh.tell()
-            chunks, newlines = [], 0
-            while newlines <= limit and size > 0:
-                step = min(4096, size)
-                size -= step
-                fh.seek(size)
-                block = fh.read(step)
-                chunks.append(block)
-                newlines += block.count(b"\n")
-        lines = b"".join(reversed(chunks)).decode(errors="replace").splitlines()
-    except (OSError, ValueError):
-        return []
-    return lines[-limit:]
+    from log_tail import tail_lines
+
+    return tail_lines(path, limit)
 
 
 def _log_stats() -> dict:
@@ -1803,6 +1813,19 @@ def _log_stats() -> dict:
         return {"path": str(path), "bytes": 0, "mtime": 0}
 
 
+def voice_transport_ready() -> bool:
+    """True when the worker's WebSocket voice hub accepts TCP on loopback."""
+    import socket
+
+    from mint_token import voice_port
+
+    try:
+        with socket.create_connection(("127.0.0.1", voice_port()), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
 def build_status() -> dict:
     return {
         "ok": True,
@@ -1811,17 +1834,26 @@ def build_status() -> dict:
         "pipeline": _env("JARVIS_PIPELINE", "realtime"),
         "agent_name": _env("AGENT_NAME", "my-agent"),
         "local_unlocked": _env("JARVIS_LOCAL") == "1",
-        "livekit_configured": bool(
-            _env("LIVEKIT_URL")
-            and _env("LIVEKIT_API_KEY")
-            and _env("LIVEKIT_API_SECRET")
-        ),
+        # Deprecated alias (LiveKit removed); kept so older HUDs keep parsing.
+        "livekit_configured": True,
+        "voice_transport_ready": voice_transport_ready(),
         "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
         "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
         "voice_model_present": _voice_model_present(),
         "whatsapp_reachable": _whatsapp_reachable(),
         "log": _log_stats(),
+        # on|off|paused only: no Always Aware log content leaves the laptop.
+        "aware": _aware_word(),
     }
+
+
+def _aware_word() -> str:
+    try:
+        from aware import state as aware_state
+
+        return aware_state.status_word()
+    except Exception:
+        return "off"
 
 
 def resolve_bind() -> tuple[str, bool]:
@@ -2578,7 +2610,12 @@ def handle_type(body: dict) -> tuple[int, dict]:
     Returns (http_code, payload); never raises.
     """
     text, key = body.get("text", ""), body.get("key", "")
-    if isinstance(text, str) and text.strip() and not key and not _effective_guest(body):
+    if (
+        isinstance(text, str)
+        and text.strip()
+        and not key
+        and not _effective_guest(body)
+    ):
         handled = _character_gate(text.strip())
         if handled is not None:
             return 200, handled
@@ -3509,6 +3546,62 @@ def _handle_summon(body: dict) -> tuple[int, dict]:
     return 200, {**reply, "spoke_on": "desktop"}
 
 
+# --- LOCKE//LINK phone web app (docs/phone-app/PLAN.md §6) -----------------
+_PHONE_CONTROL = None  # phone_control.PhoneControl; tests inject a fake
+_PHONE_CONTROL_LOCK = Lock()
+
+
+def _strip_api_prefix(path: str) -> str:
+    """tailscale serve mounts the bridge at /api; accept both forms."""
+    if path == "/api" or path.startswith(("/api/", "/api?")):
+        return path[4:] if path[4:5] == "/" else "/" + path[4:]
+    return path
+
+
+def _phone_voice() -> dict:
+    """Same voice view as GET /room."""
+    from hud_voice_state import read_snapshot as read_voice_snapshot
+
+    candidate = read_hud_room(max_age_s=float("inf"))
+    voice = read_voice_snapshot(candidate)
+    return {
+        "call_live": bool(voice and voice["live"]),
+        "voice_owner": voice["owner"] if voice else None,
+        "agent_state": voice["state"] if voice else None,
+        "waking": read_hud_waking(),
+    }
+
+
+def _phone_control():
+    global _PHONE_CONTROL
+    with _PHONE_CONTROL_LOCK:
+        if _PHONE_CONTROL is None:
+            import phone_control
+            import presence
+            import watch_mode
+            from system import log_action
+
+            _PHONE_CONTROL = phone_control.PhoneControl(
+                phone_control.Deps(
+                    run=subprocess.run,
+                    run_phone_tool=run_phone_tool,
+                    wake_rpc=_wake_rpc,
+                    laptop_power=_laptop_power,
+                    voice=_phone_voice,
+                    guest_required=watch_mode.guest_required,
+                    enter_guest=lambda: watch_mode.enter_guest(
+                        watch_mode.GUEST_EXPLICIT
+                    ),
+                    request_stop=watch_mode.request_stop,
+                    restore_owner=watch_mode.restore_owner,
+                    presence=presence.check_presence,
+                    log=log_action,
+                    host=socket.gethostname().split(".")[0],
+                )
+            )
+        return _PHONE_CONTROL
+
+
 class _CountingReader:
     """rfile proxy counting bytes read so unread POST bodies can be drained."""
 
@@ -3536,6 +3629,8 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def _authorized(self) -> bool:
+        if getattr(self, "_phone_principal", None) is not None:
+            return True  # device cookie + open gate, set by _phone_v1
         if not self.token:
             return True
         got = self.headers.get("Authorization", "")
@@ -3546,7 +3641,7 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        if urlparse(self.path).path.startswith("/health-recorder/"):
+        if urlparse(self.path).path.startswith(("/health-recorder/", "/auto-calendar/")):
             self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         # The Tauri webview (tauri://localhost) and the Next dev server
@@ -3557,6 +3652,73 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_phone(self, code: int, payload: dict, cookies=()) -> None:
+        body = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        for cookie in cookies:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _phone_v1(self, method: str) -> bool:
+        """LOCKE//LINK device auth (PLAN.md §6.1). True = response sent.
+
+        Runs before _authorized() and the guest gate. New routes are answered
+        here; for the existing phone routes a valid device cookie with an open
+        gate only marks the request authorized and falls through.
+        """
+        import phone_device
+
+        route = urlparse(self.path).path
+        new = route in phone_device.AUTH_ROUTES or route in (
+            "/phone/v1/state",
+            "/phone/v1/control",
+        )
+        if not new and route not in phone_device.DEVICE_ROUTES:
+            return False
+        if not new and (
+            self.headers.get("Authorization")
+            or (
+                "jl_dev" not in self.headers.get("Cookie", "")
+                and self.headers.get("X-Jarvis-Phone") != "1"
+            )
+        ):
+            return False  # bearer / legacy APK path, unchanged
+        auth = phone_device.service(self.token)
+        if route in phone_device.AUTH_ROUTES:
+            cap = 16384 if route == "/phone/v1/passkey" else 4096
+            body = _read_json_body(self, cap) if method == "POST" else None
+            self._send_phone(*auth.handle(method, route, self.headers, body))
+            return True
+        principal, error = auth.guard(method, route, self.headers)
+        if error:
+            self._send_phone(*error)
+            return True
+        if not new:
+            self._phone_principal = principal
+            return False
+        if route == "/phone/v1/state":
+            if method != "GET":
+                self._send_phone(405, {"ok": False, "error": "GET only"})
+                return True
+            if principal.kind == "device":
+                gate = auth.gates.info(principal.gate_id, principal.device_id)
+            else:
+                gate = {"state": "open", "expires_in_s": None, "soft_in_s": None}
+            self._send_phone(200, _phone_control().state(gate))
+            return True
+        if method != "POST":
+            self._send_phone(405, {"ok": False, "error": "POST only"})
+            return True
+        body = _read_json_body(self, 4096)
+        self._send_phone(
+            *_phone_control().control(principal, body or {}, auth.verify_stepup)
+        )
+        return True
 
     def do_OPTIONS(self) -> None:
         """Preflight sink: allow reads + the /mic mute POST, short-circuit."""
@@ -3612,11 +3774,24 @@ class _Handler(BaseHTTPRequestHandler):
         self.rfile = _CountingReader(self.rfile)  # type: ignore[assignment]
 
     def do_POST(self) -> None:
+        self._phone_principal = None
+        self.path = _strip_api_prefix(self.path)
+        if urlparse(self.path).path.startswith("/phone/") and self._phone_v1("POST"):
+            return
         if not self._authorized():
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route == "/auto-calendar/review":
+            import auto_calendar_bridge
+
+            body = _read_json_body(self, 4096)
+            if _effective_guest(body if isinstance(body, dict) else {}):
+                self._send(403, {"ok": False, "error": "Calendar review requires the owner session."})
+                return
+            self._send(*auto_calendar_bridge.dismiss(body))
+            return
         if route.startswith("/event-monitor/"):
             import event_monitor_bridge
 
@@ -4060,10 +4235,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(code, result)
             return
         if route == "/token":
-            # Mobile room join: mint a 15-min LiveKit token (dispatches
-            # the agent unless {"dispatch": false} joins a live room).
-            # Same shape as mint_token.py CLI output. Body optional:
-            # {"room": "jarvis-123", "dispatch": true}.
+            # Mobile room join: mint a WebSocket call token for the voice hub
+            # (speaker mode unless {"dispatch": false} joins a live call as
+            # a receive-only observer). Same shape as mint_token.py CLI
+            # output. Body optional: {"room": "jarvis-123", "dispatch": true}.
             from mint_token import mint_token_payload, valid_room_name
 
             body = _read_json_body(self, 1024)
@@ -4107,11 +4282,6 @@ class _Handler(BaseHTTPRequestHandler):
                 if dispatch:
                     speaker_release("phone")
                 self._send(503, {"ok": False, "error": str(exc)[:200]})
-                return
-            except ImportError:
-                if dispatch:
-                    speaker_release("phone")
-                self._send(501, {"ok": False, "error": "livekit sdk not installed"})
                 return
             except Exception as exc:
                 if dispatch:
@@ -4160,6 +4330,8 @@ class _Handler(BaseHTTPRequestHandler):
             code, result = taskbar.handle_quick(body)
             if code == 200 and result.get("ok"):
                 _invalidate_sensor_cache(body.get("action"))
+                if body.get("action") in ("volume", "mute"):
+                    result["volume"] = _volume_status()
             self._send(code, result)
             return
         if route == "/power":
@@ -4175,10 +4347,22 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "unknown route"})
 
     def do_GET(self) -> None:
+        self._phone_principal = None
+        self.path = _strip_api_prefix(self.path)
+        if urlparse(self.path).path.startswith("/phone/") and self._phone_v1("GET"):
+            return
         if not self._authorized():
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
+        if parsed.path == "/auto-calendar/status":
+            import auto_calendar_bridge
+
+            if _effective_guest({}):
+                self._send(403, {"ok": False, "error": "Calendar activity requires the owner session."})
+                return
+            self._send(200, auto_calendar_bridge.status())
+            return
         if parsed.path.startswith("/event-monitor/"):
             import event_monitor_bridge
 
@@ -4205,6 +4389,25 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
         route, qs = parsed.path, parse_qs(parsed.query)
+        if route == "/watch/video-frame":
+            # Unlike ordinary loopback endpoints this always needs a bearer.
+            import computer_watch
+            from screen_understanding import ScreenError
+
+            if not self.token:
+                self._send(
+                    403, {"ok": False, "error": "Screen video requires authentication."}
+                )
+                return
+            try:
+                image = computer_watch.video_frame()
+            except (ScreenError, TimeoutError):
+                self._send_bytes(204, "image/jpeg", b"", no_store=True)
+                return
+            self._send_bytes(
+                200 if image else 204, "image/jpeg", image or b"", no_store=True
+            )
+            return
         if route.startswith("/goodnight/"):
             import goodnight_bridge
 
@@ -4276,6 +4479,10 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif route == "/status":
             self._send(200, build_status())
+        elif route == "/foundation/status":
+            from power_foundation.integration import status as foundation_status
+
+            self._send(200, foundation_status())
         elif route == "/actions":
             try:
                 limit = max(1, min(200, int(qs.get("limit", ["50"])[0])))
@@ -4370,6 +4577,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "room": room,
                     "guest_mode": watch_mode.guest_required(),
+                    "watch_intro": watch_mode.read_intro(),
                     "agent_state": voice["state"] if voice else None,
                     "call_live": bool(voice and voice["live"]),
                     "voice_owner": voice["owner"] if voice else None,
@@ -4415,6 +4623,14 @@ class _Handler(BaseHTTPRequestHandler):
             )
         elif route == "/activity":
             self._send(200, {"ok": True, "items": read_activity()})
+        elif route == "/aware/status":
+            # HUD glyph source. Owner only: guests get a 403, like calendar.
+            if _effective_guest({}):
+                self._send(403, {"ok": False, "error": "owner session required"})
+                return
+            from aware import sidecar as aware_sidecar
+
+            self._send(200, aware_sidecar.status())
         elif route == "/panels":
             # Voice-driven HUD panels (src/hud_panels.py, IRONMAN_SPEC §6).
             import hud_panels
@@ -4491,11 +4707,8 @@ class _Handler(BaseHTTPRequestHandler):
                     "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
                     "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
                     "local_unlocked": _env("JARVIS_LOCAL") == "1",
-                    "livekit_configured": bool(
-                        _env("LIVEKIT_URL")
-                        and _env("LIVEKIT_API_KEY")
-                        and _env("LIVEKIT_API_SECRET")
-                    ),
+                    # Deprecated alias, always true (see /status).
+                    "livekit_configured": True,
                     "bridge_token_set": bool(self.token),
                 },
             )

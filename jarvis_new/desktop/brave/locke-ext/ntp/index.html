@@ -1,28 +1,12 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Locke</title>
-<link rel="stylesheet" href="ntp.css">
-</head>
-<body class="boot">
-<canvas id="bg" aria-hidden="true"></canvas>
-<canvas id="wipe" aria-hidden="true"></canvas>
-<main id="app">
-  <header id="top">
-    <div id="brand"><span class="mark">◢█◣</span> <span class="word">LOCKE</span><span class="sub">NEW TAB</span></div>
-    <div id="searchSlot"></div>
-    <div id="clock"><div id="time">--:--:--</div><div id="date"></div></div>
-  </header>
-  <div id="cols">
-    <div class="col" id="colL"></div>
-    <div class="col" id="colM"><div id="spacer"></div></div>
-    <div class="col" id="colR"></div>
-  </div>
-  <footer id="hint">/ search &nbsp;·&nbsp; 1-9 top sites &nbsp;·&nbsp; esc release input</footer>
-</main>
-<span id="probe" aria-hidden="true">MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM</span>
-<script type="module" src="ntp.js"></script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>New tab</title><link rel="stylesheet" href="ntp.css"></head>
+<body><main><h1>New tab</h1>
+<form id="search"><label for="query">Search the web or enter an address</label><div class="search-row"><input id="query" type="text" autocomplete="off" autofocus><button type="submit">Go</button></div></form>
+<p id="status" role="status"></p>
+<section><h2>Frequent sites</h2><ul id="sites"></ul></section>
+<section><h2>Bookmarks</h2><ul id="bookmarks"></ul></section>
+<section><h2>Recently closed</h2><ul id="recent"></ul></section>
+<footer class="ascii-signature" aria-hidden="true"><pre>  .--.
+ [ :: ]  locke
+  '--'</pre></footer>
+</main><script type="module" src="ntp.js"></script></body></html>

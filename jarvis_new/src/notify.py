@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import functools
 import hashlib
 import json
+import math
 import os
 import subprocess
 import time
@@ -102,26 +104,75 @@ def _toast(title: str, text: str, urgency: str) -> bool:
         return True  # a test that did not fake notify-send must stay silent
     level = "critical" if urgency == "urgent" else "normal"
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["notify-send", "-a", "Jarvis", "-u", level, title, text],
             timeout=10,
             capture_output=True,
         )
-        return True
+        return result.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
 
+def _receipts() -> dict:
+    try:
+        data = json.loads(queue_path().with_name("notify_receipts.json").read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _dedupe(key: str, now: float) -> bool:
-    """True when this fingerprint was already sent inside the window."""
-    for k in [k for k, t in _seen.items() if now - t > DEDUPE_S]:
-        _seen.pop(k, None)
-    if key in _seen:
-        return True
+    """Only successful delivery/queue acceptance earns a durable receipt."""
+    seen = {**_seen, **_receipts()}
+    try:
+        return key in seen and 0 <= now - float(seen[key]) <= DEDUPE_S
+    except (TypeError, ValueError):
+        return False
+
+
+def _remember(key: str, now: float) -> None:
     _seen[key] = now
-    return False
+    with contextlib.suppress(Exception), _locked():
+        receipts = _receipts()
+        receipts = {
+            k: v
+            for k, v in receipts.items()
+            if isinstance(v, (int, float)) and 0 <= now - v <= DEDUPE_S
+        }
+        receipts[key] = now
+        path = queue_path().with_name("notify_receipts.json")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(receipts))
+        tmp.chmod(0o600)
+        os.replace(tmp, path)
 
 
+def _serialized_send(fn):
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        # Separate from queue/drain locks: send may enqueue while holding this.
+        path = queue_path().with_name("notify_delivery.lock")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock = path.open("a")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+            except OSError:
+                lock.close()
+                raise
+        except OSError:
+            return {"route": "unavailable", "ok": False, "queued": False}
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            lock.close()
+
+    return wrapped
+
+
+@_serialized_send
 def send(
     text: str,
     *,
@@ -143,7 +194,9 @@ def send(
     from phone_session import private
 
     if private():
-        raise PermissionError("A private phone call cannot send desktop notifications or queued announcements.")
+        raise PermissionError(
+            "A private phone call cannot send desktop notifications or queued announcements."
+        )
     now = time.time() if now is None else now
     body = _clean(text)
     if not body:
@@ -182,10 +235,14 @@ def send(
             route = "notification"  # rate-limited or speaker failed: never lose it
     queued = False
     if route == "notification":
-        ok = (toaster or _toast)(title, body, urgency)
+        try:
+            ok = bool((toaster or _toast)(title, body, urgency))
+        except Exception:
+            ok = False
         if (allow_speech if queue is None else queue) and allow_speech:
             queued = enqueue(
                 {
+                    "fingerprint": key,
                     "ts": now,
                     "kind": kind,
                     "source": source,
@@ -195,6 +252,8 @@ def send(
                     "urgency": urgency,
                 }
             )
+    if ok or queued:
+        _remember(key, now)
     _log(f"{route} kind={kind} source={source} ok={ok} queued={queued}")
     return {"route": route, "ok": ok, "queued": queued}
 
@@ -231,7 +290,13 @@ def load_queue() -> list[dict]:
 def _save_queue(items: list[dict]) -> None:
     path = queue_path()
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items[-QUEUE_MAX:]))
+    # Calendar reminders survive long absences and generic notification pressure.
+    generic = [d for d in items if not d.get("event_id")][-QUEUE_MAX:]
+    retained = [d for d in items if d.get("event_id") or d in generic]
+    tmp.write_text(json.dumps(retained))
+    tmp.chmod(0o600)
+    with tmp.open("r") as handle:
+        os.fsync(handle.fileno())
     os.replace(tmp, path)
 
 
@@ -244,6 +309,12 @@ def enqueue(item: dict) -> bool:
     try:
         with _locked():
             items = load_queue()
+            fingerprint = item.get("fingerprint")
+            if fingerprint and any(d.get("fingerprint") == fingerprint for d in items):
+                return True
+            event_id = item.get("event_id")
+            if event_id:
+                items = [d for d in items if d.get("event_id") != event_id]
             items.append(item)
             _save_queue(items)
         return True
@@ -252,11 +323,14 @@ def enqueue(item: dict) -> bool:
 
 
 def _remove_delivered(delivered: list[dict]) -> None:
-    keys = {(d.get("ts"), d.get("text")) for d in delivered}
+    def identity(item):
+        if item.get("fingerprint"):
+            return ("fingerprint", item["fingerprint"])
+        return ("item", item.get("event_id"), item.get("ts"), item.get("text"))
+
+    keys = {identity(d) for d in delivered}
     with _locked():
-        _save_queue(
-            [d for d in load_queue() if (d.get("ts"), d.get("text")) not in keys]
-        )
+        _save_queue([d for d in load_queue() if identity(d) not in keys])
 
 
 def summarise(items: list[dict], runner=None) -> str:
@@ -295,7 +369,7 @@ def summarise(items: list[dict], runner=None) -> str:
         return fallback
 
 
-def drain(
+def _drain(
     *,
     now: float | None = None,
     speaker=None,
@@ -307,9 +381,29 @@ def drain(
     than 24 hours are dropped.
     """
     now = time.time() if now is None else now
-    items = [d for d in load_queue() if now - float(d.get("ts") or 0) < QUEUE_TTL_S]
+
+    def alive(item):
+        try:
+            ts = float(item.get("ts") or 0)
+            if item.get("event_id"):
+                return math.isfinite(ts)  # retain missed calendar updates until return
+            expiry = float(item.get("expires_at") or ts + QUEUE_TTL_S)
+            return math.isfinite(ts) and math.isfinite(expiry) and now < expiry
+        except (TypeError, ValueError):
+            return False
+
+    raw = load_queue()
+    items = [d for d in raw if alive(d)]
+    expired = [d for d in raw if not alive(d)]
+    if expired:
+        _remove_delivered(expired)
     if not items:
         return {"spoken": 0, "mode": "none"}
+    # Calendar details must never disappear into a count-only summary or a
+    # truncated joined call. Dispatch one complete reminder per return tick.
+    calendar_items = [d for d in items if d.get("event_id")]
+    if calendar_items:
+        items = calendar_items[:1]
     real_speaker = speaker is None and not _under_test()
     if speaker is None:
         if _under_test():
@@ -346,6 +440,7 @@ def drain(
                     source=f"notify-{d.get('source', 'q')}",
                     min_gap_s=0.0,
                     title=d.get("title", "Jarvis"),
+                    **({"require_voice": True} if d.get("event_id") else {}),
                 ):
                     delivered.append(d)
         else:
@@ -358,16 +453,36 @@ def drain(
             ):
                 delivered = items
     except Exception:
-        delivered = []
-    if delivered or len(items) != len(load_queue()):
+        pass  # earlier successful speech still earns acknowledgement
+    if delivered:
         with contextlib.suppress(Exception):
-            if delivered:
-                _remove_delivered(delivered)
-            else:  # only expiry changed
-                with _locked():
-                    _save_queue(items)
+            _remove_delivered(delivered)
     _log(f"drain mode={mode} spoken={len(delivered)} of={len(items)}")
     return {"spoken": len(delivered), "mode": mode}
+
+
+def drain(*, now: float | None = None, speaker=None, summarizer=summarise) -> dict:
+    """One cross-process consumer; failed speech remains pending for retry."""
+    try:
+        path = queue_path().with_name("notify_drain.lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return {"spoken": 0, "mode": "busy"}
+            return _drain(now=now, speaker=speaker, summarizer=summarizer)
+    except OSError:
+        return {"spoken": 0, "mode": "unavailable"}
+
+
+def cancel_calendar_reminders(event_id: str) -> int:
+    """Invalidate queued stages after a successful event change/cancellation."""
+    with _locked():
+        items = load_queue()
+        keep = [d for d in items if d.get("event_id") != event_id]
+        _save_queue(keep)
+        return len(items) - len(keep)
 
 
 class Announcer:

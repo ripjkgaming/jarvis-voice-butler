@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, muse, require_local
 
@@ -105,6 +105,7 @@ class MuseTools:
             via: Ignored; the armed channel is what is used.
         """
         import phone_session
+
         blocked = phone_session.private_tool_error("confirm_muse_send")
         if blocked:
             raise ToolError(blocked)

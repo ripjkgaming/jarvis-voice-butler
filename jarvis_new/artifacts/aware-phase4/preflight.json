@@ -1,0 +1,54 @@
+{
+  "mutated": false,
+  "ready_for_existing_tabs": false,
+  "blockers": [
+    "no_tab_worker"
+  ],
+  "cdp": true,
+  "browser": "Chrome/150.0.7871.114",
+  "worker": null,
+  "listeners": [
+    "127.0.0.1:9222"
+  ],
+  "monitors": [
+    {
+      "num": 2,
+      "name": "HDMI-A-2",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "priority": 1
+    },
+    {
+      "num": 3,
+      "name": "eDP-1",
+      "x": 1920,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "priority": 2
+    },
+    {
+      "num": 1,
+      "name": "DP-1",
+      "x": 3840,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "priority": 3
+    }
+  ],
+  "main": "HDMI-A-2",
+  "hud": "DP-1",
+  "placement": {
+    "mode": "monitor",
+    "screen": "eDP-1",
+    "rect": null
+  },
+  "manual_checks": [
+    "kwin_placement_focus_and_handback_unverified",
+    "live_extension_control_unverified"
+  ],
+  "probe_errors": []
+}

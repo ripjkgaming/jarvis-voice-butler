@@ -22,8 +22,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local
 from system.core import DATA_DIR

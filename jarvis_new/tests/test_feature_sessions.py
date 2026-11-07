@@ -679,3 +679,9 @@ async def test_five_feature_release_screen_flag_is_independent_of_consent(
     assert await f.handle_message(ChatMessage(role="user", content=["stop"]))
     assert s.interrupts
     await f.close()
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

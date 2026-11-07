@@ -16,6 +16,18 @@ such as “show mail”, “show calendar” and “show tasks” open the instr
 The school taskbar and its entry/return animations retain the existing shell
 integration. Motion pauses while hidden and respects reduced-motion settings.
 
+The HUD presence feature uses the existing reload intro on startup and wake.
+After 25 seconds without input, voice activity or a running job, it fades into
+the wallpaper over 7 seconds, pauses rendering and becomes click-through.
+Showing or toggling the dissolved HUD, a talk event, or a new voice link wakes
+it; a summon during the fade reverses from its current position. **P** toggles
+idle fading and saves that preference. `wall-cells.json` ships in the frontend
+export and native binary. `jarvis domstate` reports its readiness, intro and
+presence state, and alignment from the actual native webview.
+
+Run the isolated lifecycle check from `jarvis_new/` after building:
+`uv run --no-sync python frontend/tests/hud-presence-smoke.py`.
+
 The original starter documentation follows.
 
 ## Agent Starter for React

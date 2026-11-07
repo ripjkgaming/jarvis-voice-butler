@@ -50,7 +50,7 @@ function getEndpoint(): Promise<BridgeEndpoint> {
 async function getJson<T>(
   path: string,
   timeoutMs = path === '/school/geom' ? 1000 : 5000,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; includeErrorBody?: boolean }
 ): Promise<T | null> {
   const controller = new AbortController();
   // A hung GET must release the shared poller's inFlight latch. Geometry
@@ -73,7 +73,7 @@ async function getJson<T>(
       // launches must not pin every later poll to an unauthorized endpoint.
       // Retry discovery on the next scheduled poll, sharing it as usual.
       if (res.status === 401 && isTauri() && endpoint === discovery) endpoint = null;
-      return null;
+      if (!options?.includeErrorBody) return null;
     }
     const json = (await res.json()) as T;
     return controller.signal.aborted ? null : json;
@@ -183,6 +183,8 @@ export type BridgeRoomState = BridgeRoom & {
   voice_owner?: string | null;
   /** Local guest audience from watch_mode.guest_required(), independent of calls. */
   guest_mode?: boolean;
+  /** Voice-triggered Watch Mode start: HUD eye intro on the backend clock (epoch s). */
+  watch_intro?: { at: number; blackout_at: number; cover: number } | null;
 };
 export type CallState = { live: boolean; boot: BootStep[] | null };
 
@@ -374,7 +376,7 @@ export async function bridgeSummon(): Promise<boolean> {
 export function bridgeGet<T>(
   path: string,
   timeoutMs?: number,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; includeErrorBody?: boolean }
 ): Promise<T | null> {
   return getJson<T>(path, timeoutMs, options);
 }

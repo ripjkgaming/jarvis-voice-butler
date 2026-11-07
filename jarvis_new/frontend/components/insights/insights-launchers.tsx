@@ -34,6 +34,17 @@ export function InsightsLaunchers({
         </svg>
         <span>Paper Market{menu && <small>Portfolio & performance</small>}</span>
       </button>
+      <button
+        type="button"
+        data-insights-launch="calendar"
+        onClick={() => onOpen('calendar')}
+        aria-haspopup="dialog"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3 5h14v12H3zM6 2v6m8-6v6M3 10h14" />
+        </svg>
+        <span>Calendar{menu && <small>Events & return reminders</small>}</span>
+      </button>
     </nav>
   );
 }

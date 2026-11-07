@@ -40,14 +40,15 @@ def proposal():
 def result():
     return {
         "proposal": proposal(),
-        "model": "gpt-6-astra",
-        "effort": "medium",
+        "model": "dots-studio/dots-3-note-preview:free",
+        "effort": "default",
         "usage": {"last": {"inputTokens": 21, "outputTokens": 9, "totalTokens": 30}},
         "verification": {
             "model_verified": True,
             "effort_verified": True,
             "tools_disabled": True,
-            "provider": "openai",
+            "provider": "openrouter",
+            "transport": "openrouter-chat-v1",
             "cli_version": VERIFIED_VERSION,
             "thread_id": "fake-thread",
             "turn_id": "fake-turn",
@@ -163,8 +164,8 @@ async def test_fill_status_requires_atomic_proposal_usage_and_verification(ledge
     assert json.loads(decision["usage_json"]) == response["usage"]
     assert json.loads(decision["verification_json"]) == response["verification"]
     assert decision["rationale"] == response["proposal"]["rationale"]
-    assert decision["model"] == "gpt-6-astra"
-    assert decision["effort"] == "medium"
+    assert decision["model"] == "dots-studio/dots-3-note-preview:free"
+    assert decision["effort"] == "default"
     assert worker.closed
 
 
@@ -251,7 +252,7 @@ async def test_missing_isolation_verification_rejects_proposal(ledger, missing):
         ("tools_disabled", False),
         ("model_verified", 1),
         ("provider", "other"),
-        ("cli_version", "unverified"),
+        ("transport", "unverified"),
     ],
 )
 async def test_false_or_untrusted_verification_rejects_proposal(ledger, key, value):

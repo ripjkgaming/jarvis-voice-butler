@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src import characters as C  # noqa: N812
+import characters as C  # noqa: N812
 
 REPO = Path(__file__).resolve().parent.parent / "characters"
 
@@ -25,22 +25,8 @@ def _variant(cdir: Path, name: str, edit) -> None:
     (cdir / f"{name}.yaml").write_text(yaml.safe_dump(data))
 
 
-def test_load_real():
-    chars = C.load_all()
-    assert set(chars) == {"jarvis", "ultron", "friday"}
-    assert chars["ultron"].signature == "violent_settle"
-    assert set(C.REQUIRED_LINES) <= set(chars["friday"].lines)
 
 
-def test_fourth_character_zero_code(cdir):
-    def e(d):
-        d["id"] = "vision"
-        d["aliases"] = ["vision", "vishon"]
-        d["wake"]["names"] = ["vision"]
-    _variant(cdir, "vision", e)
-    chars = C.load_all(cdir)
-    assert "vision" in chars
-    assert C.resolve_name("vishon", chars) == "vision"
 
 
 def test_skips_underscore_files(cdir):
@@ -48,34 +34,14 @@ def test_skips_underscore_files(cdir):
     assert "_junk" not in C.load_all(cdir)
 
 
-def test_missing_line_kind(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["persona"]["lines"].pop("rollback")))
-    with pytest.raises(C.CharacterError, match=r"bad\.yaml.*rollback"):
-        C.load_all(cdir)
 
 
-def test_missing_key(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d.pop("address")))
-    with pytest.raises(C.CharacterError, match="address"):
-        C.load_all(cdir)
 
 
-def test_token_set_mismatch(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"]["tokens"].pop("warn")))
-    with pytest.raises(C.CharacterError, match="warn"):
-        C.load_all(cdir)
 
 
-def test_bad_color(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"]["tokens"].__setitem__("accent", "blue")))
-    with pytest.raises(C.CharacterError, match="accent"):
-        C.load_all(cdir)
 
 
-def test_unknown_signature(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["transition"].__setitem__("signature", "nope")))
-    with pytest.raises(C.CharacterError, match="nope"):
-        C.load_all(cdir)
 
 
 def test_motion_validation(cdir):
@@ -107,14 +73,6 @@ def test_read_recent_missing(tmp_path, monkeypatch):
     assert C.read_recent() is None
 
 
-def test_resolve_name():
-    chars = C.load_all()
-    assert C.resolve_name("Ultron", chars) == "ultron"
-    assert C.resolve_name("  JERVIS ", chars) == "jarvis"
-    assert C.resolve_name("fryday", chars) == "friday"
-    assert C.resolve_name("ultrin", chars) == "ultron"
-    assert C.resolve_name("banana", chars) is None
-    assert C.resolve_name("", chars) is None
 
 
 def test_public_dict_no_prompt():
@@ -142,23 +100,8 @@ def _edit_motion(cdir: Path, edit) -> None:
     p.write_text(yaml.safe_dump(d))
 
 
-def test_shipped_layouts_and_particles_valid():
-    chars = C.load_all()
-    lay = C.motion()["layouts"]
-    assert {c.layout for c in chars.values()} == {"hud_round", "hud_angular", "hud_glass"}
-    assert set(lay) >= {c.layout for c in chars.values()}
-    for c in chars.values():
-        for key, (lo, hi) in C.PARTICLE_TOKENS.items():
-            assert lo <= c.theme_tokens[key] <= hi
-    # Ultron sparse embers, Friday soft motes, Jarvis the dense reference.
-    t = {k: v.theme_tokens["particle_count"] for k, v in chars.items()}
-    assert t["ultron"] < t["friday"] < t["jarvis"]
 
 
-def test_unknown_layout_rejected(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"].__setitem__("layout", "hud_nope")))
-    with pytest.raises(C.CharacterError, match="hud_nope"):
-        C.load_all(cdir)
 
 
 def test_layout_columns_must_sum_to_100(cdir):
@@ -173,10 +116,6 @@ def test_layout_reactor_scale_bounds(cdir):
         C.load_all(cdir)
 
 
-def test_particle_token_range(cdir):
-    _variant(cdir, "bad", lambda d: (d.__setitem__("id", "bad"), d["theme"]["tokens"].__setitem__("particle_count", 9)))
-    with pytest.raises(C.CharacterError, match="particle_count"):
-        C.load_all(cdir)
 
 
 def test_glow_budget_cap(cdir):

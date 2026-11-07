@@ -111,7 +111,11 @@ def model_chain(primary: str = MODEL, environ=None) -> list[str]:
     """primary, then the free fallbacks, de-duplicated. Pure (env only)."""
     env = os.environ if environ is None else environ
     raw = (env.get("JARVIS_CHAT_FALLBACKS") or "").strip()
-    rest = [m.strip() for m in raw.split(",") if m.strip()] if raw else list(FREE_FALLBACKS)
+    rest = (
+        [m.strip() for m in raw.split(",") if m.strip()]
+        if raw
+        else list(FREE_FALLBACKS)
+    )
     chain: list[str] = []
     for m in [primary, *rest]:
         if m and m not in chain:

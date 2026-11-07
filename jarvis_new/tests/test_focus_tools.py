@@ -1,7 +1,7 @@
 """Tests for src/system/focus_tools.py: registration, gating, delegation."""
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import focus
 from system.focus_tools import FocusTools

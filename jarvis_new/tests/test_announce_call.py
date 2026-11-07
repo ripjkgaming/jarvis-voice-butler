@@ -44,7 +44,8 @@ def _room(attrs: dict):
     return SimpleNamespace(remote_participants={"p": p})
 
 
-def test_agent_reads_announce_from_room() -> None:
+def test_agent_reads_announce_from_room(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     assert (
         agent._wake_announce(_room({"jarvis.announce": " Three  new mails. "}))
         == "Three new mails."

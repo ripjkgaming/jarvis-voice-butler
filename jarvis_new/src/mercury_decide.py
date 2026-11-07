@@ -1,19 +1,14 @@
-"""Mercury Decide (OpenRouter Decisions API): fast typed yes/no and choice calls.
+"""Perplexity Decider v1.2 via the OpenRouter Decisions API.
 
-inception/mercury-decide:free is a classifier, not a chat model. It answers
-typed questions (noul = yes/no probability, choice, score) in ~0.6s with no
-generation, so it replaces a whole ChatGPT/codex spawn for triage decisions.
+The historical module name and JARVIS_MERCURY kill switch remain compatible
+with existing callers. The larger Perplexity model handles email urgency,
+phishing and the calendar extraction gate; it does not generate text.
+JARVIS_DECIDE_MODEL can override the default. There is no automatic routing
+to Jev, Flash or the unavailable Mercury free model.
 
-Key limits (this account's OpenRouter key, read from GET /api/v1/key 2026-10-25):
-  * free-model quota: 1000 requests/day (free_model_daily_requests); a 429 or
-    402 means spent, so callers must fall back rather than retry.
-  * spend cap: $1/month on the key; the :free variant costs $0 per call.
-  * no hard per-second limit on the key itself.
-Second key (OPENROUTER_API_KEY_2 in env or $JARVIS_HOME/keys.env, read the same
-way; verified 2026-10-25): $0.10/month spend cap, its own 1000 free requests/day.
-Calls alternate between the keys, and a key that returns 402/429 sits out for
-COOLDOWN_S while the other serves, so the free allowance doubles to ~2000/day.
-Re-check with:  curl -H "Authorization: Bearer $KEY" https://openrouter.ai/api/v1/key
+JARVIS_DECIDE_API_KEY in env or $JARVIS_HOME/keys.env pins a dedicated
+OpenRouter key. Without it, the existing general OpenRouter keys are used.
+A key returning 402/429 rests for COOLDOWN_S; callers retain ChatGPT fallback.
 
 Stdlib only. Fail-soft like openrouter_chat: functions return (answers,
 warning) and never raise. The key is never logged or printed.
@@ -22,8 +17,9 @@ warning) and never raise. The key is never logged or printed.
 from __future__ import annotations
 
 import contextlib
-import json
 import itertools
+import json
+import math
 import os
 import threading
 import time
@@ -32,7 +28,8 @@ import urllib.request
 
 import openrouter_chat
 
-MODEL = os.environ.get("JARVIS_DECIDE_MODEL", "inception/mercury-decide:free")
+DEFAULT_MODEL = "perplexity/pplx-decider-v1.2"
+MODEL = os.environ.get("JARVIS_DECIDE_MODEL", "").strip() or DEFAULT_MODEL
 URL = "https://openrouter.ai/api/alpha/decisions"
 ENV = "JARVIS_MERCURY"
 _OFF = ("0", "false", "off", "no")
@@ -44,21 +41,25 @@ _turn = itertools.count()
 
 
 def api_keys(environ=None) -> list[str]:
-    """OPENROUTER_API_KEY then OPENROUTER_API_KEY_2, de-duplicated. Never logged."""
+    """Dedicated decision key, else legacy OpenRouter keys. Never logged."""
     env = os.environ if environ is None else environ
+    dedicated = (env.get("JARVIS_DECIDE_API_KEY") or "").strip()
+    file_keys = {}
+    if not dedicated:
+        try:
+            file_keys = openrouter_chat._parse_keys_file(
+                openrouter_chat._jarvis_home(env) / "keys.env"
+            )
+            dedicated = (file_keys.get("JARVIS_DECIDE_API_KEY") or "").strip()
+        except OSError:
+            pass
+    if dedicated:
+        return [dedicated]
     keys: list[str] = []
     primary = openrouter_chat.api_key()
     second = (env.get("OPENROUTER_API_KEY_2") or "").strip()
     if not second:
-        try:
-            second = (
-                openrouter_chat._parse_keys_file(
-                    openrouter_chat._jarvis_home(env) / "keys.env"
-                ).get("OPENROUTER_API_KEY_2")
-                or ""
-            ).strip()
-        except OSError:
-            second = ""
+        second = (file_keys.get("OPENROUTER_API_KEY_2") or "").strip()
     for key in (primary, second):
         if key and key not in keys:
             keys.append(key)
@@ -66,23 +67,23 @@ def api_keys(environ=None) -> list[str]:
 
 
 def _order(keys: list[str], now: float) -> list[str]:
-    """Alternate the start key; rested keys go last. Pure given state."""
+    """Alternate the start key, omitting keys still in quota cooldown."""
     if not keys:
         return []
     start = next(_turn) % len(keys)
     ordered = keys[start:] + keys[:start]
     with _lock:
-        ready = [k for k in ordered if _rest_until.get(k, 0.0) <= now]
-        resting = [k for k in ordered if k not in ready]
-    return ready + resting
+        return [k for k in ordered if _rest_until.get(k, 0.0) <= now]
 
 
 def enabled() -> bool:
-    """Kill switch: JARVIS_MERCURY=0 skips Mercury everywhere."""
+    """Legacy kill switch: JARVIS_MERCURY=0 skips decision-model calls."""
     return os.environ.get(ENV, "1").strip().lower() not in _OFF
 
 
-def _post(key: str, body: bytes, timeout: float, opener) -> tuple[bytes | None, str | None]:
+def _post(
+    key: str, body: bytes, timeout: float, opener
+) -> tuple[bytes | None, str | None]:
     """One request with one key -> (raw, None) or (None, warning). Never raises."""
     req = urllib.request.Request(
         URL,
@@ -106,10 +107,10 @@ def _post(key: str, body: bytes, timeout: float, opener) -> tuple[bytes | None, 
                     close()
     except urllib.error.HTTPError as exc:
         if exc.code in (402, 429):
-            return None, f"Mercury quota spent (HTTP {exc.code})"
-        return None, f"Mercury unavailable: HTTP {exc.code}"
+            return None, f"Decision model quota spent (HTTP {exc.code})"
+        return None, f"Decision model unavailable: HTTP {exc.code}"
     except Exception as exc:
-        return None, f"Mercury unavailable: {type(exc).__name__}"[:200]
+        return None, f"Decision model unavailable: {type(exc).__name__}"[:200]
 
 
 def decide(
@@ -121,29 +122,52 @@ def decide(
     typed question dict. Short timeout: callers have a slower fallback.
     """
     if not enabled():
-        return None, f"Mercury disabled ({ENV}=0)"
+        return None, f"Decision model disabled ({ENV}=0)"
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        return None, "Invalid decision model timeout"
+    deadline = time.monotonic() + timeout
     keys = api_keys()
     if not keys:
-        return None, "Mercury unavailable: no OpenRouter key"
-    body = json.dumps({"model": MODEL, "state": state, "questions": questions}).encode()
-    warning = "Mercury unavailable"
+        return None, "Decision model unavailable: no OpenRouter key"
+    try:
+        body = json.dumps(
+            {"model": MODEL, "state": state, "questions": questions}
+        ).encode()
+    except (TypeError, ValueError, RecursionError, UnicodeError):
+        return None, "Decision model received invalid input"
+    ordered = _order(keys, time.monotonic())
+    if not ordered:
+        return None, "Decision model quota spent (keys cooling down)"
+    warning = "Decision model unavailable"
     raw = None
-    for key in _order(keys, time.monotonic()):
-        raw, warning = _post(key, body, timeout, opener)
-        if raw is not None:
-            break
+    for key in ordered:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, "Decision model timed out"
+        raw, warning = _post(key, body, remaining, opener)
+        # Provider quota state remains useful even when the response arrived
+        # too late to use for this decision.
         if "quota spent" in (warning or ""):
             with _lock:
                 _rest_until[key] = time.monotonic() + COOLDOWN_S
+        if time.monotonic() > deadline:
+            return None, "Decision model timed out"
+        if raw is not None:
+            break
     if raw is None:
         return None, warning
     try:
         data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
         answers = data["answers"]
     except (ValueError, UnicodeDecodeError, KeyError, TypeError, AttributeError):
-        return None, "Mercury returned a bad response"
+        return None, "Decision model returned a bad response"
     if not isinstance(answers, dict):
-        return None, "Mercury returned a bad response"
+        return None, "Decision model returned a bad response"
     return answers, None
 
 

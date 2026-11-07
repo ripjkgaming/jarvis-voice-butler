@@ -33,7 +33,14 @@ class Check(str, Enum):
     TIMED_OUT = "timed_out"
 
 
-_SURFACES = {"owner_desktop", "backend_browser", "filesystem", "audio_service", "none"}
+_SURFACES = {
+    "owner_desktop",
+    "backend_browser",
+    "filesystem",
+    "audio_service",
+    "google_calendar",
+    "none",
+}
 _EVIDENCE = {
     "file.write": {"bytes_matched", "bytes"},
     "setting.volume": {
@@ -47,8 +54,15 @@ _EVIDENCE = {
     "setting.volume_status": {"actual_pct", "actual_muted"},
     "url.navigate": {"url_matched"},
     "url.launch": {"launcher_exit_code"},
-    **{"power." + action: {"launcher_exit_code"} for action in ("reboot", "shutdown", "suspend", "logout")},
+    **{
+        "power." + action: {"launcher_exit_code"}
+        for action in ("reboot", "shutdown", "suspend", "logout")
+    },
     "power.lock": {"launcher_exit_code", "lock_active"},
+    "calendar.read": {"provider_response", "event_count"},
+    "calendar.create": {"provider_id_matched", "fields_matched"},
+    "calendar.update": {"provider_id_matched", "fields_matched"},
+    "calendar.delete": {"provider_absent"},
     "input.click": set(),
     "input.type": set(),
 }
@@ -103,14 +117,24 @@ class ActionOutcome:
                 "expected_muted",
                 "actual_muted",
                 "lock_active",
+                "provider_id_matched",
+                "fields_matched",
+                "provider_absent",
+                "provider_response",
             }:
                 if type(value) is not bool:
                     raise ValueError("boolean evidence required")
-            elif key in {"bytes", "before_pct", "expected_pct", "actual_pct"}:
+            elif key in {
+                "bytes",
+                "before_pct",
+                "expected_pct",
+                "actual_pct",
+                "event_count",
+            }:
                 if (
                     type(value) is not int
                     or value < 0
-                    or (key != "bytes" and value > 150)
+                    or (key not in {"bytes", "event_count"} and value > 150)
                 ):
                     raise ValueError("integer evidence required")
             elif (
@@ -161,6 +185,21 @@ class ActionOutcome:
                 and evidence.get("lock_active") is True
                 and evidence.get("launcher_exit_code") == 0
             )
+        elif self.effect == "calendar.read" and self.surface == "google_calendar":
+            valid = (
+                evidence.get("provider_response") is True
+                and type(evidence.get("event_count")) is int
+            )
+        elif (
+            self.effect in {"calendar.create", "calendar.update"}
+            and self.surface == "google_calendar"
+        ):
+            valid = (
+                evidence.get("provider_id_matched") is True
+                and evidence.get("fields_matched") is True
+            )
+        elif self.effect == "calendar.delete" and self.surface == "google_calendar":
+            valid = evidence.get("provider_absent") is True
         elif self.effect == "url.navigate" and self.surface == "backend_browser":
             valid = evidence.get("url_matched") is True
         else:
@@ -192,6 +231,8 @@ class ActionOutcome:
     @property
     def say(self):
         if self.verified:
+            if self.effect.startswith("calendar."):
+                return "The Google Calendar change was verified by provider readback."
             if self.effect == "power.lock":
                 return "Locked; KDE reports the screen lock active."
             if self.effect == "file.write":

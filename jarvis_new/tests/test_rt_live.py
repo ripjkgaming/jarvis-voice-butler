@@ -132,7 +132,7 @@ def test_server_interrupt_while_agent_speaks():
         return s, h, audio, ev
 
     s, h, audio, ev = asyncio.run(run())
-    assert audio == [b"a", b"b"]  # nothing of the cut reply plays after the interrupt
+    assert audio == []  # Unvalidated native audio is discarded on interruption.
     assert h.interrupted and s.agent_state == "listening"
     assert "user_state_changed" in [n for n, _ in ev]
 

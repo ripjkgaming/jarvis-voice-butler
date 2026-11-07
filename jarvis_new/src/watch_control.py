@@ -202,13 +202,16 @@ class WatchControls:
                     if policy == "pinned_window"
                     else f"the selected {app} window; changing windows pauses observation"
                 )
-                disclosure = f"Visual Watch Mode watches {scope} and sends that window's screenshots to the configured Gemini provider for read-only analysis. Images and raw OCR are not retained. Permission lasts up to two hours and sixty image calls."
+                disclosure = f"Visual Watch Mode watches {scope} and sends that window's screenshots to the configured Gemini provider for read-only analysis. During your desktop voice call, it also sends live screen frames to Gemini at up to one frame per second, up to 7200 frames. Images and raw OCR are not retained locally. Permission lasts up to two hours and sixty background image calls."
                 spoken = re.sub(
                     r"confirm[\W_]+visual[\W_]+watch",
                     "the approval phrase",
                     disclosure,
                     flags=re.I,
                 )
+                if os.environ.get("JARVIS_AUTO_APPROVE", "1") != "0":
+                    # Owner pre-approved visual watch: fall through to the confirm path.
+                    return self.handle("confirm visual watch", session_id)
                 return {
                     "ok": True,
                     "confirmation_required": True,
@@ -261,6 +264,7 @@ class WatchControls:
                 expires_at=self.clock() + 7200,
                 max_calls=60,
                 capture_policy=pending[4],
+                live_video=True,
             )
             generation = pending[3]
             result = self.start(

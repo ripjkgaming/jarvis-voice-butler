@@ -2,6 +2,8 @@
 
 import { type ReactNode } from 'react';
 import { AsciiBox } from '@/components/ascii/glyphs';
+import { useAscii } from '@/lib/character/hooks';
+import { ClassicFrame } from './classic';
 import s from './stark.module.css';
 
 /** LOCKE OS instrument panel, box-drawn: `┌─[ LABEL ]──── ASIDE ─ 01 ─┐`
@@ -23,6 +25,21 @@ export function Frame({
   live?: boolean;
   children: ReactNode;
 }) {
+  const ascii = useAscii();
+  if (!ascii) {
+    return (
+      <ClassicFrame
+        label={label}
+        index={index}
+        aside={aside}
+        live={live}
+        className={className}
+        bodyClassName={bodyClassName}
+      >
+        {children}
+      </ClassicFrame>
+    );
+  }
   return (
     <AsciiBox
       label={label}

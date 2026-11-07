@@ -150,7 +150,7 @@ def test_coding_directory_rules(tmp_path, monkeypatch):
 
 
 def test_code_project_requires_activation_and_has_no_fallback(tmp_path, monkeypatch):
-    monkeypatch.delenv("JARVIS_ASSIGNER_ROUTING", raising=False)
+    monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "0")
     meta = projects.start_code("make hello world", request_id="test-id", directory=str(tmp_path))
     assert meta["status"] == "blocked"
     assert "not activated" in meta["error"]

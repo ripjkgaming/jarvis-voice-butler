@@ -32,6 +32,8 @@ dependencies = [
     "jeepney>=0.9.0",
     "yt-dlp[default]>=2026.8.19",
     "onnxruntime>=1.24.3",
+    "cryptography>=43",
+    "segno==1.6.1",
 ]
 
 [dependency-groups]

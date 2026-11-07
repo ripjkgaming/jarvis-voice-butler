@@ -24,13 +24,83 @@ def _opener(payload=None, code=None):
 
 
 def _ans(urgent, scam):
-    return {"answers": {"urgent": {"type": "noul", "noul": urgent},
-                        "scam": {"type": "noul", "noul": scam}}}
+    return {
+        "answers": {
+            "urgent": {"type": "noul", "noul": urgent},
+            "scam": {"type": "noul", "noul": scam},
+        }
+    }
 
 
 def _on(monkeypatch):
     monkeypatch.setenv("JARVIS_MERCURY", "1")
-    monkeypatch.setattr(mercury_decide.openrouter_chat, "api_key", lambda: "k")
+    monkeypatch.setattr(mercury_decide, "api_keys", lambda: ["k"])
+
+
+def test_default_model_is_larger_perplexity(monkeypatch):
+    _on(monkeypatch)
+    assert mercury_decide.DEFAULT_MODEL == "perplexity/pplx-decider-v1.2"
+    monkeypatch.setattr(mercury_decide, "MODEL", mercury_decide.DEFAULT_MODEL)
+    seen = []
+
+    def opener(req, timeout=None):
+        seen.append(json.loads(req.data))
+        return _Resp(json.dumps(_ans(0.9, 0.1)).encode())
+
+    _, warning = mercury_decide.decide("email", {"urgent": {}}, opener=opener)
+    assert warning is None
+    assert seen[0]["model"] == "perplexity/pplx-decider-v1.2"
+
+
+def test_dedicated_key_env_takes_priority(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "_jarvis_home", lambda env: tmp_path
+    )
+    (tmp_path / "keys.env").write_text("JARVIS_DECIDE_API_KEY=file-key\n")
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "api_key", lambda: "general-key"
+    )
+    assert mercury_decide.api_keys(
+        {
+            "JARVIS_DECIDE_API_KEY": " dedicated-key ",
+            "OPENROUTER_API_KEY_2": "secondary-key",
+        }
+    ) == ["dedicated-key"]
+
+
+def test_dedicated_key_from_private_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "_jarvis_home", lambda env: tmp_path
+    )
+    (tmp_path / "keys.env").write_text("JARVIS_DECIDE_API_KEY='file-key'\n")
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "api_key", lambda: "general-key"
+    )
+    assert mercury_decide.api_keys({}) == ["file-key"]
+
+
+def test_legacy_keys_still_work_without_dedicated_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "_jarvis_home", lambda env: tmp_path
+    )
+    monkeypatch.setattr(
+        mercury_decide.openrouter_chat, "api_key", lambda: "general-key"
+    )
+    assert mercury_decide.api_keys({"OPENROUTER_API_KEY_2": "secondary-key"}) == [
+        "general-key",
+        "secondary-key",
+    ]
+
+
+def test_reason_identifies_selected_model(monkeypatch):
+    _on(monkeypatch)
+    monkeypatch.setattr(mercury_decide, "MODEL", "perplexity/pplx-decider-v1.2")
+    monkeypatch.setattr(
+        mercury_decide, "decide", lambda *a, **kw: (_ans(0.9, 0.1)["answers"], None)
+    )
+    verdict, warning = urgency_judge.judge(MSG)
+    assert warning is None
+    assert verdict["reason"].startswith("perplexity/pplx-decider-v1.2 ")
 
 
 def test_decide_ok(monkeypatch):
@@ -57,7 +127,8 @@ def test_urgency_uses_mercury_then_falls_back(monkeypatch):
     assert w is None and v["urgent"] and not v["scam"]
     monkeypatch.setattr(mercury_decide, "decide", lambda *a, **k: (None, "quota"))
     monkeypatch.setattr(
-        urgency_judge.chatgpt_cli, "chatgpt_reply",
+        urgency_judge.chatgpt_cli,
+        "chatgpt_reply",
         lambda *a, **k: ('{"urgent": false, "scam": false, "reason": "fb"}', None),
     )
     v, w = urgency_judge.judge(MSG)
@@ -99,13 +170,15 @@ def test_event_gate_skips_chatgpt_only_when_confident(monkeypatch):
     _on(monkeypatch)
     parsed = {"sender": "x", "subject": "Sale", "body": "50% off"}
     monkeypatch.setattr(
-        mercury_decide, "decide",
+        mercury_decide,
+        "decide",
         lambda *a, **k: ({"has_event": {"noul": 0.01}}, None),
     )
     assert ee.mercury_says_no_event(parsed)
     assert ee.extract(parsed) == (None, None)
     monkeypatch.setattr(
-        mercury_decide, "decide",
+        mercury_decide,
+        "decide",
         lambda *a, **k: ({"has_event": {"noul": 0.4}}, None),
     )
     assert not ee.mercury_says_no_event(parsed)

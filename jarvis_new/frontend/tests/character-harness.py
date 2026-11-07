@@ -33,7 +33,7 @@ class Quiet(SimpleHTTPRequestHandler):
 async def run(a):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), partial(Quiet, directory=str(OUT)))
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), partial(Quiet, directory=a.site or str(OUT)))
     Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_port}/"
     state = {"active": "jarvis", "target": None, "phase": "idle", "char_turn": 0}
@@ -70,20 +70,51 @@ async def run(a):
         await ctx.route("**/127.0.0.1:4317/**", bridge)
         pg = await ctx.new_page()
         await pg.add_init_script("localStorage.setItem('jarvis.cx.effects','1')")
+        if a.glsetting is not None:
+            await pg.add_init_script(f"localStorage.setItem('jarvis.cx.gl','{a.glsetting}')")
         await pg.goto(url, wait_until="domcontentloaded")
         await pg.wait_for_selector("[data-jstate]", timeout=20000)
         await pg.wait_for_function("window.__cx !== undefined || true")
         await pg.wait_for_timeout(2500)
         await pg.screenshot(path=str(out / "jarvis.png"))
-        results = {}
-        order = ["jarvis", "ultron", "jarvis", "friday", "jarvis", "ultron", "friday", "ultron", "friday", "jarvis"]
-        pairs = [("jarvis", "ultron"), ("ultron", "jarvis"), ("jarvis", "friday"), ("friday", "jarvis"), ("ultron", "friday"), ("friday", "ultron")]
-
         async def to(target):
             state["char_turn"] += 1
             state.update(target=target, phase="preparing")
             await pg.wait_for_timeout(300)
             state.update(active=target, target=None, phase="idle")
+
+        if a.dbg:
+            info = await pg.evaluate("""() => ({
+              amb: [...document.querySelectorAll('canvas')].map(c => ({k: c.dataset.ambientParticles || c.dataset.cxGlow || 'other', run: c.dataset.ambientRunning, w: c.width, h: c.height, d: getComputedStyle(c).display})),
+              anims: document.getAnimations().length,
+              cls: document.documentElement.className })""")
+            print(json.dumps(info))
+            await ctx.close(); await b.close(); srv.shutdown(); return
+        results = {}
+        if a.steady:
+            cdp = await ctx.new_cdp_session(pg)
+            await cdp.send("Performance.enable")
+            probe = """() => new Promise(res => { const d = []; let last = 0; const t0 = performance.now();
+              const f = n => { if (last) d.push(n - last); last = n; if (n - t0 < 5000) requestAnimationFrame(f); else {
+                d.sort((x, y) => x - y); const q = p => d[Math.min(d.length - 1, Math.floor(d.length * p))];
+                res({frames: d.length, p50: q(.5), p95: q(.95), worst: d[d.length - 1]}); } };
+              requestAnimationFrame(f); })"""
+            cur = "jarvis"
+            for skin in ["jarvis", "ultron", "friday", "jarvis"]:
+                if skin != cur:
+                    await to(skin)
+                    cur = skin
+                await pg.wait_for_timeout(3500)
+                m0 = {x["name"]: x["value"] for x in (await cdp.send("Performance.getMetrics"))["metrics"]}
+                results[f"steady-{skin}"] = await pg.evaluate(probe)
+                m1 = {x["name"]: x["value"] for x in (await cdp.send("Performance.getMetrics"))["metrics"]}
+                results[f"steady-{skin}"]["cpu_s"] = {k: round(m1[k] - m0[k], 3) for k in ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration")}
+                results[f"steady-{skin}"]["counts"] = {k: int(m1[k] - m0[k]) for k in ("LayoutCount", "RecalcStyleCount")}
+            results["fx"] = await pg.evaluate("window.__fx ? {mode: window.__fx.mode, ...window.__fx.stats} : null")
+            (out / "steady.json").write_text(json.dumps(results))
+            await ctx.close(); await b.close(); srv.shutdown(); return
+        order = ["jarvis", "ultron", "jarvis", "friday", "jarvis", "ultron", "friday", "ultron", "friday", "jarvis"]
+        pairs = [("jarvis", "ultron"), ("ultron", "jarvis"), ("jarvis", "friday"), ("friday", "jarvis"), ("ultron", "friday"), ("friday", "ultron")]
 
         cur = "jarvis"
         for src, dst in pairs:
@@ -116,6 +147,10 @@ if __name__ == "__main__":
     ap.add_argument("--h", type=int, default=900)
     ap.add_argument("--mid", type=int, default=1100)
     ap.add_argument("--gl", type=int, default=1)
+    ap.add_argument("--glsetting", default=None)
+    ap.add_argument("--dbg", action="store_true")
+    ap.add_argument("--site", default="")
+    ap.add_argument("--steady", action="store_true", help="measure steady-state rAF frame times per skin, skip screenshots")
     ap.add_argument("--budget", type=float, default=0)
     ap.add_argument("--video", action="store_true")
     asyncio.run(run(ap.parse_args()))

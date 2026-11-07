@@ -3,6 +3,7 @@
 A new character is a new YAML file; no code change is needed. Boot always
 starts as Jarvis; the "recent" hint is informational only.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -20,12 +21,29 @@ DEFAULT_ID = "jarvis"
 CHARACTERS_DIR = Path(__file__).resolve().parent.parent / "characters"
 MOTION_FILE = "_motion.yaml"
 REQUIRED_LINES = (
-    "greet", "exit", "idle", "error", "ack", "farewell",
-    "already_active", "switch_in", "unknown_name", "rollback",
+    "greet",
+    "exit",
+    "idle",
+    "error",
+    "ack",
+    "farewell",
+    "already_active",
+    "switch_in",
+    "unknown_name",
+    "rollback",
 )
 _REQUIRED_KEYS = (
-    "id", "display_name", "spoken_name", "aliases", "address",
-    "persona", "voice", "wake", "theme", "transition", "safety",
+    "id",
+    "display_name",
+    "spoken_name",
+    "aliases",
+    "address",
+    "persona",
+    "voice",
+    "wake",
+    "theme",
+    "transition",
+    "safety",
 )
 _COLOR_RE = re.compile(
     r"^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}"
@@ -34,7 +52,11 @@ _COLOR_RE = re.compile(
 _MOTION_REQUIRED = ("total_ms", "beat_ms", "phases", "signatures")
 _MAX_BEAT_MS = 700
 LAYOUT_FLOWS = ("columns", "cards")
-PARTICLE_TOKENS = {"particle_count": (0.1, 2.0), "particle_size": (0.5, 2.5), "particle_drift": (0.1, 3.0)}
+PARTICLE_TOKENS = {
+    "particle_count": (0.1, 2.0),
+    "particle_size": (0.5, 2.5),
+    "particle_drift": (0.1, 3.0),
+}
 
 
 class CharacterError(ValueError):
@@ -86,7 +108,9 @@ def _validate_motion(data: dict[str, Any], path: Path) -> dict[str, Any]:
         raise _fail(path, "total_ms must be positive")
     for key in ("ready_gate_ms", "prewarm_timeout_ms"):
         if key in data and (
-            not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or data[key] <= 0
+            not isinstance(data[key], (int, float))
+            or isinstance(data[key], bool)
+            or data[key] <= 0
         ):
             raise _fail(path, f"{key} must be positive")
     if (
@@ -101,7 +125,8 @@ def _validate_motion(data: dict[str, Any], path: Path) -> dict[str, Any]:
 
     def check_span(name: str, span: Any) -> None:
         if (
-            not isinstance(span, (list, tuple)) or len(span) != 2
+            not isinstance(span, (list, tuple))
+            or len(span) != 2
             or not all(isinstance(v, (int, float)) for v in span)
         ):
             raise _fail(path, f"{name} must be [start_ms, end_ms]")
@@ -159,16 +184,26 @@ def _validate_extras(data: dict[str, Any], path: Path) -> None:
             if spec["flow"] == "columns":
                 cols = spec.get("columns")
                 if (
-                    not isinstance(cols, list) or len(cols) != 3
-                    or not all(_num(c) and c > 0 for c in cols) or sum(cols) != 100
+                    not isinstance(cols, list)
+                    or len(cols) != 3
+                    or not all(_num(c) and c > 0 for c in cols)
+                    or sum(cols) != 100
                 ):
-                    raise _fail(path, f"layout {name}.columns must be 3 positive numbers summing to 100")
+                    raise _fail(
+                        path,
+                        f"layout {name}.columns must be 3 positive numbers summing to 100",
+                    )
             elif not isinstance(spec.get("cards"), int) or not 2 <= spec["cards"] <= 6:
                 raise _fail(path, f"layout {name}.cards must be an int in [2, 6]")
             for key in ("top_h", "gap"):
                 if not _num(spec.get(key)) or spec[key] < 0:
-                    raise _fail(path, f"layout {name}.{key} must be a non-negative number")
-            if not _num(spec.get("reactor_scale")) or not 0.4 <= spec["reactor_scale"] <= 1.4:
+                    raise _fail(
+                        path, f"layout {name}.{key} must be a non-negative number"
+                    )
+            if (
+                not _num(spec.get("reactor_scale"))
+                or not 0.4 <= spec["reactor_scale"] <= 1.4
+            ):
                 raise _fail(path, f"layout {name}.reactor_scale must be in [0.4, 1.4]")
             if not isinstance(spec.get("summary"), bool):
                 raise _fail(path, f"layout {name}.summary must be a bool")
@@ -179,7 +214,9 @@ def motion(dir: Path | str | None = None) -> dict[str, Any]:  # noqa: A002
     return _validate_motion(_read_yaml(path), path)
 
 
-def _str_list(path: Path, name: str, value: Any, *, allow_empty: bool = False) -> tuple[str, ...]:
+def _str_list(
+    path: Path, name: str, value: Any, *, allow_empty: bool = False
+) -> tuple[str, ...]:
     if (
         not isinstance(value, list)
         or not all(isinstance(v, str) and v.strip() for v in value)
@@ -197,7 +234,11 @@ def _parse(path: Path, data: dict[str, Any], signatures: set[str]) -> Character:
         if not isinstance(data[key], str) or not data[key].strip():
             raise _fail(path, f"{key} must be a non-empty string")
     persona, wake, theme, trans, safety = (
-        data["persona"], data["wake"], data["theme"], data["transition"], data["safety"],
+        data["persona"],
+        data["wake"],
+        data["theme"],
+        data["transition"],
+        data["safety"],
     )
     if not isinstance(persona, dict) or not isinstance(persona.get("prompt"), str):
         raise _fail(path, "persona.prompt missing")
@@ -228,9 +269,16 @@ def _parse(path: Path, data: dict[str, Any], signatures: set[str]) -> Character:
         if key in tokens and (not _num(tokens[key]) or not lo <= tokens[key] <= hi):
             raise _fail(path, f"theme token '{key}' must be a number in [{lo}, {hi}]")
     if not isinstance(trans, dict) or trans.get("signature") not in signatures:
-        raise _fail(path, f"transition.signature {trans.get('signature') if isinstance(trans, dict) else None!r} not in _motion.yaml")
+        raise _fail(
+            path,
+            f"transition.signature {trans.get('signature') if isinstance(trans, dict) else None!r} not in _motion.yaml",
+        )
     intensity = trans.get("intensity")
-    if not isinstance(intensity, (int, float)) or isinstance(intensity, bool) or intensity < 0:
+    if (
+        not isinstance(intensity, (int, float))
+        or isinstance(intensity, bool)
+        or intensity < 0
+    ):
         raise _fail(path, "transition.intensity must be a non-negative number")
     if not isinstance(safety, dict):
         raise _fail(path, "safety must be a mapping")
@@ -249,7 +297,10 @@ def _parse(path: Path, data: dict[str, Any], signatures: set[str]) -> Character:
         signature=trans["signature"],
         intensity=float(intensity),
         drop_character_on=_str_list(
-            path, "safety.drop_character_on", safety.get("drop_character_on", []), allow_empty=True
+            path,
+            "safety.drop_character_on",
+            safety.get("drop_character_on", []),
+            allow_empty=True,
         ),
     )
 
@@ -261,11 +312,13 @@ def load_all(dir: Path | str | None = None) -> dict[str, Character]:  # noqa: A0
     layouts = set(mo.get("layouts", {}))
     out: dict[str, Character] = {}
     for path in sorted(root.glob("*.yaml")):
-        if path.name.startswith("_"):
+        if path.stem != DEFAULT_ID:
             continue
         char = _parse(path, _read_yaml(path), signatures)
         if layouts and char.layout not in layouts:
-            raise _fail(path, f"theme.layout '{char.layout}' not in _motion.yaml layouts")
+            raise _fail(
+                path, f"theme.layout '{char.layout}' not in _motion.yaml layouts"
+            )
         if path.stem != char.id:
             raise _fail(path, f"id '{char.id}' must match filename")
         if char.id in out:
@@ -284,13 +337,18 @@ def load_all(dir: Path | str | None = None) -> dict[str, Character]:  # noqa: A0
     return out
 
 
-def boot_character(chars: dict[str, Character] | None = None, hint: str | None = None) -> str:
+def boot_character(
+    chars: dict[str, Character] | None = None, hint: str | None = None
+) -> str:
     """Always Jarvis; the hint is accepted and ignored by design."""
     return DEFAULT_ID
 
 
 def _hint_path() -> Path:
-    return Path(os.environ.get("JARVIS_HOME") or Path.home() / ".jarvis") / "character.json"
+    return (
+        Path(os.environ.get("JARVIS_HOME") or Path.home() / ".jarvis")
+        / "character.json"
+    )
 
 
 def read_recent() -> str | None:
@@ -337,7 +395,11 @@ def resolve_name(text: str, chars: dict[str, Character]) -> str | None:
         limit = 1 if len(alias) <= 5 else 2
         dist = _edit_distance(word, alias)
         if dist <= limit:
-            key = (dist, -difflib.SequenceMatcher(None, word, alias).ratio(), names[alias])
+            key = (
+                dist,
+                -difflib.SequenceMatcher(None, word, alias).ratio(),
+                names[alias],
+            )
             if best is None or key < best:
                 best = key
     return best[2] if best else None

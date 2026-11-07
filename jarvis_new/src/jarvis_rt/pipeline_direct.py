@@ -146,6 +146,8 @@ class _Reply:
     system: str | None
     tools_enabled: bool
     hold: bool = False
+    calendar_guarded: bool = False
+    calendar_blocked: bool = False
     interrupted: bool = False
     speculative_text: str | None = None
     dead: bool = False
@@ -529,6 +531,7 @@ class DirectBackend:
             system=system,
             tools_enabled=tools_enabled,
             hold=hold,
+            calendar_guarded=__import__("claim_guard").GUARD.calendar_context,
         )
         self._reply = reply
         reply.producer = self._spawn(self._produce(reply))
@@ -556,6 +559,22 @@ class DirectBackend:
                 self._emit("interrupted")
 
     def _release(self, reply: _Reply) -> None:
+        # Speculation starts before a final transcript establishes the request
+        # domain. Rebuild its held sentence queue after final calendar context
+        # is known, before captions or TTS can consume speculative narration.
+        import claim_guard
+
+        if claim_guard.GUARD.calendar_context and not reply.calendar_guarded:
+            pending = "".join(reply.held)
+            reply.held.clear()
+            reply.sentences.clear()
+            reply.splitter = SentenceSplitter()
+            reply.calendar_guarded = True
+            for sentence in reply.splitter.feed(pending):
+                self._queue_sentence(reply, sentence)
+            if reply.producer_done:
+                for sentence in reply.splitter.flush():
+                    self._queue_sentence(reply, sentence)
         reply.hold = False
         reply.interrupted = False
         if reply.held:
@@ -595,14 +614,35 @@ class DirectBackend:
             self._reply = None
             self._speaking = False
 
+    def _queue_sentence(self, reply: _Reply, sentence: str) -> None:
+        if reply.calendar_guarded:
+            import claim_guard
+
+            safe = claim_guard.calendar_safe_text(sentence)
+            if safe != sentence:
+                if reply.calendar_blocked:
+                    return
+                reply.calendar_blocked = True
+            sentence = safe
+            if reply.hold:
+                reply.held.append(sentence)
+            else:
+                self._emit("agent_text", text=sentence)
+        reply.sentences.append(sentence)
+
     def _text(self, reply: _Reply, delta: str) -> None:
         if reply.dead:
             return
-        if reply.hold:
-            reply.held.append(delta)
-        else:
-            self._emit("agent_text", text=delta)
-        reply.sentences.extend(reply.splitter.feed(delta))
+        # Calendar narration is checked at complete-sentence boundaries before
+        # either captions or audio see a success claim. Other conversation keeps
+        # its existing low-latency delta path.
+        if not reply.calendar_guarded:
+            if reply.hold:
+                reply.held.append(delta)
+            else:
+                self._emit("agent_text", text=delta)
+        for sentence in reply.splitter.feed(delta):
+            self._queue_sentence(reply, sentence)
         reply.wake.set()
 
     # ---- LLM -------------------------------------------------------------
@@ -654,7 +694,7 @@ class DirectBackend:
             if last_error is not None:
                 self._emit("error", error=last_error)
             for sentence in reply.splitter.flush():
-                reply.sentences.append(sentence)
+                self._queue_sentence(reply, sentence)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

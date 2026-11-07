@@ -253,7 +253,7 @@ async def test_power_lock_runs_without_confirmation(
     result = await SystemTools.power_control(tools, None, action="lock")  # type: ignore[arg-type]
     assert result["outcome"]["state"] == "dispatched_unverified"
     assert "not verified" in result["say"]
-    assert calls and calls[0][:2] == ("loginctl", "lock-session")
+    assert calls and calls[0][:2] == ("loginctl", "lock-sessions")
 
 
 def test_data_paths_stay_under_jarvis_home() -> None:

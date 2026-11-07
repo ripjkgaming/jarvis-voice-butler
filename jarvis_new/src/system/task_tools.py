@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local
 
@@ -43,8 +43,14 @@ class TaskTools:
         1000 and draft an email to dad about it". Jarvis plans it, works
         through it, and asks before anything that sends, pays, posts or books.
 
+        Tasks can read Sir's own email (with attachments and linked docs),
+        calendar and notes, search the web, and save a finished list or
+        document to Downloads. Never say you cannot read his email for a task.
+
         Args:
-            goal: The whole job in Sir's words.
+            goal: The whole job in Sir's words, keeping every name, place,
+                date and constraint he gave (e.g. "Chiang Mai climbing trip",
+                not "my itinerary") and where to save the result if he said.
         """
         _guard()
         import agent_tasks

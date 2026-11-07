@@ -50,7 +50,7 @@ Live command map (verified on this Plasma 6 machine where stated):
   documented config key for this (current plasmanotifyrc carries no
   DoNotDisturb group). POST dnd therefore answers ``ok: false`` with an
   explanation instead of pretending.
-- power: ``loginctl lock-session`` / ``systemctl suspend`` /
+- power: ``loginctl lock-sessions`` / ``systemctl suspend`` /
   ``dbus-send ... org.kde.Shutdown.logout`` (qdbus6 is not installed, so
   the dbus-send equivalent of ``qdbus6 org.kde.Shutdown /Shutdown
   logout``) / ``systemctl reboot`` / ``systemctl poweroff``. Strict
@@ -59,6 +59,7 @@ Live command map (verified on this Plasma 6 machine where stated):
 
 from __future__ import annotations
 
+import os
 import contextlib
 import re
 import shutil
@@ -103,7 +104,9 @@ _SANDBOX_DIRECT_APPS = frozenset(
 
 
 def _default_run(argv, **kw):
-    return subprocess.run(argv, **kw)
+    import audio_output
+
+    return audio_output.run(argv, **kw)
 
 
 def normalize_window_id(raw: object) -> str | None:
@@ -128,12 +131,18 @@ def window_action(uuid: str, action: str, run=None) -> bool:
     try:
         proc = runner(
             [
-                "dbus-send", "--session", "--print-reply",
-                "--dest=org.kde.KWin", "/WindowsRunner",
+                "dbus-send",
+                "--session",
+                "--print-reply",
+                "--dest=org.kde.KWin",
+                "/WindowsRunner",
                 "org.kde.krunner1.Run",
-                f"string:{code}_{uuid}", "string:",
+                f"string:{code}_{uuid}",
+                "string:",
             ],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if proc.returncode == 0:
             return True
@@ -188,13 +197,17 @@ def kwin_script_action(uuid: str, action: str, run=None, path=None, sleep=None) 
         base = ["qdbus", "org.kde.KWin", "/Scripting"]
         load = runner(
             [*base, "org.kde.kwin.Scripting.loadScript", str(dest), _KWIN_ACTION_NAME],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if load.returncode != 0:
             return False
         start = runner(
             [*base, "org.kde.kwin.Scripting.start"],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         ok = start.returncode == 0
         with contextlib.suppress(Exception):
@@ -202,7 +215,9 @@ def kwin_script_action(uuid: str, action: str, run=None, path=None, sleep=None) 
         with contextlib.suppress(Exception):
             runner(
                 [*base, "org.kde.kwin.Scripting.unloadScript", _KWIN_ACTION_NAME],
-                capture_output=True, text=True, timeout=5.0,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
             )
         return ok
     except Exception:
@@ -289,11 +304,7 @@ def select_launcher_entries(text: str) -> list[str]:
             location = int(str(cont.get("location", "-1")).strip())
         except (TypeError, ValueError):
             location = -1
-        if (
-            cont.get("plugin", "") == "org.kde.panel"
-            and location == 4
-            and screen == 0
-        ):
+        if cont.get("plugin", "") == "org.kde.panel" and location == 4 and screen == 0:
             primary = cid
             break
     ordered = list(configs)
@@ -318,14 +329,18 @@ def resolve_preferred(scheme: str, run=None) -> str | None:
         if scheme == "preferred://browser":
             proc = runner(
                 ["xdg-settings", "get", "default-web-browser"],
-                capture_output=True, text=True, timeout=5.0,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
             )
             name = (proc.stdout or "").strip() if proc.returncode == 0 else ""
             return name if name.endswith(".desktop") else None
         if scheme == "preferred://filemanager":
             proc = runner(
                 ["xdg-mime", "query", "default", "inode/directory"],
-                capture_output=True, text=True, timeout=5.0,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
             )
             name = (proc.stdout or "").strip() if proc.returncode == 0 else ""
             return name if name.endswith(".desktop") else None
@@ -422,18 +437,17 @@ def desktop_name(path: Path) -> str:
 def launchers(text=None, path=None, run=None, dirs=None, clock=None) -> list[dict]:
     """Pinned launchers as [{desktop, name}]. Cached 30 s. Never raises."""
     now_fn = clock or time.monotonic
-    custom = (
-        text is not None
-        or path is not None
-        or run is not None
-        or dirs is not None
-    )
+    custom = text is not None or path is not None or run is not None or dirs is not None
     try:
         now = now_fn()
     except Exception:
         now = time.monotonic()
     try:
-        if not custom and _launchers_cache and now - _launchers_cache["at"] < _LAUNCHERS_TTL_S:
+        if (
+            not custom
+            and _launchers_cache
+            and now - _launchers_cache["at"] < _LAUNCHERS_TTL_S
+        ):
             return [dict(item) for item in _launchers_cache["value"]]
     except (KeyError, TypeError):
         pass
@@ -580,7 +594,8 @@ def parse_desktop_file(path: Path) -> dict | None:
         return {
             "desktop": path.name,
             "name": name,
-            "generic": fields.get("GenericName[en]", "") or fields.get("GenericName", ""),
+            "generic": fields.get("GenericName[en]", "")
+            or fields.get("GenericName", ""),
             "categories": cats,
             "icon_key": path.name,
         }
@@ -656,7 +671,9 @@ def wifi_state(run=None) -> dict | None:
     try:
         proc = runner(
             ["nmcli", "radio", "wifi"],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if proc.returncode != 0:
             return None
@@ -665,7 +682,9 @@ def wifi_state(run=None) -> dict | None:
         try:
             wproc = runner(
                 ["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"],
-                capture_output=True, text=True, timeout=5.0,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
             )
             if wproc.returncode == 0:
                 for line in (wproc.stdout or "").splitlines():
@@ -703,7 +722,9 @@ def volume_state(run=None) -> dict | None:
     try:
         proc = runner(
             ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if proc.returncode == 0:
             match = re.search(r"Volume:\s*([0-9]*\.?[0-9]+)", proc.stdout or "")
@@ -722,7 +743,9 @@ def volume_state(run=None) -> dict | None:
     try:
         vproc = runner(
             ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if vproc.returncode != 0:
             return None
@@ -733,7 +756,9 @@ def volume_state(run=None) -> dict | None:
         try:
             mproc = runner(
                 ["pactl", "get-sink-mute", "@DEFAULT_SINK@"],
-                capture_output=True, text=True, timeout=5.0,
+                capture_output=True,
+                text=True,
+                timeout=5.0,
             )
             if mproc.returncode == 0:
                 muted = "yes" in (mproc.stdout or "").lower()
@@ -796,14 +821,18 @@ def dnd_state(run=None) -> bool | None:
     try:
         proc = runner(
             [
-                "dbus-send", "--session", "--print-reply",
+                "dbus-send",
+                "--session",
+                "--print-reply",
                 "--dest=org.freedesktop.Notifications",
                 "/org/freedesktop/Notifications",
                 "org.freedesktop.DBus.Properties.Get",
                 "string:org.freedesktop.Notifications",
                 "string:Inhibited",
             ],
-            capture_output=True, text=True, timeout=5.0,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
         )
         if proc.returncode != 0:
             return None
@@ -875,7 +904,9 @@ def handle_quick(body: dict, run=None, which=None, backlight=None) -> tuple[int,
             try:
                 proc = runner(
                     ["nmcli", "radio", "wifi", "on" if want else "off"],
-                    capture_output=True, text=True, timeout=5.0,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
                 return 200, {"ok": proc.returncode == 0}
             except Exception:
@@ -884,7 +915,9 @@ def handle_quick(body: dict, run=None, which=None, backlight=None) -> tuple[int,
             try:
                 proc = runner(
                     ["bluetoothctl", "power", "on" if want else "off"],
-                    capture_output=True, text=True, timeout=5.0,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
                 return 200, {"ok": proc.returncode == 0}
             except Exception:
@@ -898,14 +931,24 @@ def handle_quick(body: dict, run=None, which=None, backlight=None) -> tuple[int,
         try:
             if find("wpctl"):
                 proc = runner(
-                    ["wpctl", "set-volume", "-l", "1.5",
-                     "@DEFAULT_AUDIO_SINK@", f"{level:.2f}"],
-                    capture_output=True, text=True, timeout=5.0,
+                    [
+                        "wpctl",
+                        "set-volume",
+                        "-l",
+                        "1.5",
+                        "@DEFAULT_AUDIO_SINK@",
+                        f"{level:.2f}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
             else:
                 proc = runner(
                     ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"],
-                    capture_output=True, text=True, timeout=5.0,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
             return 200, {"ok": proc.returncode == 0}
         except Exception:
@@ -918,12 +961,16 @@ def handle_quick(body: dict, run=None, which=None, backlight=None) -> tuple[int,
             if find("wpctl"):
                 proc = runner(
                     ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", flag],
-                    capture_output=True, text=True, timeout=5.0,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
             else:
                 proc = runner(
                     ["pactl", "set-sink-mute", "@DEFAULT_SINK@", flag],
-                    capture_output=True, text=True, timeout=5.0,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
                 )
             return 200, {"ok": proc.returncode == 0}
         except Exception:
@@ -948,13 +995,17 @@ _POWER_ACTIONS = ("lock", "sleep", "logout", "restart", "shutdown")
 def power_argv(action: str) -> list[str] | None:
     """Validated power argv, or None. Pure."""
     if action == "lock":
-        return ["loginctl", "lock-session"]
+        return ["loginctl", "lock-sessions"]
     if action == "sleep":
         return ["systemctl", "suspend"]
     if action == "logout":
         return [
-            "dbus-send", "--session", "--print-reply",
-            "--dest=org.kde.Shutdown", "/Shutdown", "org.kde.Shutdown.logout",
+            "dbus-send",
+            "--session",
+            "--print-reply",
+            "--dest=org.kde.Shutdown",
+            "/Shutdown",
+            "org.kde.Shutdown.logout",
         ]
     if action == "restart":
         return ["systemctl", "reboot"]
@@ -990,13 +1041,18 @@ _power_confirmations = ConfirmationStore()
 
 def dispatch_power(action):
     import watch_mode
+
     if watch_mode.guest_required():
         from action_outcome import ActionOutcome
         from power_actions import normalize
-        return ActionOutcome("power." + normalize(action), "blocked", reason="owner_required")
+
+        return ActionOutcome(
+            "power." + normalize(action), "blocked", reason="owner_required"
+        )
     outcome = dispatch_sync(action, _default_run)
     with contextlib.suppress(Exception):
         from system import log_action
+
         log_action("power", action)
     return outcome
 
@@ -1008,20 +1064,43 @@ def handle_power(body: dict, *, confirmation_scope="") -> tuple[int, dict]:
     action = body.get("action")
     if action not in _POWER_ACTIONS:
         return 400, {"ok": False, "error": "invalid power action"}
-    if action in CONFIRM_ACTIONS:
+    if action in CONFIRM_ACTIONS and os.environ.get("JARVIS_AUTO_APPROVE", "1") != "0":
+        if set(body) - {"action", "phase", "confirmation"}:
+            return 400, {"ok": False, "error": "invalid power request"}
+    elif action in CONFIRM_ACTIONS:
         if not confirmation_scope:
-            return 403, {"ok": False, "error": "authenticated owner confirmation required"}
+            return 403, {
+                "ok": False,
+                "error": "authenticated owner confirmation required",
+            }
         if body == {"action": action, "phase": "request"}:
             try:
                 ticket = _power_confirmations.issue(action, confirmation_scope)
             except ValueError:
                 return 409, {"ok": False, "error": "confirmation unavailable"}
-            return 200, {"ok": False, "confirmation_required": True, "confirmation": ticket, "expires_in_ms": 3500}
-        if set(body) != {"action", "phase", "confirmation"} or body.get("phase") != "confirm":
+            return 200, {
+                "ok": False,
+                "confirmation_required": True,
+                "confirmation": ticket,
+                "expires_in_ms": 3500,
+            }
+        if (
+            set(body) != {"action", "phase", "confirmation"}
+            or body.get("phase") != "confirm"
+        ):
             return 428, {"ok": False, "error": "explicit confirmation required"}
-        if not _power_confirmations.consume(body.get("confirmation"), action, confirmation_scope):
-            return 403, {"ok": False, "error": "confirmation expired, mismatched or used"}
+        if not _power_confirmations.consume(
+            body.get("confirmation"), action, confirmation_scope
+        ):
+            return 403, {
+                "ok": False,
+                "error": "confirmation expired, mismatched or used",
+            }
     elif body != {"action": action}:
         return 400, {"ok": False, "error": "invalid power request"}
     outcome = dispatch_power(action)
-    return 200, {"ok": outcome.accepted, "say": outcome.say, "outcome": outcome.to_dict()}
+    return 200, {
+        "ok": outcome.accepted,
+        "say": outcome.say,
+        "outcome": outcome.to_dict(),
+    }

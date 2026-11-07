@@ -1,0 +1,170 @@
+// Jarvis ASCII boot, cinematic. Generated from jarvis-ascii.script.in by gen_frames.py.
+// Scene frames are loaded one per tick (never all at once) so RAM stays tiny.
+// Frames 0..INTRO-1 play once, INTRO..INTRO+LOOP-1 loop. Password prompts pause the scene.
+Window.SetBackgroundTopColor(0.008, 0.035, 0.059);
+Window.SetBackgroundBottomColor(0.008, 0.035, 0.059);
+global.sw = Window.GetWidth();
+global.sh = Window.GetHeight();
+global.scale = Math.Min(global.sw / 1920, global.sh / 1080);
+if (global.scale > 1) global.scale = Math.Int(global.scale);
+global.INTRO = @INTRO@;
+global.LOOP = @LOOP@;
+global.DROP = @DROP@;
+global.BAR = @BAR@;
+global.W = Math.Int(@SCENE_W@ * global.scale);
+global.H = Math.Int(@SCENE_H@ * global.scale);
+global.top = Math.Int((global.sh - global.H) / 2);
+global.left = Math.Int((global.sw - global.W) / 2);
+
+// scene
+global.scene = Sprite();
+global.scene.SetZ(10);
+global.scene.SetPosition(global.left, global.top);
+
+// bottom letterbox: progress bar
+global.barw = Math.Int((global.BAR + 2) * @PX@ * global.scale);
+global.bars = [];
+for (i = 0; i <= global.BAR; i++) {
+    global.bars[i] = Image("bar-" + i + ".png").Scale(global.barw, Math.Int(18 * global.scale));
+}
+global.bar = Sprite(global.bars[0]);
+global.bar.SetX((global.sw - global.barw) / 2);
+global.bar.SetY(global.top + global.H + Math.Int(34 * global.scale));
+global.bar.SetZ(20);
+global.bar.SetOpacity(0);
+global.target = 0;
+global.shown = 0;
+global.bar_n = 0;
+
+// hairlines on the letterbox edges, grow from the centre
+global.cyan = Image("px-cyan.png");
+global.line_top = Sprite();
+global.line_bot = Sprite();
+global.line_top.SetZ(40);
+global.line_bot.SetZ(40);
+
+// vignette + scanlines + grain, jittered
+global.overlay = Sprite(Image("overlay.png").Scale(global.sw + 16, global.sh + 16));
+global.overlay.SetZ(25);
+global.overlay.SetPosition(-8, -8);
+
+// flash and fade
+global.flash = Sprite(Image("px-white.png").Scale(global.sw, global.sh));
+global.flash.SetZ(60);
+global.flash.SetOpacity(0);
+global.fade = Sprite(Image("px-black.png").Scale(global.sw, global.sh));
+global.fade.SetZ(70);
+global.fade.SetOpacity(1);
+
+global.frame = 0;
+global.prompt = 0;
+Plymouth.SetRefreshRate(@FPS@);
+
+global.prompt_label = Sprite();
+global.prompt_value = Sprite();
+global.message = Sprite();
+global.prompt_label.SetZ(30);
+global.prompt_value.SetZ(30);
+global.message.SetZ(30);
+
+fun set_label(sprite, text, y, r, g, b) {
+    label_image = Image.Text(text, r, g, b, 1, "Monospace 14");
+    sprite.SetImage(label_image);
+    sprite.SetX((global.sw - label_image.GetWidth()) / 2);
+    sprite.SetY(y);
+    sprite.SetOpacity(1);
+}
+
+fun refresh_callback() {
+    if (global.prompt == 0) {
+        f = global.frame;
+        img = Image("frame-" + f + ".png");
+        if (global.scale != 1) img = img.Scale(global.W, global.H);
+        global.scene.SetImage(img);
+
+        // screen shake on the drop
+        d = f - global.DROP;
+        sx = 0;
+        sy = 0;
+        if (d >= 0 && d < 14) {
+            amp = 16 * (1 - d / 14) * global.scale;
+            sx = amp * Math.Sin(f * 2.9);
+            sy = amp * 0.6 * Math.Cos(f * 3.7);
+        }
+        global.scene.SetPosition(global.left + sx, global.top + sy);
+
+        // fade in from black, flash on the drop
+        if (f < 12) {
+            global.fade.SetOpacity(1 - f / 12);
+        } else {
+            global.fade.SetOpacity(0);
+        }
+        if (d >= 0 && d < 10) {
+            global.flash.SetOpacity(0.85 * (1 - d / 10));
+        } else {
+            global.flash.SetOpacity(0);
+        }
+
+        // letterbox hairlines open from the centre
+        if (f >= 4 && f <= 34) {
+            lw = Math.Max(2, Math.Int(global.sw * (f - 4) / 30));
+            global.line_top.SetImage(global.cyan.Scale(lw, 2));
+            global.line_bot.SetImage(global.cyan.Scale(lw, 2));
+            global.line_top.SetPosition((global.sw - lw) / 2, global.top - 2);
+            global.line_bot.SetPosition((global.sw - lw) / 2, global.top + global.H);
+        }
+        global.line_top.SetOpacity(0.55 + 0.25 * Math.Sin(f * 0.21));
+        global.line_bot.SetOpacity(0.55 + 0.25 * Math.Sin(f * 0.21 + 1.5));
+
+        // film grain jitter
+        global.overlay.SetPosition(-8 + Math.Int(4 + 4 * Math.Sin(f * 7.31) * Math.Cos(f * 3.17)),
+                                   -8 + Math.Int(4 + 4 * Math.Sin(f * 5.13) * Math.Cos(f * 2.71)));
+        global.overlay.SetOpacity(0.92 + 0.08 * Math.Sin(f * 1.9));
+
+        // progress bar eases towards the real boot progress
+        global.shown = global.shown + (global.target - global.shown) * 0.06;
+        n = Math.Int(Math.Max(0, Math.Min(1, global.shown)) * global.BAR);
+        if (n != global.bar_n) {
+            global.bar_n = n;
+            global.bar.SetImage(global.bars[n]);
+        }
+        if (f > global.DROP + 30) global.bar.SetOpacity(Math.Min(1, (f - global.DROP - 30) / 20));
+
+        global.frame = f + 1;
+        if (global.frame >= global.INTRO + global.LOOP) global.frame = global.INTRO;
+    }
+}
+fun progress_callback(duration, progress) {
+    global.target = progress;
+}
+fun clear_prompt() {
+    global.prompt_label.SetOpacity(0);
+    global.prompt_value.SetOpacity(0);
+    global.prompt = 0;
+    global.bar.SetOpacity(1);
+}
+fun display_password_callback(prompt, bullets) {
+    global.prompt = 1;
+    global.bar.SetOpacity(0);
+    set_label(global.prompt_label, "[ " + prompt + " ]", global.sh * 0.8, 1.0, 0.70, 0.28);
+    masked = "";
+    for (i = 0; i < Math.Min(bullets, 64); i++) { masked += "#"; }
+    set_label(global.prompt_value, "> " + masked + "_", global.sh * 0.85, 0.37, 0.89, 1.0);
+}
+fun display_question_callback(prompt, entry) {
+    global.prompt = 1;
+    global.bar.SetOpacity(0);
+    set_label(global.prompt_label, "[ " + prompt + " ]", global.sh * 0.8, 1.0, 0.70, 0.28);
+    set_label(global.prompt_value, "> " + entry + "_", global.sh * 0.85, 0.37, 0.89, 1.0);
+}
+fun message_callback(text) {
+    set_label(global.message, ":: " + text, global.top + global.H + Math.Int(80 * global.scale), 0.50, 0.65, 0.72);
+}
+fun hide_message_callback(text) { global.message.SetOpacity(0); }
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetBootProgressFunction(progress_callback);
+Plymouth.SetDisplayNormalFunction(clear_prompt);
+Plymouth.SetDisplayPasswordFunction(display_password_callback);
+Plymouth.SetDisplayQuestionFunction(display_question_callback);
+Plymouth.SetMessageFunction(message_callback);
+Plymouth.SetHideMessageFunction(hide_message_callback);

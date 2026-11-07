@@ -1,7 +1,7 @@
 """Hermetic tests for src/system/workspace_tools.py (modules faked, no network)."""
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import docgen
 import google_api

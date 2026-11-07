@@ -27,8 +27,8 @@ import shutil
 import urllib.request
 from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 from system import LocalSystemError, log_action, require_local, run_cmd
 from system.core import _resolve_user_path
@@ -102,7 +102,9 @@ def logical_monitors(
 
     Port of the learned monitor-place skill. Missing targets clamp to M1.
     """
-    prio = priority or ["DP-1", "HDMI-A-2", "eDP-1"]
+    # kscreen-doctor -o enumerates outputs by compositor priority (primary
+    # first). Do not override the live primary with an old hard-coded order.
+    prio = priority or live or ["DP-1", "HDMI-A-2", "eDP-1"]
     live = live or list(prio)
     main = next((n for n in prio if n in live), live[0])
 
@@ -622,6 +624,19 @@ class DeviceTools:
             {k: str(v) for k, v in mapping.items() if k in ("M1", "M2", "M3")},
             live,
         )
+        # An existing window must be moved, not executed as a shell command.
+        # This also catches ChatGPT, whose executable is not called 'ChatGPT'.
+        from system import monitor_window_move
+
+        if await asyncio.to_thread(monitor_window_move.window_exists, app.strip()):
+            ok, say = await asyncio.to_thread(
+                monitor_window_move.move_window, app.strip(), monitor
+            )
+            log_action("launch-monitor", f"move existing {app[:50]} -> {monitor}: {ok}")
+            if not ok:
+                raise ToolError(say)
+            return {"say": say}
+
         known = {
             "brave": "brave-browser",
             "chrome": "google-chrome",
@@ -647,7 +662,9 @@ class DeviceTools:
         identity = action_guard.request_id(context)
         source = "fast" if context is None else "model"
         guard_args = {"app": app}
-        duplicate = action_guard.claim("open_app", guard_args, source, request_id=identity)
+        duplicate = action_guard.claim(
+            "open_app", guard_args, source, request_id=identity
+        )
         if duplicate is not None:
             return action_guard.duplicate_reply(duplicate, "Done, Sir.")
         try:
@@ -660,12 +677,20 @@ class DeviceTools:
                 start_new_session=True,
             )
         except BaseException as exc:
-            action_guard.settle("open_app", guard_args, source, False, request_id=identity)
+            action_guard.settle(
+                "open_app", guard_args, source, False, request_id=identity
+            )
             if isinstance(exc, (FileNotFoundError, ValueError)):
                 raise ToolError(str(exc)) from exc
             raise
-        action_guard.settle("open_app", guard_args, source, True,
-                            f"Opening {app} toward {r['name']}.", request_id=identity)
+        action_guard.settle(
+            "open_app",
+            guard_args,
+            source,
+            True,
+            f"Opening {app} toward {r['name']}.",
+            request_id=identity,
+        )
         log_action("launch-monitor", f"{target} -> {r['name']}")
         fb = " (only that screen is live, clamped to main)" if r["fallback"] else ""
         return {"say": f"Opening {app} toward {r['name']}{fb}."}

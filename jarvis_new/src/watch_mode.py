@@ -138,24 +138,224 @@ def guest_path() -> Path:
     return state_dir() / "guest"
 
 
-def enter_guest() -> None:
-    """Persist restrictions independently of the camera and overlay process."""
+#: Voice-activation intro, seconds after launch. The HUD turns its reactor
+#: orb into an eye (0 to BLACKOUT_AT_S), blacks out (BLACKOUT_AT_S to
+#: COVER_AT_S) while the monitor cards fade in from black, then the card's
+#: ASCII eye assembles. HUD and cards share this clock through intro.json.
+INTRO_BLACKOUT_AT_S = 2.4
+INTRO_COVER_S = 1.1
+INTRO_HUD_S = INTRO_BLACKOUT_AT_S + INTRO_COVER_S + 0.6
+
+
+def intro_path() -> Path:
+    return state_dir() / "intro.json"
+
+
+def write_intro(now: float | None = None) -> None:
+    """Mark a voice-triggered start so the HUD and cards play one intro."""
+    at = time.time() if now is None else now
+    with contextlib.suppress(OSError):
+        intro_path().write_text(
+            json.dumps(
+                {"at": at, "blackout_at": INTRO_BLACKOUT_AT_S, "cover": INTRO_COVER_S}
+            )
+        )
+
+
+def read_intro(now: float | None = None, max_age: float = INTRO_HUD_S) -> dict | None:
+    """The fresh intro marker, else None. Never raises."""
+    try:
+        data = json.loads(intro_path().read_text())
+        at = float(data["at"])
+        blackout = float(data.get("blackout_at", INTRO_BLACKOUT_AT_S))
+        cover = float(data.get("cover", INTRO_COVER_S))
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    now = time.time() if now is None else now
+    if not (0.0 <= now - at <= max_age) or blackout < 0 or cover <= 0:
+        return None
+    return {"at": at, "blackout_at": blackout, "cover": cover}
+
+
+# --- guest latch ------------------------------------------------------------
+#
+# Guest state is one small JSON file, ``watch/guest``:
+#   {"origins": {"<origin>": <epoch seconds it was entered>, ...}}
+# Every origin that wants Jarvis restricted holds its own key, so ending one
+# reason never ends another:
+#   GUEST_WATCH    set by watch mode (launch + the watch process); cleared by
+#                  every watch-deactivation path and by the stale reconcile.
+#   GUEST_EXPLICIT set deliberately by the owner, independent of watch mode
+#                  (reserved for a future phone/voice guest toggle). Never
+#                  cleared by watch deactivation or by staleness.
+# Public API (small on purpose; the phone app reuses it):
+#   enter_guest(origin)   leave_guest(origin) -> bool   guest_origins() -> set
+#   guest_required() -> bool   restore_owner()  (explicit owner: clears ALL)
+# A missing or unreadable-content file is read as a legacy watch latch, never
+# as owner mode: an empty file from older builds is exactly that.
+
+GUEST_WATCH = "watch"
+GUEST_EXPLICIT = "explicit"
+_GUEST_ORIGINS = frozenset({GUEST_WATCH, GUEST_EXPLICIT})
+
+#: A watch-origin latch with no live watch process counts as stale after this
+#: long (launch() latches seconds before the child writes its pid).
+GUEST_STALE_S = 60.0
+
+
+def stopping_path() -> Path:
+    return state_dir() / "stopping"
+
+
+def mark_stopping() -> None:
+    """Sir ended the watch; the process may still be saving. Never raises."""
+    with contextlib.suppress(OSError):
+        state_dir().mkdir(parents=True, exist_ok=True)
+        stopping_path().write_text(str(time.time()))
+
+
+def _clear_stopping() -> None:
+    with contextlib.suppress(OSError):
+        stopping_path().unlink()
+
+
+@contextlib.contextmanager
+def _guest_lock():
+    """Serialise read-modify-write of the latch across bridge/agent/watch."""
+    import fcntl
+
+    state_dir().mkdir(parents=True, exist_ok=True)
+    fd = os.open(state_dir() / "guest.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _read_guest() -> dict[str, float]:
+    """Origin -> entered-at. Empty when no latch. Never raises."""
+    path = guest_path()
+    try:
+        raw = path.read_text()
+        mtime = path.stat().st_mtime
+    except OSError:
+        return {}
+    try:
+        origins = json.loads(raw)["origins"]
+        parsed = {str(k): float(v) for k, v in origins.items() if k in _GUEST_ORIGINS}
+        if parsed:
+            return parsed
+    except (ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return {GUEST_WATCH: mtime}  # legacy / malformed: still restricted
+
+
+def _write_guest(origins: dict[str, float]) -> None:
+    """Atomically replace the latch; no origins removes it."""
+    if not origins:
+        with contextlib.suppress(FileNotFoundError):
+            guest_path().unlink()
+        return
+    tmp = guest_path().with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(json.dumps({"origins": origins}))
+    os.replace(tmp, guest_path())
+
+
+def guest_origins() -> frozenset[str]:
+    """Which origins currently hold the guest latch (read only)."""
+    return frozenset(_read_guest())
+
+
+def enter_guest(origin: str = GUEST_WATCH) -> None:
+    """Persist restrictions independently of the camera and overlay process.
+
+    Re-entering refreshes that origin's timestamp and leaves others alone.
+    """
+    if origin not in _GUEST_ORIGINS:
+        raise ValueError(f"unknown guest origin: {origin!r}")
     from goodnight_supervisor import revoke_security
 
     revoke_security()
-    state_dir().mkdir(parents=True, exist_ok=True)
-    guest_path().touch(mode=0o600, exist_ok=True)
+    with _guest_lock():
+        origins = _read_guest()
+        origins[origin] = time.time()
+        _write_guest(origins)
+    if origin == GUEST_WATCH:
+        _clear_stopping()
+
+
+def leave_guest(origin: str = GUEST_WATCH) -> bool:
+    """Drop one origin's hold; True if it held. Other origins keep guest on."""
+    with _guest_lock():
+        origins = _read_guest()
+        if origin not in origins:
+            return False
+        del origins[origin]
+        _write_guest(origins)
+    return True
+
+
+_lock_probe: tuple[float, bool] = (0.0, False)
+
+
+def session_locked() -> bool:
+    """Is the OS session locked right now? Unknown counts as not locked.
+
+    Cached for a few seconds: guest_required() is polled constantly.
+    """
+    global _lock_probe
+    now = time.monotonic()
+    if now - _lock_probe[0] < 5.0 and _lock_probe[0]:
+        return _lock_probe[1]
+    locked = False
+    with contextlib.suppress(Exception):
+        out = subprocess.run(
+            ["loginctl", "show-session", "auto", "-p", "LockedHint", "--value"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        ).stdout.strip()
+        locked = out == "yes"
+    _lock_probe = (now, locked)
+    return locked
+
+
+def _reconcile_stale_watch_guest(origins: dict[str, float]) -> bool:
+    """Drop a watch latch left behind by a killed/crashed/restarted watch.
+
+    Only when no watch process lives, the latch is older than GUEST_STALE_S
+    (not just launched) and the OS session is not locked (a crashed watch
+    locks the session; Jarvis stays guest until Sir unlocks). True if dropped.
+    """
+    since = origins.get(GUEST_WATCH)
+    if since is None or time.time() - since < GUEST_STALE_S or is_running():
+        return False
+    if session_locked():
+        return False
+    return leave_guest(GUEST_WATCH)
 
 
 def guest_required() -> bool:
-    # Existence is intentional: malformed/stale state must never unlock Jarvis.
-    return guest_path().exists() or is_running()
+    origins = _read_guest()
+    if origins and _reconcile_stale_watch_guest(origins):
+        origins = _read_guest()
+    if origins:
+        return True
+    # No latch file: a live watch still restricts, unless Sir already stopped
+    # it (the process may keep saving/stitching for minutes after that).
+    return is_running() and not stopping_path().exists()
 
 
 def restore_owner() -> None:
-    """Only local owner controls or the authenticated owner endpoint call this."""
-    with contextlib.suppress(FileNotFoundError):
-        guest_path().unlink()
+    """Only local owner controls or the authenticated owner endpoint call this.
+
+    Explicit owner override: clears every origin, including GUEST_EXPLICIT.
+    """
+    with _guest_lock():
+        _write_guest({})
 
 
 def heartbeat_path() -> Path:
@@ -173,14 +373,20 @@ def fail_safe_lock(run=None) -> bool:
         return False
 
 
+def _watch_latched() -> bool:
+    """Does the watch itself still hold the guest latch? (Not other origins.)"""
+    return GUEST_WATCH in _read_guest()
+
+
 def guard_watch(pid: int) -> None:
     """Independent low-cost watchdog, including native/Tk crashes and hangs.
 
-    Never restores owner state. A failed lock is retried with bounded backoff;
+    Never restores owner state; only the watch's own latch keeps it alive, so
+    an explicit guest never makes a clean stop lock the screen. A failed lock is retried with bounded backoff;
     logout/reboot protection still belongs to the OS session, not this overlay.
     """
     started = time.time()
-    while guest_path().exists():
+    while _watch_latched():
         failed = not _pid_alive(pid)
         if time.time() - started > 30.0:
             try:
@@ -190,7 +396,7 @@ def guard_watch(pid: int) -> None:
             except (OSError, ValueError, TypeError):
                 failed = True
         if failed:
-            while guest_path().exists():
+            while _watch_latched():
                 if fail_safe_lock():
                     return
                 time.sleep(10.0)
@@ -208,14 +414,13 @@ def request_stop() -> bool:
     Never raises.
     """
     if not is_running():
-        if guest_path().exists():
-            restore_owner()
-            return True
-        return False
+        return leave_guest(GUEST_WATCH)
     try:
         state_dir().mkdir(parents=True, exist_ok=True)
         stop_path().write_text(str(time.time()))
-        restore_owner()
+        # Stopped means owner mode now, not after the video is stitched.
+        mark_stopping()
+        leave_guest(GUEST_WATCH)
     except OSError:
         return False
     return True
@@ -249,7 +454,10 @@ def _pid_alive(pid: int) -> bool:
         cmd = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
         return True
-    return b"watch_mode" in cmd
+    # Match the watch script itself, not any process that mentions the name:
+    # a reused PID (shell, pytest, grep) must never count as a live watch.
+    argv = cmd.rstrip(b"\0").split(b"\0")
+    return any(arg.endswith(b"watch_mode.py") for arg in argv)
 
 
 def running_pid() -> int | None:
@@ -293,6 +501,7 @@ def launch(popen=None) -> dict:
         enter_guest()
         with contextlib.suppress(OSError):
             stop_path().unlink()  # a stale request must not end the new watch
+        write_intro()
         log = open(state_dir() / "watch.log", "ab")  # noqa: SIM115
         popen(
             argv,
@@ -302,6 +511,8 @@ def launch(popen=None) -> dict:
             stderr=log,
         )
     except OSError as exc:
+        # No watch process will ever end this latch, so undo it here.
+        leave_guest(GUEST_WATCH)
         return {"ok": False, "error": str(exc)[:200]}
     return {"ok": True, "state": "watching"}
 
@@ -999,6 +1210,13 @@ class WatchScreen:
         )
         self._fixed_geoms = geoms is not None
         self._monitor_at = time.time()
+        self.intro = None
+        if (
+            os.environ.get("JARVIS_WATCH_ORIGIN", "") != "terminal"
+            and os.environ.get("JARVIS_REDUCED_MOTION", "0") != "1"
+        ):
+            self.intro = read_intro(max_age=8.0)
+        self.alpha = 0.0 if self.intro else 1.0
         self.panels: list[_Panel] = []
         self.geoms: list = []
         self._build(geoms if geoms is not None else monitors())
@@ -1033,9 +1251,32 @@ class WatchScreen:
             raise
         self.panels = fresh
         self.geoms = list(geoms)
+        self._set_alpha(self.alpha, force=True)
         self.root.withdraw()
         for panel in old:
             panel.destroy(self.root)
+
+    def _set_alpha(self, alpha: float, force: bool = False) -> None:
+        if not force and abs(alpha - self.alpha) < 0.01 and alpha not in (0.0, 1.0):
+            return
+        self.alpha = alpha
+        for p in self.panels:
+            with contextlib.suppress(Exception):
+                p.win.attributes("-alpha", alpha)
+
+    def _intro_step(self, now: float) -> bool:
+        """Fade the cards in from black after the HUD eye. True once the card
+        may animate; its ASCII eye assembles while the fade finishes."""
+        if self.intro is None:
+            return True
+        start = self.intro["at"] + self.intro["blackout_at"]
+        cover = self.intro["cover"]
+        k = max(0.0, min(1.0, (now - start) / cover))
+        self._set_alpha(k * k * (3 - 2 * k))
+        if k >= 1.0:
+            self.intro = None
+            return True
+        return k >= 0.45
 
     def _key_down(self, event) -> str:
         self.held.add(event.keysym)
@@ -1112,16 +1353,19 @@ class WatchScreen:
         clock = time.strftime("%H:%M")
         dot = breath(now)
         gaze = wt.motion_target if live and wt.camera_ok else None
+        animate = self._intro_step(now)
         for p in self.panels:
             with contextlib.suppress(Exception):
                 p.paint(g, pulse, clock, status, rec_on, recording, dot)
-            p.update_eyes(now, gaze, live)
+            if animate:
+                p.update_eyes(now, gaze, live)
         self.root.after(50, self._tick)
 
     def close(self) -> None:
         if self.closing:
             return
-        restore_owner()
+        mark_stopping()
+        leave_guest(GUEST_WATCH)
         self.closing = True
         n = self.watcher.recorder.events
         status = (
@@ -1189,7 +1433,7 @@ def main() -> int:
 
     def _term(*_a) -> None:
         # Killed from outside (logout, shutdown): still save the footage.
-        if guest_path().exists():
+        if _watch_latched():
             fail_safe_lock()
         announce(save_once(), wait_s=0.0)
         with contextlib.suppress(OSError):

@@ -4,7 +4,7 @@ import types
 from pathlib import Path
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import projects
 
@@ -19,23 +19,23 @@ voice = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(voice)
 
 
-async def test_stable_tool_call_request_id(monkeypatch):
-    seen = []
+async def test_code_project_launches_without_bridge(monkeypatch):
+    """code_project starts a Claude Code job directly; it must never hit the bridge."""
+    import claude_code_launch
 
-    def fake(method, path, body=None):
-        seen.append(body)
-        return {"project": {"id": "p", "status": "pending"}}
-
-    monkeypatch.setattr(voice, "_bridge_call", fake)
-    ctx = types.SimpleNamespace(
-        session=None, function_call=types.SimpleNamespace(call_id="call-one")
+    launched = []
+    monkeypatch.setattr(
+        voice, "_bridge_call", lambda *a, **k: pytest.fail("bridge used")
     )
-    tools = voice.ProjectTools()
-    await voice.ProjectTools.code_project(tools, ctx, task="make hello")
-    await voice.ProjectTools.code_project(tools, ctx, task="make hello")
-    assert seen[0]["request_id"] == seen[1]["request_id"]
-    for t in tools._tasks:
-        t.cancel()
+    monkeypatch.setattr(
+        claude_code_launch,
+        "launch",
+        lambda task, directory="": launched.append(task) or {"ok": True, "id": "cc-x"},
+    )
+    out = await voice.ProjectTools.code_project(
+        voice.ProjectTools(), types.SimpleNamespace(session=None), task="make hello"
+    )
+    assert launched == ["make hello"] and out["job_id"] == "cc-x"
 
 
 async def test_private_call_refuses_detached_work(monkeypatch):

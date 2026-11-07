@@ -38,6 +38,32 @@ def _write(job: dict) -> None:
         os.replace(tmp, _path(job["id"]))
 
 
+def _activity_id(job_id: str) -> str:
+    """HUD activity-feed id for a job (path-safe slug, <= 64 chars)."""
+    return "job-" + re.sub(r"[^a-z0-9]", "", job_id[-32:].lower())
+
+
+def _mirror_start(job_id: str, title: str, kind: str) -> None:
+    """Show a running job on the reactor progress ring (indeterminate: a
+    test/build run has no known length). Fail-soft, never blocks the job."""
+    with contextlib.suppress(Exception):
+        import activity
+
+        activity.start(
+            "build" if kind in ("tests", "build") else "task",
+            title,
+            source="jobs",
+            item_id=_activity_id(job_id),
+        )
+
+
+def _mirror_finish(job_id: str, ok: bool, summary: str) -> None:
+    with contextlib.suppress(Exception):
+        import activity
+
+        activity.finish(_activity_id(job_id), ok=ok, detail=summary[:200] or None)
+
+
 @admission
 def start(title: str, kind: str = "job", now: float | None = None) -> str:
     now = time.time() if now is None else now
@@ -56,6 +82,7 @@ def start(title: str, kind: str = "job", now: float | None = None) -> str:
     )
     if get(job_id) is None:
         raise RuntimeError("Job registration failed; no work admitted.")
+    _mirror_start(job_id, title, kind)
     return job_id
 
 
@@ -74,6 +101,7 @@ def finish(
         failures=int(failures),
     )
     _write(job)
+    _mirror_finish(job_id, ok, job["summary"])
 
 
 def get(job_id: str) -> dict | None:

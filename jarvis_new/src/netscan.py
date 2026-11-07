@@ -80,7 +80,7 @@ def _has_raw_caps(nmap: str) -> bool:
 
 
 def privilege_mode(nmap: str | None = None) -> str:
-    """"raw" | "pkexec" | "connect" ("missing" without nmap)."""
+    """ "raw" | "pkexec" | "connect" ("missing" without nmap)."""
     nmap = nmap or nmap_path()
     if not nmap:
         return "missing"
@@ -89,7 +89,9 @@ def privilege_mode(nmap: str | None = None) -> str:
         return forced
     if _has_raw_caps(nmap):
         return "raw"
-    if shutil.which("pkexec") and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+    if shutil.which("pkexec") and (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
         return "pkexec"
     return "connect"
 
@@ -137,14 +139,20 @@ def pick_interface(routes: list[dict], addrs: list[dict]) -> dict | None:
     candidates += [
         (r["dev"], None)
         for r in routes
-        if r.get("dev") and r.get("scope") == "link" and r.get("dst") not in (None, "default")
+        if r.get("dev")
+        and r.get("scope") == "link"
+        and r.get("dst") not in (None, "default")
         and "/" in str(r.get("dst"))
     ]
     for dev, gateway in candidates:
         if not usable(dev):
             continue
         a = by_name[dev]
-        v4 = [i for i in a.get("addr_info", []) if i.get("family") == "inet" and i.get("local")]
+        v4 = [
+            i
+            for i in a.get("addr_info", [])
+            if i.get("family") == "inet" and i.get("local")
+        ]
         if not v4:
             continue
         info = v4[0]
@@ -300,7 +308,13 @@ def parse_host(elem: ET.Element) -> dict | None:
                 )
             )
         matches.append(
-            _clean({"name": m.get("name"), "accuracy": _num(m.get("accuracy")), "classes": classes})
+            _clean(
+                {
+                    "name": m.get("name"),
+                    "accuracy": _num(m.get("accuracy")),
+                    "classes": classes,
+                }
+            )
         )
     if matches:
         best = matches[0]
@@ -308,7 +322,8 @@ def parse_host(elem: ET.Element) -> dict | None:
         dev["osAccuracy"] = best.get("accuracy")
         if len(matches) > 1:
             dev["osAlternatives"] = [
-                _clean({"name": m.get("name"), "accuracy": m.get("accuracy")}) for m in matches[1:3]
+                _clean({"name": m.get("name"), "accuracy": m.get("accuracy")})
+                for m in matches[1:3]
             ]
         types = [c["type"] for c in best.get("classes", []) if c.get("type")]
         if types:
@@ -363,10 +378,12 @@ class XmlStream:
         while True:
             host = self._HOST.search(self._buf)
             prog = self._PROGRESS.search(self._buf)
-            nxt = min((m for m in (host, prog) if m), key=lambda m: m.start(), default=None)
+            nxt = min(
+                (m for m in (host, prog) if m), key=lambda m: m.start(), default=None
+            )
             if nxt is None:
                 break
-            self._buf = self._buf[nxt.end():]
+            self._buf = self._buf[nxt.end() :]
             try:
                 if nxt is host:
                     dev = parse_host(ET.fromstring(nxt.group(0)))
@@ -407,7 +424,11 @@ ACTIVE = ("discovering", "scanning")
 
 def snapshot() -> dict[str, Any]:
     with _lock:
-        snap = {**_state, "devices": list(_state["devices"]), "notes": list(_state["notes"])}
+        snap = {
+            **_state,
+            "devices": list(_state["devices"]),
+            "notes": list(_state["notes"]),
+        }
     snap["preflight"] = _preflight_cache or preflight()
     snap["serverTime"] = time.time()
     return snap
@@ -505,7 +526,16 @@ atexit.register(abort)
 
 def nmap_argv(mode: str, nmap: str, targets: list[str], phase: str) -> list[str]:
     """Command line for one phase. Pure."""
-    base = [nmap, "-T3", "--host-timeout", HOST_TIMEOUT, "--stats-every", "1s", "-oX", "-"]
+    base = [
+        nmap,
+        "-T3",
+        "--host-timeout",
+        HOST_TIMEOUT,
+        "--stats-every",
+        "1s",
+        "-oX",
+        "-",
+    ]
     if phase == "discovery":
         argv = base + ["-sn"]
         if mode == "connect":
@@ -539,7 +569,9 @@ def _stream(
             return -1, ""
         _proc = proc
     err: list[str] = []
-    t = threading.Thread(target=lambda: err.append(proc.stderr.read() or ""), daemon=True)
+    t = threading.Thread(
+        target=lambda: err.append(proc.stderr.read() or ""), daemon=True
+    )
     t.start()
     parser = XmlStream()
     try:
@@ -577,7 +609,9 @@ def _worker(run: int, iface: dict, mode: str) -> None:
     def publish() -> None:
         with _lock:
             if _state["run"] == run:
-                _state["devices"] = sorted(found.values(), key=lambda d: _ip_key(d["ip"]))
+                _state["devices"] = sorted(
+                    found.values(), key=lambda d: _ip_key(d["ip"])
+                )
 
     # ---- phase A: discovery
     def on_discovery(ev: tuple) -> None:
@@ -588,7 +622,9 @@ def _worker(run: int, iface: dict, mode: str) -> None:
             _progress(DISCOVERY_WEIGHT * ev[2] / 100.0)
 
     try:
-        rc, err = _stream(nmap_argv(mode, nmap, [iface["cidr"]], "discovery"), on_discovery, run)
+        rc, err = _stream(
+            nmap_argv(mode, nmap, [iface["cidr"]], "discovery"), on_discovery, run
+        )
         if not current():
             return
         if mode == "connect":
@@ -599,7 +635,9 @@ def _worker(run: int, iface: dict, mode: str) -> None:
             if mode == "pkexec" and rc in (126, 127):
                 _fallback_connect(run, iface, nmap)
                 return
-            _fail(run, (err.strip().splitlines() or ["nmap discovery failed."])[-1][:200])
+            _fail(
+                run, (err.strip().splitlines() or ["nmap discovery failed."])[-1][:200]
+            )
             return
         # The machine we run on: nmap omits its MAC, so overlay local data.
         me = host_entry(iface)
@@ -645,7 +683,9 @@ def _fallback_connect(run: int, iface: dict, nmap: str) -> None:
         if _state["run"] != run:
             return
         _state["mode"] = "connect"
-        _state["notes"].append("Authentication declined. Using TCP connect scan without OS detection.")
+        _state["notes"].append(
+            "Authentication declined. Using TCP connect scan without OS detection."
+        )
         _state["phase"] = "discovering"
         _state["progress"] = 0.0
     _worker(run, iface, "connect")

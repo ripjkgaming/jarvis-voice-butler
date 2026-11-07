@@ -9,3 +9,5 @@
 - Worker is in-process (no prewarmed child processes): imports happen once, so first call is not slower.
 - AGC: LiveKit's WebRTC AGC replaced by jarvis_rt.audio.AutoGain (software).
 - Transcript pacing: TranscriptSynchronizer estimates words/second from received audio; not identical to LiveKit's.
+- sherpa-onnx (mic_clean) was hand-installed, not in uv.lock; 'uv sync' removes it. Reinstall: uv pip install sherpa-onnx==1.13.8. Consider declaring it.
+- tests/test_voice_latency_probe.py deleted: it tested LiveKit-only internals of the old voice_latency probe (already failing once livekit left the venv); replaced by the in-process harness in scripts/voice_latency.py.

@@ -33,7 +33,11 @@ var energy = {
             }
             var matches=effects.stackingOrder.filter(function(w){return w.pid===r.pid && w.caption===r.caption;});
             if(matches.length!==1) return;
-            var w=matches[0];w.jarvisCommand=r;
+            var w=matches[0];
+            if(r.action==="portal") {energy.preparePortal(w,r);return;}
+            if(r.action==="portal-commit") {energy.commitPortal(w);return;}
+            if(r.action==="portal-cancel") {if(w.jarvisEnergy && w.jarvisEnergy.kind==="portal")energy.stop(w);return;}
+            w.jarvisCommand=r;
             if((r.action==="focus" || r.action==="interact") && !w.minimized) energy.maximizeScan(w,true);
         } catch(ignore) {}
     },
@@ -277,6 +281,89 @@ var energy = {
             animations:[{type:Effect.ShaderUniform,fragmentShader:slot.id,uniform:"phase",from:0,to:1}]});}
         catch(error){energy.release(w);}
     },
+    // Cross-display portal: draw one bounded texture across the corridor
+    // from source to destination. Move the hidden real window first, then paint
+    // from its new geometry so removing the track exposes the same final pixels.
+    portalGeometry: function(w,r,origin) {
+        var g=w.geometry,e=w.expandedGeometry||g,to=r.to;
+        var source=origin ? origin.source : e;
+        if(!to || !isFinite(to.x) || !isFinite(to.y) ||
+           !isFinite(to.w) || !isFinite(to.h) || to.w<100 || to.h<100) return null;
+        // Include outward halves, particle glow and the destination gather.
+        var splitPad=source.width*.17+16;
+        var monitor=origin ? origin.monitor : ((w.screen&&w.screen.geometry)||effects.clientArea(KWin.ScreenArea,w));
+        if(!monitor || monitor.width<100 || monitor.height<100)return null;
+        var left=Math.min(source.x-splitPad,to.x-to.w*.06-16);
+        var top=Math.min(source.y-16,to.y-to.h*.06-16);
+        var right=Math.max(source.x+source.width+splitPad,to.x+to.w*1.06+16);
+        var bottom=Math.max(source.y+source.height+16,to.y+to.h*1.06+16);
+        left=Math.min(left,monitor.x-8);top=Math.min(top,monitor.y-8);
+        right=Math.max(right,monitor.x+monitor.width+8);
+        bottom=Math.max(bottom,monitor.y+monitor.height+8);
+        var width=right-left,height=bottom-top;
+        // Prevent huge redirected textures; falls back to a normal KWin move.
+        if(width>8192 || height>2160 || width*height>8500000 ||
+           e.width<100 || e.height<100) return null;
+        var sx=width/e.width,sy=height/e.height;
+        return {canvas:[width,height],
+            monitor:[monitor.x-left,monitor.y-top,monitor.width,monitor.height],
+            source:[source.x-left,source.y-top,source.width,source.height],
+            dest:[to.x-left,to.y-top,to.w,to.h],
+            scale:{value1:sx,value2:sy},
+            translation:{value1:left-g.x-sx*(e.x-g.x)-(1-sx)*g.width/2,
+                         value2:top-g.y-sy*(e.y-g.y)-(1-sy)*g.height/2}};
+    },
+    preparePortal: function(w,r) {
+        if(energy.locked||energy.reduced||!energy.eligible(w,false)||!energy.portalGeometry(w,r))return;
+        energy.stop(w);
+        var e=w.expandedGeometry||w.geometry;
+        var monitor=(w.screen&&w.screen.geometry)||effects.clientArea(KWin.ScreenArea,w);
+        var state={kind:"portal",staged:true,role:-1,remaining:1,ids:[],
+            origin:{source:{x:e.x,y:e.y,width:e.width,height:e.height},
+                monitor:{x:monitor.x,y:monitor.y,width:monitor.width,height:monitor.height}}};
+        w.jarvisEnergy=state;energy.active.push(w);
+        // Finite fail-safe: a failed caller can never leave a window invisible.
+        try {state.ids=animate({window:w,duration:10000,animations:[{type:Effect.Opacity,from:0,to:0}]});}
+        catch(error){energy.release(w);}
+    },
+    commitPortal: function(w) {
+        var state=w.jarvisEnergy;
+        if(!state||!state.staged)return;
+        var e=w.expandedGeometry||w.geometry,origin=state.origin;
+        energy.stop(w);
+        // Use actual compositor geometry, including shadows, panels and maximize.
+        energy.portal(w,{to:{x:e.x,y:e.y,w:e.width,h:e.height}},origin);
+    },
+    portal: function(w,r,origin) {
+        if(energy.locked||energy.reduced||!energy.eligible(w,false))return;
+        var geo=energy.portalGeometry(w,r,origin);
+        if(!geo)return;
+        energy.stop(w);
+        var slot=energy.freeSlot();
+        if(!slot)return;
+        try {
+            effect.setUniform(slot.id,"canvasSize",geo.canvas);
+            effect.setUniform(slot.id,"sourceRect",geo.source);
+            effect.setUniform(slot.id,"portalFrom",geo.source);
+            effect.setUniform(slot.id,"portalTo",geo.dest);
+            effect.setUniform(slot.id,"screenRect",geo.monitor);
+            effect.setUniform(slot.id,"mode",6);
+            effect.setUniform(slot.id,"commanded",0);
+            slot.busy=true;
+            var animations=[
+                {type:Effect.Scale,from:geo.scale,to:geo.scale},
+                {type:Effect.Translation,from:geo.translation,to:geo.translation},
+                {type:Effect.ShaderUniform,fragmentShader:slot.id,uniform:"phase",from:0,to:1}
+            ];
+            var state={slot:slot,mode:6,kind:"portal",role:-1,remaining:animations.length,ids:[]};
+            w.jarvisEnergy=state;energy.active.push(w);
+            state.ids=animate({window:w,duration:7200,curve:QEasingCurve.Linear,animations:animations});
+            console.warn("Jarvis Portal: "+w.caption+" -> "+r.to.x+","+r.to.y+" (7200ms)");
+        } catch(error) {
+            energy.release(w);
+            console.warn("Jarvis Portal fallback: "+error);
+        }
+    },
     bind: function(slot,w,mode,commanded) {
         if (energy.motionOnly && !energy.particleDragEnabled && mode===4) return false;
         var geo=energy.geometry(w,mode===4?4:0);if(!geo)return false;
@@ -384,6 +471,7 @@ var energy = {
         if(!energy.alive(w))return;
         energy.flushRenewals();
         var current=w.jarvisEnergy;
+        if(current && current.kind==="portal")return;
         if(current && current.mode===4) {
             // Geometry events happen outside completion: replace the finite paint
             // batch while preserving the flow clock and remaining release time.

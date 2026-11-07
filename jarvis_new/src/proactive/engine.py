@@ -87,6 +87,8 @@ def decide(signal: Signal, ctx: Context) -> Decision:
         return Decision("toast", f"ignored-{ctx.ignored_streak}x")
     if ctx.spoken_today >= ctx.cap:
         return Decision("toast", "daily-cap")
+    if signal.kind == "calendar" and (ctx.idle_s is None or ctx.idle_s > PAUSE_MAX_S):
+        return Decision("toast", "away")
     if signal.urgency == "high":
         return Decision("say", "high")
     if ctx.idle_s is not None and PAUSE_MIN_S <= ctx.idle_s <= PAUSE_MAX_S:
@@ -197,7 +199,12 @@ def _say(signal: Signal) -> bool:
     import speak
 
     return bool(
-        speak.speak(signal.title, source=f"proactive-{signal.kind}", title="Jarvis")
+        speak.speak(
+            signal.title,
+            source=f"proactive-{signal.kind}",
+            title="Jarvis",
+            **({"require_voice": True} if signal.kind == "calendar" else {}),
+        )
     )
 
 
@@ -215,12 +222,19 @@ def _toast(signal: Signal) -> bool:
     )
     return notify.enqueue(
         {
+            "fingerprint": f"proactive:{signal.key}",
+            "event_id": (signal.action or {}).get("event_id"),
+            "expires_at": (signal.action or {}).get("expires_at"),
             "ts": signal.ts or time.time(),
             "kind": f"proactive-{signal.kind}",
             "source": "proactive",
             "title": f"Jarvis - {signal.kind}",
             "text": signal.detail or signal.title,
-            "speak_text": signal.title,
+            "speak_text": (
+                f"Calendar reminder, Sir: {signal.detail or signal.title}."
+                if signal.kind == "calendar"
+                else signal.title
+            ),
             "urgency": signal.urgency,
         }
     )
@@ -297,6 +311,7 @@ class ProactiveEngine:
             # Phone policy is independent: school hours never inherit desktop critical bypass.
             with contextlib.suppress(Exception):
                 import phone_calls
+
                 phone_calls.offer_signal(signal, now)
             if signal.key in delivered:
                 continue
@@ -323,7 +338,9 @@ class ProactiveEngine:
             else:
                 # A transport outage is not a delivery receipt. Sources that
                 # still offer this signal can retry on the next polling pass.
-                decision = Decision(decision.action, f"{decision.reason}+delivery-failed")
+                decision = Decision(
+                    decision.action, f"{decision.reason}+delivery-failed"
+                )
             with contextlib.suppress(Exception):
                 self.log(
                     "proactive",
@@ -360,6 +377,7 @@ def start_thread(interval: float = 30.0, first_delay: float = 45.0):
             # User-requested phone check-in uses the existing sidecar timer, independently of desktop speech.
             with contextlib.suppress(Exception):
                 import phone_calls
+
                 phone_calls.poll_schedule()
             with contextlib.suppress(Exception):
                 if enabled():

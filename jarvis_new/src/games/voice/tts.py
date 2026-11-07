@@ -7,6 +7,7 @@ Common lines are pre-synthesised and cached. Never touches Jarvis's session.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import queue
 import threading
 import time
@@ -17,24 +18,7 @@ import numpy as np
 
 import audio_shared
 
-CHUNK_S = 0.02
-
-
-async def _drain_native(awaitable, *, propagate_cancel=True):
-    """Keep device ownership until a native writer survives repeated cancel."""
-    future = asyncio.ensure_future(awaitable)
-    interrupted = False
-    while not future.done():
-        try:
-            await asyncio.shield(future)
-        except asyncio.CancelledError:
-            interrupted = True
-            continue
-    result = future.result()
-    if interrupted and propagate_cancel:
-        raise asyncio.CancelledError
-    return result
-
+CHUNK_S = 0.1
 
 COMMON_LINES = [
     "Very good, Sir.",
@@ -158,9 +142,6 @@ class PiperSpeaker:
         self.rate = 22050
         self._cache: OrderedDict[str, bytes] = OrderedDict()
         self._stop = threading.Event()
-        self._speak_lock = asyncio.Lock()
-        self._sessions = set()
-        self._sessions_lock = threading.Lock()
         self._gate = threading.Event()
         self._gate.set()
         self.speaking = False
@@ -168,6 +149,7 @@ class PiperSpeaker:
         self._current_start = 0.0
         self.out_rms = 0.0
         self.stops = 0
+        self._speech_lock = asyncio.Lock()
 
     # ------------------------------------------------------------- loading
     def load(self) -> None:
@@ -255,9 +237,8 @@ class PiperSpeaker:
         self.stops += 1
         self._stop.set()
         self._gate.set()
-        with self._sessions_lock:
-            for session in self._sessions:
-                session.cancelled.set()
+        if self._sink is not None:
+            self._sink.abort()
 
     def hold(self, on: bool) -> None:
         """Pause output (barge-in ducking) until the listener decides."""
@@ -275,121 +256,130 @@ class PiperSpeaker:
         return any(a - margin <= t1 and b + margin >= t0 for a, b in spans)
 
     # ------------------------------------------------------------ speaking
-    async def speak(self, text: str, *, turn_id=None) -> bool:
-        from playback_gate import get_playback_gate
-
-        session = get_playback_gate().session(turn_id)
-        with self._sessions_lock:
-            self._sessions.add(session)
-        try:
-            async with self._speak_lock:
-                if session.cancelled.is_set():
-                    return False
-                self._stop = session.cancelled
-                self._playback_session = session
-                try:
-                    return await self._speak(text)
-                except asyncio.CancelledError:
-                    session.cancelled.set()
-                    producer = getattr(self, "_producer", None)
-                    if producer is not None:
-                        await _drain_native(producer, propagate_cancel=False)
-                    raise
-                finally:
-                    if session.cancelled.is_set() and self._sink is not None:
-                        await _drain_native(
-                            asyncio.to_thread(session.fade, self.rate, self._sink.write)
-                        )
-                    self.speaking = False
-                    self.out_rms = 0.0
-        finally:
-            session.close()
-            with self._sessions_lock:
-                self._sessions.discard(session)
-
-    async def _speak(self, text: str) -> bool:
+    async def speak(self, text: str) -> bool:
         """Speak ``text``; returns False if interrupted by ``stop``.
 
         Rendering runs in a worker thread and each PCM chunk is queued to the
         sink as produced, so audio starts at the first chunk, not the first
         full sentence. ``_play`` still checks the stop flag every 100 ms.
         """
+        async with self._speech_lock:
+            return await self._speak(text)
+
+    async def _speak(self, text: str) -> bool:
         sentences = audio_shared.sentence_split(text)
         if not sentences:
             return True
         sentences = first_segments(sentences[0]) + sentences[1:]
+        self._stop.clear()
         loop = asyncio.get_running_loop()
-        q: queue.Queue[bytes | None] = queue.Queue()
+        q: queue.Queue[bytes | Exception | None] = queue.Queue(maxsize=2)
+        available = asyncio.Event()
+        cancelled = threading.Event()
+
+        def enqueue(item) -> bool:
+            # Backpressure must also be interruptible: a cancelled consumer
+            # no longer drains the queue, so an unconditional put deadlocks.
+            while not cancelled.is_set() and not self._stop.is_set():
+                try:
+                    q.put(item, timeout=0.05)
+                except queue.Full:
+                    continue
+                loop.call_soon_threadsafe(available.set)
+                return True
+            return False
 
         def produce() -> None:
             try:
                 for sent in sentences:
-                    for pcm in self.render_stream(sent):
-                        if self._stop.is_set():
-                            return
-                        q.put(pcm)
-            except Exception:
-                pass
+                    chunks = self.render_stream(sent)
+                    try:
+                        for pcm in chunks:
+                            if not enqueue(pcm):
+                                return
+                    finally:
+                        close = getattr(chunks, "close", None)
+                        if close is not None:
+                            close()
+            except Exception as exc:
+                enqueue(exc)
             finally:
-                q.put(None)
+                enqueue(None)
 
         worker = loop.run_in_executor(None, produce)
-        self._producer = worker
-        completed = True
+        playing = None
+        completed = False
         started = False
-        while True:
-            pcm = await loop.run_in_executor(None, q.get)
-            if pcm is None:
-                break
-            if self._stop.is_set():
-                completed = False
-                break
-            if not started:
-                started = True
-                self.speaking = True
-                self._current_start = time.monotonic()
-            playback = loop.run_in_executor(None, self._play, pcm)
-            try:
-                ok = await asyncio.shield(playback)
-            except asyncio.CancelledError:
-                self._stop.set()
-                await _drain_native(playback, propagate_cancel=False)
-                await _drain_native(worker, propagate_cancel=False)
-                raise
-            if not ok:
-                completed = False
-                break
-        if self._stop.is_set():
-            completed = False
-        if not completed:
-            self._stop.set()  # make the producer bail out
-        await asyncio.shield(worker)
-        if started:
-            self.intervals.append((self._current_start, time.monotonic()))
-            self.intervals = self.intervals[-20:]
-        self.speaking = False
-        self.out_rms = 0.0
-        return completed
+        try:
+            while not self._stop.is_set():
+                available.clear()
+                try:
+                    pcm = q.get_nowait()
+                except queue.Empty:
+                    # No executor thread sits blocked on an empty queue.
+                    # Timed wakeups also notice an external stop promptly.
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(available.wait(), 0.05)
+                    continue
+                if pcm is None:
+                    completed = True
+                    break
+                if isinstance(pcm, Exception):
+                    raise pcm
+                if not started:
+                    started = True
+                    self.speaking = True
+                    self._current_start = time.monotonic()
+                playing = loop.run_in_executor(None, self._play, pcm)
+                if not await asyncio.shield(playing):
+                    break
+            return completed and not self._stop.is_set()
+        finally:
+            cancelled.set()
+            if not completed:
+                self.stop()
+            # Native synthesis/playback cannot be cancelled by asyncio. Wait
+            # for both to release this speaker before another turn can start.
+            cleanup_cancelled = False
+            for pending in (playing, worker):
+                if pending is not None:
+                    while not pending.done():
+                        try:
+                            await asyncio.shield(pending)
+                        except asyncio.CancelledError:
+                            cleanup_cancelled = True
+                            self.stop()
+                        except Exception:
+                            break
+                    # Retrieve worker failures even after cancellation.
+                    if not pending.cancelled():
+                        pending.exception()
+            if started:
+                self.intervals.append((self._current_start, time.monotonic()))
+                self.intervals = self.intervals[-20:]
+            self.speaking = False
+            self.out_rms = 0.0
+            if cleanup_cancelled:
+                raise asyncio.CancelledError
 
     def _play(self, pcm: bytes) -> bool:
-        session = self._playback_session
-        if not session._acquired and not session.acquire():
-            return False
         sink = self._sink_or_open()
+        n = int(self.rate * CHUNK_S) * 2
         data = pcm
         if self.volume != 1.0:
             a = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * self.volume
             data = np.clip(a, -32768, 32767).astype(np.int16).tobytes()
-
-        def write(chunk):
+        for i in range(0, len(data), n):
+            if self._stop.is_set():
+                return False
             while not self._gate.wait(0.02):
                 if self._stop.is_set():
-                    break
+                    return False
+            chunk = data[i : i + n]
             a = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
             self.out_rms = float(np.sqrt(np.mean(a * a))) if a.size else 0.0
             sink.write(chunk)
-
-        return session.write(data, self.rate, write)
+        return not self._stop.is_set()
 
     def close(self) -> None:
         self.stop()

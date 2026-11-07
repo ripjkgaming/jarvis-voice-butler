@@ -48,7 +48,9 @@ class HistoryView:
         if found is None:
             raise HistoryError(f"No such game: {ref}")
         rec = found
-        if not (isinstance(found, dict) and "moves" in found) and not hasattr(found, "moves"):
+        if not (isinstance(found, dict) and "moves" in found) and not hasattr(
+            found, "moves"
+        ):
             rec = self.store.load(found["id"])
         elif isinstance(found, dict) and "moves" not in found:
             rec = self.store.load(found["id"])

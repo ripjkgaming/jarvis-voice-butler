@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bridgeCaptions, bridgeChatFull } from '@/lib/bridge';
 import { getCharacterState, noteSwitch, useCharacters } from '@/lib/character/store';
 import type { CharacterPublic } from '@/lib/character/types';
-import { CharacterChip } from './character-chip';
 import s from './character.module.css';
 
 type Msg = {
@@ -203,7 +202,6 @@ export function ChatDock() {
           void send();
         }}
       >
-        <CharacterChip up />
         <input
           ref={input}
           className={s.input}

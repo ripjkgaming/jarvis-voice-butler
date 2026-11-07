@@ -47,6 +47,10 @@ class TranscriptSynchronizer:
     """
 
     DEFAULT_WPS = 2.7
+    #: Floor on the release rate: text that trails the audio must catch up, not slow down.
+    MIN_WPS = 3.0
+    #: Show words this far ahead of playout to cover client buffering.
+    LEAD_S = 0.4
     TICK = 0.05
 
     def __init__(
@@ -82,13 +86,13 @@ class TranscriptSynchronizer:
     def _allowed(self) -> int:
         if self._started_at is None:
             return 0
-        played = min(self._clock() - self._started_at, self._audio_s)
+        played = min(self._clock() - self._started_at + self.LEAD_S, self._audio_s)
         wps = (
             (self._seen_words / self._audio_s)
             if self._audio_s > 0.5
             else self.DEFAULT_WPS
         )
-        return int(played * max(wps, 0.5)) + 1
+        return int(played * max(wps, self.MIN_WPS)) + 1
 
     async def _run(self) -> None:
         while self._released < len(self._words):

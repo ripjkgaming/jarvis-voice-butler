@@ -135,12 +135,21 @@ def verify_worker_result(result: dict):
             verification.get(key) is not True
             for key in ("model_verified", "effort_verified", "tools_disabled")
         )
-        or verification.get("provider") != "openai"
-        or verification.get("cli_version") != VERIFIED_VERSION
+        or (
+            (
+                verification.get("provider") != "openrouter"
+                or verification.get("transport") != "openrouter-chat-v1"
+            )
+            if MODEL == "dots-studio/dots-3-note-preview:free"
+            else (
+                verification.get("provider") != "openai"
+                or verification.get("cli_version") != VERIFIED_VERSION
+            )
+        )
         or not verification.get("turn_id")
     ):
         raise TradeError(
-            "Trading worker did not verify exact GPT-6 Astra/medium and proposal-only isolation."
+            "Trading worker did not verify the configured model and proposal-only isolation."
         )
 
 
@@ -672,7 +681,7 @@ class Engine:
         result = None
         try:
             if self.worker_factory is None:
-                from .worker import PaperMarketWorker
+                from .openrouter_worker import OpenRouterWorker as PaperMarketWorker
 
                 worker = PaperMarketWorker(timeout=45)
             else:
@@ -752,7 +761,7 @@ class Engine:
                     identifier, self.clock(), context, "preflight"
                 ):
                     return {"status": "duplicate", "decision_id": identifier}
-                from .worker import PaperMarketWorker
+                from .openrouter_worker import OpenRouterWorker as PaperMarketWorker
 
                 worker = PaperMarketWorker(timeout=120)
                 result = None

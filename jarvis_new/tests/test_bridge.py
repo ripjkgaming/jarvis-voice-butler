@@ -42,6 +42,7 @@ def test_health_and_status_shape():
             "pipeline",
             "local_unlocked",
             "livekit_configured",
+            "voice_transport_ready",
             "voice_model_present",
             "whatsapp_reachable",
             "log",
@@ -765,8 +766,16 @@ def _bridge_server(token="test-token"):
     return server
 
 
-def test_token_post_mints_join_shape():
-    pytest.importorskip("livekit.api")
+def _claims_of(token: str) -> dict:
+    import dataclasses
+
+    from jarvis_rt.transport.tokens import load_secret, verify_call_token
+
+    return dataclasses.asdict(verify_call_token(token, load_secret()))
+
+
+def test_token_post_mints_join_shape(monkeypatch, tmp_path):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     server = _bridge_server()
     try:
         status, body = _post(server, "/token", {}, token="test-token")
@@ -776,13 +785,12 @@ def test_token_post_mints_join_shape():
     assert body["ok"] is True
     assert body["roomName"].startswith("voice_assistant_room_")
     assert body["participantName"] == "user"
-    assert body["participantToken"].count(".") == 2
+    assert body["serverUrl"] == "ws://127.0.0.1:7880/voice"
+    assert _claims_of(body["participantToken"])["mode"] == "speaker"
 
 
-def test_token_post_named_room_no_dispatch():
-    pytest.importorskip("livekit.api")
-    import base64
-
+def test_token_post_named_room_is_observer(monkeypatch, tmp_path):
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     server = _bridge_server()
     try:
         status, body = _post(
@@ -795,8 +803,9 @@ def test_token_post_named_room_no_dispatch():
         server.server_close()
     assert status == 200, body
     assert body["roomName"] == "jarvis-4242"
-    payload = body["participantToken"].split(".")[1]
-    assert "roomConfig" not in json.loads(base64.urlsafe_b64decode(payload + "=="))
+    claims = _claims_of(body["participantToken"])
+    assert claims["room"] == "jarvis-4242"
+    assert claims["mode"] == "observer"
 
 
 def test_token_post_rejects_bad_room_and_strangers():
@@ -1881,3 +1890,31 @@ def test_handler_keepalive_reuses_connection_and_drains_unread_body():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_voice_transport_ready_probes_loopback(monkeypatch):
+    import socket
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    try:
+        monkeypatch.setenv("JARVIS_VOICE_PORT", str(port))
+        assert bridge.voice_transport_ready() is True
+    finally:
+        listener.close()
+    # Port now closed: fail-soft False, no exception.
+    assert bridge.voice_transport_ready() is False
+
+
+def test_status_reports_transport_and_deprecated_livekit_alias(monkeypatch):
+    monkeypatch.delenv("LIVEKIT_URL", raising=False)
+    monkeypatch.delenv("LIVEKIT_API_KEY", raising=False)
+    monkeypatch.delenv("LIVEKIT_API_SECRET", raising=False)
+    monkeypatch.setattr(bridge, "voice_transport_ready", lambda: False)
+    status = bridge.build_status()
+    assert status["livekit_configured"] is True
+    assert status["voice_transport_ready"] is False
+    monkeypatch.setattr(bridge, "voice_transport_ready", lambda: True)
+    assert bridge.build_status()["voice_transport_ready"] is True

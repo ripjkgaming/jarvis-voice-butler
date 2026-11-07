@@ -1,90 +1,19 @@
-:root {
-  --bg: #02090f;
-  --cy: #5fe3ff;
-  --cy-d: rgba(95, 227, 255, .42);
-  --cy-f: rgba(95, 227, 255, .12);
-  --ice: #e6f7ff;
-  --am: #ffb347;
-  --fs: 12.5px;
-  --lh: 17px;
-  --mono: "Commit Mono", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
-}
+:root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; color: #eee; background: #181818; }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--cy); overflow-x: hidden; }
-body { font: 500 var(--fs)/var(--lh) var(--mono); min-height: 100vh; -webkit-font-smoothing: antialiased; }
-canvas#bg, canvas#wipe { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
-canvas#bg { z-index: 0; }
-canvas#wipe { z-index: 50; pointer-events: none; }
-#probe { position: absolute; visibility: hidden; white-space: pre; font: inherit; top: 0; left: 0; }
+body { margin: 0; }
+main { max-width: 760px; margin: 48px auto; padding: 0 24px; }
+h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 32px; }
+label { display: block; margin-bottom: 8px; }
+.search-row { display: flex; gap: 8px; }
+input, button { font: inherit; color: inherit; background: #252525; border: 1px solid #777; border-radius: 4px; padding: 10px 12px; min-height: 44px; }
+input { flex: 1; min-width: 0; } button { cursor: pointer; }
+a { color: #afd0ff; text-decoration: none; overflow-wrap: anywhere; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid #afd0ff; outline-offset: 3px; }
+ul { list-style: none; padding: 0; } li { margin: 8px 0; } li a { display: inline-block; padding: 4px 0; }
+.empty, #status { color: #bbb; }
+@media(max-width: 480px) { main { margin-top: 24px; padding: 0 16px; } }
 
-#app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; padding: 14px 18px 8px; max-width: 100vw; }
-#top, #cols { display: grid; grid-template-columns: minmax(34ch, 27%) minmax(0, 1fr) minmax(34ch, 27%); gap: 0 18px; }
-#top { align-items: start; margin-bottom: 14px; min-height: 60px; }
-#cols { flex: 1; align-items: start; }
-.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-#colM { align-self: stretch; justify-content: flex-end; }
-#spacer { flex: 1; min-height: 34vh; }
-
-#brand { white-space: nowrap; padding-top: 2px; }
-#brand .mark { color: var(--cy); text-shadow: 0 0 8px var(--cy); }
-#brand .word { color: var(--ice); font-weight: 700; letter-spacing: .35em; font-size: 17px; margin-left: 4px; }
-#brand .sub { display: block; color: var(--cy-d); letter-spacing: .3em; font-size: 10px; margin-top: 3px; }
-#clock { text-align: right; justify-self: end; }
-#time { font-size: 30px; line-height: 34px; color: var(--ice); font-weight: 700; letter-spacing: .06em; text-shadow: 0 0 14px rgba(95, 227, 255, .55); }
-#date { color: var(--cy-d); letter-spacing: .18em; text-transform: uppercase; font-size: 11px; }
-
-.panel { background: rgba(2, 9, 15, .8); color: var(--cy); white-space: pre; position: relative; max-width: 100%; transition: opacity .35s; }
-.panel.center { margin-inline: auto; }
-.panel[hidden] { display: none; }
-.panel .ph, .panel .pf { color: var(--cy-d); height: var(--lh); overflow: hidden; }
-.panel .ph b { color: var(--ice); font-weight: 700; }
-.panel .ph u { text-decoration: none; color: var(--am); }
-.panel:hover .ph, .panel:hover .pf { color: rgba(95, 227, 255, .7); }
-.r { display: flex; height: var(--lh); }
-.r > i { font-style: normal; color: var(--cy-d); width: 1ch; flex: none; }
-.r > .c { flex: 1; min-width: 0; overflow: hidden; padding: 0 1ch; display: flex; align-items: center; white-space: pre; }
-.c .t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.dim { color: var(--cy-d); }
-.ice { color: var(--ice); }
-.am { color: var(--am); }
-.on { color: var(--cy); text-shadow: 0 0 6px rgba(95, 227, 255, .45); }
-.off { color: rgba(95, 227, 255, .2); }
-.hi { color: var(--ice); }
-.sp { flex: 1; }
-
-a.lnk { color: var(--cy); text-decoration: none; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; cursor: pointer; }
-a.lnk .lbl { overflow: hidden; text-overflow: ellipsis; white-space: pre; min-width: 0; }
-a.lnk .key { color: var(--am); width: 2ch; flex: none; }
-a.lnk img { width: 13px; height: 13px; margin-right: 1ch; flex: none; filter: grayscale(.55) brightness(1.1); image-rendering: auto; }
-a.lnk:hover, a.lnk:focus-visible { color: var(--ice); background: var(--cy-f); outline: none; text-shadow: 0 0 8px var(--cy); }
-a.lnk:hover img { filter: none; }
-a.tile { flex: none; }
-
-/* search */
-#search .c { align-items: center; font-size: 15px; }
-#search .pr { color: var(--am); margin-right: 1ch; font-weight: 700; flex: none; }
-#search .typed { color: var(--ice); white-space: pre; overflow: hidden; text-overflow: clip; }
-#search .cur { display: inline-block; width: 1ch; height: 1.1em; background: var(--cy); box-shadow: 0 0 8px var(--cy); animation: blink 1.05s steps(1) infinite; flex: none; }
-#search.blur .cur { opacity: .35; animation: none; }
-#search input { position: absolute; inset: 0; width: 100%; opacity: 0; border: 0; background: transparent; color: transparent; font: inherit; cursor: text; }
-@keyframes blink { 50% { opacity: 0; } }
-
-#hint { text-align: center; color: var(--cy-d); font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; padding: 10px 0 4px; }
-body.boot .panel { opacity: 0; }
-body.boot #top, body.boot #hint { opacity: 0; }
-#top, #hint { transition: opacity .4s; }
-
-@media (max-width: 960px) {
-  #top { grid-template-columns: 1fr; gap: 8px; }
-  #clock { justify-self: start; text-align: left; order: 3; }
-  #searchSlot { order: 2; }
-  #cols { grid-template-columns: minmax(0, 1fr); }
-  #colM { order: 1; }
-  #colL { order: 2; margin-top: 10px; }
-  #colR { order: 3; margin-top: 10px; }
-  #spacer { min-height: 36vh; flex: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  #search .cur { animation: none; }
-  .panel, #top, #hint { transition: none; }
-}
+/* A quiet, static signature; the search and links stay the focus. */
+.ascii-signature { margin-top: 48px; color: #777; user-select: none; }
+.ascii-signature pre { margin: 0; font: 11px/1.35 ui-monospace, monospace; }

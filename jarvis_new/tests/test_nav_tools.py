@@ -4,7 +4,7 @@ one validated step per call, no regex grammar needed."""
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import projects
 from projects import build_nav_commands

@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import system.reddit as reddit_mod
 from system.reddit import RedditTools, _clean_html, parse_reddit_feed

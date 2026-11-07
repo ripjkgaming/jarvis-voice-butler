@@ -45,7 +45,14 @@ def test_concurrent_pollers_share_one_sensor_refresh(
         results = list(pool.map(poll, range(12)))
 
     assert all(result == results[0] for result in results)
-    assert len(calls) == 1
+    # Resolving a virtual default is part of the one coalesced audio probe.
+    if probe_name == "_volume_status":
+        assert calls == [
+            ["pactl", "get-default-sink"],
+            ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+        ]
+    else:
+        assert len(calls) == 1
 
 
 @pytest.mark.parametrize(

@@ -393,3 +393,9 @@ async def test_voice_confirmation_during_speech_is_consumed_without_grant(monkey
                 role="user", id="echo-turn", text_content="confirm visual watch"
             ),
         )
+
+
+@pytest.fixture(autouse=True)
+def _pin_gated_screen_consent(monkeypatch):
+    # These tests assert the consent-gated path; the default (unset) env pre-approves it.
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

@@ -1,0 +1,206 @@
+/* Watch Mode intro: the reactor orb becomes an eye, then the HUD blacks out
+   while the monitor cards (src/watch_mode.py) fade in from black. Every
+   animation runs on the backend clock: --d is minus the seconds already
+   elapsed, --b the blackout start and --c the cover fade length. */
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.black {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  animation: wiBlack calc(var(--c) * 0.85) ease-in forwards;
+  animation-delay: calc(var(--d) + var(--b));
+}
+
+.eye {
+  position: absolute;
+  left: var(--cx);
+  top: var(--cy);
+  width: var(--w);
+  aspect-ratio: 320 / 200;
+  transform: translate(-50%, -50%);
+  color: var(--eye, #5fe3ff);
+  filter: drop-shadow(0 0 14px color-mix(in srgb, currentColor 70%, transparent));
+  animation:
+    wiDrift calc(var(--c) + 0.5s) cubic-bezier(0.55, 0, 0.25, 1) forwards,
+    wiOut calc(var(--c) * 0.5) ease-in forwards;
+  animation-delay: calc(var(--d) + var(--b) - 0.5s), calc(var(--d) + var(--b) + var(--c) * 0.55);
+}
+
+.svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.orb {
+  transform-origin: 0 0;
+  animation: wiOrb 0.9s ease-out both;
+  animation-delay: calc(var(--d));
+}
+
+.lid {
+  transform-origin: 0 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  animation: wiLid 1.05s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--d) + 0.55s);
+}
+
+.lidGlyphs {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-dasharray: 2 7;
+  opacity: 0.6;
+  transform-origin: 0 0;
+  animation: wiLid 1.05s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--d) + 0.6s);
+}
+
+.scan {
+  animation: wiScan 1.5s ease-in-out both;
+  animation-delay: calc(var(--d) + 1.5s);
+}
+
+.iris {
+  transform-origin: 0 0;
+  animation: wiIris 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--d) + 0.7s);
+}
+
+.ring {
+  fill: none;
+  stroke: currentColor;
+}
+
+.ticks {
+  transform-origin: 0 0;
+  animation: wiSpin 14s linear infinite;
+}
+
+.pupil {
+  fill: #000;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  transform-origin: 0 0;
+  animation: wiPupil 1.4s ease-in-out both;
+  animation-delay: calc(var(--d) + 1.5s);
+}
+
+.core {
+  fill: #fff;
+}
+
+@keyframes wiBlack {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wiDrift {
+  to {
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(var(--s2));
+  }
+}
+
+@keyframes wiOut {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes wiOrb {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes wiLid {
+  0% {
+    opacity: 0;
+    transform: scale(0.02, 0.02);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1, 0.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes wiIris {
+  0% {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes wiScan {
+  0% {
+    transform: translate(0, 0);
+  }
+  30% {
+    transform: translate(-30px, -6px);
+  }
+  70% {
+    transform: translate(30px, 5px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes wiPupil {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.62);
+  }
+}
+
+@keyframes wiSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .black,
+  .eye,
+  .orb,
+  .lid,
+  .lidGlyphs,
+  .scan,
+  .iris,
+  .pupil,
+  .ticks {
+    animation-duration: 0.01s !important;
+  }
+}

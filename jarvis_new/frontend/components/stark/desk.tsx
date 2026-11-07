@@ -13,9 +13,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { GlyphChart } from '@/components/ascii/glyphs';
 import { usePaperMarket } from '@/components/markets/PaperTradingPanel';
 import { type UsageSnapshot, estimatedCost, subscribeUsage, tokenCount } from '@/lib/ai-usage';
+import { useAscii } from '@/lib/character/hooks';
 import { type ReplyDraft } from '@/lib/drafts';
 import { decimalNumber, equityChart, money, percentage } from '@/lib/paper-market';
 import { useSharedPoll } from '@/lib/shared-poll';
+import { ClassicDeskSpark } from './classic';
 import { Frame } from './frame';
 import s from './stark.module.css';
 
@@ -68,6 +70,7 @@ function UsageCard({ index, live }: { index: number; live: boolean }) {
 
 /** PAPER MARKET: equity, return, P&L, market state and an equity line. */
 function MarketCard({ index, live }: { index: number; live: boolean }) {
+  const ascii = useAscii();
   const { snapshot, error } = usePaperMarket(undefined, 0, live);
   const chart = useMemo(
     () => (snapshot ? equityChart(snapshot.equity_history, 'equity_usd') : null),
@@ -109,15 +112,19 @@ function MarketCard({ index, live }: { index: number; live: boolean }) {
             />
           </div>
           {chart && chart.count > 1 ? (
-            <GlyphChart
-              values={chart.segments.flat().map((p) => p.value)}
-              width={30}
-              rows={2}
-              lo={chart.low}
-              hi={chart.high}
-              tone={toneOf(acct.total_pnl_usd)}
-              className={s.deskSpark}
-            />
+            ascii ? (
+              <GlyphChart
+                values={chart.segments.flat().map((p) => p.value)}
+                width={30}
+                rows={2}
+                lo={chart.low}
+                hi={chart.high}
+                tone={toneOf(acct.total_pnl_usd)}
+                className={s.deskSpark}
+              />
+            ) : (
+              <ClassicDeskSpark segments={chart.segments} tone={toneOf(acct.total_pnl_usd)} />
+            )
           ) : null}
           <span className={s.deskSub} data-tone={failed ? 'warn' : undefined}>
             {failed

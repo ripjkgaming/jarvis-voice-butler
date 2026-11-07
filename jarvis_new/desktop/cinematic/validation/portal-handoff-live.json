@@ -1,0 +1,35 @@
+{
+  "checks": "Live KWin / Wayland, owned QLabel; normal forward and maximized reverse",
+  "results": [
+    {
+      "destination": "DP-1",
+      "move_seconds": 0.626,
+      "destination_geometry": [
+        4446.0,
+        308.0,
+        708.0,
+        464.0
+      ],
+      "compositor_finished_after_seconds": 8.363,
+      "geometry_stable_throughout": true,
+      "ascii_idle_throughout": true,
+      "portal_played": true,
+      "final_energy_state": "No window is animated"
+    },
+    {
+      "destination": "HDMI-A-2",
+      "move_seconds": 0.63,
+      "destination_geometry": [
+        0.0,
+        0.0,
+        1920.0,
+        1040.0
+      ],
+      "compositor_finished_after_seconds": 8.531,
+      "geometry_stable_throughout": true,
+      "ascii_idle_throughout": true,
+      "portal_played": true,
+      "final_energy_state": "No window is animated"
+    }
+  ]
+}

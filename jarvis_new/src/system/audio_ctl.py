@@ -20,13 +20,15 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+import audio_output
+
 STEP_PCT = 10
 MAX_PCT = 150
 
 
 def _run(argv: list[str], run=None) -> subprocess.CompletedProcess | None:
     try:
-        return (run or subprocess.run)(
+        return (run or audio_output.run)(
             argv, capture_output=True, text=True, timeout=5.0
         )
     except Exception:

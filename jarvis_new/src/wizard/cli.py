@@ -4,7 +4,7 @@ Usage:
     python -m wizard status            # JSON-ish summary of all steps
     python -m wizard check             # run every step's check (no installs)
     python -m wizard run               # run steps, skipping green (interactive)
-    python -m wizard run --step livekit
+    python -m wizard run --step venvs
     python -m wizard run --force       # redo even green steps
     python -m wizard deps              # print system-deps report + install cmds
     python -m wizard hf-audit          # HF cache inventory + optional prune

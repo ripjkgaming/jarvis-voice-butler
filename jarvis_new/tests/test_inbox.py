@@ -2,7 +2,7 @@ import base64
 import json
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import system.inbox as inbox_mod
 from system.inbox import (
@@ -731,3 +731,9 @@ def test_scam_body_is_dry_and_shares_no_contact() -> None:
     body = scam_body("You won a prize")
     assert "scam" in body and "You won a prize" in body
     assert "+65" not in body and "WhatsApp" not in body
+
+
+@pytest.fixture(autouse=True)
+def _explicit_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests cover the confirm-phrase gates, so owner pre-approval is off."""
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

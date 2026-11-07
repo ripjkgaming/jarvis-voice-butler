@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
+from jarvis_rt import RunContext, function_tool
 
 import phone_session
 from system import LocalSystemError, log_action, require_local
@@ -341,7 +341,9 @@ class ComputerUseService:
                 "verification": None,
                 "say": "I'm working on that computer task, Sir. Ask for its status or tell me to cancel.",
             }
-        ticket_token = phone_session._APPROVAL_EFFECT.set(phone_session.approval_ticket())
+        ticket_token = phone_session._APPROVAL_EFFECT.set(
+            phone_session.approval_ticket()
+        )
         try:
             self._task = asyncio.create_task(
                 self._run(task.strip(), steps, limits, lease)

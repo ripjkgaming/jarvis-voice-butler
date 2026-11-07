@@ -7,7 +7,7 @@ read-back + confirm tools). Senders are injected so nothing real is sent.
 from __future__ import annotations
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system import muse
 from system.muse_tools import MuseTools

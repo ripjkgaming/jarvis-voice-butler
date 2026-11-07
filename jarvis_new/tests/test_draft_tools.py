@@ -6,7 +6,7 @@ import base64
 import time
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import draft_engine
 import system.inbox as inbox_mod
@@ -446,3 +446,9 @@ def test_shell_verb_requires_exit_zero(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert projects.shell_verb("draftsshow", bad) is False
     assert projects.shell_verb("draftsshow", good) is True
+
+
+@pytest.fixture(autouse=True)
+def _explicit_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests cover the confirm-phrase gates, so owner pre-approval is off."""
+    monkeypatch.setenv("JARVIS_AUTO_APPROVE", "0")

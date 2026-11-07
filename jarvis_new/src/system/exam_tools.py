@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
-
+from jarvis_rt import RunContext, ToolError, function_tool
 from system import LocalSystemError, log_action, require_local
 
 
@@ -32,6 +30,10 @@ class ExamTools:
         chemistry" = find with subject; "add maths paper 2 on 14 Oct at 9am" =
         add; "remove the biology mock" = remove. Imported exam timetables
         (import_schedule_to_calendar) land here automatically.
+
+        This manages only the LOCAL exam schedule. It does not create,
+        update, delete or verify a Google Calendar event. If the owner asks
+        for Google Calendar, use calendar_add or calendar_events_on instead.
 
         Args:
             action: next, upcoming, find, add, or remove.
@@ -92,7 +94,10 @@ class ExamTools:
             log_action("exams", f"{outcome} {subject} {iso}")
             entry = exams.find(subject, include_past=True)
             said = exams.describe(entry[-1]) if entry else f"{subject} on {iso}"
-            return {"say": f"{outcome.title()}: {said}."}
+            return {
+                "say": f"{outcome.title()} in your local exam schedule: {said}. Google Calendar was not changed.",
+                "scope": "local_exam_schedule",
+            }
         if action in ("remove", "delete"):
             gone = exams.remove(subject, exams.parse_date(date) if date else "")
             if not gone:

@@ -29,11 +29,10 @@ async def test_job_shutdown_releases_owned_piper_after_startup_failure(monkeypat
     def stop_at_handlers(*args):
         raise StopStartupError
 
-    session = SimpleNamespace(tts=plugin, on=stop_at_handlers)
+    session = SimpleNamespace(backend=SimpleNamespace(tts=plugin), on=stop_at_handlers)
     monkeypatch.setenv("JARVIS_LOCAL", "0")
     monkeypatch.setattr(goodnight, "cancel", lambda: None)
     monkeypatch.setattr(needle_router, "warm_up", lambda: None)
-    monkeypatch.setattr(agent, "silero", None)
     monkeypatch.setattr(
         agent, "BrowserManager", lambda **kwargs: SimpleNamespace(close=AsyncMock())
     )

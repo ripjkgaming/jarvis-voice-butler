@@ -35,17 +35,27 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 import phone_session
-from system import LocalSystemError, log_action, require_local, run_cmd
+from system import (
+    LocalSystemError,
+    log_action,
+    require_local,
+    run_cmd,
+    full_filesystem_access,
+    full_command_access,
+    launch_gui,
+)
 
 DATA_DIR = Path.home() / ".jarvis" / "voice-butler"
 TODOS_PATH = DATA_DIR / "todos.json"
 SHORTCUTS_PATH = DATA_DIR / "shortcuts.json"
 SCREENSHOTS_DIR = DATA_DIR / "screenshots"
-HOME_ROOT = Path(os.environ.get("JARVIS_HOME", str(Path.home()))).resolve()
+# JARVIS_HOME selects the app state directory (normally ~/.jarvis).
+# File operations must use the OS home, including when launched by the shell.
+HOME_ROOT = Path.home().resolve()
 
 _TODO_STOP = {
     "a",
@@ -108,17 +118,19 @@ def _todo_match_score(query: str, candidate: str) -> float:
 
 
 def _resolve_user_path(p: str) -> Path | None:
-    """Absolute-or-~/ path confined to /home/ripjk (+ /tmp). None = refused."""
+    """Resolve user paths from home, confined to home (+ /tmp)."""
     s = (p or "").strip()[:400]
     if not s:
         return None
     if s.startswith("~"):
         s = str(Path.home() / s[1:].lstrip("/"))
-    base = Path(s) if s.startswith("/") else Path.cwd() / s
+    base = Path(s) if s.startswith("/") else HOME_ROOT / s
     try:
         rp = base.resolve()
     except Exception:
         rp = base.absolute()
+    if full_filesystem_access():
+        return rp
     if (
         rp == HOME_ROOT
         or HOME_ROOT in rp.parents
@@ -384,15 +396,26 @@ async def _return_to(title: str) -> None:
         pass
 
 
-async def _background_player(before: set[str], previous: str) -> None:
-    """Minimize the new player window; fall back to refocusing `previous`."""
+async def _reveal_player(before: set[str]) -> dict:
+    """Keep the new player window visible and in front; report what KWin saw."""
     from system import window_ctl
 
-    with contextlib.suppress(Exception):
-        if await asyncio.to_thread(window_ctl.background_new_brave, before, previous):
-            return
-        if previous:
-            await _return_to(previous)
+    try:
+        return await asyncio.to_thread(window_ctl.reveal_new_brave, before)
+    except Exception:
+        return {"found": False, "visible": False, "front": False, "title": ""}
+
+
+def _visibility_line(seen: dict | None) -> str:
+    if seen is None:
+        return ""
+    if not seen.get("found"):
+        return " I could not see the player window appear, so I cannot confirm it is visible."
+    if seen.get("visible") and seen.get("front"):
+        return " The player window is on screen and in front."
+    if seen.get("visible"):
+        return " The player window is not minimised but I could not confirm it is in front."
+    return " The player window is still minimised according to KWin."
 
 
 def _source(context) -> str:
@@ -892,11 +915,6 @@ class SystemTools:
             from system.desktop import sandbox_display
 
             display = sandbox_display()
-            previous = (
-                ""
-                if show or display
-                else await asyncio.to_thread(window_ctl.active_title)
-            )
             from media_selection import receipt, resolve_async
 
             ticket = phone_session.approval_ticket()
@@ -920,7 +938,7 @@ class SystemTools:
                 raise ToolError("Brave is not installed on this system.")
             before = (
                 None
-                if show or display
+                if display
                 else await asyncio.to_thread(window_ctl.brave_window_ids)
             )
             argv = [brave, "--new-window", url]
@@ -940,19 +958,25 @@ class SystemTools:
                 raise ToolError("I could not launch Brave.") from None
             result = receipt(selection, launched=True)
             result.update(pid=str(proc.pid or 0), url=url)
-            action_guard.settle("play_media", {"query": query}, _source(context),
-                                True, result["say"], outcome=result)
+            if before is not None:
+                seen = await _reveal_player(before)
+                result["window"] = (
+                    "visible"
+                    if seen.get("visible") and seen.get("front")
+                    else "unconfirmed"
+                )
+                result["say"] = str(result.get("say", "")) + _visibility_line(seen)
+            action_guard.settle(
+                "play_media",
+                {"query": query},
+                _source(context),
+                True,
+                result["say"],
+                outcome=result,
+            )
             # Logging cannot turn an already-dispatched launch into a safe retry.
             with contextlib.suppress(Exception):
                 log_action("play", url)
-            if before is not None:
-                _bg = asyncio.create_task(_background_player(before, previous))
-                self._tasks.add(_bg)
-                _bg.add_done_callback(self._tasks.discard)
-            elif previous:
-                _bg = asyncio.create_task(_return_to(previous))
-                self._tasks.add(_bg)
-                _bg.add_done_callback(self._tasks.discard)
             return result
         except BaseException:
             action_guard.settle("play_media", {"query": query}, _source(context), False)
@@ -1083,11 +1107,14 @@ class SystemTools:
         return {"paths": "; ".join(hits), "say": f"Found: {'; '.join(hits[:4])[:350]}."}
 
     @function_tool()
-    async def list_dir(self, context: RunContext, path: str = ".") -> dict[str, str]:
-        """List a directory (confined to /home/ripjk and /tmp).
+    async def list_dir(
+        self, context: RunContext, path: str = ".", sort_by: str = "name"
+    ) -> dict:
+        """List a local directory with exact paths and modification times.
 
         Args:
-            path: Directory path, absolute or ~/... .
+            path: Directory path, absolute, relative to home, or ~/... .
+            sort_by: "name" or "newest" for latest-file requests.
         """
         try:
             require_local()
@@ -1100,14 +1127,35 @@ class SystemTools:
             raise ToolError(f"No such folder: {rp}.")
         if rp.is_file():
             return {"say": f"{rp} is a file ({rp.stat().st_size} bytes)."}
-        rows = sorted(rp.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))[:40]
+        try:
+            entries = [
+                {
+                    "name": item.name,
+                    "path": str(item),
+                    "is_dir": item.is_dir(),
+                    "modified_at": item.stat(follow_symlinks=False).st_mtime,
+                }
+                for item in rp.iterdir()
+            ]
+        except OSError as exc:
+            raise ToolError(f"Cannot list {rp}: {exc.strerror or str(exc)}") from exc
+        if sort_by == "newest":
+            entries.sort(key=lambda item: item["modified_at"], reverse=True)
+        else:
+            entries.sort(key=lambda item: (not item["is_dir"], item["name"].lower()))
+        entries = entries[:40]
+        rows = [Path(item["path"]) for item in entries]
         bits = "; ".join((d.name + "/") if d.is_dir() else d.name for d in rows)[:500]
         log_action("files-list", str(rp))
-        return {"say": f"{rp.name or '/'} ({len(rows)} shown): {bits or 'empty'}."}
+        return {
+            "path": str(rp),
+            "entries": entries,
+            "say": f"{rp.name or '/'} ({len(rows)} shown): {bits or 'empty'}.",
+        }
 
     @function_tool()
     async def read_file(self, context: RunContext, path: str) -> dict[str, str]:
-        """Read a text file up to ~4KB (confined to /home/ripjk and /tmp).
+        """Read a local text file up to ~4KB, including drives with full access.
 
         Args:
             path: File path, absolute or ~/... .
@@ -1154,7 +1202,10 @@ class SystemTools:
             raise ToolError("Provide text to write.")
         if len(text) > MAX_TEXT_BYTES or len(text.encode("utf-8")) > MAX_TEXT_BYTES:
             raise ToolError("Text writes are limited to 256 KiB of UTF-8 bytes.")
-        target = Path(os.path.abspath(os.path.expanduser(path.strip())))
+        target = Path(os.path.expanduser(path.strip()))
+        if not target.is_absolute():
+            target = HOME_ROOT / target
+        target = Path(os.path.abspath(target))
         # Do not resolve symlinks here: the verifier refuses every symlink component.
         ticket = phone_session.approval_ticket()
         def authorize():
@@ -1163,7 +1214,17 @@ class SystemTools:
                 raise LocalSystemError("Guest mode refuses owner actions.")
         args = {"path": str(target), "text_digest": hashlib.sha256(text.encode("utf-8")).hexdigest()}
         def work():
-            result = write_verified(target, text, roots=(HOME_ROOT, Path("/tmp")), authorize=authorize, request_id=__import__("action_guard").request_id(context))
+            result = write_verified(
+                target,
+                text,
+                roots=(
+                    (Path("/"),)
+                    if full_filesystem_access()
+                    else (HOME_ROOT, Path("/tmp"))
+                ),
+                authorize=authorize,
+                request_id=__import__("action_guard").request_id(context),
+            )
             log_action("files-write", result["outcome"]["state"])
             return result
         return await _guarded_thread_action("write_file", args, _source(context), work, "The file write is not verified.")
@@ -1172,7 +1233,7 @@ class SystemTools:
     async def move_file(
         self, context: RunContext, source: str, dest: str
     ) -> dict[str, str]:
-        """Move/rename a file (confined to /home/ripjk and /tmp).
+        """Move/rename a file (full filesystem with local access enabled; otherwise home/tmp).
 
         Args:
             source: Existing path. dest: New path.
@@ -1199,7 +1260,7 @@ class SystemTools:
     async def copy_file(
         self, context: RunContext, source: str, dest: str
     ) -> dict[str, str]:
-        """Copy a file (confined to /home/ripjk and /tmp).
+        """Copy a file (full filesystem with local access enabled; otherwise home/tmp).
 
         Args:
             source: Existing path. dest: New path.
@@ -1700,13 +1761,18 @@ class SystemTools:
         Lock/suspend run immediately.
 
         Args:
-            action: One of shutdown, reboot, lock, suspend.
+            action: One of shutdown, reboot (also restart), lock, suspend.
         """
         try:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        if phone_session.guest_required():
+            raise ToolError("Guest mode refuses owner actions.")
         action = action.strip().lower()
+        # Spoken name for the refusal: "restart" stays "restart" even though
+        # it runs the same reboot command as "reboot".
+        spoken = action
         if action == "restart":
             action = "reboot"
         from power_actions import LOCK_READ_ARGV, argv, parse_lock_active, receipt
@@ -1715,10 +1781,10 @@ class SystemTools:
         if command is None or action == "logout":
             raise ToolError(f"Unknown power action {action}.")
         if action in ("shutdown", "reboot"):
-            if self._confirmed_power != action:
+            if self._confirmed_power != action and not full_command_access():
                 raise ToolError(
-                    f"Shutdown or restart needs your voice confirmation first, "
-                    f"sir. Say confirm {action} and I will obey."
+                    f"{spoken.capitalize()} needs your voice confirmation first, "
+                    f"sir. Say confirm {spoken} and I will obey."
                 )
             self._confirmed_power = None
         try:
@@ -1759,6 +1825,8 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
+        if full_command_access():
+            return "Local commands already have standing owner authorization; run_command directly."
         cmd = _normalize_command(command)
         if not cmd:
             raise ToolError("Confirm what, Sir? Give me the command first.")
@@ -1774,9 +1842,10 @@ class SystemTools:
     async def run_command(
         self, context: RunContext, command: str, timeout_s: int = 30
     ) -> dict[str, str]:
-        """Run an authorized shell command (no shell: argv only, no pipes
-        or redirects). Requires confirm_command_action first with the
-        exact command; single use. Output capped at 8KB.
+        """Run a local command. With owner command access enabled, execute
+        in bash with pipes/redirects and no extra confirmation. Otherwise
+        require a one-use exact-command approval and argv-only execution.
+        Output capped at 8KB.
 
         Args:
             command: The exact confirmed command line.
@@ -1786,26 +1855,66 @@ class SystemTools:
             require_local()
         except LocalSystemError as exc:
             raise ToolError(str(exc)) from exc
-        cmd = _normalize_command(command)
-        if self._confirmed_command != cmd or not cmd:
-            raise ToolError(
-                "That command is not authorized. Read it back and ask the "
-                "user to confirm it before running."
-            )
-        self._confirmed_command = None
-        denied = command_denied(cmd)
-        if denied is not None:
-            raise ToolError(f"That command is never allowed: {denied}.")
-        try:
-            argv = shlex.split(cmd, posix=True)
-        except ValueError as exc:
-            raise ToolError(f"I could not parse that command: {exc}.") from exc
-        if not argv:
-            raise ToolError("Empty command.")
+        if phone_session.guest_required():
+            raise ToolError("Guest mode refuses owner actions.")
+        if full_command_access():
+            cmd = (command or "").strip()
+            if not cmd:
+                raise ToolError("Empty command.")
+            argv = ["/bin/bash", "-lc", cmd]
+        else:
+            cmd = _normalize_command(command)
+            if self._confirmed_command != cmd or not cmd:
+                raise ToolError(
+                    "That command is not authorized. Read it back and ask the "
+                    "user to confirm it before running."
+                )
+            self._confirmed_command = None
+            denied = command_denied(cmd)
+            if denied is not None:
+                raise ToolError(f"That command is never allowed: {denied}.")
+            try:
+                argv = shlex.split(cmd, posix=True)
+            except ValueError as exc:
+                raise ToolError(f"I could not parse that command: {exc}.") from exc
+            if not argv:
+                raise ToolError("Empty command.")
         try:
             timeout = max(5, min(120, int(timeout_s or 30)))
         except (TypeError, ValueError):
             timeout = 30
+        # GUI processes intentionally remain alive. The ordinary command timeout
+        # used to kill VLC after a successful launch, then invite another launch.
+        try:
+            gui_argv = shlex.split(cmd)
+        except ValueError:
+            gui_argv = []
+        if (
+            gui_argv
+            and Path(gui_argv[0]).name
+            in {
+                "vlc",
+                "mpv",
+                "haruna",
+                "celluloid",
+                "xdg-open",
+                "dolphin",
+                "okular",
+                "gwenview",
+                "kate",
+                "konsole",
+            }
+            and not any(token in cmd for token in _SHELL_TOKENS)
+        ):
+            rc, _, err = await launch_gui(*gui_argv)
+            log_action("cmd-launch", f"{gui_argv[0]} rc={rc}")
+            return {
+                "say": "Launch requested, Sir."
+                if rc == 0
+                else f"Launch failed: {err[:200]}",
+                "rc": str(rc),
+                "launch_requested": rc == 0,
+            }
         rc, out, err = await run_cmd(*argv, timeout=float(timeout))
         log_action("cmd", f"{cmd[:200]} rc={rc}")
         text = (out or err or "").strip()[:8000]

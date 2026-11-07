@@ -134,7 +134,9 @@ class GameStore:
 
     def load(self, game_id: str) -> GameRecord | None:
         try:
-            data = json.loads((self.root / f"{game_id}.json").read_text(encoding="utf-8"))
+            data = json.loads(
+                (self.root / f"{game_id}.json").read_text(encoding="utf-8")
+            )
             if not isinstance(data, dict) or data.get("id") != game_id:
                 return None
             return GameRecord.from_dict(data)
@@ -153,13 +155,23 @@ class GameStore:
             rec = self.load(gid)
             if rec is None:
                 continue
-            out.append({
-                "id": rec.id, "series_id": rec.series_id, "series_index": rec.series_index,
-                "started_at": rec.started_at, "ended_at": rec.ended_at, "mode": rec.mode,
-                "white": rec.white, "black": rec.black, "result": rec.result,
-                "termination": rec.termination, "status": rec.status,
-                "plies": len(rec.moves), "parent_id": rec.parent_id,
-            })
+            out.append(
+                {
+                    "id": rec.id,
+                    "series_id": rec.series_id,
+                    "series_index": rec.series_index,
+                    "started_at": rec.started_at,
+                    "ended_at": rec.ended_at,
+                    "mode": rec.mode,
+                    "white": rec.white,
+                    "black": rec.black,
+                    "result": rec.result,
+                    "termination": rec.termination,
+                    "status": rec.status,
+                    "plies": len(rec.moves),
+                    "parent_id": rec.parent_id,
+                }
+            )
             if limit is not None and len(out) >= limit:
                 break
         return out
@@ -216,8 +228,11 @@ class GameStore:
     def branch(self, rec: GameRecord, ply: int) -> GameRecord:
         """New game with moves[:ply]; the original is never written."""
         new = self.new_record(
-            mode="play", white=rec.white, black=rec.black,
-            parent_id=rec.id, branched_at_ply=ply,
+            mode="play",
+            white=rec.white,
+            black=rec.black,
+            parent_id=rec.id,
+            branched_at_ply=ply,
         )
         new.moves = copy.deepcopy(rec.moves[: max(0, ply)])
         self.save(new)
@@ -225,14 +240,23 @@ class GameStore:
 
     # -- series ---------------------------------------------------------
     def save_series(self, series: Any) -> None:
-        data = series if isinstance(series, dict) else (
-            asdict(series) if hasattr(series, "__dataclass_fields__") else dict(series.__dict__))
+        data = (
+            series
+            if isinstance(series, dict)
+            else (
+                asdict(series)
+                if hasattr(series, "__dataclass_fields__")
+                else dict(series.__dict__)
+            )
+        )
         d = self._ensure(self.series_dir)
         _atomic_write(d / f"{data['id']}.json", json.dumps(data))
 
     def load_series(self, series_id: str) -> dict | None:
         try:
-            data = json.loads((self.series_dir / f"{series_id}.json").read_text(encoding="utf-8"))
+            data = json.loads(
+                (self.series_dir / f"{series_id}.json").read_text(encoding="utf-8")
+            )
         except (OSError, ValueError):
             return None
         return data if isinstance(data, dict) and data.get("id") == series_id else None
@@ -240,7 +264,9 @@ class GameStore:
     def list_series(self) -> list[dict]:
         out = []
         try:
-            names = sorted((p.stem for p in self.series_dir.glob("*.json")), reverse=True)
+            names = sorted(
+                (p.stem for p in self.series_dir.glob("*.json")), reverse=True
+            )
         except OSError:
             return out
         for n in names:

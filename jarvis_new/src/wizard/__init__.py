@@ -2,7 +2,7 @@
 
 Drives the Phase 3 install checklist end to end: system deps (dnf +
 flatpak), the two Python venvs (via uv), voice + wake models, API keys,
-the bundled livekit-server, a mic/speaker probe, and the bridge /health
+a mic/speaker probe, and the bridge /health
 gate. State is persisted so reruns skip steps that are already green.
 
 Design constraints:
@@ -14,7 +14,7 @@ Design constraints:
   whole run.
 
 Step order mirrors the plan's wizard checklist:
-  sysdeps -> livekit -> venvs -> models -> keys -> audio -> gate
+  sysdeps -> venvs -> models -> keys -> audio -> gate
 """
 
 from __future__ import annotations

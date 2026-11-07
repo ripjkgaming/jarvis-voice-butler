@@ -39,7 +39,10 @@ ECHO_FALL_TAU_S = 1.0
 def gate_enabled() -> bool:
     """JARVIS_TALK_GATE (default on). Pure."""
     return os.environ.get("JARVIS_TALK_GATE", "on").strip().lower() not in (
-        "0", "off", "false", "no",
+        "0",
+        "off",
+        "false",
+        "no",
     )
 
 
@@ -47,7 +50,9 @@ def _db(rms: float) -> float:
     return 20.0 * math.log10(max(rms, 1.0))
 
 
-def _track(value: float, target: float, dt: float, rise_db_s: float, fall_tau: float) -> float:
+def _track(
+    value: float, target: float, dt: float, rise_db_s: float, fall_tau: float
+) -> float:
     """Asymmetric tracker: rises at most rise_db_s, falls with fall_tau. Pure."""
     if target > value:
         return min(target, value + rise_db_s * dt)
@@ -85,11 +90,16 @@ class TalkOverGate:
         if speaking:
             # Mic minus playback is lowest when only echo is present.
             self.echo_path_db = _track(
-                self.echo_path_db, level - self._playback_db, dt,
-                ECHO_RISE_DB_S, ECHO_FALL_TAU_S,
+                self.echo_path_db,
+                level - self._playback_db,
+                dt,
+                ECHO_RISE_DB_S,
+                ECHO_FALL_TAU_S,
             )
         else:
-            self.floor_db = _track(self.floor_db, level, dt, FLOOR_RISE_DB_S, FLOOR_FALL_TAU_S)
+            self.floor_db = _track(
+                self.floor_db, level, dt, FLOOR_RISE_DB_S, FLOOR_FALL_TAU_S
+            )
         if not speaking:
             return block
         if level >= max(self.floor_db, echo_db) + MARGIN_DB:

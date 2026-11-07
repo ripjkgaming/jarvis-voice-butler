@@ -40,6 +40,8 @@ DEFAULT_MAX_NODES = 20000
 REBUILD_INTERVAL_S = 30 * 60.0
 START_DELAY_S = 60.0
 RELATED_EDGE_CAP = 300
+# Reject corrupt/exponentially duplicated caches before allocating JSON objects.
+MAX_GRAPH_BYTES = 32 * 1024 * 1024
 
 _CODE_EXTS = frozenset(
     [
@@ -385,7 +387,11 @@ def _save_mtimes(cache: dict) -> None:
 def load_graph() -> dict | None:
     """Last built graph, or None. Never raises."""
     try:
-        data = json.loads((brain_dir() / "graph.json").read_text())
+        with (brain_dir() / "graph.json").open("rb") as fh:
+            raw = fh.read(MAX_GRAPH_BYTES + 1)
+        if len(raw) > MAX_GRAPH_BYTES:
+            return None  # Derived index: the next build starts from the filesystem.
+        data = json.loads(raw)
         return data if isinstance(data, dict) else None
     except (OSError, ValueError):
         return None
@@ -417,6 +423,27 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
     nodes: list[dict] = []
     by_id: dict[str, dict] = {}
     edges: list[dict] = []
+    edge_keys: set[tuple[str, str, str]] = set()
+    max_edges = max_nodes * 4 + RELATED_EDGE_CAP
+
+    def add_edge(edge: dict) -> None:
+        key = (edge["from"], edge["to"], edge["kind"])
+        if (
+            len(edges) < max_edges
+            and key not in edge_keys
+            and key[0] in by_id
+            and key[1] in by_id
+        ):
+            edge_keys.add(key)
+            edges.append(edge)
+
+    previous_contains: dict[str, dict[tuple, dict]] = {}
+    if isinstance(prev, dict):
+        for edge in prev.get("edges", []) or []:
+            if isinstance(edge, dict) and edge.get("kind") == "contains":
+                key = (edge.get("from"), edge.get("to"), "contains")
+                previous_contains.setdefault(key[0], {})[key] = edge
+
     seen_paths: set[str] = set()
     skipped = 0
     changed = 0
@@ -433,34 +460,20 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
         return [p for p in prev_by_path if p == prefix or p.startswith(with_slash)]
 
     def reuse_subtree(dir_path: str) -> bool:
-        # Copy the previous subtree verbatim (ids are stable hashes).
-        reused = 0
-        for p in subtree_paths(dir_path):
-            old = prev_by_path[p]
-            if old["id"] in by_id:
-                continue
-            if len(nodes) >= max_nodes:
+        paths = subtree_paths(dir_path)
+        for path in paths:
+            old = prev_by_path[path]
+            if old["id"] not in by_id and not add_node(dict(old)):
                 break
-            nodes.append(dict(old))
-            by_id[old["id"]] = nodes[-1]
-            reused += 1
-        if isinstance(prev, dict):
-            ids = {
-                prev_by_path[p]["id"]
-                for p in subtree_paths(dir_path)
-                if p in prev_by_path
-            }
-            for e in prev.get("edges", []) or []:
-                # Only contains edges: related/uses/connects are rebuilt
-                # fresh below, so copying them would duplicate them.
-                if (
-                    isinstance(e, dict)
-                    and e.get("kind") == "contains"
-                    and e.get("from") in ids
-                    and e.get("to") in ids
-                ):
-                    edges.append(dict(e))
-        return reused > 0
+            seen_paths.add(path)
+        # Copy each relationship once, and only when both nodes survived the cap.
+        # Overlapping roots previously multiplied the entire old edge list.
+        for path in paths:
+            source = prev_by_path[path]["id"]
+            if source in by_id:
+                for edge in previous_contains.get(source, {}).values():
+                    add_edge(dict(edge))
+        return bool(paths)
 
     for entry in cfg.get("roots", []) or []:
         spec = _root_spec(entry, max_depth)
@@ -567,7 +580,7 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
                         "tags": [],
                     }
                     if add_node(child):
-                        edges.append(
+                        add_edge(
                             {"from": node["id"], "to": child["id"], "kind": "contains"}
                         )
                         if depth + 1 <= root_depth:
@@ -589,7 +602,7 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
                         "tags": [ext] if ext else [],
                     }
                     if add_node(child):
-                        edges.append(
+                        add_edge(
                             {"from": node["id"], "to": child["id"], "kind": "contains"}
                         )
                     else:
@@ -618,7 +631,8 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
         }
         if op_node["id"] in by_id:
             continue
-        add_node(op_node)
+        if not add_node(op_node):
+            continue
         for raw in (op.get("paths", []) or []) + []:
             p = Path(os.path.expanduser(str(raw)))
             pid = node_id("file" if p.is_file() else "folder", str(p))
@@ -643,9 +657,7 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
                     }
                     add_node(target)
             if target is not None:
-                edges.append(
-                    {"from": op_node["id"], "to": target["id"], "kind": "uses"}
-                )
+                add_edge({"from": op_node["id"], "to": target["id"], "kind": "uses"})
         for tool in op.get("tools", []) or []:
             tool = str(tool)[:60]
             if not tool:
@@ -665,14 +677,14 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
                         "tags": [],
                     }
                 )
-            edges.append({"from": op_node["id"], "to": tid, "kind": "uses"})
+            add_edge({"from": op_node["id"], "to": tid, "kind": "uses"})
     op_ids = {node_id("operation", str(o.get("name", ""))) for o in load_operations()}
     for op in load_operations():
         src = node_id("operation", str(op.get("name", "")))
         for other in op.get("connections", []) or []:
             dst = node_id("operation", str(other))
             if src in by_id and dst in op_ids and dst in by_id:
-                edges.append({"from": src, "to": dst, "kind": "connects"})
+                add_edge({"from": src, "to": dst, "kind": "connects"})
 
     # --- related: same file stem living in different folders (capped) ----
     stems: dict[str, list[str]] = {}
@@ -689,7 +701,7 @@ def build(incremental: bool = True, config: dict | None = None) -> dict:
         for a, b in zip(sorted(ids), sorted(ids)[1:8]):
             if related >= RELATED_EDGE_CAP:
                 break
-            edges.append({"from": a, "to": b, "kind": "related"})
+            add_edge({"from": a, "to": b, "kind": "related"})
             related += 1
         if related >= RELATED_EDGE_CAP:
             break

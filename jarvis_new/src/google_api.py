@@ -766,6 +766,19 @@ def calendar_list(
     return list(data.get("items") or []) if isinstance(data, dict) else []
 
 
+def calendar_get(event_id: str, calendar_id="primary", account="personal", opener=None):
+    """Exact event readback on the same destination used for the write."""
+    token = _calendar_token(opener=opener, account=account)
+    cal = urllib.parse.quote(calendar_id, safe="")
+    eid = urllib.parse.quote(event_id, safe="")
+    data = _request_json(
+        "GET", f"{CALENDAR_BASE}/{cal}/events/{eid}", token, opener=opener
+    )
+    if not isinstance(data, dict) or not data.get("id"):
+        raise GoogleError("Google Calendar did not return that exact saved event.")
+    return data
+
+
 def calendar_create(
     event: dict,
     calendar_id: str = "primary",
@@ -774,11 +787,31 @@ def calendar_create(
 ) -> dict:
     """Create one event from a normalized dict (see event_body)."""
     body = event_body(event)
+    # A deterministic provider ID makes retries safe even if the server wrote
+    # successfully and the response/ledger write was lost. Only internal
+    # auto-calendar callers supply this field; Calendar accepts base32hex IDs.
+    stable_id = str(event.get("jarvis_id") or "")
+    if stable_id:
+        if not re.fullmatch(r"[0-9a-v]{5,1024}", stable_id):
+            raise GoogleError("Invalid internal calendar event identity.")
+        body["id"] = stable_id
     token = _calendar_token(opener=opener, account=account, write=True)
     cal = urllib.parse.quote(calendar_id, safe="")
-    data = _request_json(
-        "POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener
-    )
+    try:
+        data = _request_json(
+            "POST", f"{CALENDAR_BASE}/{cal}/events", token, body, opener=opener
+        )
+    except GoogleError as exc:
+        if not stable_id or exc.http_status != 409:
+            raise
+        # A conflict is only a successful retry after an exact-ID readback.
+        data = _request_json(
+            "GET", f"{CALENDAR_BASE}/{cal}/events/{stable_id}", token, opener=opener
+        )
+        if data.get("status") == "cancelled":
+            raise GoogleError(
+                "This automatic event was removed; it will not be recreated."
+            ) from exc
     if not isinstance(data, dict) or not data.get("id"):
         raise GoogleError("Google Calendar did not confirm the new event, Sir.")
     return data

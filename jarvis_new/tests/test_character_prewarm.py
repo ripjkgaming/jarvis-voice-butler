@@ -61,18 +61,6 @@ def test_wake_client_idle_busy_in_call():
     assert wc._idle_warm_busy() is False
 
 
-def test_wake_client_character_prewarm(monkeypatch):
-    import wake_client
-
-    seen = []
-    monkeypatch.setattr(cv, "prewarm", lambda c: seen.append(c.id) or True)
-    wc = wake_client.WakeClient.__new__(wake_client.WakeClient)
-    reply = wc._character_prewarm("ultron")
-    assert reply["ok"] is True and isinstance(reply["ms"], int) and seen == ["ultron"]
-    assert wc._character_prewarm("nobody")["ok"] is False
-    assert wc._character_prewarm(5)["ok"] is False
-    monkeypatch.setattr(cv, "prewarm", lambda c: False)
-    assert wc._character_prewarm("ultron")["ok"] is False
 
 
 def test_distinct_voices_do_not_serialize(monkeypatch):

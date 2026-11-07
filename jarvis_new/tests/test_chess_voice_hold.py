@@ -22,7 +22,7 @@ class Speaker:
 
 def make_voice():
     game = SimpleNamespace(
-        settings=ChessSettings(), user_speaking=False,
+        settings=ChessSettings(commentary_muted=False), user_speaking=False,
         _changed_soon=lambda: None,
     )
     speaker = Speaker()

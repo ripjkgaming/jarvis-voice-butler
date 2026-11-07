@@ -1,22 +1,31 @@
 'use client';
 
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { CharacterChip } from '@/components/character/character-chip';
 import { ChatDock } from '@/components/character/chat-dock';
 import { AmbientParticles } from '@/components/hud/ambient-particles';
 import { VoiceLinkRail } from '@/components/hud/voice-link';
 import { JARVIS_COLORS, type JarvisState, MUTED_COLOR } from '@/hooks/hud/use-jarvis-state';
 import { type BridgeSys } from '@/lib/bridge';
-import { skinStateColor, taglineOf, useSkin, wordmarkOf } from '@/lib/character/hooks';
+import { skinStateColor, taglineOf, useAscii, useSkin, wordmarkOf } from '@/lib/character/hooks';
+import { useSaid } from '@/lib/hud-say';
 import { type VoiceLink } from '@/lib/voice-link';
+import { AwareGlyph } from './aware-glyph';
+import { ClassicEmblem } from './classic';
 import { Desk } from './desk';
 import { Frame } from './frame';
 import { Links, Power, Trends } from './instruments';
+import intro from './intro.module.css';
 import { type Sample, healthLine, metricsFrom, pushSample } from './metrics';
-import { CommsLog, Execution, VoicePanels, useActivity } from './ops';
+import { CommsLog, Execution, FoundationStatus, VoicePanels, useActivity } from './ops';
 import { Reactor } from './reactor';
+import { useReactorProgress } from './reactor-progress';
+import { StandbyBadge } from './standby-badge';
 import s from './stark.module.css';
-import { Caption, Research, StateReadout } from './voice';
+import { useHudIntro } from './use-hud-intro';
+import { useHudPresence } from './use-hud-presence';
+import { Caption, StateReadout } from './voice';
+import { WallReplicaCanvas } from './wall-replica';
+import { WatchIntro } from './watch-intro';
 
 function two(n: number): string {
   return String(n).padStart(2, '0');
@@ -59,6 +68,7 @@ function Clock() {
 
 /** Glyph emblem: the reactor triangle in a box-drawn cell. */
 function Emblem() {
+  if (!useAscii()) return <ClassicEmblem />;
   return (
     <span className={s.emblem} aria-hidden="true">
       <span>╭───╮</span>
@@ -81,16 +91,15 @@ function TopBar({
   jarvis,
   muted,
   solo,
-  link,
 }: {
   jarvis: JarvisState;
   muted: boolean | null;
   solo: boolean;
-  link: VoiceLink;
 }) {
   const { ch } = useSkin();
+  const ascii = useAscii();
   return (
-    <header className={s.top} data-tauri-drag-region>
+    <header className={s.top} data-tauri-drag-region data-ix-zone data-ix-deco>
       <div className={s.brand} data-tauri-drag-region>
         <Emblem />
         <div className={s.brandCopy} data-tauri-drag-region>
@@ -103,15 +112,14 @@ function TopBar({
       <div className={s.chips} data-tauri-drag-region>
         <span className={s.chip} data-tone="state">
           <i className={s.chipDot} aria-hidden="true">
-            ■
+            {ascii ? '■' : null}
           </i>
-          {muted === true ? 'MUTED' : link.joining ? 'LINKING' : STATE_CHIP[jarvis]}
+          {muted === true ? 'MUTED' : STATE_CHIP[jarvis]}
         </span>
         <span className={s.chip} data-tone={muted === true ? 'warn' : 'ok'}>
           MIC {muted === true ? 'OFF' : muted === false ? 'ON' : '…'}
         </span>
         <span className={s.chip}>{solo ? 'SOLO' : 'DUAL'} · D</span>
-        <CharacterChip />
       </div>
       <Clock />
     </header>
@@ -162,11 +170,12 @@ function Summary({
 
 function Footer({ m }: { m: ReturnType<typeof metricsFrom> }) {
   const health = healthLine(m);
+  const ascii = useAscii();
   if (health.text !== 'ALL SYSTEMS NOMINAL') return null;
   return (
-    <footer className={s.foot}>
+    <footer className={s.foot} data-ix-zone data-ix-deco>
       <span className={s.footHealth} data-warn={health.warn ? 'true' : undefined}>
-        <i aria-hidden="true">■</i>
+        <i aria-hidden="true">{ascii ? '■' : null}</i>
         ALL SYSTEMS NOMINAL
       </span>
     </footer>
@@ -238,25 +247,40 @@ export function StarkHud({
   const history = useHistory(m, sys);
   const activity = useActivity();
   const flash = useDoneFlash(activity);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const introPhase = useHudIntro(rootRef);
+  const said = useSaid();
+  const progress = useReactorProgress();
+  // Presence mode: idle Jarvis dissolves into the wallpaper, a call wakes him
+  // out of it (replaces the old joining / LINKING / energizing animation).
+  const presence = useHudPresence(rootRef, {
+    introPhase,
+    active: jarvis !== 'idle',
+    link,
+    busy: said !== null,
+    jobs: progress.jobs.length > 0 || activity.some((a) => a.status === 'running'),
+  });
   const { ch: skin } = useSkin();
   const color =
     muted === true ? MUTED_COLOR : skin ? skinStateColor(skin, jarvis) : JARVIS_COLORS[jarvis];
 
   const center = (
-    <section className={s.center} aria-label="Voice core">
-      <div className={s.reactorWrap}>
+    <section className={s.center} data-ix-zone aria-label="Voice core">
+      <div className={s.reactorWrap} data-ix-orb>
         <Reactor m={m} link={link} color={color} jarvis={jarvis} muted={muted === true} />
       </div>
       <StateReadout jarvis={jarvis} muted={muted} link={link} />
-      <VoiceLinkRail link={link} />
+      <AwareGlyph />
+      {link.phase === 'failed' || link.phase === 'stalled' ? <VoiceLinkRail link={link} /> : null}
       <Caption />
-      <Research sys={sys} />
     </section>
   );
 
   return (
     <div
-      className={`hud ${s.root}`}
+      ref={rootRef}
+      className={`hud ${s.root} ${intro.root}`}
+      data-intro={introPhase}
       data-jstate={jarvis}
       data-voice-phase={link.phase}
       data-muted={muted === true ? 'true' : undefined}
@@ -264,24 +288,25 @@ export function StarkHud({
       data-flash={flash ? 'true' : undefined}
       style={{ '--state': color } as CSSProperties}
     >
-      <div className={s.backdrop} aria-hidden="true" />
+      <WallReplicaCanvas />
+      <div className={s.backdrop} data-ix-bg="grid" aria-hidden="true" />
       <AmbientParticles
         variant="hud"
-        active={!link.joining}
+        active={presence !== 'gone'}
         state={muted === true ? 'muted' : jarvis}
         className={s.ambient}
         anchorSelector={`.${s.reactor}`}
       />
-      <TopBar jarvis={jarvis} muted={muted} solo={solo} link={link} />
+      <TopBar jarvis={jarvis} muted={muted} solo={solo} />
       {solo ? (
-        <main className={s.soloGrid}>
+        <main className={s.soloGrid} data-ix-zone>
           {center}
           <CommsLog index={1} />
         </main>
       ) : (
-        <main className={s.grid}>
+        <main className={s.grid} data-ix-zone>
           <Summary m={m} jarvis={jarvis} muted={muted} activity={activity} />
-          <aside className={s.left} aria-label="Vitals">
+          <aside className={s.left} data-ix-zone aria-label="Vitals">
             <Frame label="VITALS" index={1} aside="2 MIN">
               <Trends m={m} history={history} />
             </Frame>
@@ -293,17 +318,20 @@ export function StarkHud({
             </Frame>
           </aside>
           {center}
-          <aside className={s.right} aria-label="Operations">
+          <aside className={s.right} data-ix-zone aria-label="Operations">
             <Execution items={activity} index={4} />
-            <VoicePanels index={5} />
+            <FoundationStatus index={5} />
+            <VoicePanels index={6} />
             <CommsLog index={6} compact />
             <Desk index={7} />
           </aside>
         </main>
       )}
       <Footer m={m} />
+      <StandbyBadge presence={presence} m={m} jobs={progress.jobs} />
       <i className={s.flashEdge} aria-hidden="true" />
       <ChatDock />
+      <WatchIntro />
       {children}
     </div>
   );

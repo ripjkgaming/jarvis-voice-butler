@@ -8,7 +8,7 @@ BUILD="$HERE/build"
 DEST=/usr/share/plymouth/themes/jarvis-ascii
 rm -rf "$BUILD"
 python3 "$HERE/gen_frames.py" "$BUILD"
-cp "$HERE/jarvis-ascii.plymouth" "$HERE/jarvis-ascii.script" "$BUILD/"
+cp "$HERE/jarvis-ascii.plymouth" "$BUILD/"
 PREV="$(plymouth-set-default-theme 2>/dev/null || true)"
 sudo bash -c "
   set -e

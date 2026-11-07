@@ -1,10 +1,12 @@
 """Exercise the actual tool wrapper under interrupted side effects."""
 
 import asyncio
+
+import pytest
 from types import SimpleNamespace
 
 
-async def test_tool_wrapper_drains_mutation_and_records_result_once(
+async def test_tool_wrapper_restores_sdk_cancellation_and_releases_tracker(
     monkeypatch, tmp_path
 ):
     import agent
@@ -35,10 +37,8 @@ async def test_tool_wrapper_drains_mutation_and_records_result_once(
     task = asyncio.create_task(tool._func(None))
     await entered.wait()
     task.cancel()
-    await asyncio.sleep(0)
-    assert not task.done()
-    release.set()
-    assert await task == "sent"
-    assert mutations == ["sent"]
-    assert remembered == ["sent"]
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert mutations == []
+    assert remembered == []
     assert TRACKER.pending == before

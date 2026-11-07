@@ -13,6 +13,7 @@ import math
 import os
 import re
 import stat
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -45,10 +46,12 @@ class WatchConsent:
     expires_at: float = 0
     max_calls: int = 60
     capture_policy: str = "foreground_window"
+    live_video: bool = False
 
     def validate(self, now):
         if (
             self.provider != "gemini"
+            or type(self.live_video) is not bool
             or self.selected_window is not True
             or self.capture_policy not in {"foreground_window", "pinned_window"}
             or type(self.expires_at) not in (int, float)
@@ -228,6 +231,9 @@ class VisualObserver:
         self._calls = 0
         self._last_call = None
         self._busy = False
+        self._capture_lock = threading.Lock()
+        self._video_frames = 0
+        self._last_video = None
         self._state = "pending"
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="watch-vision"
@@ -298,7 +304,45 @@ class VisualObserver:
             return selected[0]
         return selected
 
+    async def video_frame(self, check=lambda: None):
+        """Fresh selected-window pixels for the owner's live voice input only."""
+        epoch = self._epoch
+        self._check(epoch, check)
+        if not self.consent.live_video or self._selected is None:
+            raise ScreenError("Live screen video has not been authorized.")
+        if self._video_frames >= 7200:
+            raise ScreenError("Live screen video frame budget exhausted.")
+        if self._last_video is not None and self.clock() - self._last_video < 1:
+            return None
+        if not self._capture_lock.acquire(blocking=False):
+            return None
+        try:
+            async with _deadline(5):
+                selected = await self.backend.select()
+                self._check(epoch, check)
+                if self._identity(selected) != self._identity(self._selected):
+                    raise ScreenError("Selected window changed; visual watch paused.")
+                image = await self.backend.capture(
+                    selected, lambda: self._check(epoch, check)
+                )
+                self._check(epoch, check)
+                image = bounded_image(image)
+                self._check(epoch, check)
+                self._video_frames += 1
+                self._last_video = self.clock()
+                return image
+        finally:
+            self._capture_lock.release()
+
     async def observe(self, context="", check=lambda: None):
+        if not self._capture_lock.acquire(blocking=False):
+            return None
+        try:
+            return await self._observe(context, check)
+        finally:
+            self._capture_lock.release()
+
+    async def _observe(self, context="", check=lambda: None):
         epoch = self._epoch
         self._check(epoch, check)
         if self._busy or (self._future is not None and not self._future.done()):
@@ -428,6 +472,8 @@ class VisualObserver:
         return {
             "state": self._state,
             "calls": self._calls,
+            "live_video": self.consent.live_video,
+            "video_frames": self._video_frames,
             "max_calls": self.consent.max_calls,
             "provider": self.consent.provider,
             "expires_at": self.consent.expires_at,

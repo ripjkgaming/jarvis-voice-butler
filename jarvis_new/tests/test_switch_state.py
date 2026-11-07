@@ -4,7 +4,7 @@ import itertools
 
 import pytest
 
-from src.switch_state import IllegalTransitionError, Phase, SwitchMachine
+from switch_state import IllegalTransitionError, Phase, SwitchMachine
 
 IDS = ["jarvis", "friday", "edith"]
 

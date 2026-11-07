@@ -291,3 +291,35 @@ async def test_voice_tool_never_uses_browser_open_or_fake_success(monkeypatch):
     with pytest.raises(Exception, match="No recent YouTube video"):
         await tools.download_youtube_video(None)
     assert seen == [("POST", "/youtube/download", {"url": ""})]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_background_download_holds_session_until_watcher_finishes(
+    monkeypatch, cancel
+):
+    from types import SimpleNamespace
+
+    from hud_voice_state import execution_pending
+
+    tools = yt.YouTubeDownloadTools()
+
+    class Session:
+        async def say(self, line):
+            await asyncio.sleep(0)
+
+    session = Session()
+    monkeypatch.setattr(yt, "VOICE_POLL_S", 0)
+    monkeypatch.setattr(
+        yt,
+        "_bridge_call",
+        lambda *args: {"job": {"status": "failed", "error": "download failed"}},
+    )
+    tools._report_start(SimpleNamespace(session=session), "youtube-lease-test")
+    assert execution_pending(session)
+    tasks = tuple(tools._tasks)
+    if cancel:
+        for task in tasks:
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    assert not execution_pending(session)

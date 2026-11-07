@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Origin of the bridge / voice hub the app talks to (HTTPS only).
+// Override: ./gradlew assembleRelease -PlinkOrigin=https://host.tailnet.ts.net
+def linkOrigin = (project.findProperty("linkOrigin") ?: "https://ripjk.tailea4e7f.ts.net").toString()
+if (!linkOrigin.startsWith("https://")) throw new GradleException("linkOrigin must be https://, got " + linkOrigin)
+def linkHost = linkOrigin.replace("https://", "").replaceAll("/.*", "")
+
+android {
+    namespace = "dev.jarvis.lockelink"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "dev.jarvis.lockelink"
+        minSdk = 28
+        targetSdk = 35
+        versionCode = (project.findProperty("linkVersionCode") ?: "1").toString().toInteger()
+        versionName = (project.findProperty("linkVersionName") ?: "1.0.0").toString()
+        buildConfigField "String", "LINK_ORIGIN", "\"${linkOrigin.replaceAll('/+$', '')}\""
+        manifestPlaceholders = [linkHost: linkHost]
+        resValue "string", "asset_statements", groovy.json.JsonOutput.toJson([
+            [include: linkOrigin.replaceAll('/+$', '') + '/.well-known/assetlinks.json']
+        ]).replace('"', '\\"')
+    }
+
+    signingConfigs {
+        release {
+            // Key lives outside the repo (docs/phone-app/APK.md). Passed by scripts/build-apk.sh.
+            def ks = System.getenv("LINK_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("LINK_KEYSTORE_PASS")
+                keyAlias "locke-link"
+                keyPassword System.getenv("LINK_KEYSTORE_PASS")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            if (System.getenv("LINK_KEYSTORE")) signingConfig = signingConfigs.release
+        }
+    }
+    buildFeatures { buildConfig = true }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    lint { abortOnError = false; checkReleaseBuilds = false }
+    // Pure framework app: no dependency metadata blobs in the APK.
+    dependenciesInfo { includeInApk = false; includeInBundle = false }
+}
+
+// WebView passkeys require explicit WebKit support and Credential Manager.
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    implementation 'androidx.credentials:credentials:1.5.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
+}

@@ -148,7 +148,9 @@ class Conductor:
         """
         payload = {"character_prewarm": char.id}
         try:
-            timeout = float(self.motion().get("prewarm_timeout_ms", 3000)) / 1000.0 + 1.0
+            timeout = (
+                float(self.motion().get("prewarm_timeout_ms", 3000)) / 1000.0 + 1.0
+            )
             try:
                 reply = self._rpc(payload, timeout=timeout)  # type: ignore[call-arg]
             except TypeError:
@@ -176,7 +178,9 @@ class Conductor:
             return False
         return bool(reply.get("voice_output", reply.get("ok", True)))
 
-    def _say(self, text: str, char_id: str, *, whoosh: bool, interrupt: bool) -> dict | None:
+    def _say(
+        self, text: str, char_id: str, *, whoosh: bool, interrupt: bool
+    ) -> dict | None:
         if not text:
             return None
         try:
@@ -195,7 +199,9 @@ class Conductor:
             return None
 
     # -- entry ------------------------------------------------------
-    def start(self, res: dict, *, source: str = "ui", interrupted: bool = False) -> bool:
+    def start(
+        self, res: dict, *, source: str = "ui", interrupted: bool = False
+    ) -> bool:
         """Begin (or retarget) a switch from a runtime.switch() result."""
         if not isinstance(res, dict) or not res.get("switched"):
             return False
@@ -283,7 +289,9 @@ class Conductor:
         except Exception:
             logger.exception("switch conductor failed")
 
-    def _run_inner(self, turn: int, gen: int, t0: float, res: dict, source: str) -> None:
+    def _run_inner(
+        self, turn: int, gen: int, t0: float, res: dict, source: str
+    ) -> None:
         mo = self.motion()
         total = float(mo["total_ms"])
         ph = mo["phases"]
@@ -303,12 +311,20 @@ class Conductor:
             return
         self._mark("exiting", turn, t0)
         exit_thread = None
-        if res.get("play_exit_line") and not self._exit_spoken and not self._interrupted:
+        if (
+            res.get("play_exit_line")
+            and not self._exit_spoken
+            and not self._interrupted
+        ):
             self._exit_spoken = True
             line = _persona.line(active, "exit")
 
             def speak_exit() -> None:
-                if not self.voice_on() or self._interrupted or not self._live(turn, gen):
+                if (
+                    not self.voice_on()
+                    or self._interrupted
+                    or not self._live(turn, gen)
+                ):
                     return
                 self._mark("exit_say", turn, t0)
                 self._say(line, active.id, whoosh=False, interrupt=False)
@@ -355,7 +371,9 @@ class Conductor:
         quiet = self._ff is not None or self._buffered()
         if not quiet and self.rt.machine.should_greet(turn) and self.voice_on():
             self._mark("greet_say", turn, t0)
-            self._say(_persona.line(target, "greet"), target.id, whoosh=True, interrupt=True)
+            self._say(
+                _persona.line(target, "greet"), target.id, whoosh=True, interrupt=True
+            )
         if self._advance(Phase.SETTLING):
             self._mark("settling", turn, t0)
 
@@ -377,7 +395,11 @@ class Conductor:
             m = self.rt.machine
             if m.phase is not Phase.ROLLBACK:
                 m.begin_rollback("prewarm_not_ready")
-            reason = "prewarm_failed" if m._prewarm.get(turn) is False else "prewarm_not_ready"
+            reason = (
+                "prewarm_failed"
+                if m._prewarm.get(turn) is False
+                else "prewarm_not_ready"
+            )
         self.rt._notify()
         self._mark("rollback", turn, t0)
         if hasattr(exit_thread, "join"):
@@ -445,7 +467,9 @@ def reset_conductor() -> None:
 
 
 def start_switch(
-    res: dict | None, source: str = "ui", wake_rpc: Callable[[dict], dict | None] | None = None
+    res: dict | None,
+    source: str = "ui",
+    wake_rpc: Callable[[dict], dict | None] | None = None,
 ) -> bool:
     """Fire-and-forget hook for call sites. Never raises."""
     try:

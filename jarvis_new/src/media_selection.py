@@ -37,6 +37,8 @@ _NOISE = {
     "for",
     "by",
     "about",
+    "explaining",
+    "explain",
     "video",
     "videos",
     "footage",
@@ -217,7 +219,9 @@ def select(query, candidates, *, now=None):
         ):
             continue
         # Unstructured negation cannot safely establish which constraint it denies.
-        if re.search(r"\b(not|except|without|exclude|excluding)\b", desc):
+        if (live or footage or commentary) and re.search(
+            r"\b(not|except|without|exclude|excluding)\b", desc
+        ):
             continue
         combined = _words(title + " " + desc + " " + source)
         if not terms <= combined:
@@ -281,15 +285,11 @@ def select(query, candidates, *, now=None):
         accepted.append((vid, len(terms & _words(title)), len(_words(title) - terms)))
     if len(accepted) == 1:
         return Selection("selected", "metadata_match", accepted[0][0], checked)
-    if (
-        accepted
-        and not (live or footage or commentary)
-        and re.search(r"\b(music|lofi|jazz|ambient|chill|classical|piano)\b", q)
-    ):
-        # Broad music requests permit any fully qualifying clip. Compare all
-        # candidates and prefer title coverage/specificity, with stable ID tie-break.
+    if accepted and not (live or footage or commentary):
+        # Ordinary topic requests permit any fully qualifying video. Prefer
+        # title coverage and specificity after comparing all supported matches.
         chosen = sorted(accepted, key=lambda item: (-item[1], item[2], item[0]))[0]
-        return Selection("selected", "metadata_music_match", chosen[0], checked)
+        return Selection("selected", "metadata_topic_match", chosen[0], checked)
     return Selection(
         "clarify" if accepted else "unavailable",
         "ambiguous_matches" if accepted else "no_supported_match",
@@ -304,6 +304,7 @@ def _args(binary, target, *, search=False):
         "--no-plugin-dirs",
         "--no-cache-dir",
         "--skip-download",
+        "--ignore-no-formats-error",
         "--dump-single-json",
         "--socket-timeout",
         "4",
@@ -311,6 +312,9 @@ def _args(binary, target, *, search=False):
         "0",
         "--extractor-retries",
         "0",
+        # Avoid player scripts and stream manifests for a metadata-only lookup.
+        "--extractor-args",
+        "youtube:player_skip=configs,js;skip=hls,dash",
         "--flat-playlist" if search else "--no-playlist",
         target,
     ]
@@ -338,6 +342,18 @@ def _ids(data):
             and _ID.fullmatch(entry["id"])
         )
     )
+
+
+def _restore_channel_id(detail, search_data):
+    # Bot-gated player responses omit channel_id even when the watch page
+    # supplies a description. The public search result independently supplies
+    # the source identity; join only on the exact requested video ID.
+    if detail.get("channel_id"):
+        return
+    for entry in search_data.get("entries", [])[:MAX_CANDIDATES]:
+        if isinstance(entry, dict) and entry.get("id") == detail.get("id"):
+            detail["channel_id"] = entry.get("channel_id")
+            return
 
 
 def _run(argv, timeout):
@@ -425,11 +441,17 @@ def resolve(query, *, runner=None, binary=None, guard=lambda: None):
         return _decode(runner(_args(binary, target, search=search), min(6, remaining)))
 
     try:
-        ids = _ids(fetch("ytsearch5:" + query, True))
+        search_data = fetch("ytsearch5:" + query, True)
+        ids = _ids(search_data)
         candidates = []
         for vid in ids:
-            detail = fetch("https://www.youtube.com/watch?v=" + vid)
+            guard()
+            try:
+                detail = fetch("https://www.youtube.com/watch?v=" + vid)
+            except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
+                continue
             if detail.get("id") == vid:
+                _restore_channel_id(detail, search_data)
                 detail["checked_at"] = time.time()
                 candidates.append(detail)
         return select(query, candidates)
@@ -457,11 +479,17 @@ async def resolve_async(query, *, runner=None, binary=None, guard=lambda: None):
         )
 
     try:
-        ids = _ids(await fetch("ytsearch5:" + query, True))
+        search_data = await fetch("ytsearch5:" + query, True)
+        ids = _ids(search_data)
         candidates = []
         for vid in ids:
-            detail = await fetch("https://www.youtube.com/watch?v=" + vid)
+            guard()
+            try:
+                detail = await fetch("https://www.youtube.com/watch?v=" + vid)
+            except (OSError, ValueError, TimeoutError):
+                continue
             if detail.get("id") == vid:
+                _restore_channel_id(detail, search_data)
                 detail["checked_at"] = time.time()
                 candidates.append(detail)
         return select(query, candidates)

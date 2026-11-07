@@ -380,6 +380,7 @@ class ResearchProgress:
         self.steps = 0
         self.writing = False
         self.stage = "Starting"
+        self.floor = 0
         self.notify = notify
         self.notify_id: str | None = None
         self.min_gap_s = min_gap_s
@@ -388,6 +389,11 @@ class ResearchProgress:
 
     def on_event(self, ev: dict) -> None:
         kind = ev.get("kind")
+        if kind == "stage":  # fast pipeline: explicit stage text + percent
+            self.stage = str(ev.get("detail", ""))[:90]
+            self.floor = max(self.floor, int(ev.get("pct", 0)))
+            self._flush(force=ev.get("pct", 0) in (5, 88))
+            return
         if kind in ("search", "fetch", "pdf"):
             self.steps += 1
         elif kind == "writing":
@@ -401,7 +407,7 @@ class ResearchProgress:
 
     @property
     def percent(self) -> int:
-        return research_progress(self.steps, self.writing)
+        return min(max(research_progress(self.steps, self.writing), self.floor), 97)
 
     def _flush(self, force: bool = False) -> None:
         now = time.monotonic()
@@ -471,6 +477,15 @@ def parse_report(text: str) -> tuple[str, list[str]]:
     return summary[:900], sources
 
 
+def _fast_research_on() -> bool:
+    try:
+        import research_fast
+
+        return research_fast.enabled()
+    except Exception:
+        return False
+
+
 def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
     """Start a research project through headless ChatGPT. Returns its meta."""
     topic = " ".join((topic or "").split())[:2000]
@@ -490,15 +505,39 @@ def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
             )
         else:
             progress = ResearchProgress(meta)
-            reply, warning = chatgpt_cli.chatgpt_stream(
-                RESEARCH_BRIEF.format(topic=topic),
-                model=chatgpt_cli.RESEARCH_MODEL,
-                system=RESEARCH_SYSTEM,
-                tools="WebSearch,WebFetch",
-                allowed=allowed,
-                timeout=RESEARCH_TIMEOUT_S,
-                on_event=progress.on_event,
-            )
+            reply = warning = None
+            if _fast_research_on():
+                try:
+                    import research_fast
+
+                    reply, warning = research_fast.generate(
+                        topic,
+                        progress=progress,
+                        is_cancelled=lambda: (_read_meta(meta["id"]) or {}).get(
+                            "status"
+                        )
+                        == "cancelled",
+                    )
+                except Exception as exc:  # incl. research_fast.Cancelled
+                    if type(exc).__name__ == "Cancelled":
+                        return
+                    reply = None
+                    warning = f"fast research failed: {exc}"[:200]
+                if not (reply or "").strip():
+                    current = _read_meta(meta["id"]) or meta
+                    if current.get("status") == "cancelled":
+                        return
+                    reply = None
+            if not reply:
+                reply, warning = chatgpt_cli.chatgpt_stream(
+                    RESEARCH_BRIEF.format(topic=topic),
+                    model=chatgpt_cli.RESEARCH_MODEL,
+                    system=RESEARCH_SYSTEM,
+                    tools="WebSearch,WebFetch",
+                    allowed=allowed,
+                    timeout=RESEARCH_TIMEOUT_S,
+                    on_event=progress.on_event,
+                )
         current = _read_meta(meta["id"]) or meta
         if current.get("status") == "cancelled":
             return
@@ -644,7 +683,8 @@ def _refresh_code_meta(meta):
         job = service.jobs.get(meta["request_id"])
         if job:
             meta = _sync_code_job(job) or meta
-        if os.environ.get("JARVIS_ASSIGNER_ROUTING") == "1":
+        # Same default as start_code: routing is on unless set to "0".
+        if os.environ.get("JARVIS_ASSIGNER_ROUTING", "1") != "0":
             service.kick()
     return meta
 
@@ -680,7 +720,8 @@ def start_code(
         )
         return meta
 
-    if os.environ.get("JARVIS_ASSIGNER_ROUTING") != "1":
+    # On by default (owner pre-approved 2026-10-31); JARVIS_ASSIGNER_ROUTING=0 disables.
+    if os.environ.get("JARVIS_ASSIGNER_ROUTING", "1") == "0":
         return blocked(
             "Dedicated Assigner routing is not activated; no fallback was used."
         )

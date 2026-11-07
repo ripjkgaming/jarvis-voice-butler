@@ -8,7 +8,7 @@ the confirm gate run for real.
 import struct
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import system.desktop as desktop_module
 from system.desktop import (

@@ -18,8 +18,26 @@ DOWNLOAD_NAME = "mock-exam-timetable.md"
 _TIME = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$", re.IGNORECASE)
 _DUR = re.compile(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?", re.IGNORECASE)
 _DATE = re.compile(r"(\d{1,2})\s+([A-Za-z]+)")
-_MONTHS = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ],
+        1,
+    )
+}
 
 
 def _minutes_of(text: str) -> int:
@@ -62,8 +80,13 @@ def parse_timetable(md: str, today: dt.date | None = None) -> list[dict]:
         minutes = _minutes_of(dur.group(1)) if dur else 0
         title = re.sub(r"\s*\([^)]*\)\s*$", "", subj).strip()
         rows.append(
-            {"date": current, "start": start, "end": start + minutes,
-             "title": title, "minutes": minutes}
+            {
+                "date": current,
+                "start": start,
+                "end": start + minutes,
+                "title": title,
+                "minutes": minutes,
+            }
         )
     rows.sort(key=lambda r: (r["date"], r["start"]))
     return rows
@@ -91,7 +114,11 @@ def describe_day(day: dt.date, papers: list[dict]) -> str:
         )
         if i + 1 < len(papers):
             gap = papers[i + 1]["start"] - p["end"]
-            parts.append(f"Then {fmt_dur(gap)} free." if gap > 0 else "Straight into the next one.")
+            parts.append(
+                f"Then {fmt_dur(gap)} free."
+                if gap > 0
+                else "Straight into the next one."
+            )
     return " ".join(parts)
 
 
@@ -152,7 +179,15 @@ def answer(
     elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", w):
         target = dt.date.fromisoformat(w)
     else:
-        names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        names = [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
         for i, n in enumerate(names):
             if w.startswith(n[:3]):
                 target = min((d for d in days if d.weekday() == i), default=None)
@@ -164,7 +199,9 @@ def answer(
     return lead + "Next: " + describe_day(nxt, days[nxt])
 
 
-def load(data_dir: Path, downloads: Path | None = None, today: dt.date | None = None) -> list[dict]:
+def load(
+    data_dir: Path, downloads: Path | None = None, today: dt.date | None = None
+) -> list[dict]:
     """Rows from the saved copy, adopting the Downloads file the first time. []."""
     saved = data_dir / DATA_NAME
     if not saved.exists() and downloads is not None:

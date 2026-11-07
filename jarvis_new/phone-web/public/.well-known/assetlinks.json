@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "dev.jarvis.lockelink",
+      "sha256_cert_fingerprints": [
+        "08:B9:A8:04:F9:06:F1:14:41:A9:D4:4E:8C:BC:B1:73:C9:A1:6D:62:D3:89:3C:3B:97:AF:77:CA:A7:BB:C9:57"
+      ]
+    }
+  }
+]

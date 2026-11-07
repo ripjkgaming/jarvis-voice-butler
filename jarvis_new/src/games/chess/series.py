@@ -11,6 +11,7 @@ summary(analyses): analyses is a list of saved game dicts (or {id: dict});
 each has optional id/white/black/moves[{ply,san,eval_cp,eval_mate}], evals
 are from White's point of view.
 """
+
 from __future__ import annotations
 
 import re
@@ -18,11 +19,24 @@ import secrets
 import time
 from dataclasses import asdict, dataclass, field, fields
 
-_UNITS = {w: i for i, w in enumerate(
-    "zero one two three four five six seven eight nine ten eleven twelve "
-    "thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split())}
-_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fourty": 40, "fifty": 50,
-         "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_UNITS = {
+    w: i
+    for i, w in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve "
+        "thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+_TENS = {
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fourty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
 _FILLER = {"games", "game", "of", "please", "x"}
 _COLOURS = ("white", "black", "alternate")
 _SPEAK = ("moves", "results")
@@ -47,8 +61,12 @@ def parse_count(text) -> int | None:
         n = _UNITS[toks[0]]
     elif len(toks) == 1 and toks[0] in _TENS:
         n = _TENS[toks[0]]
-    elif (len(toks) == 2 and toks[0] in _TENS and toks[1] in _UNITS
-          and 1 <= _UNITS[toks[1]] <= 9):
+    elif (
+        len(toks) == 2
+        and toks[0] in _TENS
+        and toks[1] in _UNITS
+        and 1 <= _UNITS[toks[1]] <= 9
+    ):
         n = _TENS[toks[0]] + _UNITS[toks[1]]
     return n if n is not None and 1 <= n <= 100 else None
 
@@ -97,10 +115,19 @@ class SeriesController:
         self.state: SeriesState | None = None
 
     # -- lifecycle ---------------------------------------------------
-    def start(self, total=None, colour="alternate", level=None,
-              move_time=None, speak="results") -> SeriesState:
-        if total is not None and (isinstance(total, bool) or not isinstance(total, int)
-                                  or not 1 <= total <= 100):
+    def start(
+        self,
+        total=None,
+        colour="alternate",
+        level=None,
+        move_time=None,
+        speak="results",
+    ) -> SeriesState:
+        if total is not None and (
+            isinstance(total, bool)
+            or not isinstance(total, int)
+            or not 1 <= total <= 100
+        ):
             raise ValueError("total must be 1..100 or None")
         if colour not in _COLOURS:
             raise ValueError("bad colour")
@@ -108,10 +135,15 @@ class SeriesController:
             raise ValueError("bad speak")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         self.state = SeriesState(
-            id=f"{stamp}-{secrets.token_hex(2)}", total=total, colour=colour,
-            level=level, move_time=move_time, speak=speak,
+            id=f"{stamp}-{secrets.token_hex(2)}",
+            total=total,
+            colour=colour,
+            level=level,
+            move_time=move_time,
+            speak=speak,
             started_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
-            first_user_colour="black" if colour == "black" else "white")
+            first_user_colour="black" if colour == "black" else "white",
+        )
         self._save()
         return self.state
 
@@ -166,7 +198,11 @@ class SeriesController:
         else:
             s.draws += 1
         s.index = len(s.game_ids) + 1
-        if s.total is not None and len(s.game_ids) >= s.total and s.status != "cancelled":
+        if (
+            s.total is not None
+            and len(s.game_ids) >= s.total
+            and s.status != "cancelled"
+        ):
             s.status = "complete"
         self._save()
         return out
@@ -203,7 +239,11 @@ class SeriesController:
     # -- summary -----------------------------------------------------
     def summary(self, analyses) -> dict:
         s = self.state
-        games = list(analyses.values()) if isinstance(analyses, dict) else list(analyses or [])
+        games = (
+            list(analyses.values())
+            if isinstance(analyses, dict)
+            else list(analyses or [])
+        )
         if isinstance(analyses, dict):
             for k, g in analyses.items():
                 g.setdefault("id", k)
@@ -230,8 +270,13 @@ class SeriesController:
                 mover = "white" if ply % 2 == 1 else "black"
                 gain = (cur - prev) if mover == "white" else (prev - cur)
                 prev = cur
-                rec = {"game_id": gid, "ply": ply, "san": m.get("san"),
-                       "mover": mover, "swing": gain}
+                rec = {
+                    "game_id": gid,
+                    "ply": ply,
+                    "san": m.get("san"),
+                    "mover": mover,
+                    "swing": gain,
+                }
                 swings.append(rec)
                 if ucol is None or mover == ucol:
                     if gain < 0 and (blunder is None or gain < blunder["swing"]):
@@ -241,11 +286,14 @@ class SeriesController:
         key = sorted(swings, key=lambda r: -abs(r["swing"]))[:3]
         return {
             "score": self.score_text() if s else "",
-            "wins": s.wins if s else 0, "draws": s.draws if s else 0,
+            "wins": s.wins if s else 0,
+            "draws": s.draws if s else 0,
             "losses": s.losses if s else 0,
             "games": len(s.game_ids) if s else 0,
-            "longest_game": longest, "biggest_blunder": blunder,
-            "best_move": best, "key_moments": key,
+            "longest_game": longest,
+            "biggest_blunder": blunder,
+            "best_move": best,
+            "key_moments": key,
         }
 
 

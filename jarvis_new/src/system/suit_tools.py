@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from livekit.agents import RunContext, function_tool
-from livekit.agents.llm import ToolError
+from jarvis_rt import RunContext, function_tool
+from jarvis_rt import ToolError
 
 import suit_diagnostics
 from system import LocalSystemError, log_action, require_local

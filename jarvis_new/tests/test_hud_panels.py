@@ -5,12 +5,12 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-from livekit.agents.llm import ToolError
 from test_bridge import _get
 
 import bridge
 import hud_panels
 import mail_log
+from jarvis_rt import ToolError
 from system.panel_tools import PanelTools
 
 
@@ -105,3 +105,8 @@ def test_exam_rows_are_short(monkeypatch) -> None:
     exams.add({"title": "Physics P4", "date": "2026-10-08", "start": "10:30"})
     rows = hud_panels._exams(dt.datetime(2026, 10, 1, 9).timestamp())["items"]
     assert rows == [{"title": "Physics P4", "when": "Thu 08 Oct 10:30 · in 7d"}]
+
+
+def test_insights_has_no_voice_tool() -> None:
+    ids = [t.id for t in PanelTools().tools]
+    assert "open_insights" not in ids and "close_insights" not in ids

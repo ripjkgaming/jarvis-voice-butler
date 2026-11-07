@@ -138,3 +138,18 @@ def test_youtube_download_is_high_priority_and_never_handed_off(monkeypatch):
     assert "download_youtube_video" not in {tool.id for tool in assistant._cold_tools}
     assert _never_demote("download_youtube_video")
     assert _never_demote("cancel_youtube_download")
+
+
+def test_code_project_is_high_priority_and_never_handed_off(monkeypatch):
+    for k in ("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+        monkeypatch.setenv(k, "x" * 32)
+    monkeypatch.setenv("LIVEKIT_URL", "ws://localhost:7880")
+    monkeypatch.setenv("JARVIS_PIPELINE", "local")
+
+    from agent import Assistant, _never_demote
+
+    _seed(end_call=80)  # Enough history to demote every unused ordinary tool.
+    assistant = Assistant(llm="openai/gpt-4.1-mini")
+    assert "code_project" in {tool.id for tool in assistant.tools}
+    assert "code_project" not in {tool.id for tool in assistant._cold_tools}
+    assert _never_demote("code_project")

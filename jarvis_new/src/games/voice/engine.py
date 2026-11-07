@@ -58,10 +58,11 @@ class VoiceEngine:
         self.paused = False  # Jarvis owns the mic
         self.resume_only = False  # 10 min deaf: only "resume chess" gets through
         self.running = False
-        self._q: asyncio.Queue[Utterance] = asyncio.Queue(maxsize=8)
-        self._speech_q: asyncio.Queue[str] = asyncio.Queue()
+        self._q: asyncio.Queue[Utterance] = asyncio.Queue(maxsize=1)
+        self._speech_q: asyncio.Queue[str] = asyncio.Queue(maxsize=2)
         self._tasks: list[asyncio.Task] = []
         self._barge_held = False
+        self._speech_epoch = 0
         self._epoch = 0  # bumped on wake so in-flight transcripts are discarded
         self.last_timing = Timing()
         self.chime = chime
@@ -74,7 +75,8 @@ class VoiceEngine:
         loop = asyncio.get_running_loop()
         if load_models:
             await asyncio.to_thread(self.stt.load)
-            await asyncio.to_thread(self._warm_speaker)
+            if not self.game.settings.commentary_muted:
+                await asyncio.to_thread(self._warm_speaker)
         g = self.game
         g.on_say = self.say
         g.on_stop_speech = self.cancel_speech
@@ -130,20 +132,23 @@ class VoiceEngine:
         if self.ep.in_speech and not was:
             self._speech_started(frame)
         if utt is not None:
-            with contextlib.suppress(asyncio.QueueFull):
-                self._q.put_nowait(utt)
+            # Prefer the latest command when decoding falls behind the mic.
+            # Old queued audio must not delay a fresh stop or move.
+            if self._q.full():
+                self._q.get_nowait()
+            self._q.put_nowait(utt)
             self.game.mic_state = "thinking"
             self.game._changed_soon()
 
     def _speech_started(self, frame: np.ndarray) -> None:
         self.game.mic_state = "hearing"
-        if self.speaker.speaking:
+        if self.speaker.speaking or self.game.speaking:
             gate_ok = True
             if self.game.settings.echo_gate:
                 mic = float(np.sqrt(np.mean(frame * frame)))
                 gate_ok = mic > self.speaker.out_rms * 1.5
             if gate_ok:
-                self.speaker.hold(True)  # duck until we know if it is "stop"
+                self.cancel_speech()
                 self._barge_held = True
         self.game._changed_soon()
 
@@ -188,10 +193,15 @@ class VoiceEngine:
 
     # -------------------------------------------------------------- speaking
     async def say(self, text: str) -> None:
-        if text and not self.paused:
-            await self._speech_q.put(text)
+        if text and not self.paused and not self.game.settings.commentary_muted:
+            # Takeover can produce moves faster than speech can play them.
+            # Keep only recent lines, without ever blocking game commands.
+            if self._speech_q.full():
+                self._speech_q.get_nowait()
+            self._speech_q.put_nowait(text)
 
     def cancel_speech(self) -> None:
+        self._speech_epoch += 1
         while not self._speech_q.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._speech_q.get_nowait()
@@ -202,10 +212,14 @@ class VoiceEngine:
     async def _speech_worker(self) -> None:
         while True:
             text = await self._speech_q.get()
-            epoch = self._epoch
-            while self._user_is_speaking():
+            epoch = self._speech_epoch
+            while self._user_is_speaking() and epoch == self._speech_epoch:
                 await asyncio.sleep(0.02)
-            if self.paused or epoch != self._epoch:
+            if (
+                self.paused
+                or epoch != self._speech_epoch
+                or self.game.settings.commentary_muted
+            ):
                 continue
             self.game.speaking = True
             self.game._changed_soon()
@@ -238,7 +252,7 @@ class VoiceEngine:
                     self.game._changed_soon()
 
     def _character_switch(self, text: str) -> bool:
-        """"switch to Ultron" (any source): run it, never hand it to chess."""
+        """ "switch to Ultron" (any source): run it, never hand it to chess."""
         try:
             try:
                 from character_runtime import get_runtime
@@ -268,8 +282,12 @@ class VoiceEngine:
             commands.is_stop(text) or commands.match_narrow_stop(text) is not None
         )
         # Self-echo guard: anything overlapping our own speech is dropped,
-        # unless it is a stop phrase.
-        if self.speaker.overlaps(utt.start, utt.end) and not stop_like:
+        # unless it is a stop phrase or the user just interrupted playback.
+        if (
+            self.speaker.overlaps(utt.start, utt.end)
+            and not stop_like
+            and not self._barge_held
+        ):
             self.dropped.append((text, "echo"))
             return None
         if self._character_switch(text):

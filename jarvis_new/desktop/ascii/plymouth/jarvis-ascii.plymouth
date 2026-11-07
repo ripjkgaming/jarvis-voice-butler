@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Jarvis ASCII
-Description=J.A.R.V.I.S boot drawn in ASCII glyphs: reactor assembles, helmet scans in, glyph progress bar
+Description=Cinematic J.A.R.V.I.S boot in ASCII glyphs: flare, warp tunnel, reactor drop with shockwave, HUD panels, helmet scan, block wordmark, grain + vignette
 ModuleName=script
 
 [script]

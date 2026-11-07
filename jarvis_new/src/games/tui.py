@@ -361,7 +361,7 @@ class TuiApp(App):
 
     async def on_mount(self) -> None:
         self.game.on_change = self._changed
-        orig = self.game.on_say
+        orig = self.game.on_log
 
         async def say(text: str) -> None:
             self.query_one("#say", RichLog).write(f"♞ {text}")
@@ -370,7 +370,7 @@ class TuiApp(App):
                 if asyncio.iscoroutine(r):
                     await r
 
-        self.game.on_say = say
+        self.game.on_log = say
         self.game.on_quit = self._quit
         self.set_interval(1 / 30, self._tick)
         self.query_one("#cmd", Input).focus()

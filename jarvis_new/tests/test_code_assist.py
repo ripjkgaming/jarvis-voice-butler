@@ -6,7 +6,7 @@ import json
 import subprocess
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import code_assist
 import jobs

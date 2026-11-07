@@ -156,7 +156,10 @@ class SessionMixin:
                 del rec.moves[k:]
             if rec.status == "finished" and not st.is_over():
                 rec.status, rec.result, rec.termination, rec.ended_at = (
-                    "active", "*", None, None,
+                    "active",
+                    "*",
+                    None,
+                    None,
                 )
                 dirty = True
             new = ucis[k:]
@@ -169,13 +172,23 @@ class SessionMixin:
                 san = b.san(mv)
                 b.push(mv)
                 last = i == len(new) - 1
-                batch.append({
-                    "ply": k + i + 1, "san": san, "uci": u, "fen_after": b.fen(),
-                    "eval_cp": None, "eval_mate": None, "depth": None,
-                    "best_uci": None,
-                    "think_ms": int(think_ms) if (last and think_ms is not None) else 0,
-                    "cls": None, "annotation": None,
-                })
+                batch.append(
+                    {
+                        "ply": k + i + 1,
+                        "san": san,
+                        "uci": u,
+                        "fen_after": b.fen(),
+                        "eval_cp": None,
+                        "eval_mate": None,
+                        "depth": None,
+                        "best_uci": None,
+                        "think_ms": int(think_ms)
+                        if (last and think_ms is not None)
+                        else 0,
+                        "cls": None,
+                        "annotation": None,
+                    }
+                )
             if len(batch) == 1 and not dirty:
                 self.store.append_move(rec, batch[0])
             else:
@@ -276,14 +289,19 @@ class SessionMixin:
     def _series_apply_settings(self) -> None:
         s = self.series.state
         if self._series_saved is None:
-            self._series_saved = (self.settings.difficulty, self.settings.takeover_strength)
+            self._series_saved = (
+                self.settings.difficulty,
+                self.settings.takeover_strength,
+            )
         if s.level is not None:
             self.settings.takeover_strength = "match"
             self.settings.difficulty = self._level_preset(s.level)
 
     def _series_restore_settings(self) -> None:
         if self._series_saved is not None:
-            self.settings.difficulty, self.settings.takeover_strength = self._series_saved
+            self.settings.difficulty, self.settings.takeover_strength = (
+                self._series_saved
+            )
             self._series_saved = None
 
     def _pause_series_for_release(self) -> None:
@@ -414,7 +432,9 @@ class SessionMixin:
                 f"{km.get('san')} swung the evaluation by {abs(int(km.get('swing', 0)))}."
             )
         self.last_analysis = {
-            "kind": "series_summary", "text": voice, "full_text": " ".join(full),
+            "kind": "series_summary",
+            "text": voice,
+            "full_text": " ".join(full),
             "summary": summ,
         }
         self.games_list = self.store.list(limit=20)
@@ -425,8 +445,13 @@ class SessionMixin:
     def _has_saved_evals(self) -> bool:
         rec = self._rec
         return bool(
-            rec and any(m.get("cp_loss") is not None or m.get("eval_cp") is not None
-                        or m.get("eval_mate") is not None for m in rec.moves)
+            rec
+            and any(
+                m.get("cp_loss") is not None
+                or m.get("eval_cp") is not None
+                or m.get("eval_mate") is not None
+                for m in rec.moves
+            )
         )
 
     def _user_parity(self) -> int:
@@ -440,7 +465,11 @@ class SessionMixin:
         heard = text_norm.clean(self.heard)
         ply: int | None
         if n is None and ("mistake" in heard or "blunder" in heard):
-            mine = [k for k in review.key_moments(rec, 200) if k["ply"] % 2 == self._user_parity()]
+            mine = [
+                k
+                for k in review.key_moments(rec, 200)
+                if k["ply"] % 2 == self._user_parity()
+            ]
             if not mine:
                 return Reply("I see no clear mistake of yours, Sir.", kind="explain")
             ply = mine[0]["ply"]
@@ -455,12 +484,19 @@ class SessionMixin:
         full = phrased["text"]
         voice = two_sentences(full)
         self.last_analysis = {
-            "kind": "explain", "ply": ply, "text": voice, "full_text": full, "facts": facts,
+            "kind": "explain",
+            "ply": ply,
+            "text": voice,
+            "full_text": full,
+            "facts": facts,
         }
         self.badges[ply] = facts["cls"]
         self.panel = {
-            "headline": f"Move {(ply + 1) // 2}", "detail": full, "source": "saved",
-            "pinned": False, "ply": ply,
+            "headline": f"Move {(ply + 1) // 2}",
+            "detail": full,
+            "source": "saved",
+            "pinned": False,
+            "ply": ply,
         }
         self._changed_soon()
         return Reply(voice, kind="explain", data={"ply": ply, "cls": facts["cls"]})
@@ -468,7 +504,9 @@ class SessionMixin:
     async def analyse_board_now(self) -> Reply:
         rec = self._rec
         last = rec.moves[-1] if rec and rec.moves else None
-        if last and (last.get("eval_cp") is not None or last.get("eval_mate") is not None):
+        if last and (
+            last.get("eval_cp") is not None or last.get("eval_mate") is not None
+        ):
             ev = {"cp": last.get("eval_cp"), "mate": last.get("eval_mate")}
             text, full = review.analyse_board(self.state.fen(), ev)
             self._set_board_analysis(text, full)
@@ -479,9 +517,17 @@ class SessionMixin:
     def _set_board_analysis(self, voice: str, full: dict) -> None:
         detail = " ".join([voice] + list(full.get("statements") or [])[1:])
         self.last_analysis = {
-            "kind": "board", "text": voice, "full_text": detail, "facts": full,
+            "kind": "board",
+            "text": voice,
+            "full_text": detail,
+            "facts": full,
         }
-        self.panel = {"headline": "Position", "detail": detail, "source": "engine", "pinned": False}
+        self.panel = {
+            "headline": "Position",
+            "detail": detail,
+            "source": "engine",
+            "pinned": False,
+        }
         self._changed_soon()
 
     async def _analyse_board_task(self) -> None:
@@ -503,8 +549,11 @@ class SessionMixin:
         bits = [f"move {(k['ply'] + 1) // 2} {k['san']}, a {k['cls']}" for k in kms]
         text = "Key moments: " + "; ".join(bits) + "."
         self.last_analysis = {
-            "kind": "key_moments", "text": text, "full_text": text,
-            "moments": kms, "game_id": rec.id,
+            "kind": "key_moments",
+            "text": text,
+            "full_text": text,
+            "moments": kms,
+            "game_id": rec.id,
         }
         await self._changed()
         if not self._series_running():
@@ -536,10 +585,15 @@ class SessionMixin:
                 return None
             # finished games the series never recorded (killed in between)
             for it in sorted(self.store.list(), key=lambda i: i["id"]):
-                if it["series_id"] == st.id and it["status"] == "finished" \
-                        and it["id"] not in st.game_ids:
+                if (
+                    it["series_id"] == st.id
+                    and it["status"] == "finished"
+                    and it["id"] not in st.game_ids
+                ):
                     ctl.record_result(
-                        it["id"], it["result"], "white" if it["white"] == "user" else "black"
+                        it["id"],
+                        it["result"],
+                        "white" if it["white"] == "user" else "black",
                     )
             if st.status == "running":
                 ctl.pause()
@@ -555,4 +609,6 @@ class SessionMixin:
         s = self.series.state
         k = len(s.game_ids) + 1
         of = f" of {s.total}" if s.total else ""
-        return f"You have an unfinished series, Sir, at game {k}{of}. Shall I resume it?"
+        return (
+            f"You have an unfinished series, Sir, at game {k}{of}. Shall I resume it?"
+        )

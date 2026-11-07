@@ -5,7 +5,7 @@ import asyncio
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system import projects_tools
 from system.projects_tools import ProjectTools, spoken_result
@@ -58,32 +58,37 @@ async def test_research_project_starts_and_reports(monkeypatch):
     ]
 
 
-async def test_code_project_passes_effort_and_dir(monkeypatch):
+async def test_code_project_launches_claude_code(monkeypatch):
+    import claude_code_launch
+
     seen = {}
 
-    def fake(method, path, body=None):
-        seen["body"] = body
-        return {"ok": True, "project": {"id": "c1", "status": "running"}}
+    def fake(task, directory=""):
+        seen.update(task=task, directory=directory)
+        return {"ok": True, "id": "cc-1"}
 
-    monkeypatch.setattr(projects_tools, "_bridge_call", fake)
-    tools = ProjectTools()
+    monkeypatch.setattr(claude_code_launch, "launch", fake)
     out = await ProjectTools.code_project(
-        tools,
+        ProjectTools(),
         types.SimpleNamespace(session=None),
         task="refactor the api",
         directory="~/code/app",
         effort="MAX",
     )
-    assert "Assigner" in out["say"]
-    assert seen["body"].pop("request_id").startswith("coding-")
-    assert seen["body"] == {
-        "kind": "code",
-        "task": "refactor the api",
-        "directory": "~/code/app",
-        "variant": "max",
-    }
-    for t in tools._tasks:
-        t.cancel()
+    assert "coding job" in out["say"] and out["job_id"] == "cc-1"
+    assert seen == {"task": "refactor the api", "directory": "~/code/app"}
+
+
+async def test_code_project_launch_failure_is_a_tool_error(monkeypatch):
+    import claude_code_launch
+
+    monkeypatch.setattr(
+        claude_code_launch, "launch", lambda *a, **k: {"ok": False, "error": "nope"}
+    )
+    with pytest.raises(ToolError):
+        await ProjectTools.code_project(
+            ProjectTools(), types.SimpleNamespace(session=None), task="refactor the api"
+        )
 
 
 async def test_unreachable_bridge_is_a_tool_error(monkeypatch):
@@ -119,3 +124,5 @@ async def test_open_projects_carries_navigation(monkeypatch):
     assert out["say"]
     with pytest.raises(ToolError):
         await ProjectTools.open_projects(ProjectTools(), _ctx(), command="make me a sandwich")
+
+

@@ -78,6 +78,17 @@ export default function RootLayout({ children }: RootLayoutProps) {
       )}
     >
       <head>
+        {/* The overlay HUD window is transparent (tauri.conf.json): in the Tauri
+            shell, on the HUD page only, mark <html> so the page background is
+            see-through and the desktop wallpaper is the HUD's base layer. A
+            plain browser and the opaque companion windows keep their solid
+            background. Runs before first paint. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(window.__TAURI_INTERNALS__&&!/\\/(projects|chess|drafts)(\\.html)?\\/?$/.test(location.pathname))document.documentElement.setAttribute('data-overlay','1')}catch(e){}",
+          }}
+        />
         {styles && <style>{styles}</style>}
         <title>{pageTitle}</title>
         <meta name="description" content={pageDescription} />

@@ -1,5 +1,5 @@
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 from system.background import BackgroundTools, cluster_journal
 
@@ -76,3 +76,45 @@ async def test_crash_report_rejects_bad_since(
             None,
             since="1 hour ago; rm -rf /",  # type: ignore[arg-type]
         )
+
+
+def test_format_usage_is_detailed() -> None:
+    from system.background import format_usage, parse_df, parse_ps
+
+    snap = {
+        "load1": 4.0,
+        "load5": 3.0,
+        "load15": 2.0,
+        "cores": 8,
+        "mem_total_gb": 16.0,
+        "mem_used_gb": 8.0,
+        "swap_total_gb": 4.0,
+        "swap_used_gb": 1.0,
+        "battery": 80,
+        "charging": 0,
+        "temp_c": 61.0,
+    }
+    ps = "COMMAND %CPU %MEM\npython 50.0 5.0\npython 20.0 3.0\nbrave 30.0 10.0\n"
+    procs = parse_ps(ps)
+    assert procs[0] == ("python", 70.0, 8.0)
+    say = format_usage(
+        uptime="up 2 hours",
+        snap=snap,
+        procs=procs,
+        disk=parse_df(
+            "Filesystem Size Used Avail Use% Mounted\n/dev/x 100G 40G 60G 40% /"
+        ),
+        ai="AI today: 1,000 tokens, about $0.50.",
+    )
+    for needle in (
+        "8 cores",
+        "50 percent busy",
+        "8.0 of 16.0 GB",
+        "swap",
+        "40G of 100G",
+        "battery 80 percent, on battery",
+        "61 degrees",
+        "python 70% CPU",
+        "AI today",
+    ):
+        assert needle in say

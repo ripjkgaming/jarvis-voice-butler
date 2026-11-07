@@ -42,7 +42,9 @@
   padding: 0;
   gap: 0;
   color: var(--text);
-  background: var(--ink);
+  /* Transparent on purpose: the desktop wallpaper is the HUD's base layer and
+     the overlay window composites over it (tauri.conf.json transparent). */
+  background: transparent;
   font-family: var(--f-label);
   font-size: 14px;
   letter-spacing: 0;
@@ -61,12 +63,13 @@
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  /* Light touch over the wallpaper: a gentle edge vignette, a faint blueprint
+     glow behind the orb and the hairline grid. No opaque base colour. */
   background:
-    radial-gradient(ellipse 105% 100% at 50% 48%, transparent 58%, rgba(1, 5, 9, 0.92) 100%),
-    radial-gradient(ellipse 52% 62% at 50% 47%, rgba(10, 42, 68, 0.7), transparent 72%),
-    repeating-linear-gradient(0deg, rgba(var(--acc, 168, 235, 255), 0.035) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(90deg, rgba(var(--acc, 168, 235, 255), 0.035) 0 1px, transparent 1px 40px),
-    var(--ink);
+    radial-gradient(ellipse 105% 100% at 50% 48%, transparent 62%, rgba(1, 5, 9, 0.34) 100%),
+    radial-gradient(ellipse 52% 62% at 50% 47%, rgba(10, 42, 68, 0.16), transparent 72%),
+    repeating-linear-gradient(0deg, rgba(var(--acc, 168, 235, 255), 0.03) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgba(var(--acc, 168, 235, 255), 0.03) 0 1px, transparent 1px 40px);
 }
 
 /* ------------------------------------------------------------- top bar */
@@ -83,8 +86,19 @@
   align-items: center;
   gap: 16px;
   padding: 0 22px;
-  background: linear-gradient(180deg, rgba(var(--deep-rgb, 6, 24, 38), 0.92), rgba(var(--ink-rgb, 3, 16, 26), 0.55));
   cursor: grab;
+}
+
+/* Bar plate on a pseudo-element so the load-in can fade it in (a gradient
+   cannot be transitioned) and the wallpaper shows through until then. */
+.top::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(var(--deep-rgb, 6, 24, 38), 0.92), rgba(var(--ink-rgb, 3, 16, 26), 0.55));
+  transition: opacity 1200ms ease-in-out;
 }
 
 /* glyph rule under the masthead: ═══ with a brighter centre run */
@@ -620,6 +634,10 @@
   position: relative;
   width: min(100cqw, 146.6cqh);
   aspect-ratio: 880 / 600;
+  /* Registered over the wallpaper's static emblem: reactor.tsx measures and
+     sets --wx/--wy/--wk (see wall-emblem.ts) so the live orb's outer ring
+     lands exactly on the emblem's. */
+  transform: translate(var(--wx, 0px), var(--wy, 0px)) scale(var(--wk, 1));
 }
 
 .rxStatic {
@@ -1606,12 +1624,21 @@
   align-items: center;
   padding: 0 20px;
   border-top: 1px dashed rgba(var(--acc, 168, 235, 255), 0.18);
-  background: rgba(var(--ink-rgb, 3, 16, 26), 0.85);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.3em;
   color: var(--text-faint);
   white-space: nowrap;
+}
+
+.foot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(var(--ink-rgb, 3, 16, 26), 0.85);
+  transition: opacity 1200ms ease-in-out;
 }
 
 .footMid {
@@ -1839,8 +1866,8 @@
   overflow: hidden;
   font-family: var(--f-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-dim);
 }
 
@@ -1911,25 +1938,14 @@
   display: none;
 }
 
-/* Acquisition owns the center. Keep cached films for immediate readiness,
- * but stop painting/compositing the reactor behind the acquisition veil. */
 .rxEnergy {
   position: absolute;
   inset: 0;
   pointer-events: none;
   opacity: 1;
-  transition: opacity 320ms ease-out;
 }
-.reactor[data-energizing] .rxEnergy {
+:global(html[data-watch-intro]) .rxEnergy {
   opacity: 0;
-}
-.reactor[data-energizing] .rxEnergy * {
-  animation-play-state: paused !important;
-}
-@media (prefers-reduced-motion: reduce) {
-  .rxEnergy {
-    transition: none !important;
-  }
 }
 
 /* Amber instruments feed a single cached particle field plus small, static
@@ -2041,5 +2057,567 @@
   :global(html[data-protocol]) .foot {
     filter: none;
     transition-duration: 0.01s;
+  }
+}
+
+/* ======================================================== classic (vector)
+   Jarvis and Friday wear the original vector instruments; only Ultron keeps
+   the glyph (ASCII) look above. Components switch in classic.tsx, this block
+   restores the vector rules the glyph skin replaced. */
+
+.emblemRing {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 1;
+  opacity: 0.85;
+}
+.emblemCore {
+  fill: none;
+  stroke: var(--state);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.emblemHeart {
+  fill: var(--cyan-hot);
+}
+.emblemClassic {
+  display: block;
+  width: 38px;
+  height: 38px;
+}
+
+.sparkClassic {
+  display: block;
+  width: 100%;
+  height: 30px;
+}
+.sparkGrid {
+  fill: none;
+  stroke: rgba(var(--acc, 168, 235, 255), 0.08);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.sparkArea {
+  fill: rgba(var(--acc, 168, 235, 255), 0.1);
+}
+.sparkLine {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.sparkClassic[data-warn] .sparkLine {
+  stroke: var(--amber);
+}
+.sparkClassic[data-warn] .sparkArea {
+  fill: rgba(var(--warn-rgb, 255, 179, 71), 0.12);
+}
+
+.cellsClassic {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 3px;
+  height: 10px;
+  margin: 7px 0 5px;
+}
+.cellsClassic i {
+  background: rgba(var(--acc, 168, 235, 255), 0.1);
+  transform: skewX(-24deg);
+}
+.cellsClassic i[data-on] {
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(var(--acc, 168, 235, 255), 0.5);
+}
+.cellsClassic[data-warn] i[data-on] {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(var(--warn-rgb, 255, 179, 71), 0.5);
+}
+
+.railClassic {
+  display: block;
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(var(--acc, 168, 235, 255), 0.12);
+}
+.railClassic i {
+  display: block;
+  height: 100%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(var(--acc, 168, 235, 255), 0.6);
+  transition: width 0.6s ease-out;
+}
+.railClassic[data-indeterminate] i {
+  width: 28%;
+  animation: rail-sweep 1.4s linear infinite;
+}
+@keyframes rail-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+
+.deskSparkClassic {
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin-top: 5px;
+}
+.deskSparkClassic polyline {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.deskSparkClassic[data-tone='up'] polyline {
+  stroke: var(--green);
+}
+.deskSparkClassic[data-tone='down'] polyline {
+  stroke: var(--red);
+}
+
+.root:not([data-skin='ultron']) {
+  --f-label: var(--font-rajdhani), 'Rajdhani', system-ui, sans-serif;
+  --f-mono: var(--font-share-tech-mono), 'Share Tech Mono', ui-monospace, monospace;
+  --f-brand: var(--font-orbitron), 'Orbitron', var(--f-label);
+}
+
+.root:not([data-skin='ultron']) .top {
+  border-bottom: 1px solid var(--line);
+}
+.root:not([data-skin='ultron']) .top::after {
+  content: '';
+  left: 50%;
+  right: auto;
+  bottom: -1px;
+  width: 360px;
+  height: 1px;
+  overflow: visible;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+}
+
+.root:not([data-skin='ultron']) .chip {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: rgba(var(--deep-rgb, 6, 24, 38), 0.65);
+  letter-spacing: 0.22em;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+.root:not([data-skin='ultron']) .chip::before,
+.root:not([data-skin='ultron']) .chip::after {
+  content: none;
+}
+.root:not([data-skin='ultron']) .chip[data-tone='state'] {
+  border-color: color-mix(in srgb, var(--state) 60%, transparent);
+  background: color-mix(in srgb, var(--state) 10%, rgba(var(--deep-rgb, 6, 24, 38), 0.8));
+}
+.root:not([data-skin='ultron']) .chip[data-tone='warn'] {
+  border-color: rgba(var(--warn-rgb, 255, 179, 71), 0.5);
+}
+.root:not([data-skin='ultron']) .chipDot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--state);
+  box-shadow: 0 0 8px var(--state);
+  animation: none;
+}
+
+.frameClassic {
+  padding: 11px 15px 13px;
+}
+
+.root:not([data-skin='ultron']) .trendRow {
+  grid-template-columns: 70px minmax(0, 1fr);
+}
+.root:not([data-skin='ultron']) .trendValue {
+  font-size: 23px;
+  font-weight: 400;
+}
+
+.root:not([data-skin='ultron']) .link {
+  grid-template-columns: 10px 78px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px dashed rgba(var(--acc, 168, 235, 255), 0.1);
+  background: none;
+}
+
+.root:not([data-skin='ultron']) .execTag,
+.root:not([data-skin='ultron']) .researchTag {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+}
+.root:not([data-skin='ultron']) .execMark {
+  width: 22px;
+}
+
+.root:not([data-skin='ultron']) .caption {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.root:not([data-skin='ultron']) .caption::before,
+.root:not([data-skin='ultron']) .caption::after,
+.root:not([data-skin='ultron']) .captionWho::before,
+.root:not([data-skin='ultron']) .captionWho::after,
+.root:not([data-skin='ultron']) .captionIdle::before,
+.root:not([data-skin='ultron']) .captionIdle::after {
+  content: none;
+}
+.root:not([data-skin='ultron']) .captionWho {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--state) 55%, transparent);
+}
+.root:not([data-skin='ultron']) .caption[data-who='SIR'] .captionWho {
+  border-color: var(--line-strong);
+}
+
+.root:not([data-skin='ultron']) .logRow {
+  grid-template-columns: 62px 82px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11.5px;
+}
+.root:not([data-skin='ultron']) .logTime::after,
+.root:not([data-skin='ultron']) .logTag::after,
+.root:not([data-skin='ultron']) .logRow:last-child .logText::after {
+  content: none;
+}
+.root:not([data-skin='ultron']) .logTag,
+.root:not([data-skin='ultron']) .logText {
+  padding-left: 0;
+}
+
+.root:not([data-skin='ultron']) .foot {
+  border-top: 1px solid var(--line);
+}
+.root:not([data-skin='ultron']) .footHealth i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  transform: rotate(45deg);
+}
+
+.root:not([data-skin='ultron']) .deskStat small::before {
+  content: none;
+}
+.root:not([data-skin='ultron']) .deskDrafts > li {
+  padding-left: 10px;
+  border-left: 2px solid var(--cyan-dim);
+  font-size: 13px;
+}
+.root:not([data-skin='ultron']) .deskDrafts > li::before,
+.root:not([data-skin='ultron']) .deskDrafts > li[data-urgent] b::before {
+  content: none;
+}
+.root:not([data-skin='ultron']) .deskDrafts > li[data-urgent] {
+  border-left-color: var(--amber);
+}
+
+/* ------------------------------------------------- standby badge (gone state)
+   Shown in the bottom-right while Jarvis has faded into the wallpaper: a wide,
+   quiet strip of live stats and, above it, his background tasks. Never takes
+   pointer events; opacity is driven by the presence engine (use-hud-presence). */
+.badge {
+  position: absolute;
+  right: clamp(104px, 7vw, 150px);
+  bottom: clamp(30px, 4.5vh, 72px);
+  z-index: 6;
+  width: clamp(460px, 32vw, 640px);
+  /* the HUD root is visibility:hidden while gone; the badge stays */
+  visibility: visible;
+  opacity: 0;
+  pointer-events: none;
+  font-family: var(--f-ascii);
+  color: rgba(var(--acc, 168, 235, 255), 0.78);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.root[data-presence='gone'] .badge {
+  opacity: 0.9;
+}
+/* html.hud-hidden pauses every animation; the badge's pip and shimmer keep running */
+:global(html.hud-hidden) .badge,
+:global(html.hud-hidden) .badge * {
+  animation-play-state: running !important;
+}
+
+.badgeHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(var(--acc, 168, 235, 255), 0.24);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  white-space: nowrap;
+  color: rgba(216, 248, 255, 0.72);
+}
+
+.badgePip {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(var(--acc, 168, 235, 255), 0.8);
+  transform: rotate(45deg);
+  animation: badge-breath 3.6s ease-in-out infinite;
+}
+
+@keyframes badge-breath {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: rotate(45deg) scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(45deg) scale(1.05);
+  }
+}
+
+.badgeStats {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 10px;
+}
+
+.badgeCell {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.badgeCell small {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  color: rgba(147, 184, 202, 0.62);
+}
+
+.badgeCell b {
+  font-size: 15px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: rgba(168, 235, 255, 0.7);
+  animation: badge-flash 1400ms ease-out both;
+}
+
+/* a changed reading flashes brighter once, then settles back to the dim look */
+@keyframes badge-flash {
+  0% {
+    color: #f4fdff;
+    text-shadow: 0 0 8px rgba(168, 235, 255, 0.85);
+  }
+  100% {
+    color: rgba(168, 235, 255, 0.7);
+    text-shadow: none;
+  }
+}
+
+.badgeJobs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.badgeJob {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: rgba(216, 248, 255, 0.72);
+  animation: badge-in 800ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.badgeTag {
+  color: var(--cyan);
+  letter-spacing: 0.12em;
+}
+.badgeTag::before {
+  content: '[';
+  color: rgba(var(--acc, 168, 235, 255), 0.4);
+}
+.badgeTag::after {
+  content: ']';
+  color: rgba(var(--acc, 168, 235, 255), 0.4);
+}
+
+.badgeTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badgeStage {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: rgba(147, 184, 202, 0.7);
+}
+
+.badgeBar {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: rgba(var(--acc, 168, 235, 255), 0.85);
+}
+.badgeBar[data-indeterminate] {
+  animation: badge-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes badge-shimmer {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.badgePct {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.badgeJob[data-done] {
+  color: #f4fdff;
+  animation: badge-done 2200ms ease-in-out both;
+}
+.badgeJob[data-done] .badgeStage,
+.badgeJob[data-done] .badgePct {
+  color: var(--green);
+}
+
+@keyframes badge-done {
+  0% {
+    opacity: 1;
+    text-shadow: 0 0 10px rgba(168, 235, 255, 0.9);
+  }
+  25% {
+    opacity: 1;
+    text-shadow: 0 0 6px rgba(109, 255, 179, 0.6);
+  }
+  70% {
+    opacity: 1;
+    text-shadow: none;
+  }
+  100% {
+    opacity: 0;
+    text-shadow: none;
+  }
+}
+
+.badgeMore {
+  align-self: flex-end;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: rgba(147, 184, 202, 0.62);
+}
+
+/* ------------------------------------------------- Always Aware glyph
+   One ASCII cell under the voice readout (and inline in the standby badge
+   head). Voice-only: never a pointer target. `◉` is lit only for the capture
+   burst; amber = an offer is pending or a takeover is running. */
+.aware,
+.awareBadge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: var(--f-ascii);
+  white-space: nowrap;
+  color: rgba(var(--acc, 168, 235, 255), 0.55);
+}
+.aware {
+  align-self: center;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+}
+.awareBadge {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+}
+.awareGlyph {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: rgba(var(--acc, 168, 235, 255), 0.7);
+}
+.awareWord {
+  opacity: 0.8;
+}
+.awareTail {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+.aware[data-aware='off'],
+.awareBadge[data-aware='off'] {
+  opacity: 0.35;
+}
+.aware[data-aware='capturing'] .awareGlyph,
+.awareBadge[data-aware='capturing'] .awareGlyph {
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(var(--acc, 168, 235, 255), 0.85);
+  animation: aware-lit 1.7s steps(2, end) infinite;
+}
+.aware[data-warn='true'] .awareGlyph,
+.awareBadge[data-warn='true'] .awareGlyph,
+.aware[data-warn='true'] .awareWord,
+.awareBadge[data-warn='true'] .awareWord {
+  color: var(--amber);
+  text-shadow: 0 0 8px rgba(var(--warn-rgb, 255, 179, 71), 0.5);
+}
+@keyframes aware-lit {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aware[data-aware='capturing'] .awareGlyph,
+  .awareBadge[data-aware='capturing'] .awareGlyph {
+    animation: none;
   }
 }

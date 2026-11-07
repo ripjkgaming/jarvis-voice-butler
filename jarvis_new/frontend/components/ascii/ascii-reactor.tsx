@@ -11,6 +11,7 @@ import {
   prefersReducedMotion,
   reactorField,
 } from '@/lib/ascii';
+import { getOrbEnergy } from '@/lib/orb-motion';
 
 const SPEED: Record<JarvisState, number> = {
   idle: 1,
@@ -70,6 +71,8 @@ export const AsciiReactor = memo(function AsciiReactor({
     let ch = 15;
     let atlas: GlyphAtlas | null = null;
     let start = performance.now();
+    let clock = 0;
+    let lastDraw = performance.now();
     let unsubscribe: (() => void) | null = null;
     const frame: ReactorFrame = { build: 0, t: 0, boost: 0, speed: 1, shock: null };
 
@@ -97,7 +100,12 @@ export const AsciiReactor = memo(function AsciiReactor({
       const now = performance.now();
       const reduced = prefersReducedMotion();
       const t = (now - start) / 1000;
-      frame.t = reduced ? 3 : t;
+      // Orb energy (lib/orb-motion): the field's clock slows to a crawl as the
+      // live orb settles into the static wallpaper emblem, and spins back up.
+      const energy = getOrbEnergy();
+      clock += Math.min(0.25, (now - lastDraw) / 1000) * energy;
+      lastDraw = now;
+      frame.t = reduced ? 3 : clock;
       frame.build = reduced ? 3 : t;
       frame.speed = L.muted ? 0.35 : SPEED[L.jarvis];
       const talk =
@@ -148,6 +156,11 @@ export const AsciiReactor = memo(function AsciiReactor({
     };
     // The reactor reassembles each time the HUD is brought back.
     let wasHidden = root.classList.contains('hud-hidden');
+    // The HUD intro asks for a fresh ring-by-ring build when the orb unfolds.
+    const rebuild = () => {
+      start = performance.now();
+    };
+    window.addEventListener('hud-reactor-rebuild', rebuild);
     const classes = new MutationObserver(() => {
       const hidden = root.classList.contains('hud-hidden');
       if (wasHidden && !hidden) start = performance.now();
@@ -162,6 +175,7 @@ export const AsciiReactor = memo(function AsciiReactor({
     sync();
     return () => {
       unsubscribe?.();
+      window.removeEventListener('hud-reactor-rebuild', rebuild);
       classes.disconnect();
       sizes.disconnect();
       document.removeEventListener('visibilitychange', sync);

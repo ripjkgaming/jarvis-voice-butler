@@ -98,10 +98,16 @@ export function ChessApp() {
     if (isTauri()) invoke('close_chess_window').catch(() => undefined);
   }, [send]);
 
-  // Keyboard. Voice Mode: nothing but Space (resume after a Jarvis call).
+  // Escape stops dialogue in both modes; Space resumes after a Jarvis call.
   useEffect(() => {
     if (!snap) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        void run('stop');
+        setDialog(null);
+        return;
+      }
       if (voice) {
         if (e.code === 'Space' && (snap.jarvis_active || snap.paused)) {
           e.preventDefault();
@@ -113,12 +119,6 @@ export function ChessApp() {
       const empty = text.length === 0;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key;
-      if (k === 'Escape') {
-        e.preventDefault();
-        void run('stop');
-        setDialog(null);
-        return;
-      }
       if (mod) {
         const lower = k.toLowerCase();
         const map: Record<string, () => void> = {
@@ -334,6 +334,17 @@ export function ChessApp() {
       ) : (
         <div className="cx-voicebar">
           <b>VOICE MODE</b>
+          <button type="button" className="cx-btn cx-btn--stop" onClick={() => void run('stop')}>
+            Stop
+          </button>
+          <button
+            type="button"
+            className="cx-btn"
+            aria-pressed={snap.settings.commentary_muted}
+            onClick={() => void run('set', { commentary_muted: !snap.settings.commentary_muted })}
+          >
+            {snap.settings.commentary_muted ? 'Unmute' : 'Mute'}
+          </button>
           <span>
             say “knight to f three”, “castle kingside”, “hint”, “stop” — squares are labelled
           </span>

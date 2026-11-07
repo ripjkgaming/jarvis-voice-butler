@@ -383,3 +383,23 @@ test('polling exposes failed reads, stops while hidden, and aborts on unmount', 
 });
 
 module.exports = { fixture, render };
+
+test('accelerated replay displays progress, scores and rejects malformed reports', () => {
+  const snap = fixture();
+  snap.runtime.historical_replay = {
+    status: 'running', start_date: '2016-12-01', end_date: '2016-12-30',
+    sessions_total: 21, sessions_completed: 1, final_equity_usd: '1000.00',
+    pnl_usd: '0.00', return_pct: '0.00', buy_hold_return_pct: '-0.50',
+    decision_score_pct: 100, correct_decisions: 1, scored_decisions: 1,
+    model_errors: 0, max_drawdown_pct: '0.00', duration_hours: 3,
+    expected_finish_at: '2026-10-28T05:15:00Z', scoring: 'After trading costs.',
+    decisions: [{date: '2016-12-01', correct: true, rationale: 'Held cash.', equity_usd: '1000.00'}],
+  };
+  const html = render(snap);
+  assert.match(html, /30 DAYS IN 3 HOURS/);
+  assert.match(html, /1\/21 sessions/);
+  assert.match(html, /100%/);
+  assert.match(html, /Held cash/);
+  snap.runtime.historical_replay.decision_score_pct = Infinity;
+  assert.equal(lib.parsePaperMarketSnapshot(snap), null);
+});

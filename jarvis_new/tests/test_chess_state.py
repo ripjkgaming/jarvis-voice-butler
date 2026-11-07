@@ -233,7 +233,7 @@ def test_saves_names_and_pgn(tmp_path):
 @pytest.fixture
 def game(tmp_path):
     g = ChessGame(
-        ChessSettings(announce_moves=True, difficulty="novice"),
+        ChessSettings(announce_moves=True, difficulty="novice", commentary_muted=False),
         engine=MiniEngine(3),
         save_dir=tmp_path,
     )

@@ -2,7 +2,7 @@ import contextvars
 from types import SimpleNamespace
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import agent_tasks as at
 import phone_session

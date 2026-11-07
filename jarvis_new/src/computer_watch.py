@@ -29,18 +29,27 @@ Return JSON only: task, state (running/completed/error/input_needed/unknown),
 evidence, summary, preparation, confidence (0..1). Be concise; no secrets."""
 
 
+def screen_share_request(text: str) -> bool:
+    """Distinguish screen sharing from the legacy webcam security guard."""
+    t = " ".join(re.sub(r"[^a-z' ]", " ", (text or "").lower()).split())
+    t = re.sub(r"^(?:hey |okay )?jarvis ", "", t)
+    t = re.sub(r"^(?:can you |could you |would you |please )", "", t)
+    return bool(re.fullmatch(r"(?:share|watch|see) (?:my|the) screen(?: please)?", t))
+
+
 def parse_command(text: str) -> str | None:
     t = " ".join(re.sub(r"[^a-z' ]", " ", (text or "").lower()).split())
     t = re.sub(r"\bcom puter\b", "computer", t)  # STT splits the word
     t = re.sub(r"^(?:hey |okay )?jarvis ", "", t)
     t = re.sub(r"^(?:can you |could you |would you |please )", "", t)
     if re.fullmatch(
-        r"(?:watch|keep an eye on) (?:the |my )?(?:computer|laptop|pc)(?: for me| please)?|(?:start|enter|activate) watch mode|watch mode",
+        r"(?:watch|keep an eye on) (?:the |my )?(?:computer|laptop|pc)(?: for me| please)?|(?:share|watch|see) (?:my|the) screen(?: please)?|(?:start|enter|activate) watch mode|watch mode",
         t,
     ):
         return "start"
     if re.fullmatch(
-        r"(?:stop|cancel|end) (?:watch mode|watching(?: the computer| the laptop)?)", t
+        r"(?:stop|cancel|end) (?:watch mode|watching(?: the computer| the laptop| my screen)?|sharing (?:my|the) screen)",
+        t,
     ):
         return "stop"
     if t in {"watch status", "watch mode status", "what are you watching"}:
@@ -657,6 +666,23 @@ class ComputerWatch:
             if stop.wait(min(300, self._poll_s * 2 ** min(self._failures, 3))):
                 break
 
+    def video_frame(self):
+        """Bridge-only frame read; metadata watches never expose pixels."""
+        from screen_understanding import ScreenError
+
+        with self._lock:
+            generation, visual = self._generation, self._visual
+            if not self._current(generation) or visual is None:
+                raise ScreenError("No active owner visual watch.")
+
+        def check():
+            if not self._current(generation) or self._visual is not visual:
+                raise ScreenError("Visual watch was cancelled.")
+
+        image = asyncio.run(visual.video_frame(check))
+        check()
+        return image
+
     def status(self) -> dict:
         with self._lock:
             if not self._allowed():
@@ -704,6 +730,7 @@ class ComputerWatch:
 _instance = ComputerWatch()
 start = _instance.start
 start_visual = _instance.start_visual
+video_frame = _instance.video_frame
 stop = _instance.stop
 status = _instance.status
 briefing = _instance.briefing

@@ -622,6 +622,7 @@ async def test_tool_scope_entry_failure_does_not_leak_pending(monkeypatch):
             closed.append(True)
 
     import action_guard
+
     monkeypatch.setattr(action_guard, "request_scope", lambda _: scope())
 
     @contextlib.contextmanager
@@ -640,3 +641,17 @@ async def test_tool_scope_entry_failure_does_not_leak_pending(monkeypatch):
         await tool._func(None)
     assert closed == [True]
     assert tracker.pending == 0
+
+
+def test_reply_callback_never_schedules_timing_speech():
+    import inspect
+
+    import agent
+
+    source = inspect.getsource(agent.my_agent)
+    callback = source.split("def _on_convo_item(event)", 1)[1].split(
+        'session.on("user_input_transcribed", _on_user_transcript)', 1
+    )[0]
+    assert "format_breakdown" in callback
+    assert "format_spoken" not in callback
+    assert "session.say" not in callback

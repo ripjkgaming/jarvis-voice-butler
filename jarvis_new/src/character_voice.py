@@ -116,9 +116,7 @@ class VoiceBank:
         # Serialize per voice instance only: different voices synthesize in
         # parallel (an exit line never waits on the target's prewarm).
         with self._path_lock(self._synth_locks, resolve_model_path(char)):
-            raw = render_sentence_pcm(
-                voice, text, length_scale=length_scale_for(char)
-            )
+            raw = render_sentence_pcm(voice, text, length_scale=length_scale_for(char))
         pcm = np.frombuffer(raw, dtype=np.int16)
         return apply_fx(pcm, sr, char), sr
 
@@ -128,7 +126,9 @@ class VoiceBank:
             pcm, _ = self.render_pcm(PREWARM_PHRASE, char)
             return pcm.size > 0
         except Exception as exc:
-            logger.warning("voice prewarm failed for %s: %s", getattr(char, "id", "?"), exc)
+            logger.warning(
+                "voice prewarm failed for %s: %s", getattr(char, "id", "?"), exc
+            )
             return False
 
     def whoosh_pcm(self, char, sr: int, dur_ms: float = 800) -> np.ndarray:
@@ -239,7 +239,9 @@ class CharacterPiperTTS(PiperTTS):
     stream classes; other characters delegate to a per-character child.
     """
 
-    def __init__(self, *, runtime=None, bank: VoiceBank | None = None, **kwargs) -> None:
+    def __init__(
+        self, *, runtime=None, bank: VoiceBank | None = None, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self._runtime = runtime
         self._bank = bank or _bank

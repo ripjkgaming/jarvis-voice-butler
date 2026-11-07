@@ -42,7 +42,18 @@ DESTRUCTIVE = frozenset(
 )  # fmt: skip
 _SKIP_GROUPS = frozenset({"stop", "exit", "answer", "ctl", "review"})
 _PIECE_WORDS = frozenset(
-    {"knight", "night", "bishop", "rook", "queen", "king", "pawn", "castle", "castles", "castling"}
+    {
+        "knight",
+        "night",
+        "bishop",
+        "rook",
+        "queen",
+        "king",
+        "pawn",
+        "castle",
+        "castles",
+        "castling",
+    }
 )
 _SQ = re.compile(r"\b[a-h][1-8]\b")
 
@@ -112,7 +123,9 @@ def _p_more_games(ctx: RouteCtx, m: re.Match) -> Intent | None:
         return Intent("series_resume", {}, "series")
     if ctx.series == "running":
         return None
-    return Intent("series_start", {"total": _FEW[m.group("q")], "colour": "alternate"}, "series")
+    return Intent(
+        "series_start", {"total": _FEW[m.group("q")], "colour": "alternate"}, "series"
+    )
 
 
 def _p_series_continue(ctx: RouteCtx, m: re.Match) -> Intent | None:
@@ -215,7 +228,11 @@ def fuzzy_match(cands: list[str]) -> Intent | None:
         if not found:
             continue
         best = max(f[0] for f in found)
-        top = {(n, json.dumps(a, sort_keys=True)): (n, a, g) for r, n, a, g in found if best - r <= 0.03}
+        top = {
+            (n, json.dumps(a, sort_keys=True)): (n, a, g)
+            for r, n, a, g in found
+            if best - r <= 0.03
+        }
         if len(top) == 1:
             n, a, g = next(iter(top.values()))
             return Intent(n, dict(a), g)
@@ -244,7 +261,9 @@ def _v_set_level(a: dict) -> dict | None:
 
 
 def _v_adjust(a: dict) -> dict | None:
-    return {"direction": a["direction"]} if a.get("direction") in ("up", "down") else None
+    return (
+        {"direction": a["direction"]} if a.get("direction") in ("up", "down") else None
+    )
 
 
 def _v_series_start(a: dict) -> dict | None:
@@ -349,12 +368,21 @@ _PROMPT = (
 
 def tool_schema() -> dict[str, dict]:
     """The whitelist as shown to the model (also handy for docs and tests)."""
-    return {n: {"description": d, "args": a} for n, (_i, _g, _v, a, d) in _TOOLS.items()}
+    return {
+        n: {"description": d, "args": a} for n, (_i, _g, _v, a, d) in _TOOLS.items()
+    }
 
 
 def _prompt(ctx: RouteCtx) -> str:
-    lines = [f"- {n}({', '.join(f'{k}: {v}' for k, v in s['args'].items())}): {s['description']}" for n, s in tool_schema().items()]
-    state = {"series": ctx.series or "none", "history_open": ctx.history, "jarvis_playing_for_user": ctx.takeover}
+    lines = [
+        f"- {n}({', '.join(f'{k}: {v}' for k, v in s['args'].items())}): {s['description']}"
+        for n, s in tool_schema().items()
+    ]
+    state = {
+        "series": ctx.series or "none",
+        "history_open": ctx.history,
+        "jarvis_playing_for_user": ctx.takeover,
+    }
     return _PROMPT + "\n".join(lines) + "\nState: " + json.dumps(state)
 
 
@@ -366,7 +394,11 @@ def validate(parsed: Any) -> tuple[Intent, float] | None:
     if not isinstance(name, str) or name not in _TOOLS:
         return None
     conf = parsed.get("confidence")
-    if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
+    if (
+        isinstance(conf, bool)
+        or not isinstance(conf, (int, float))
+        or not 0 <= conf <= 1
+    ):
         return None
     args = parsed.get("args", {})
     if args is None:
@@ -407,7 +439,11 @@ def describe(it: Intent) -> str:
         return "make it easier" if a["direction"] == "down" else "make it harder"
     if n == "series_start":
         t = a.get("total")
-        return "start a series until you say stop" if t is None else f"start a series of {t} game{'s' * (t != 1)}"
+        return (
+            "start a series until you say stop"
+            if t is None
+            else f"start a series of {t} game{'s' * (t != 1)}"
+        )
     if n == "undo":
         return f"take back {a.get('n', 1)} move{'s' * (a.get('n', 1) != 1)}"
     if n == "hist_step":
@@ -448,7 +484,9 @@ class IntentRouter:
 
     def llm_ready(self) -> bool:
         try:
-            return bool(self.enabled and self.client is not None and self.client.available())
+            return bool(
+                self.enabled and self.client is not None and self.client.available()
+            )
         except Exception:
             return False
 
@@ -461,7 +499,9 @@ class IntentRouter:
         if self.client is not None and hasattr(self.client, "cancel"):
             self.client.cancel()
 
-    def route_offline(self, text: str, ctx: RouteCtx | None = None) -> RouteResult | None:
+    def route_offline(
+        self, text: str, ctx: RouteCtx | None = None
+    ) -> RouteResult | None:
         ctx = ctx or RouteCtx()
         if looks_like_move(text, ctx):
             return None
@@ -493,7 +533,9 @@ class IntentRouter:
             {"role": "user", "content": text},
         ]
         self.llm_calls += 1
-        task = asyncio.ensure_future(self.client.complete(messages, max_tokens=120, json_mode=True))
+        task = asyncio.ensure_future(
+            self.client.complete(messages, max_tokens=120, json_mode=True)
+        )
         self._inflight.add(task)
         try:
             content, _model = await asyncio.wait_for(task, self.timeout)
@@ -501,7 +543,14 @@ class IntentRouter:
             if gen != self.generation:
                 return None
             raise
-        except (asyncio.TimeoutError, Cancelled, RuntimeError, ValueError, TypeError, OSError):
+        except (
+            asyncio.TimeoutError,
+            Cancelled,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            OSError,
+        ):
             return None
         except Exception:
             return None
@@ -514,5 +563,7 @@ class IntentRouter:
             return None
         it, conf = ok
         if conf < self.min_confidence:
-            return RouteResult(None, f"Did you mean {describe(it)}, Sir?", "llm", candidate=it)
+            return RouteResult(
+                None, f"Did you mean {describe(it)}, Sir?", "llm", candidate=it
+            )
         return RouteResult(it, None, "llm")

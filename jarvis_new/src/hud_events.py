@@ -19,10 +19,16 @@ import json
 import os
 import re
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import RLock
 from typing import Any
 
+from log_tail import tail_lines
+
 TOPIC = "jarvis-tasks"
+_CAPTION_LOCK = RLock()
 
 #: Conversation mirror for HUDs without a LiveKit client (the Tauri
 #: webview has no WebRTC, so it can never join a room — it reads these).
@@ -63,6 +69,27 @@ def tool_finish_payload(tool: str, ok: bool = True, detail: str = "") -> str:
             "ts": int(time.time() * 1000),
         }
     )
+
+
+def tool_execution_results(event) -> list[tuple[str, bool]]:
+    """Read errors from paired SDK outputs, including failed command exit codes."""
+    from action_outcome import parse_outcome
+    from claim_guard import sdk_tool_result
+
+    results = []
+    for call, output in event.zipped():
+        name = str(getattr(call, "name", "unknown"))
+        ok = output is not None and not bool(getattr(output, "is_error", False))
+        data = sdk_tool_result(output)
+        if isinstance(data, dict):
+            ok = ok and data.get("ok") is not False and not data.get("error")
+            if "rc" in data:
+                ok = ok and str(data["rc"]) == "0"
+            receipt = parse_outcome(data)
+            if receipt is not None:
+                ok = ok and receipt.accepted
+        results.append((name, bool(ok)))
+    return results
 
 
 def intent_echo_payload(resolved: str, raw: str = "") -> str:
@@ -164,6 +191,42 @@ def _active_speaker() -> str:
         return "jarvis"
 
 
+@contextmanager
+def _caption_transaction(path: Path):
+    """Protect append/prune across threads and separate desktop workers."""
+    with _CAPTION_LOCK, path.with_suffix(".lock").open("a") as lock:
+        try:
+            import fcntl
+        except ImportError:  # Non-POSIX clients still serialize local writers.
+            yield
+        else:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _replace_caption_file(path: Path, text: str) -> None:
+    """Publish complete contents using a temporary file unique to this writer."""
+    tmp = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            tmp = Path(stream.name)
+            stream.write(text)
+        tmp.replace(path)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
 def caption(role: str, text: str) -> bool:
     """Append one `ts\\trole\\ttext` line, pruning to the last keep window.
 
@@ -179,11 +242,14 @@ def caption(role: str, text: str) -> bool:
             return False
         path = captions_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as fh:
-            fh.write(f"{int(time.time())}\t{role}\t{text[:500]}\t{_active_speaker()}\n")
-        lines = path.read_text().splitlines()
-        if len(lines) > CAPTIONS_KEEP + 50:
-            path.write_text("\n".join(lines[-CAPTIONS_KEEP:]) + "\n")
+        with _caption_transaction(path):
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    f"{int(time.time())}\t{role}\t{text[:500]}\t{_active_speaker()}\n"
+                )
+            lines = tail_lines(path, CAPTIONS_KEEP + 51)
+            if len(lines) > CAPTIONS_KEEP + 50:
+                _replace_caption_file(path, "\n".join(lines[-CAPTIONS_KEEP:]) + "\n")
         return True
     except OSError:
         return False
@@ -204,8 +270,8 @@ def live_caption(uid: str, text: str, done: bool = False) -> bool:
     try:
         path = captions_path().with_name(LIVE_CAPTION_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(
+        _replace_caption_file(
+            path,
             json.dumps(
                 {
                     "id": str(uid),
@@ -213,9 +279,8 @@ def live_caption(uid: str, text: str, done: bool = False) -> bool:
                     "ts": time.time(),
                     "done": bool(done),
                 }
-            )
+            ),
         )
-        tmp.replace(path)
         return True
     except OSError:
         return False
@@ -224,7 +289,7 @@ def live_caption(uid: str, text: str, done: bool = False) -> bool:
 def read_captions(limit: int = 20) -> list[dict]:
     """Tail of the captions file as [{ts, role, text}]. Never raises."""
     try:
-        lines = captions_path().read_text().splitlines()[-max(1, limit) :]
+        lines = tail_lines(captions_path(), max(1, limit))
     except OSError:
         return []
     out: list[dict] = []

@@ -5,7 +5,7 @@ import time
 import types
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import school
 
@@ -95,9 +95,12 @@ def test_loud_guard_only_gates_sober_in_school_mode():
     loud_guard("open_app", {"app": "sober"})
 
 
-def test_school_vad_is_stricter():
+def test_school_vad_is_stricter(monkeypatch):
     import agent
 
+    # This verifies defaults, independent of personal microphone calibration.
+    monkeypatch.delenv("JARVIS_VAD_THRESHOLD", raising=False)
+    monkeypatch.delenv("JARVIS_VAD_MIN_SPEECH", raising=False)
     normal = agent.vad_kwargs()
     school.set_mode("school")
     strict = agent.vad_kwargs()

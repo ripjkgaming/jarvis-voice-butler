@@ -145,7 +145,7 @@ def test_calendar_create_readonly_token_requests_reconnect_before_network(
 async def test_calendar_import_malformed_event_is_retryable_tool_error(
     monkeypatch, event
 ):
-    from livekit.agents.llm import ToolError
+    from jarvis_rt import ToolError
 
     from system.workspace_tools import WorkspaceTools
 
@@ -191,7 +191,7 @@ async def test_calendar_import_preserves_suggestion_replaced_during_request(
 async def test_calendar_import_failed_dedupe_scan_never_creates_and_preserves_retry(
     monkeypatch,
 ):
-    from livekit.agents.llm import ToolError
+    from jarvis_rt import ToolError
 
     import event_suggest
     from system.workspace_tools import WorkspaceTools

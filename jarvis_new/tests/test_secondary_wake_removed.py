@@ -91,8 +91,23 @@ async def test_normal_input_never_instantiates_secondary_detector_or_transcribes
         pytest.fail("removed secondary detector must not allocate resources")
 
     monkeypatch.setattr(keyword_spot, "Segmenter", removed_detector)
-    with pytest.raises(TimeoutError):
-        await asyncio.wait_for(obj._listen_loop(model), 0.15)
+    sustained = asyncio.Event()
+    predict = model.predict
+
+    def observe(frame):
+        result = predict(frame)
+        if model.calls >= 70:
+            sustained.set()
+        return result
+
+    model.predict = observe
+    listener = asyncio.create_task(obj._listen_loop(model))
+    try:
+        # Wait for the behavior, not a 150ms scheduling race under suite load.
+        await asyncio.wait_for(sustained.wait(), 2.0)
+    finally:
+        listener.cancel()
+        await asyncio.gather(listener, return_exceptions=True)
     assert model.calls >= 70, "primary detector must still receive sustained input"
     assert transcriptions == []
 

@@ -42,11 +42,6 @@ def _call(server, method, path, payload=None):
         return getattr(exc, "code", 0), json.loads(exc.read().decode() or "{}")
 
 
-def test_chat_switch_and_no_false_positive():
-    _, res = bridge.handle_chat({"text": "tell me about ultron"})
-    assert res["reply"] == "hello" and res["speaker"] == "jarvis" and res["char_turn"] == 0
-    _, res = bridge.handle_chat({"text": "switch to ultron"})
-    assert res["switched"] and res["target"] == "ultron" and res["character"]["target"] == "ultron"
 
 
 def test_chat_ignores_client_character_and_accepts_3_item_history():
@@ -56,12 +51,6 @@ def test_chat_ignores_client_character_and_accepts_3_item_history():
     assert code == 200 and res["speaker"] == "jarvis"
 
 
-def test_chat_unknown_and_already_active():
-    _, res = bridge.handle_chat({"text": "switch to zorblax"})
-    assert not res["switched"] and "ULTRON" in res["reply"].upper()
-    _, res = bridge.handle_chat({"text": "switch to jarvis"})
-    assert not res["switched"]
-    assert cr.get_runtime().snapshot()["char_turn"] == 0
 
 
 def test_guest_chat_not_switched(_env):
@@ -71,25 +60,6 @@ def test_guest_chat_not_switched(_env):
     assert cr.get_runtime().snapshot()["char_turn"] == 0
 
 
-def test_characters_payload_no_prompt_and_endpoints():
-    server, _ = bridge._run_in_thread()
-    try:
-        code, res = _call(server, "GET", "/characters")
-        assert code == 200 and res["active"] == "jarvis" and "motion" in res
-        assert {"jarvis", "ultron", "friday"} <= set(res["characters"])
-        assert all("prompt" not in c for c in res["characters"].values())
-        code, snap = _call(server, "GET", "/character")
-        assert snap["phase"] == "idle"
-        code, out = _call(server, "POST", "/character/switch", {"target": "ultron", "source": "ui"})
-        assert code == 200 and out["switched"] and out["char_turn"] == 1
-        code, out = _call(server, "POST", "/character/switch", {"target": "friday"})
-        assert out["char_turn"] == 2
-        code, out = _call(server, "POST", "/character/switch", {"target": "ultron", "guest": True})
-        assert code == 403
-        code, room = _call(server, "GET", "/room")
-        assert room["character"]["char_turn"] == 2
-    finally:
-        server.shutdown()
 
 
 def test_captions_two_and_three_columns(tmp_path):

@@ -43,6 +43,12 @@ var ascii = {
             ids.forEach(function (identity) {
                 var found = effects.stackingOrder.filter(function (w) { return w.pid === identity.pid && w.caption === identity.caption; });
                 if (found.length === 1) {
+                    var w=found[0];
+                    if (/^portal(?:-commit|-cancel)?$/.test(r.action)) {
+                        ascii.stop(w);
+                        w.asciiPortalUntil=r.action==="portal-cancel" ? 0 : Date.now()+(r.action==="portal-commit" ? 7600 : 10000);
+                        return;
+                    }
                     found[0].asciiCommand = r;
                     if ((r.action === "focus" || r.action === "interact") && !found[0].minimized) ascii.scan(found[0], true);
                 }
@@ -191,6 +197,7 @@ var ascii = {
 
     // Window switching: the newly focused window is read once by a glyph band.
     scan: function (w, explicit) {
+        if(w && w.asciiPortalUntil && Date.now()<w.asciiPortalUntil)return;
         if (!w || !ascii.normal(w) || w.minimized || !w.visible) return;
         if (!explicit && (!ascii.focusScan || (w.asciiQuietUntil && Date.now() < w.asciiQuietUntil))) return;
         if (w.ascii && w.ascii.kind !== "scan") return;
@@ -205,6 +212,7 @@ var ascii = {
     },
 
     geometry: function (w, old) {
+        if(w && w.asciiPortalUntil && Date.now()<w.asciiPortalUntil)return;
         if (!old || !ascii.normal(w) || w.minimized || w.move || w.resize) return;
         var g = w.geometry;
         if (old.width <= 0 || old.height <= 0 || g.width <= 0 || g.height <= 0) return;

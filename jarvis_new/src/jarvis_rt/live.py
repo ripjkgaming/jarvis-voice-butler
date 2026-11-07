@@ -27,6 +27,7 @@ import gemini_watchdog
 from .agent import Agent
 from .chat_context import FunctionCall, FunctionCallOutput
 from .gemini_schema import function_declarations
+from .guards import RepeatGuard, is_foreign_speech
 
 log = logging.getLogger("jarvis_rt.live")
 
@@ -126,8 +127,10 @@ class _Generation:
     def __init__(self, user_initiated: bool) -> None:
         self.user_initiated = user_initiated
         self.input_text = ""
+        self.utterance_id = f"live-{time.monotonic_ns()}"
         self.output_closed = False
         self.done = False
+        self.foreign = False
 
 
 class LiveBackend:
@@ -163,6 +166,7 @@ class LiveBackend:
         self._mic_ready = asyncio.Event()
         self._out: asyncio.Queue = asyncio.Queue()
         self._gen: _Generation | None = None
+        self._repeat = RepeatGuard()
         self._pending_reply = False
         self._tool_choice_none = False
         self._rejected = 0
@@ -237,6 +241,11 @@ class LiveBackend:
                 True,
             )
         )
+
+    # Native audio may precede its transcript. The session validates a full
+    # response before releasing native audio/captions to avoid spoken false
+    # calendar-success claims before provider evidence exists.
+    requires_response_validation = True
 
     async def say(self, text: str) -> None:
         await self.generate_reply(
@@ -605,6 +614,7 @@ class LiveBackend:
         self._pending_reply = False
         self._gen = _Generation(user_initiated=pending)
         self._drop_audio = False
+        self._repeat.start_turn()
         for waiter in self._reply_waiters:
             if not waiter.done():
                 waiter.set_result(None)
@@ -612,7 +622,7 @@ class LiveBackend:
         if not pending:
             # not a reply we asked for: Gemini heard the user speak
             self._tool_choice_none = False
-            self._emit("user_speech_started")
+            self._emit("user_speech_started", utterance_id=self._gen.utterance_id)
 
     def _server_content(self, sc: types.LiveServerContent) -> None:
         if sc.turn_complete:
@@ -633,8 +643,21 @@ class LiveBackend:
             if not gen.input_text:
                 text = text.lstrip()
             gen.input_text += text
-            self._emit("user_transcript", text=gen.input_text, final=False)
+            if not gen.foreign and is_foreign_speech(gen.input_text):
+                # background noise heard as Korean/Chinese/...: not for Jarvis
+                gen.foreign = True
+                self._drop_audio = True
+                log.info("dropping non-English transcript %r", gen.input_text[:40])
+            self._emit(
+                "user_transcript",
+                text=gen.input_text,
+                final=False,
+                utterance_id=gen.utterance_id,
+            )
         if sc.output_transcription and sc.output_transcription.text:
+            if self._repeat.feed(sc.output_transcription.text, gen.input_text):
+                self._drop_audio = True  # same sentence again: stay quiet
+                log.info("suppressing repeated sentence")
             self._emit("agent_text", text=sc.output_transcription.text)
         if sc.generation_complete:
             gen.output_closed = True
@@ -650,12 +673,18 @@ class LiveBackend:
         if gen is None or gen.done:
             return
         gen.done = True
+        self._repeat.end_turn()
         if abort and not gen.input_text:
             self._emit("turn_complete")
             return
         self._emit("user_speech_stopped")
         if gen.input_text:
-            self._emit("user_transcript", text=gen.input_text, final=True)
+            self._emit(
+                "user_transcript",
+                text=gen.input_text,
+                final=True,
+                utterance_id=gen.utterance_id,
+            )
         self._emit("turn_complete")
 
     def _tool_calls(self, tool_call: types.LiveServerToolCall) -> None:
@@ -667,6 +696,11 @@ class LiveBackend:
             )
             for fc in tool_call.function_calls or []
         ]
+        gen = self._gen
+        if calls and gen is not None and gen.foreign:
+            log.info("rejecting tool calls from a non-English transcript")
+            self._reject_tools(tool_call.function_calls or [])
+            return
         if calls:
             self._emit("tool_calls", calls=calls)
         self._finish_generation()

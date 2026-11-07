@@ -7,7 +7,7 @@ model guesses cannot authorize outputs, scope or endless watching.
 
 import json
 
-from livekit.agents import RunContext, function_tool
+from jarvis_rt import RunContext, function_tool
 from system.build_monitor_tools import BuildMonitorTools
 
 from .core import canonical

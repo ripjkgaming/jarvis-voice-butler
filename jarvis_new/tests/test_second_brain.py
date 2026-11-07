@@ -181,3 +181,43 @@ def test_default_config_created(brain_home):
     cfg = second_brain.load_config()
     assert (second_brain.brain_dir() / "config.json").exists()
     assert cfg["max_depth"] == 4 and cfg["max_nodes"] == 20000
+
+
+def test_incremental_deduplicates_corrupt_edges_across_overlapping_roots(
+    brain_home, tmp_path
+):
+    app = _tree(tmp_path / "overlap")
+    cfg = _config(app)
+    cfg["roots"] = [str(app), str(app.parent)]
+    second_brain.build(incremental=False, config=cfg)
+    path = second_brain.brain_dir() / "graph.json"
+    graph = second_brain.load_graph()
+    graph["edges"] *= 8
+    path.write_text(json.dumps(graph))
+    for _ in range(4):
+        second_brain.build(incremental=True, config=cfg)
+        graph = second_brain.load_graph()
+        keys = [(e["from"], e["to"], e["kind"]) for e in graph["edges"]]
+        assert len(keys) == len(set(keys))
+        ids = {n["id"] for n in graph["nodes"]}
+        assert all(e["from"] in ids and e["to"] in ids for e in graph["edges"])
+
+
+def test_oversized_graph_is_rejected_before_json_decode(brain_home, monkeypatch):
+    path = second_brain.brain_dir() / "graph.json"
+    path.write_text(json.dumps({"nodes": [], "padding": "x" * 129}))
+    monkeypatch.setattr(second_brain, "MAX_GRAPH_BYTES", 128, raising=False)
+    assert second_brain.load_graph() is None
+    assert path.exists()
+
+
+def test_reused_edges_respect_reduced_node_cap(brain_home, tmp_path):
+    app = _tree(tmp_path / "cap")
+    cfg = _config(app)
+    second_brain.build(incremental=False, config=cfg)
+    cfg["max_nodes"] = 3
+    second_brain.build(incremental=True, config=cfg)
+    graph = second_brain.load_graph()
+    ids = {n["id"] for n in graph["nodes"]}
+    assert len(ids) <= 3
+    assert all(e["from"] in ids and e["to"] in ids for e in graph["edges"])

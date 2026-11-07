@@ -33,7 +33,9 @@ from .engine import (
 from .ledger import Ledger, exact, utcnow
 from .strategy import ENTRY_CUTOFF_SECONDS
 
-TA_HOME = Path(os.environ.get("TA_REPO", Path.home() / "tradingagents-sim/TradingAgents"))
+TA_HOME = Path(
+    os.environ.get("TA_REPO", Path.home() / "tradingagents-sim/TradingAgents")
+)
 DEEP_MODEL = os.environ.get("TA_DEEP_MODEL", "gpt-6.1-sol:medium")
 QUICK_MODEL = os.environ.get("TA_QUICK_MODEL", "gpt-6.1-sol:low")
 PROVIDER = os.environ.get("TA_PROVIDER", "codex")
@@ -44,7 +46,9 @@ TARGETS = {
     "Underweight": Decimal("0.05"),
     "Sell": Decimal("0"),
 }
-STOP_LOSS = Decimal("0.05")  # swing stop; the 1% intraday stop would churn this strategy
+STOP_LOSS = Decimal(
+    "0.05"
+)  # swing stop; the 1% intraday stop would churn this strategy
 MIN_TRADE = Decimal("15")
 CASH_BUFFER = Decimal("0.995")
 ENTRY_AFTER_OPEN_SECONDS = 15 * 60
@@ -70,7 +74,9 @@ def analyse(symbol: str, day: str, state_dir: Path) -> dict:
         max_risk_discuss_rounds=1,
         results_dir=str(state_dir / "ta" / "logs"),
     )
-    graph = TradingAgentsGraph(selected_analysts=("market", "news"), debug=False, config=config)
+    graph = TradingAgentsGraph(
+        selected_analysts=("market", "news"), debug=False, config=config
+    )
     state, signal = graph.propagate(symbol, day)
     decision = state.get("final_trade_decision") or ""
     return {"symbol": symbol, "rating": str(signal), "summary": str(decision)[:900]}
@@ -103,7 +109,10 @@ def daily_signals(state_dir: Path, day: str) -> dict:
                     done[symbol] = future.result()
                     cache.write_text(json.dumps(done))
                 except Exception as error:  # one failed symbol must not stop the rest
-                    print(f"TA {symbol} failed: {type(error).__name__}: {error}", file=sys.stderr)
+                    print(
+                        f"TA {symbol} failed: {type(error).__name__}: {error}",
+                        file=sys.stderr,
+                    )
         cache.write_text(json.dumps(done))
     return done
 
@@ -121,8 +130,12 @@ def plan(snapshot: dict, quotes: dict, signals: dict) -> tuple[list, list]:
         value = held.get(symbol, Decimal(0)) * price
         delta = target * equity - value
         if delta < -MIN_TRADE:
-            quantity = held[symbol] if target == 0 else (
-                (-delta / price).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+            quantity = (
+                held[symbol]
+                if target == 0
+                else (
+                    (-delta / price).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+                )
             )
             if quantity > 0:
                 sells.append((symbol, min(quantity, held[symbol]), info))
@@ -139,16 +152,39 @@ async def commit(ledger, engine, identifier, actions, rationale, kind="ta_swing"
         return []
     now = utcnow()
     proposal = {"actions": actions[:4], "rationale": rationale[:1900]}
-    if not ledger.begin_decision(identifier, now, {"policy": "tradingagents", "proposal": proposal}, kind):
+    if not ledger.begin_decision(
+        identifier, now, {"policy": "tradingagents", "proposal": proposal}, kind
+    ):
         return []
     try:
         symbols = [a["symbol"] for a in proposal["actions"]]
-        quotes, errors = await engine._fetch(symbols + [h["symbol"] for h in ledger.snapshot(now)["holdings"]])
+        quotes, errors = await engine._fetch(
+            symbols + [h["symbol"] for h in ledger.snapshot(now)["holdings"]]
+        )
         now = utcnow()
-        fills = apply_proposal(ledger, identifier, proposal, quotes, now, clock=utcnow, result={"usage": None, "verification": {"provider": "tradingagents", "deep": DEEP_MODEL, "quick": QUICK_MODEL}})
+        fills = apply_proposal(
+            ledger,
+            identifier,
+            proposal,
+            quotes,
+            now,
+            clock=utcnow,
+            result={
+                "usage": None,
+                "verification": {
+                    "provider": "tradingagents",
+                    "deep": DEEP_MODEL,
+                    "quick": QUICK_MODEL,
+                },
+            },
+        )
         return fills
     except Exception as error:
-        message = str(error) if isinstance(error, TradeError) else "TA decision failed; nothing committed."
+        message = (
+            str(error)
+            if isinstance(error, TradeError)
+            else "TA decision failed; nothing committed."
+        )
         ledger.finish_decision(identifier, utcnow(), "rejected", error=message)
         print(f"{identifier}: {message}", file=sys.stderr)
         return []
@@ -182,9 +218,23 @@ async def decide(ledger: Ledger) -> dict:
         fills = []
         batch = 0
         if sells:
-            actions = [{"symbol": s, "side": "sell", "notional_usd": None, "quantity": exact(q)} for s, q, _ in sells]
+            actions = [
+                {
+                    "symbol": s,
+                    "side": "sell",
+                    "notional_usd": None,
+                    "quantity": exact(q),
+                }
+                for s, q, _ in sells
+            ]
             for i in range(0, len(actions), 4):
-                fills += await commit(ledger, engine, f"{experiment_id}:ta:{day}:{len(signals)}:s{batch}", actions[i:i + 4], f"TradingAgents {day} trims/exits. {note}")
+                fills += await commit(
+                    ledger,
+                    engine,
+                    f"{experiment_id}:ta:{day}:{len(signals)}:s{batch}",
+                    actions[i : i + 4],
+                    f"TradingAgents {day} trims/exits. {note}",
+                )
                 batch += 1
         if wants:
             snapshot = ledger.snapshot(utcnow())
@@ -195,9 +245,22 @@ async def decide(ledger: Ledger) -> dict:
             for s, d, _ in wants:
                 notional = (d * scale).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 if notional >= 5:
-                    actions.append({"symbol": s, "side": "buy", "notional_usd": str(notional), "quantity": None})
+                    actions.append(
+                        {
+                            "symbol": s,
+                            "side": "buy",
+                            "notional_usd": str(notional),
+                            "quantity": None,
+                        }
+                    )
             for i in range(0, len(actions), 4):
-                fills += await commit(ledger, engine, f"{experiment_id}:ta:{day}:{len(signals)}:b{batch}", actions[i:i + 4], f"TradingAgents {day} entries. {note}")
+                fills += await commit(
+                    ledger,
+                    engine,
+                    f"{experiment_id}:ta:{day}:{len(signals)}:b{batch}",
+                    actions[i : i + 4],
+                    f"TradingAgents {day} entries. {note}",
+                )
                 batch += 1
     marker.write_text(f"{len(signals)}|{note}")
     return {"status": "decided", "day": day, "fills": len(fills), "ratings": note}
@@ -215,8 +278,22 @@ async def stop_check(ledger: Ledger) -> dict:
         for h in holdings:
             q = quotes.get(h["symbol"])
             if q and q.price / Decimal(h["average_cost_usd"]) - 1 <= -STOP_LOSS:
-                actions.append({"symbol": h["symbol"], "side": "sell", "notional_usd": None, "quantity": h["quantity"]})
-        fills = await commit(ledger, engine, f"{ledger.experiment()['id']}:tastop:{int(now.timestamp()) // 60}", actions, "TradingAgents swing stop-loss (5%).", "risk_exit")
+                actions.append(
+                    {
+                        "symbol": h["symbol"],
+                        "side": "sell",
+                        "notional_usd": None,
+                        "quantity": h["quantity"],
+                    }
+                )
+        fills = await commit(
+            ledger,
+            engine,
+            f"{ledger.experiment()['id']}:tastop:{int(now.timestamp()) // 60}",
+            actions,
+            "TradingAgents swing stop-loss (5%).",
+            "risk_exit",
+        )
         return {"status": "stopped" if fills else "ok"}
 
 
@@ -230,7 +307,9 @@ def analysis_loop(state_dir: Path) -> None:
 
 
 def daemon(ledger: Ledger) -> None:
-    threading.Thread(target=analysis_loop, args=(ledger.path.parent,), daemon=True).start()
+    threading.Thread(
+        target=analysis_loop, args=(ledger.path.parent,), daemon=True
+    ).start()
     while True:
         now = utcnow()
         if now >= datetime.fromisoformat(ledger.experiment()["expires_at"]):

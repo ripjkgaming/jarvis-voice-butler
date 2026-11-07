@@ -101,7 +101,9 @@ def pcm_to_mono16k(pcm: np.ndarray, rate: int, channels: int = 1) -> np.ndarray:
         from audio_dsp import downsample_48k_to_16k
 
         # Anti-aliased: naive [::3] folds 8-24 kHz mic noise into the speech band.
-        x = downsample_48k_to_16k(np.clip(mono * 32768.0, -32768, 32767).astype(np.int16))
+        x = downsample_48k_to_16k(
+            np.clip(mono * 32768.0, -32768, 32767).astype(np.int16)
+        )
         return x.astype(np.float32) / 32768.0
     if rate % TARGET_RATE == 0:
         return mono[:: rate // TARGET_RATE]

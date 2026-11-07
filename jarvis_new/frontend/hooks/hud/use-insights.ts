@@ -6,7 +6,7 @@ import { coverHud } from '@/lib/hud-overlay';
 import { useSharedPoll } from '@/lib/shared-poll';
 import { invoke, isTauri } from '@/lib/tauri';
 
-export type InsightsTab = 'usage' | 'market';
+export type InsightsTab = 'usage' | 'market' | 'calendar';
 
 type VoiceInsights = { insights?: { tab?: InsightsTab | null; seq?: number } };
 
@@ -52,7 +52,8 @@ export function useInsights(
     if (voiceSeq.current === voice.seq) return;
     voiceSeq.current = voice.seq;
     if (first) return; // a stale request from before this HUD loaded
-    if (voice.tab === 'usage' || voice.tab === 'market') open(voice.tab);
+    if (voice.tab === 'usage' || voice.tab === 'market' || voice.tab === 'calendar')
+      open(voice.tab);
     else close();
   }, [voice, open, close]);
   useEffect(() => {

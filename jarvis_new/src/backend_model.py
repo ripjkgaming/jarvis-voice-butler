@@ -1,7 +1,7 @@
-"""Careful backend work through headless ChatGPT, behind the voice model.
+"""Careful backend work behind the voice model.
 
-GPT-6.1 Sol at medium effort handles planning and document extraction.
-The conversation model passes tasks here and relays the answer to Sir.
+Reasoning uses the ChatGPT/Claude pool; document extraction keeps its existing
+ChatGPT adapter. The conversation model relays completed answers to Sir.
 Public functions return (result, warning), with bounded headless calls.
 """
 
@@ -55,18 +55,26 @@ Rules:
 
 
 def backend_think(
-    task: str, *, timeout: float = 180.0, runner=None
+    task: str,
+    *,
+    timeout: float = 180.0,
+    runner=None,
+    preferred: str = "auto",
+    allow_fallback: bool = True,
 ) -> tuple[str, str | None]:
     """One careful backend answer for a task the voice model handed off."""
     task = (task or "").strip()
     if not task:
         return "", "No task given"
-    return chatgpt_cli.chatgpt_reply(
+    import backend_pool
+
+    return backend_pool.reply(
         task[:20000],
-        model=chatgpt_cli.BACKEND_MODEL,
         system=BACKEND_SYSTEM,
         timeout=timeout,
         runner=runner,
+        preferred=preferred,
+        allow_fallback=allow_fallback,
     )
 
 

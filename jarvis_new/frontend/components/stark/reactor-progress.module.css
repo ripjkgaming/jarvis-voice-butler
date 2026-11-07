@@ -1,0 +1,324 @@
+/* Reactor progress, drawn INSIDE the orb: glyph arc in the band just inside the rim + centre-disc readout.
+ * Palette: cyan #5fe3ff / ice / amber. Colour is driven by `color` so tone
+ * changes cross-fade; hot parts are mixed toward white. */
+
+/* ----------------------------------------------------------------- ring */
+
+.ring {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+  color: #5fe3ff;
+  transition: color 600ms ease;
+}
+.ring[data-tier='amber'] {
+  color: #ffb347;
+}
+.ring[data-tier='ice'] {
+  color: #bfefff;
+}
+
+.ghost,
+.live {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* idle: barely-there track that breathes */
+.ghost {
+  opacity: 0.1;
+  animation: rp-breathe 7s ease-in-out infinite;
+  transition: opacity 700ms ease;
+}
+.ring[data-on] .ghost {
+  animation: none;
+  opacity: 0.05;
+}
+.ghostTrack {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 6;
+}
+.ghostPip {
+  stroke: currentColor;
+  stroke-width: 1.2;
+  opacity: 0.8;
+}
+@keyframes rp-breathe {
+  0%,
+  100% {
+    opacity: 0.06;
+  }
+  50% {
+    opacity: 0.14;
+  }
+}
+
+.live circle {
+  fill: none;
+}
+/* one concentric ring per task; tier colours the whole slot */
+.slot {
+  color: #5fe3ff;
+}
+.slot[data-tier='ice'] {
+  color: #bfefff;
+}
+.slot[data-tier='amber'] {
+  color: #ffb347;
+}
+.track {
+  stroke: currentColor;
+  stroke-width: 6;
+  opacity: 0.16;
+}
+.glow {
+  stroke: currentColor;
+  stroke-width: 13;
+  opacity: 0.16;
+}
+.fill {
+  stroke: currentColor;
+  stroke-width: 6;
+}
+.trail {
+  stroke: color-mix(in srgb, currentColor 35%, #fff);
+  stroke-width: 6;
+  opacity: 0.85;
+}
+.flashRing {
+  stroke: #fff;
+  stroke-width: 6;
+  opacity: 0.9;
+}
+.head {
+  stroke: color-mix(in srgb, currentColor 20%, #fff);
+  stroke-width: 7;
+}
+.label {
+  fill: currentColor;
+  font-family: var(--f-mono, var(--font-commit-mono), ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  paint-order: stroke;
+  stroke: rgba(2, 10, 18, 0.85);
+  stroke-width: 1.2px;
+  dominant-baseline: auto;
+}
+.pip {
+  stroke: color-mix(in srgb, currentColor 35%, #fff);
+  stroke-width: 1.8;
+  transition: opacity 300ms ease;
+}
+
+/* completion bursts */
+.burstA,
+.burstB {
+  position: absolute;
+  top: 10%;
+  left: 50%;
+  height: 80%;
+  aspect-ratio: 1;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  translate: -50% 0;
+  opacity: 0;
+}
+
+/* completion: flash + two expanding rings, then it settles away */
+.burst {
+  position: absolute;
+  inset: 0;
+}
+.burstFlash {
+  position: absolute;
+  top: 10%;
+  left: 50%;
+  height: 80%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% 0;
+  background: radial-gradient(
+    circle closest-side,
+    transparent 78%,
+    color-mix(in srgb, currentColor 55%, transparent) 97%,
+    transparent 100%
+  );
+  opacity: 0;
+  animation: rp-flash 1100ms ease-out both;
+}
+.burstA {
+  border-width: 2px;
+  animation: rp-burst 1000ms cubic-bezier(0.1, 0.7, 0.2, 1) both;
+}
+.burstB {
+  animation: rp-burst 1300ms cubic-bezier(0.1, 0.7, 0.2, 1) 160ms both;
+}
+@keyframes rp-flash {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes rp-burst {
+  0% {
+    opacity: 0.95;
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    scale: 1.07;
+  }
+}
+
+/* ------------------------------------------------------- centre readout */
+
+/* Lives inside the inner ring (r~105 of 300 => 35cqh across). All sizes
+ * are in cqh so the text scales with the reactor. */
+.disc {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35cqh;
+  width: 33cqh;
+  height: 33cqh;
+  padding: 0 2.6cqh;
+  font-family: var(--f-mono, var(--font-commit-mono), ui-monospace, monospace);
+  text-align: center;
+  color: currentColor;
+  background: radial-gradient(
+    circle closest-side,
+    rgba(2, 10, 18, 0.84) 0%,
+    rgba(2, 10, 18, 0.78) 68%,
+    rgba(2, 10, 18, 0.4) 90%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  opacity: 0;
+  scale: 0.92;
+  translate: -50% -50%;
+  transition:
+    opacity 600ms ease,
+    scale 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ring[data-on] .disc {
+  opacity: 1;
+  scale: 1;
+}
+.disc > span {
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag {
+  font-size: max(7px, 1.35cqh);
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+}
+.pct {
+  min-height: 1.1em;
+  font-size: max(15px, 5.6cqh);
+  font-weight: 700;
+  line-height: 1;
+  color: color-mix(in srgb, currentColor 30%, #fff);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 1.8cqh color-mix(in srgb, currentColor 65%, transparent);
+}
+.title {
+  font-size: max(7px, 1.5cqh);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text, #e6f8ff);
+}
+.stage {
+  font-size: max(6.5px, 1.25cqh);
+  letter-spacing: 0.1em;
+  color: var(--text-dim, #93b8ca);
+}
+.ring[data-on] .title {
+  animation: rp-in 700ms ease-out both;
+}
+.ring[data-done] .pct,
+.ring[data-done] .stage {
+  color: #f4fdff;
+  animation: rp-done 1000ms ease-out both;
+}
+
+/* one cell per concurrent task, the focused one lit */
+.legend {
+  display: flex;
+  gap: 0.5cqh;
+  margin-top: 0.4cqh;
+}
+.legend i {
+  width: 1.3cqh;
+  height: 0.55cqh;
+  background: #5fe3ff;
+  opacity: 0.32;
+}
+.legend i[data-tier='ice'] {
+  background: #bfefff;
+}
+.legend i[data-tier='amber'] {
+  background: #ffb347;
+}
+.legend i[data-focus] {
+  opacity: 1;
+  box-shadow: 0 0 0.8cqh currentColor;
+}
+
+@keyframes rp-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.3em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 0.04em;
+  }
+}
+@keyframes rp-done {
+  0% {
+    text-shadow: 0 0 22px #5fe3ff;
+  }
+  100% {
+    text-shadow: 0 0 8px rgba(95, 227, 255, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost {
+    animation: none;
+    opacity: 0.08;
+  }
+  .burst {
+    display: none;
+  }
+  .ring,
+  .pip,
+  .ghost,
+  .disc {
+    transition: none;
+  }
+  .ring[data-on] .title,
+  .ring[data-done] .pct,
+  .ring[data-done] .stage {
+    animation: none;
+  }
+}

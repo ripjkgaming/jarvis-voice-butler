@@ -53,7 +53,7 @@ async def nosleep(_s):
 
 
 def mk(root, engine=None, **kw):
-    g = ChessGame(ChessSettings(colour="white", announce_moves=False),
+    g = ChessGame(ChessSettings(colour="white", announce_moves=False, commentary_muted=False),
                   engine=engine or Fake(), save_dir=Path(root) / "saves",
                   step_delay=0.0, store_root=Path(root) / "games", **kw)
     g.listening = True

@@ -89,7 +89,9 @@ async def test_instructed_reply_is_sent_as_a_turn():
         await settle()
         turns = client_turns(conn)
         assert len(turns) == 1
-        assert turns[0]["turns"][0].parts[0].text == "Say hi."
+        # Instructions are sent wrapped as private direction (commit 0e3c666).
+        sent = turns[0]["turns"][0].parts[0].text
+        assert "Say hi." in sent and "aloud" in sent.lower()
         assert turns[0]["turn_complete"] is True
         reply.cancel()
         await asyncio.gather(reply, return_exceptions=True)

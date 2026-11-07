@@ -1,7 +1,7 @@
 """Scheduling voice tool contracts; no live delivery or account access."""
 
 import pytest
-from livekit.agents.llm import ToolError
+from jarvis_rt import ToolError
 
 import scheduled_tasks as tasks
 from system.schedule_tools import ScheduleTools

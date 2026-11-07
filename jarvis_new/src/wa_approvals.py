@@ -23,7 +23,7 @@ CONFIRM_TTL = 60.0
 
 
 def revision(row):
-    data = {k: row.get(k) for k in ("id", "chat", "text", "ts")}
+    data = {k: row.get(k) for k in ("id", "chat", "text", "image", "ts")}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
@@ -80,7 +80,7 @@ def pending(path):
     return [r for r in _rows(Path(path)) if r["status"] == "pending"]
 
 
-def queue(path, chat, text, *, request_id=None):
+def queue(path, chat, text, *, request_id=None, image=None):
     path = Path(path)
     with _locked(path):
         rows = _rows(path)
@@ -92,6 +92,7 @@ def queue(path, chat, text, *, request_id=None):
                     if r.get("request_id") == request_id
                     and r.get("chat") == chat
                     and r.get("text") == text
+                    and r.get("image") == image
                 ),
                 None,
             )
@@ -104,6 +105,12 @@ def queue(path, chat, text, *, request_id=None):
             "ts": time.time(),
             "status": "pending",
         }
+        if image is not None:
+            from wa_image import verify_image
+
+            if not verify_image(image):
+                raise ValueError("Image changed or is unavailable; capture it again.")
+            row["image"] = image
         if request_id:
             row["request_id"] = request_id
         row["revision"] = revision(row)
@@ -160,7 +167,21 @@ def discard(path, draft_id):
 def _norm(text):
     words = re.findall(r"[a-z0-9]+", str(text).casefold())
     digits = dict(
-        zip("zero one two three four five six seven eight nine".split(), "0123456789")
+        zip(
+            [
+                "zero",
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+            ],
+            "0123456789",
+        )
     )
     normalized = " ".join(digits.get(w, w) for w in words)
     return re.sub(r"(?<=\d)\s+(?=\d)", "", normalized)
@@ -276,7 +297,7 @@ class SpokenApproval:
             row = _get(path, draft_id)
             if (
                 not isinstance(row.get("text"), str)
-                or not row["text"].strip()
+                or (not row["text"].strip() and not row.get("image"))
                 or len(row["text"]) > 500
                 or row["text"] != row["text"].strip()
                 or not isinstance(row.get("chat"), str)
@@ -285,6 +306,13 @@ class SpokenApproval:
                 return {
                     "say": "That draft needs an explicit revision before send review. Nothing sent."
                 }
+            if row.get("image"):
+                from wa_image import verify_image
+
+                if not verify_image(row["image"]):
+                    return {
+                        "say": "The attached image changed. Nothing sent; capture it again."
+                    }
             stamp = queue_stamp(path)
             target = await self._resolve(row["chat"])
             if not target.get("ok"):
@@ -295,15 +323,33 @@ class SpokenApproval:
             if generation != self._generation or not self.authorized():
                 return {"say": "The owner phone call ended; nothing was sent."}
             target = {"name": target["name"], "jid": target["jid"]}
-            digits = "zero one two three four five six seven eight nine".split()
+            digits = [
+                "zero",
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+            ]
             code = " ".join(
                 digits[int(d)] for d in str(uuid.uuid4().int % 10000).zfill(4)
             )
             phrase = f"confirm WhatsApp dispatch {code}"
+            attachment_description = (
+                f" PNG image {row['image']['width']} by {row['image']['height']} pixels, "
+                f"SHA 256 checksum {row['image']['sha256']}."
+                if row.get("image")
+                else ""
+            )
             line = (
                 f"Sending review. WhatsApp {'group' if target['jid'].endswith('@g.us') else 'chat'}: {target['name']}. "
                 f"Conversation identifier: {target['jid']}. "
-                f"Exact message: {row['text']}. End of message. "
+                f"Exact message: {row['text'] or 'no caption'}. End of message. "
+                f"Attachment:{attachment_description} "
                 f"Review code: {code}. To send this exact draft, say confirm WhatsApp dispatch, "
                 "followed by that review code. Any other reply cancels this send review."
             )
@@ -420,7 +466,16 @@ class SpokenApproval:
         result = {"ok": False}
         try:
             if valid():
-                result = await self._send(target, row["text"], valid)
+                if row.get("image"):
+                    from system.whatsapp import send_approved_image
+                    from wa_image import verify_image
+
+                    if verify_image(row["image"]):
+                        result = await send_approved_image(
+                            target, row["text"], row["image"], valid
+                        )
+                else:
+                    result = await self._send(target, row["text"], valid)
         except Exception:
             pass  # transport failure may have already dispatched the message
         finally:

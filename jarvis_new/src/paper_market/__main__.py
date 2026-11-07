@@ -78,10 +78,61 @@ def main():
         subparsers.add_parser(name)
     server_parser = subparsers.add_parser("serve")
     server_parser.add_argument("--port", type=int, default=PORT)
+    replay_parser = subparsers.add_parser("replay")
+    replay_parser.add_argument("--seed", type=int, default=42)
+    replay_parser.add_argument("--duration-hours", type=float, default=3)
     args = parser.parse_args()
     os.umask(0o077)
     state_dir = args.state_dir.expanduser().resolve()
     ledger = Ledger(state_dir / "ledger.sqlite3")
+    if args.command == "replay":
+        from .openrouter_worker import OpenRouterWorker
+        from .replay import load_rows, run_replay
+
+        worker = OpenRouterWorker(timeout=90)
+        asyncio.run(worker.start(state_dir))
+        from datetime import timedelta
+
+        from .ledger import stamp
+
+        if not 0 <= args.duration_hours <= 24:
+            parser.error("duration-hours must be between 0 and 24")
+        started_at = utcnow()
+
+        def progress(report):
+            report.update(
+                started_at=stamp(started_at),
+                expected_finish_at=stamp(
+                    started_at + timedelta(hours=args.duration_hours)
+                ),
+                duration_hours=args.duration_hours,
+            )
+            target = state_dir / "replay-latest.json"
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text(json.dumps(report, indent=2, allow_nan=False))
+            temporary.replace(target)
+            ledger.runtime(historical_replay=report)
+            print(
+                json.dumps({k: v for k, v in report.items() if k != "decisions"}),
+                flush=True,
+            )
+
+        # Replay has its own lock and never changes the live experiment portfolio.
+        import fcntl
+
+        with (state_dir / "replay.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = asyncio.run(
+                run_replay(
+                    load_rows(),
+                    worker.propose,
+                    seed=args.seed,
+                    progress=progress,
+                    duration_seconds=args.duration_hours * 3600,
+                )
+            )
+            progress(result)
+        return
     if args.command in {"init", "install-service"}:
         ledger.initialize(utcnow())
     else:

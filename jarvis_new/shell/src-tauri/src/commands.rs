@@ -375,6 +375,31 @@ pub fn hide_overlay(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// Where the overlay's content area sits on its monitor, in CSS px:
+/// `{x, y, monitorWidth, monitorHeight}`. The wallpaper fills the whole
+/// monitor but the HUD window excludes the panels, so the HUD needs this
+/// offset to draw the orb exactly on the wallpaper's emblem.
+#[tauri::command]
+pub fn overlay_frame(app: AppHandle) -> Result<serde_json::Value, String> {
+    let win = app
+        .get_webview_window(OVERLAY_LABEL)
+        .ok_or_else(|| "overlay missing".to_string())?;
+    let pos = win.inner_position().map_err(|e| format!("position: {e}"))?;
+    let mon = win
+        .current_monitor()
+        .map_err(|e| format!("monitor: {e}"))?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let k = mon.scale_factor().max(0.1);
+    let mp = mon.position();
+    let ms = mon.size();
+    Ok(serde_json::json!({
+        "x": f64::from(pos.x - mp.x) / k,
+        "y": f64::from(pos.y - mp.y) / k,
+        "monitorWidth": f64::from(ms.width) / k,
+        "monitorHeight": f64::from(ms.height) / k,
+    }))
+}
+
 /// Forward (`true`) or accept (`false`) mouse events on the overlay.
 /// The HUD sets `true` when the orb is idle and no field is focused, so the
 /// always-on-top window never blocks clicks to windows beneath; any
