@@ -4,8 +4,8 @@
  *
  * Source: ~/deck/assets/locke-wall-ascii.png (1920x1080), rendered by
  * ~/deck/lib/jarvis_wall.py on a 7 x 15 px cell grid (274 x 72 cells, offset
- * 1,0): the reactor sits on cell (137, 36) with R = 72 * 0.3 = 21.6 rows, so
- *   centre   = (1 + 137*7 + 3.5, 36*15 + 7.5) = (963.5, 547.5) px
+ * 1,0): the reactor sits on cell (137, 34) (two rows above centre, REACTOR_ROW_SHIFT) with R = 72 * 0.3 = 21.6 rows, so
+ *   centre   = (1 + 137*7 + 3.5, 34*15 + 7.5) = (963.5, 517.5) px
  *   ascii R  = 21.6 * 15                      = 324 px
  * (`jarvis_wall.py --dump-cells` writes these into public/wall-cells.json and
  * wall-replica.ts reads them from there; the numbers below are the same ones,
@@ -16,7 +16,7 @@
 import { invoke, isTauri } from '@/lib/tauri';
 
 export const WALL_SRC = [1920, 1080] as const;
-export const WALL_CENTER_PX = { x: 963.5, y: 547.5 } as const;
+export const WALL_CENTER_PX = { x: 963.5, y: 517.5 } as const;
 /** Radius of the ASCII reactor's field (r = 1 in jarvis_ascii.reactor), px. */
 export const WALL_ASCII_RADIUS_PX = 324;
 /** Same, as fractions of the 1080 px wallpaper height / 1920 px width. */
