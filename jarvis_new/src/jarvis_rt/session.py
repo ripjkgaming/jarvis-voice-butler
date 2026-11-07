@@ -143,6 +143,13 @@ class AgentSession(EventEmitter):
         self._validated_audio: list[bytes] = []
         self._validated_audio_bytes = 0
         self._validation_overflow = False
+        # Streaming release of validated replies (see _pump_validated).
+        self._hold_turn = False
+        self._released_audio_bytes = 0
+        self._released_text_len = 0
+        # Playout clock: when queued speech ends, so state stays "speaking".
+        self._playout_until = 0.0
+        self._playout_timer: asyncio.TimerHandle | None = None
         self._started = False
         self._room_io: Any = None
         self._closed = False
@@ -203,6 +210,7 @@ class AgentSession(EventEmitter):
     async def aclose(self, reason: CloseReason = CloseReason.USER_INITIATED) -> None:
         if self._closed:
             return
+        self._cancel_playout_timer()
         self._closed = True
         if self._away_task:
             self._away_task.cancel()
@@ -335,6 +343,9 @@ class AgentSession(EventEmitter):
         self._validated_audio = []
         self._validated_audio_bytes = 0
         self._validation_overflow = False
+        self._hold_turn = False
+        self._released_audio_bytes = 0
+        self._released_text_len = 0
         self.emit(
             "speech_created",
             SpeechCreatedEvent(
@@ -355,6 +366,15 @@ class AgentSession(EventEmitter):
             if self.backend is not None:
                 self.backend.interrupt()
             self._finish_turn(interrupted=True)
+        elif self._playout_timer is not None and self._agent_state == "speaking":
+            # Generation is over but speech is still playing out: a barge-in
+            # must still cut it off.
+            self._playout_until = 0.0
+            self._cancel_playout_timer()
+            if self.output.flush is not None:
+                self.output.flush()
+            if not self._closed:
+                self._set_agent_state("listening")
         fut.set_result(None)
         return fut
 
@@ -479,18 +499,111 @@ class AgentSession(EventEmitter):
                 self._validated_audio.append(pcm24k)
             else:
                 self._validation_overflow = True
+            self._pump_validated()
             return
-        if self.output.audio_enabled and self.output.audio is not None:
-            self.output.audio(pcm24k)
+        self._play(pcm24k)
 
     def _on_agent_text(self, text: str) -> None:
         self._agent_text += text
+        if getattr(self.backend, "requires_response_validation", False):
+            self._pump_validated()
+            return
+        if self.output.transcription_enabled and self.output.transcription is not None:
+            self.output.transcription(text, False)
+
+    # ---- streaming release of validated replies ---------------------------
+    #: Speech rate used to bound audio by transcript (chars per second).
+    #: Set above real speech, so released audio never runs far ahead of
+    #: the text that was checked.
+    STREAM_CHARS_PER_S = 14.0
+    #: Audio allowed past the checked transcript (transcript lags audio).
+    STREAM_LEAD_S = 1.2
+
+    def _play(self, pcm24k: bytes) -> None:
+        if self.output.audio_enabled and self.output.audio is not None:
+            self.output.audio(pcm24k)
+            now = time.monotonic()
+            self._playout_until = (
+                max(self._playout_until, now) + len(pcm24k) / (24_000 * 2)
+            )
+
+    def _release_text(self, upto: int) -> None:
+        if upto <= self._released_text_len:
+            return
+        chunk = self._agent_text[self._released_text_len : upto]
+        self._released_text_len = upto
         if (
-            not getattr(self.backend, "requires_response_validation", False)
+            chunk
             and self.output.transcription_enabled
             and self.output.transcription is not None
         ):
-            self.output.transcription(text, False)
+            self.output.transcription(chunk, False)
+
+    def _pump_validated(self) -> None:
+        """Play a validated reply while it streams in, not after it ends.
+
+        Audio is released only after clean transcript exists, and only up
+        to the duration that transcript can cover (plus a small lead). A
+        reply that touches the calendar (context, domain word, or unsafe
+        claim) holds the rest for the full check in _finish_turn.
+        """
+        if self._hold_turn or self._validation_overflow:
+            return
+        text = self._agent_text
+        if not text.strip():
+            return
+        import claim_guard
+
+        if claim_guard.calendar_risk(text):
+            self._hold_turn = True
+            return
+        self._release_text(len(text))
+        budget = int(
+            (len(text.strip()) / self.STREAM_CHARS_PER_S + self.STREAM_LEAD_S)
+            * 24_000
+        ) * 2
+        while self._validated_audio:
+            room = budget - self._released_audio_bytes
+            if room <= 0:
+                break
+            packet = self._validated_audio[0]
+            if len(packet) > room:
+                head, tail = packet[:room], packet[room:]
+                self._validated_audio[0] = tail
+                packet = head
+            else:
+                self._validated_audio.pop(0)
+            self._validated_audio_bytes -= len(packet)
+            self._released_audio_bytes += len(packet)
+            self._play(packet)
+
+    def _cancel_playout_timer(self) -> None:
+        if self._playout_timer is not None:
+            self._playout_timer.cancel()
+            self._playout_timer = None
+
+    def _settle_listening(self) -> None:
+        """Turn over: go "listening" once queued speech has played out."""
+        self._cancel_playout_timer()
+        remaining = self._playout_until - time.monotonic()
+        if remaining > 0.25 and self._agent_state == "speaking":
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                self._playout_timer = loop.call_later(remaining, self._playout_done)
+                return
+        if not self._closed and self._agent_state != "thinking":
+            self._set_agent_state("listening")
+
+    def _playout_done(self) -> None:
+        self._playout_timer = None
+        if self._closed or self._agent_state != "speaking":
+            return
+        if self._speech is not None and not self._speech.done():
+            return  # a new reply owns the state now
+        self._set_agent_state("listening")
 
     def _on_turn_complete(self) -> None:
         self._finish_turn(interrupted=False)
@@ -516,18 +629,17 @@ class AgentSession(EventEmitter):
                     )
                 text = ""  # Never retain a rejected or cancelled false claim.
             elif not interrupted:
-                if (
-                    self.output.transcription_enabled
-                    and self.output.transcription is not None
-                    and text
-                ):
-                    self.output.transcription(text, False)
-                if self.output.audio_enabled and self.output.audio is not None:
-                    for packet in self._validated_audio:
-                        self.output.audio(packet)
+                # Release what streaming held back (calendar hold or the
+                # tail past the transcript budget).
+                self._release_text(len(self._agent_text))
+                for packet in self._validated_audio:
+                    self._play(packet)
             self._validated_audio = []
             self._validated_audio_bytes = 0
             self._validation_overflow = False
+            self._hold_turn = False
+            self._released_audio_bytes = 0
+            self._released_text_len = 0
         if text:
             self._add_item(
                 ChatMessage(role="assistant", content=[text], interrupted=interrupted)
@@ -537,14 +649,16 @@ class AgentSession(EventEmitter):
         speech, self._speech = self._speech, None
         if speech is not None and not speech.done():
             speech._mark_done()
-        if interrupted and self.output.flush is not None:
-            self.output.flush()
+        if interrupted:
+            self._playout_until = 0.0
+            self._cancel_playout_timer()
+            if self.output.flush is not None:
+                self.output.flush()
         elif (
             self.output.transcription_enabled and self.output.transcription is not None
         ):
             self.output.transcription("", True)
-        if not self._closed and self._agent_state != "thinking":
-            self._set_agent_state("listening")
+        self._settle_listening()
         self._arm_away()
         if blocked_line and not self._closed:
             self.say(blocked_line)

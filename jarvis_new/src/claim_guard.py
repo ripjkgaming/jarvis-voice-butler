@@ -557,3 +557,23 @@ def calendar_safe_text(text: str) -> str:
             ):
                 return "I haven't verified that Google Calendar change yet, Sir."
     return text
+
+
+_CALENDAR_DOMAIN = re.compile(r"\b(?:calendar|event|events|appointment|appointments)\b")
+
+
+def calendar_risk(text: str) -> bool:
+    """True when a reply in progress could carry a calendar claim.
+
+    Streaming speech checks this on the partial transcript. A True result
+    holds the rest of the reply until the full text passes
+    calendar_safe_text. Pure apart from the module GUARD state.
+    """
+    if not enabled():
+        return False
+    if GUARD.calendar_context:
+        return True
+    normalized = _norm(text or "")
+    if _CALENDAR_DOMAIN.search(normalized):
+        return True
+    return calendar_safe_text(text) != text
