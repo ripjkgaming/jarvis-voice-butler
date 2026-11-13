@@ -12,10 +12,14 @@ INFO = "caption: Song - YouTube - Brave\nminimized: {m}\nuuid: {{new}}\n"
 def _setup(monkeypatch, states, fronts):
     """states: minimized flag per getWindowInfo read; fronts: active titles."""
     ids = iter([{"old"}, {"old", "new"}])
-    monkeypatch.setattr(window_ctl, "brave_window_ids", lambda **k: next(ids, {"old", "new"}))
+    monkeypatch.setattr(
+        window_ctl, "brave_window_ids", lambda **k: next(ids, {"old", "new"})
+    )
     scripts: list[str] = []
     monkeypatch.setattr(
-        window_layout, "run_script", lambda js, name="", run=None: scripts.append(js) or True
+        window_layout,
+        "run_script",
+        lambda js, name="", run=None: scripts.append(js) or True,
     )
     acts: list[tuple] = []
     monkeypatch.setattr(kwin_windows, "act_on", lambda a, u, **k: acts.append((a, u)))
@@ -30,16 +34,27 @@ def _setup(monkeypatch, states, fronts):
 
 
 def test_minimised_window_is_unminimised_and_activated(monkeypatch):
-    scripts, acts, run, active = _setup(monkeypatch, ["true", "false"], ["Konsole", "Song - YouTube - Brave"])
-    r = window_ctl.reveal_new_brave({"old"}, run=run, sleep=lambda s: None, active=active)
-    assert r == {"found": True, "visible": True, "front": True, "title": "Song - YouTube - Brave"}
+    scripts, acts, run, active = _setup(
+        monkeypatch, ["true", "false"], ["Konsole", "Song - YouTube - Brave"]
+    )
+    r = window_ctl.reveal_new_brave(
+        {"old"}, run=run, sleep=lambda s: None, active=active
+    )
+    assert r == {
+        "found": True,
+        "visible": True,
+        "front": True,
+        "title": "Song - YouTube - Brave",
+    }
     assert len(scripts) == 2 and all("w.minimized = false" in s for s in scripts)
     assert acts == []  # never minimised anything
 
 
 def test_still_minimised_is_reported_honestly(monkeypatch):
     scripts, acts, run, active = _setup(monkeypatch, ["true"], ["Konsole"])
-    r = window_ctl.reveal_new_brave({"old"}, run=run, sleep=lambda s: None, active=active)
+    r = window_ctl.reveal_new_brave(
+        {"old"}, run=run, sleep=lambda s: None, active=active
+    )
     assert r["found"] and not r["visible"] and not r["front"]
     assert len(scripts) == 3  # retried 3 times
     assert acts == []
@@ -66,6 +81,10 @@ def test_play_media_never_calls_minimize_or_refocus_previous():
 def test_visibility_line_wording():
     from system.core import _visibility_line
 
-    assert "on screen and in front" in _visibility_line({"found": True, "visible": True, "front": True})
-    assert "still minimised" in _visibility_line({"found": True, "visible": False, "front": False})
+    assert "on screen and in front" in _visibility_line(
+        {"found": True, "visible": True, "front": True}
+    )
+    assert "still minimised" in _visibility_line(
+        {"found": True, "visible": False, "front": False}
+    )
     assert "cannot confirm" in _visibility_line({"found": False})

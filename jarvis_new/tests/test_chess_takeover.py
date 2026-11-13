@@ -169,7 +169,9 @@ async def test_single_game_stays_finished_without_continuous():
 async def test_release_leaves_takeover_no_new_game_and_pauses_series():
     a = FakeAdapter(moves_per_game=50)
     se = Series(5)
-    loop, _ = mk(a, series=se, hook=lambda n: loop.release("release") if n == 3 else None)
+    loop, _ = mk(
+        a, series=se, hook=lambda n: loop.release("release") if n == 3 else None
+    )
     assert await loop.run() == "release"
     assert a.new_games == []
     assert a.left[0] == "release" and se.paused
@@ -184,7 +186,9 @@ async def test_user_move_releases():
 
 async def test_external_stop_flag_ends_loop():
     a = FakeAdapter(moves_per_game=50)
-    loop, _ = mk(a, hook=lambda n: setattr(a, "mode_takeover", False) if n == 2 else None)
+    loop, _ = mk(
+        a, hook=lambda n: setattr(a, "mode_takeover", False) if n == 2 else None
+    )
     assert await loop.run() == "stop"
 
 
@@ -214,7 +218,9 @@ async def test_breaker_trips_after_three_errors_no_spin():
 
 async def test_breaker_resets_on_success():
     b = ErrorBreaker()
-    b.fail(); b.fail(); b.ok()
+    b.fail()
+    b.fail()
+    b.ok()
     assert not b.fail() and not b.tripped
     assert b.fail() is False and b.fail() is True
 

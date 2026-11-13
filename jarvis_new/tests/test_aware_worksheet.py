@@ -143,3 +143,48 @@ def test_find_files_applies_secrets_denylist(tmp_path):
     ssh.mkdir()
     (ssh / "ws.odt").write_text("x")
     assert ws.find_files("ws.odt", roots=[tmp_path], recent=[str(ssh / "ws.odt")]) == []
+
+
+def test_haiku_answers_parses_json_reply():
+    seen = {}
+
+    def call(model, system, task, **kw):
+        seen.update(model=model, system=system, task=task, tools=kw.get("tools"))
+        return 'Sure:\n```json\n{"edits": [{"id": "T0:B2", "text": "11/12"}]}\n```'
+
+    got = ws.haiku_answers(SLOTS, {"question": "Q4"}, call=call)
+    assert got == [{"id": "T0:B2", "text": "11/12"}]
+    assert seen["model"] == ws.HAIKU_MODEL
+    assert seen["tools"] == ()  # no tools: answers only
+    assert "T0:C5" in seen["task"] and "untrusted" in seen["system"]
+
+
+def test_haiku_answers_raises_on_no_json():
+    with pytest.raises(RuntimeError):
+        ws.haiku_answers(SLOTS, {}, call=lambda *a, **k: "no idea")
+
+
+def test_best_answers_prefers_haiku_then_gemini():
+    calls = []
+
+    def haiku(slots, ctx):
+        calls.append("haiku")
+        raise RuntimeError("claude CLI not installed")
+
+    def gemini(slots, ctx):
+        calls.append("gemini")
+        return [{"id": "T0:B2", "text": "x"}]
+
+    got = ws.best_answers(SLOTS, {}, engines=[haiku, gemini])
+    assert calls == ["haiku", "gemini"] and got[0]["text"] == "x"
+
+
+def test_best_answers_stops_at_first_success():
+    calls = []
+
+    def haiku(slots, ctx):
+        calls.append("haiku")
+        return [{"id": "T0:B2", "text": "h"}]
+
+    got = ws.best_answers(SLOTS, {}, engines=[haiku, lambda s, c: calls.append("g")])
+    assert calls == ["haiku"] and got[0]["text"] == "h"

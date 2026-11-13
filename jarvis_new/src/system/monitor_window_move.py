@@ -243,6 +243,82 @@ def _describe(screens: list[dict]) -> str:
     return "Monitors found: " + "; ".join(parts) + "."
 
 
+THIS_WORDS = {"this", "here", "current", "this monitor", "current monitor", "same"}
+FREE_WORDS = {"free", "empty", "free monitor", "empty monitor", "free screen", "spare"}
+_NUM_WORDS = {
+    "1": 1, "one": 1, "first": 1, "1st": 1,
+    "2": 2, "two": 2, "second": 2, "2nd": 2,
+    "3": 3, "three": 3, "third": 3, "3rd": 3,
+    "4": 4, "four": 4, "fourth": 4, "4th": 4,
+}  # fmt: skip
+
+
+def _monitor_number(text: str) -> int | None:
+    """'monitor 3', 'screen two', 'm3', 'display 1', 'number 2' -> 3, 2, 3, 1, 2.
+
+    Bare 'second'/'2nd' keep their older meaning (second external)."""
+    m = re.fullmatch(
+        r"(?:(?:monitor|screen|display|number|no|#)\s*)?(\d|one|two|three|four)"
+        r"|m(\d)|(?:monitor|screen|display)\s+(first|second|third|fourth)"
+        r"|(first|second|third|fourth|1st|2nd|3rd|4th)\s+(?:monitor|screen|display)",
+        text,
+    )
+    if not m:
+        return (
+            _NUM_WORDS.get(text)
+            if text in ("first", "1st", "third", "3rd", "fourth", "4th")
+            else None
+        )
+    word = next((g for g in m.groups() if g), None)
+    if word == "second" and text in SECOND_WORDS:
+        return None
+    return _NUM_WORDS.get(word or "")
+
+
+def _numbered_monitor(
+    n: int, screens: list[dict], primary: dict, laptop: dict | None, externals: list
+) -> dict:
+    """Owner's numbering: 1 = the screen Claude/the terminal runs on (the primary),
+    2 = the laptop panel, 3 = the remaining (final) monitor, then left-to-right."""
+    ordered: list[dict] = [primary]
+    if laptop is not None and laptop is not primary:
+        ordered.append(laptop)
+    ordered += [s for s in sorted(screens, key=lambda s: s["x"]) if s not in ordered]
+    if n < 1 or n > len(ordered):
+        raise ValueError(f"There is no monitor {n}. " + _describe(screens))
+    return ordered[n - 1]
+
+
+def window_counts(screens: list[dict]) -> dict[str, int]:
+    """Normal windows per output (enumerated by probing KWin with common letters)."""
+    seen: set[str] = set()
+    counts = {s["name"]: 0 for s in screens}
+    for probe in ("a", "e", "i", "o", "u", "-", "1"):
+        for uuid, _t in _probe(probe):
+            if uuid in seen:
+                continue
+            seen.add(uuid)
+            info = _info(uuid)
+            if info is None or not _is_normal(info):
+                continue
+            if "hologram" in str(info.get("caption", "")).lower():
+                continue
+            name = info_screen(info, screens)
+            if name in counts:
+                counts[name] += 1
+    return counts
+
+
+def free_screen(screens: list[dict]) -> dict:
+    """Least-occupied monitor, avoiding the one that holds the Jarvis HUD."""
+    if not screens:
+        raise ValueError("No active monitors were detected.")
+    counts = window_counts(screens)
+    hud = hud_screen(screens)
+    pool = [s for s in screens if s["name"] != hud] or screens
+    return min(pool, key=lambda s: (counts.get(s["name"], 0), -s["x"]))
+
+
 def _spec_text(spec: str) -> str:
     text = " ".join((spec or "other").lower().replace("_", " ").split())
     text = re.sub(r"^(?:the|my)\s+", "", text)
@@ -259,6 +335,15 @@ def pick_destination(spec: str, screens: list[dict], current: str | None) -> dic
     laptop = next((s for s in screens if not _external(s)), None)
     externals = sorted((s for s in screens if _external(s)), key=lambda s: s["x"])
     secondary = next((s for s in externals if s["name"] != primary["name"]), None)
+
+    n = _monitor_number(text)
+    if n is not None:
+        return _numbered_monitor(n, screens, primary, laptop, externals)
+    if text in THIS_WORDS:
+        here = next((s for s in screens if s["name"] == current), None)
+        return here or primary
+    if text in FREE_WORDS:
+        return free_screen(screens)
 
     for s in screens:  # exact output name: DP-1, dp1, HDMI-A-2, hdmia2
         if key and key == re.sub(r"[^a-z0-9]", "", s["name"].lower()):
@@ -296,7 +381,7 @@ def pick_destination(spec: str, screens: list[dict], current: str | None) -> dic
         return externals[0]
     raise ValueError(
         f"Unknown monitor '{spec}'. {_describe(screens)} "
-        "Use main, laptop, second, left, right, other, or an output name like DP-1."
+        "Use monitor 1/2/3, main, laptop, left, right, other, free, this, or an output name like DP-1."
     )
 
 
@@ -534,10 +619,16 @@ def info_screen(info: dict | None, screens: list[dict]) -> str | None:
 
 
 def hud_screen(screens: list[dict]) -> str | None:
-    """Discover the actual screen holding the Jarvis UI, not assumed primary."""
-    info = kwin_info("Jarvis")
-    if info and str(info.get("resourceClass", "")).lower() == "jarvis-shell":
-        return info_screen(info, screens)
+    """Screen holding the Jarvis HUD window (not the hologram window), else primary."""
+    for uuid, _title in _probe("Jarvis"):
+        info = _info(uuid)
+        if not info or str(info.get("resourceClass", "")).lower() != "jarvis-shell":
+            continue
+        if "hologram" in str(info.get("caption", "")).lower():
+            continue
+        name = info_screen(info, screens)
+        if name:
+            return name
     # The shell defaults to primary; reserving it is safer if lookup fails.
     return _primary(screens)["name"] if screens else None
 

@@ -38,9 +38,9 @@ class FakeProcess:
         self.config = {}
         self.config_mutation = None
         self.account_type = "chatgpt"
-        self.models = ["gpt-6-astra"]
+        self.models = ["gpt-6.1-sol"]
         self.efforts = ["medium"]
-        self.thread_model = "gpt-6-astra"
+        self.thread_model = "gpt-6.1-sol"
         self.thread_effort = "medium"
         self.version_text = b"codex-cli 0.159.2\n"
         self.notifications = []
@@ -166,7 +166,7 @@ async def test_isolated_text_only_proposal_and_verified_metadata(
         "actions": [],
         "rationale": "Hold with current cash.",
     }
-    assert result["model"] == "gpt-6-astra"
+    assert result["model"] == "gpt-6.1-sol"
     assert result["effort"] == "medium"
     assert result["usage"] is None
     assert result["verification"]["model_verified"] is True
@@ -183,7 +183,7 @@ async def test_isolated_text_only_proposal_and_verified_metadata(
     assert "screenshot" not in start["baseInstructions"].lower()
     assert start["developerInstructions"] == ""
     turn = next(m["params"] for m in server.messages if m.get("method") == "turn/start")
-    assert turn["model"] == "gpt-6-astra"
+    assert turn["model"] == "gpt-6.1-sol"
     assert turn["effort"] == "medium"
     assert turn["environments"] == []
     assert turn["approvalPolicy"] == "never"
@@ -251,7 +251,7 @@ def event(method, **params):
         event("model/rerouted", toModel="gpt-6-sol"),
         event(
             "thread/settings/updated",
-            threadSettings={"model": "gpt-6-astra", "effort": "ultra"},
+            threadSettings={"model": "gpt-6.1-sol", "effort": "ultra"},
         ),
         event("item/started", item={"type": "commandExecution"}),
         {"id": 900, **event("item/commandExecution/requestApproval")},
@@ -462,7 +462,7 @@ async def test_verified_settings_update_preserves_worker(fake_codex, tmp_path):
         event(
             "thread/settings/updated",
             threadSettings={
-                "model": "gpt-6-astra",
+                "model": "gpt-6.1-sol",
                 "effort": "medium",
                 "modelProvider": "openai",
                 "approvalPolicy": "never",

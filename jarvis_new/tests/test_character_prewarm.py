@@ -13,7 +13,9 @@ import character_voice as cv
 
 
 def ch(cid, model=None):
-    return SimpleNamespace(id=cid, voice={"model": model or f"m-{cid}", "pitch_semitones": -2})
+    return SimpleNamespace(
+        id=cid, voice={"model": model or f"m-{cid}", "pitch_semitones": -2}
+    )
 
 
 class FakeBank(cv.VoiceBank):
@@ -29,8 +31,11 @@ class FakeBank(cv.VoiceBank):
 def test_idle_warm_skips_jarvis_and_warms_others():
     bank = FakeBank()
     t = cv.start_idle_warm(
-        [ch("jarvis"), ch("ultron"), ch("friday")], lambda: False,
-        bank=bank, sleep=lambda s: None, background=False,
+        [ch("jarvis"), ch("ultron"), ch("friday")],
+        lambda: False,
+        bank=bank,
+        sleep=lambda s: None,
+        background=False,
     )
     t.join(2)
     assert bank.warmed == ["ultron", "friday"]
@@ -59,8 +64,6 @@ def test_wake_client_idle_busy_in_call():
     assert wc._idle_warm_busy() is True
     wc._in_call = False
     assert wc._idle_warm_busy() is False
-
-
 
 
 def test_distinct_voices_do_not_serialize(monkeypatch):
@@ -95,5 +98,7 @@ def test_jarvis_never_goes_through_fx(monkeypatch):
     monkeypatch.setattr(cv.voice_fx, "pitch_shift", boom)
     monkeypatch.setattr(cv.voice_fx, "apply_effects", boom)
     pcm = np.ones(50, dtype=np.int16)
-    jarvis = SimpleNamespace(id="jarvis", voice={"pitch_semitones": -5, "effects": ["x"]})
+    jarvis = SimpleNamespace(
+        id="jarvis", voice={"pitch_semitones": -5, "effects": ["x"]}
+    )
     assert cv.apply_fx(pcm, 22050, jarvis) is pcm

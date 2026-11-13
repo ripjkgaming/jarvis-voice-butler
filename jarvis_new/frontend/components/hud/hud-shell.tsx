@@ -2,6 +2,7 @@
 
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { HolidayDecor } from '@/components/ascii/holiday-decor';
 import { CharacterHost } from '@/components/character/character-host';
 import { SchoolReturn, useSchoolReturn } from '@/components/hud/school-return';
 import { SchoolStrip } from '@/components/hud/school-strip';
@@ -14,6 +15,7 @@ import { useInsights } from '@/hooks/hud/use-insights';
 import {
   JARVIS_COLORS,
   MUTED_COLOR,
+  useHudMuted,
   useJarvisState,
   useMicMuted,
 } from '@/hooks/hud/use-jarvis-state';
@@ -145,6 +147,7 @@ export function HudShell({ children }: Props) {
   const { isSolo, toggle: toggleMode } = useDisplayMode();
   const { jarvis } = useJarvisState();
   const { muted, toggle: toggleMute } = useMicMuted();
+  const { muted: hudMuted, toggle: toggleHudMute, breach, standDown } = useHudMuted();
   const link = useVoiceLink(muted);
   const sys = useBridgeSysSnapshot();
   const tiny = useTinyWindow();
@@ -211,7 +214,17 @@ export function HudShell({ children }: Props) {
   const pooling = tx !== null && barH !== null;
   // LOCKE OS HUD (components/stark): one layout for dual and solo.
   const hudView = (
-    <StarkHud sys={sys} solo={isSolo} jarvis={jarvis} muted={muted} link={link}>
+    <StarkHud
+      sys={sys}
+      solo={isSolo}
+      jarvis={jarvis}
+      muted={muted}
+      hudMuted={hudMuted}
+      breach={breach}
+      onStandDown={standDown}
+      onToggleHudMute={() => void toggleHudMute()}
+      link={link}
+    >
       {children}
     </StarkHud>
   );
@@ -229,6 +242,7 @@ export function HudShell({ children }: Props) {
   const barPxNow = returning ? retBarPx : pooling ? barH : null;
   return (
     <>
+      {hudOn && !tx && !returning ? <HolidayDecor /> : null}
       {tx ? (
         <SchoolTransition
           key={tx.id}

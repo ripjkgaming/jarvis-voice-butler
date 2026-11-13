@@ -13,9 +13,19 @@ def mv(board, san):
     uci = m.uci()
     ply = len(board.move_stack) + 1
     board.push(m)
-    return {"ply": ply, "san": san, "uci": uci, "fen_after": board.fen(), "eval_cp": None,
-            "eval_mate": None, "depth": None, "best_uci": None, "think_ms": 5,
-            "cls": None, "annotation": None}
+    return {
+        "ply": ply,
+        "san": san,
+        "uci": uci,
+        "fen_after": board.fen(),
+        "eval_cp": None,
+        "eval_mate": None,
+        "depth": None,
+        "best_uci": None,
+        "think_ms": 5,
+        "cls": None,
+        "annotation": None,
+    }
 
 
 def make(s, sans=("e4", "e5", "Nf3"), **kw):
@@ -30,7 +40,10 @@ def test_lazy_dir_and_import(tmp_path, monkeypatch):
     root = tmp_path / "x" / "games"
     s = GameStore(root)
     assert not root.exists()
-    s.list(); s.find("1"); s.latest_active(); s.active_series()
+    s.list()
+    s.find("1")
+    s.latest_active()
+    s.active_series()
     assert not root.exists()
     s.save(s.new_record())
     assert root.exists()
@@ -47,6 +60,7 @@ def test_roundtrip_and_pgn(tmp_path):
     pgn = (tmp_path / f"{rec.id}.pgn").read_text()
     assert "1. e4 e5 2. Nf3" in pgn
     import chess.pgn, io
+
     g = chess.pgn.read_game(io.StringIO(pgn))
     assert [m.uci() for m in g.mainline_moves()] == ["e2e4", "e7e5", "g1f3"]
 

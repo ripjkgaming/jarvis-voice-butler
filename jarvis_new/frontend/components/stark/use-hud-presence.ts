@@ -188,6 +188,7 @@ function buildTracks(root: HTMLElement): Track[] {
       c.hasAttribute('data-ambient-particles') ||
       c.hasAttribute('data-ix-replica') ||
       c.hasAttribute('data-ix-badge') ||
+      c.hasAttribute('data-ix-static') ||
       c.hasAttribute('data-ix-zone') ||
       handled.has(c)
     )

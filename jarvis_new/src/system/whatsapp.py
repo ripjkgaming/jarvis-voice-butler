@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import difflib
 import itertools
 import json
@@ -74,8 +75,61 @@ def page_present(targets: list | None = None) -> bool:
     """Is a WhatsApp Web page mounted in WhatSie?"""
     rows = targets if targets is not None else _targets()
     return any(
-        "web.whatsapp.com" in (t.get("url") or "") for t in rows if isinstance(t, dict)
+        "web.whatsapp.com" in (t.get("url") or "")
+        for t in rows
+        if isinstance(t, dict) and t.get("type", "page") == "page"
     )
+
+
+def _blank_ws_url(targets: list) -> str:
+    """Debugger URL of WhatSie's main page when it sits blank (about:blank)."""
+    for t in targets:
+        try:
+            if t.get("type") == "page" and (t.get("url") or "") in ("", "about:blank"):
+                return t.get("webSocketDebuggerUrl") or ""
+        except Exception:
+            continue
+    return ""
+
+
+async def _navigate(wsurl: str) -> None:
+    import websockets
+
+    async with websockets.connect(wsurl, open_timeout=10) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "id": 1,
+                    "method": "Page.navigate",
+                    "params": {"url": "https://web.whatsapp.com/"},
+                }
+            )
+        )
+        await asyncio.wait_for(ws.recv(), timeout=10)
+
+
+def ensure_page(wait_s: float = 12.0) -> bool:
+    """Self-heal: WhatSie alive but blank (network blip at launch) -> reload
+    WhatsApp Web over CDP and wait for it. Blocking; run in a thread.
+    Returns page_present() afterwards. Never raises."""
+    try:
+        targets = _targets()
+        if page_present(targets):
+            return True
+        if not alive():
+            return False
+        ws = _blank_ws_url(targets)
+        if not ws:
+            return False
+        asyncio.run(_navigate(ws))
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            if page_present():
+                return True
+            time.sleep(0.5)
+    except Exception:
+        pass
+    return page_present()
 
 
 def page_ws_url(targets: list | None = None) -> str:
@@ -205,10 +259,15 @@ _LIST_JS = """JSON.stringify([...document.querySelectorAll(
     const m = (r.innerText || '').match(/(\\d+)\\s*unread/i);
     if (m) u = m[0].slice(0, 30);
   }
+  const attrs = e => e ? [...e.attributes].map(a => [a.name, a.value]) : [];
+  const identity = [r, r.querySelector('[data-testid="cell-frame-container"]'),
+    r.querySelector('[data-testid="cell-frame-title"]')]
+    .flatMap(e => attrs(e).filter(([k]) => /^(data-id|data-chat-id|data-jid)$/i.test(k)))
+    .map(([,v]) => v).find(v => /@(s\\.whatsapp\\.net|c\\.us|g\\.us|lid)$/i.test(v)) || '';
   return {t: q('[data-testid="cell-frame-title"]').trim().slice(0, 50),
           d: q('[data-testid="cell-frame-primary-detail"]').trim().slice(0, 30),
           s: q('[data-testid="cell-frame-secondary"]').trim().slice(0, 100),
-          u: u};
+          u: u, id: identity};
 }))"""
 
 _MSG_JS = """JSON.stringify([...document.querySelectorAll(
@@ -227,7 +286,9 @@ _MSG_JS = """JSON.stringify([...document.querySelectorAll(
     || !!m.querySelector('[data-testid="msg-dblcheck"],'
       + '[data-testid="msg-check"],[data-testid="msg-dblcheck-ack"],'
       + '[data-icon="msg-dblcheck"],[data-icon="msg-check"]');
+  const time = m.querySelector('time[datetime]');
   return {id: m.getAttribute('data-id') || m.closest('[data-id]')?.getAttribute('data-id') || '',
+    timestamp: m.getAttribute('data-timestamp') || (time && time.getAttribute('datetime')) || '',
     me: out,
     tailOut: !!m.querySelector('[data-testid="tail-out"]'),
     pre: (pre || '').slice(0, 80),
@@ -287,7 +348,7 @@ def attach_images(rows: list[dict], images: list[dict]) -> None:
             rows[i]["img"] = img
 
 
-def parse_chat_rows(rows: list[dict]) -> list[dict]:
+def parse_chat_rows(rows: list[dict], *, deduplicate: bool = True) -> list[dict]:
     """Raw CDP list rows -> [{name, time, snippet, unread}]. Pure."""
     out = []
     seen: set[str] = set()
@@ -296,7 +357,7 @@ def parse_chat_rows(rows: list[dict]) -> list[dict]:
             name = clean(str(r.get("t", "")))[:50]
             # Unread badge text bleeds into the title element.
             name = re.sub(r"^\d+\s*unread messages?\s*", "", name).strip()
-            if not name or name in seen:
+            if not name or (deduplicate and name in seen):
                 continue
             seen.add(name)
             um = re.search(r"(\d+)", str(r.get("u", "") or ""))
@@ -306,11 +367,22 @@ def parse_chat_rows(rows: list[dict]) -> list[dict]:
                     "time": clean(str(r.get("d", "")))[:30],
                     "snippet": clean(str(r.get("s", "")))[:100],
                     "unread": int(um.group(1)) if um else 0,
+                    "chat_id": stable_chat_id(str(r.get("id") or "")),
+                    "pinned": bool(r.get("pinned", False)),
                 }
             )
         except Exception:
             continue
     return out
+
+
+_STABLE_CHAT_ID = re.compile(r"^[^\s@]+@(?:s\.whatsapp\.net|c\.us|g\.us|lid)$", re.I)
+
+
+def stable_chat_id(value: str) -> str | None:
+    """Return a WhatsApp JID only when the rendered list exposes one."""
+    value = str(value or "").strip()
+    return value if _STABLE_CHAT_ID.fullmatch(value) else None
 
 
 def parse_sender(pre: str) -> tuple[str, str]:
@@ -439,6 +511,26 @@ async def list_chats(limit: int = 20) -> list[dict]:
             f"if(p) p.scrollTop={int(top0 or 0)}; return 1;}})()"
         )
     return seen[: max(1, limit)]
+
+
+async def list_chat_snapshot(limit: int = 20) -> list[dict]:
+    """Snapshot the first rows in WhatsApp's chat list, including pinned rows.
+
+    The sidebar is reset to its actual top before reading. This intentionally
+    preserves duplicate display names; only the observed JID identifies a chat.
+    """
+    await cdp(
+        "(()=>{const p=document.querySelector('#pane-side'); if(p)p.scrollTop=0; return true;})()"
+    )
+    await asyncio.sleep(0.15)
+    raw = await cdp(_LIST_JS)
+    try:
+        rows = json.loads(raw) if isinstance(raw, str) else []
+    except (TypeError, ValueError):
+        rows = []
+    if not isinstance(rows, list):
+        return []
+    return parse_chat_rows(rows, deduplicate=False)[: max(0, int(limit))]
 
 
 # The single WhatSie page is shared by voice tools and the watcher, sometimes
@@ -602,6 +694,64 @@ async def _open_chat_unlocked(name: str, timeout_s: int = 12) -> dict:
     return {"ok": False, "err": "conversation did not open"}
 
 
+async def _open_chat_id_unlocked(chat_id: str, name: str, timeout_s: int = 12) -> dict:
+    """Open the row whose rendered DOM exposes this exact WhatsApp JID."""
+    chat_id = str(chat_id or "")
+    if stable_chat_id(chat_id) is None:
+        return {"ok": False, "err": "stable WhatsApp chat ID unavailable"}
+    esc = chat_id.replace("\\", "\\\\").replace("'", "\\'")
+    click_js = (
+        """(()=>{const rows=[...document.querySelectorAll(
+          '#pane-side [data-testid^="list-item-"]')]; const want='"""
+        + esc
+        + """'; let hit=null;
+          for(const r of rows){const nodes=[r,r.querySelector('[data-testid="cell-frame-container"]'),
+            r.querySelector('[data-testid="cell-frame-title"]')].filter(Boolean);
+            const ids=nodes.flatMap(e=>[...e.attributes]
+              .filter(a=>/^(data-id|data-chat-id|data-jid)$/i.test(a.name)).map(a=>a.value));
+            if(ids.includes(want)){if(hit)return 'ambiguous'; hit=r;}}
+          if(!hit)return 'missing';
+          const t=hit.querySelector('[data-testid="cell-frame-container"]')||hit;
+          hit.scrollIntoView({block:'center'});
+          for(const e of ['mousedown','mouseup','click'])
+            t.dispatchEvent(new MouseEvent(e,{bubbles:true,cancelable:true,view:window}));
+          return 'fired:'+((hit.querySelector('[data-testid="cell-frame-title"]')||{}).textContent||'').trim();
+        })()"""
+    )
+    for page in range(16):
+        if page:
+            await cdp(
+                "(()=>{const p=document.querySelector('#pane-side'); "
+                + (
+                    "if(p)p.scrollTop=0;"
+                    if page == 1
+                    else "if(p)p.scrollTop+=Math.max(300,p.clientHeight*0.8);"
+                )
+                + "return true;})()"
+            )
+            await asyncio.sleep(0.25)
+        fired = await cdp(click_js)
+        if fired == "ambiguous":
+            return {"ok": False, "err": "ambiguous WhatsApp chat ID in rendered list"}
+        if isinstance(fired, str) and fired.startswith("fired:"):
+            clicked_name = clean(fired.split(":", 1)[1]) or name
+            if clicked_name.casefold() != clean(name).casefold():
+                return {"ok": False, "err": "chat identity/name mismatch"}
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                header = (
+                    await cdp(
+                        "(document.querySelector('#main header')||{innerText:''}).innerText.slice(0,80)"
+                    )
+                    or ""
+                )
+                if _same_chat(header, name):
+                    return {"ok": True, "name": clicked_name, "chat_id": chat_id}
+                await asyncio.sleep(0.5)
+            return {"ok": False, "err": "conversation did not open"}
+    return {"ok": False, "err": "chat ID row not found"}
+
+
 async def _read_chat_unlocked(name: str, n: int = 30) -> dict:
     """Recent messages from a chat. Opening marks them read (WhatsApp does)."""
     opened = await _open_chat_unlocked(name)
@@ -682,6 +832,248 @@ async def _read_chat_unlocked(name: str, n: int = 30) -> dict:
         "history_limit": max(1, min(60, n)),
         "history_count": len(msgs),
     }
+
+
+def message_timestamp(value: str, pre: str = "") -> float | None:
+    """Parse a WhatsApp timestamp from an ISO time element or pre-plain label.
+
+    Localized labels use the laptop's Asia/Singapore timezone. An ambiguous
+    slash date is interpreted day/month first, matching the configured locale.
+    """
+    raw = str(value or "").strip()
+    if raw:
+        with contextlib.suppress(ValueError, TypeError, OverflowError):
+            number = float(raw)
+            if number > 1_000_000_000:
+                return number / 1000 if number > 10_000_000_000 else number
+        with contextlib.suppress(ValueError, TypeError):
+            parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone(dt.timedelta(hours=8)))
+            return parsed.timestamp()
+    label = str(pre or "").strip().strip("[]")
+    if ", " not in label:
+        return None
+    clock, day = label.rsplit(", ", 1)
+    formats = (
+        "%I:%M %p %d/%m/%Y",
+        "%I:%M:%S %p %d/%m/%Y",
+        "%H:%M %d/%m/%Y",
+        "%H:%M:%S %d/%m/%Y",
+        "%I:%M %p %m/%d/%Y",
+        "%I:%M:%S %p %m/%d/%Y",
+        "%H:%M %m/%d/%Y",
+        "%H:%M:%S %m/%d/%Y",
+    )
+    zone = dt.timezone(dt.timedelta(hours=8))
+    for fmt in formats:
+        with contextlib.suppress(ValueError):
+            return (
+                dt.datetime.strptime(f"{clock} {day}", fmt)
+                .replace(tzinfo=zone)
+                .timestamp()
+            )
+    return None
+
+
+async def read_chat_history(
+    name: str,
+    boundary: float,
+    *,
+    chat_id: str | None = None,
+    checkpoint: dict | None = None,
+    page_size: int = 60,
+    max_pages: int = 200,
+    on_page=None,
+) -> dict:
+    """Read backwards through a chat until a boundary/checkpoint is covered.
+
+    Unlike ``read_chat``, this history path is not capped at 60 messages.
+    It returns explicit partial coverage when paging stalls, data cannot be
+    timestamped/identified, or the page limit is reached. Opening a chat marks
+    its messages as read in WhatsApp Web.
+    """
+    page_size = max(1, min(60, int(page_size)))
+    max_pages = max(1, int(max_pages))
+    async with _page_session():
+        opened = (
+            await _open_chat_id_unlocked(chat_id, name)
+            if chat_id
+            else await _open_chat_unlocked(name)
+        )
+        if not opened.get("ok"):
+            return {
+                "ok": False,
+                "complete": False,
+                "chat_id": chat_id,
+                "name": name,
+                "messages": [],
+                "error": opened.get("err", "chat open failed"),
+                "marks_read": False,
+            }
+        raw = await cdp(_MSG_JS % page_size)
+        try:
+            rows = json.loads(raw) if isinstance(raw, str) else None
+        except (TypeError, ValueError):
+            rows = None
+        if not isinstance(rows, list):
+            return {
+                "ok": False,
+                "complete": False,
+                "chat_id": chat_id,
+                "name": name,
+                "messages": [],
+                "error": "history unavailable",
+                "marks_read": True,
+            }
+
+        collected: dict[str, dict] = {}
+        stalled = 0
+        complete = False
+        error = ""
+        checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+        prior_complete = bool(checkpoint.get("complete"))
+        mark_id = (
+            str(checkpoint.get("incremental_cursor_id") or "") if prior_complete else ""
+        )
+        mark_ts = checkpoint.get("incremental_cursor_timestamp") if mark_id else None
+        mark_order = checkpoint.get("incremental_cursor_order") if mark_id else None
+        pages = 0
+        for page_number in range(1, max_pages + 1):
+            pages = page_number
+            parsed_rows = [parse_messages([row]) for row in rows]
+            page_ids = set()
+            page_times = []
+            bad_timestamp = False
+            for source, parsed in zip(rows, parsed_rows):
+                if not parsed:
+                    continue
+                msg = parsed[0]
+                mid = str(msg.get("id") or "")
+                ts = message_timestamp(
+                    str(source.get("timestamp") or ""), str(source.get("pre") or "")
+                )
+                if not mid or ts is None:
+                    bad_timestamp = True
+                    continue
+                page_ids.add(mid)
+                page_times.append(ts)
+                collected.setdefault(mid, {**msg, "timestamp": ts, "order": 0})
+            ordered = sorted(
+                collected.values(), key=lambda m: (m["timestamp"], m["id"])
+            )
+            same_ts_order = {}
+            for item in ordered:
+                item["order"] = same_ts_order.get(item["timestamp"], 0)
+                same_ts_order[item["timestamp"]] = item["order"] + 1
+
+            if on_page is not None:
+                cursor = None
+                if prior_complete and mark_id and mark_ts is not None:
+                    cursor = (float(mark_ts), int(mark_order or 0), mark_id)
+                page_batch = []
+                for mid in page_ids:
+                    item = collected.get(mid)
+                    if item is None:
+                        continue
+                    point = (item["timestamp"], item["order"], item["id"])
+                    if cursor is not None and point <= cursor:
+                        continue
+                    if cursor is None and point[0] < float(boundary):
+                        continue
+                    page_batch.append(dict(item))
+                page_batch.sort(key=lambda m: (m["timestamp"], m["order"], m["id"]))
+                try:
+                    persisted = on_page(page_batch)
+                except Exception as exc:
+                    error = f"page persistence failed: {type(exc).__name__}"
+                    break
+                if persisted is False:
+                    error = "scan stopped by Always Aware controls"
+                    break
+            oldest = min(page_times) if page_times else None
+            if prior_complete and mark_id and mark_ts is not None:
+                # Stop after loading across the checkpoint timestamp. The
+                # overlap is deduplicated by message ID before downstream work.
+                at_or_before = any(
+                    (m["timestamp"], m["order"], m["id"])
+                    <= (float(mark_ts), int(mark_order or 0), mark_id)
+                    for m in collected.values()
+                )
+                if at_or_before:
+                    complete = not bad_timestamp
+                    if bad_timestamp:
+                        error = "message timestamp unavailable"
+                    break
+            elif oldest is not None and oldest <= float(boundary):
+                complete = not bad_timestamp
+                if bad_timestamp:
+                    error = "message timestamp unavailable"
+                break
+
+            moved = await cdp("""(() => {
+              const main = document.querySelector('#main');
+              const msg = main?.querySelector('[data-testid="msg-container"]');
+              let p = msg?.parentElement;
+              while(p && p !== main && p.scrollHeight <= p.clientHeight + 10) p=p.parentElement;
+              if(!p || p === main) return 'no-scroller';
+              const before=p.scrollTop;
+              p.scrollTop=Math.max(0,before-Math.max(300,p.clientHeight*0.8));
+              return p.scrollTop < before ? 'moved' : 'head';
+            })()""")
+            if moved in ("head", "no-scroller") or moved is False:
+                # A stuck scroll is not proof of coverage: the client may
+                # still be loading older messages. Only crossing a dated
+                # boundary can mark this read complete.
+                error = (
+                    "message timestamp unavailable"
+                    if bad_timestamp
+                    else "history ended before coverage boundary"
+                )
+                break
+            next_raw = await cdp(_MSG_JS % page_size)
+            try:
+                next_rows = json.loads(next_raw) if isinstance(next_raw, str) else None
+            except (TypeError, ValueError):
+                next_rows = None
+            if not isinstance(next_rows, list):
+                error = "history page unavailable"
+                break
+            next_ids = {str(row.get("id") or "") for row in next_rows}
+            if next_ids == page_ids:
+                stalled += 1
+                if stalled >= 3:
+                    error = "history paging stalled before boundary"
+                    break
+            else:
+                stalled = 0
+            rows = next_rows
+        else:
+            error = "history page limit reached before boundary"
+
+        if prior_complete and mark_id and mark_ts is not None:
+            messages = [
+                m
+                for m in collected.values()
+                if (m["timestamp"], m["order"], m["id"])
+                > (float(mark_ts), int(mark_order or 0), mark_id)
+            ]
+        else:
+            messages = [
+                m for m in collected.values() if m["timestamp"] >= float(boundary)
+            ]
+        messages.sort(key=lambda m: (m["timestamp"], m["order"], m["id"]))
+        return {
+            "ok": True,
+            "complete": complete,
+            "chat_id": chat_id,
+            "name": opened.get("name", name),
+            "messages": messages,
+            "error": error or ("" if complete else "history coverage incomplete"),
+            "marks_read": True,
+            "pages": pages,
+            "coverage": "complete" if complete else "partial",
+        }
 
 
 async def _send_chat_unlocked(

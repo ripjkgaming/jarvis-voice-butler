@@ -95,7 +95,9 @@ async def test_focus_window_tool_raises_when_it_fails(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_play_media_does_not_bury_player_behind_previous_window(monkeypatch) -> None:
+async def test_play_media_does_not_bury_player_behind_previous_window(
+    monkeypatch,
+) -> None:
     import asyncio
 
     from system import core
@@ -215,5 +217,7 @@ def test_background_new_brave_gives_up_when_nothing_opens(monkeypatch) -> None:
     from system import kwin_windows
 
     monkeypatch.setattr(window_ctl, "brave_window_ids", lambda **k: {"old"})
-    monkeypatch.setattr(kwin_windows, "act_on", lambda *a, **k: pytest.fail("minimized"))
+    monkeypatch.setattr(
+        kwin_windows, "act_on", lambda *a, **k: pytest.fail("minimized")
+    )
     assert not window_ctl.background_new_brave({"old"}, sleep=lambda s: None, wait_s=1)

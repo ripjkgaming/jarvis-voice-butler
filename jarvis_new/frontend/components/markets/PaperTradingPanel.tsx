@@ -6,11 +6,15 @@ import {
   type ChartMetric,
   type PaperMarketSnapshot,
   ageLabel,
+  asciiBar,
   decimalNumber,
   equityChart,
   money,
   parsePaperMarketSnapshot,
   percentage,
+  portfolioBlockers,
+  trendGlyph,
+  usageCost,
 } from '@/lib/paper-market';
 import styles from './paper-trading-panel.module.css';
 
@@ -24,6 +28,7 @@ const tone = (value: string | null | undefined) => {
 function dateLabel(value: string | null, full = false): string {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Not recorded';
   return new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -35,7 +40,8 @@ function quantity(value: string): string {
   const number = decimalNumber(value);
   return number === null ? 'Unknown' : number.toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
-function remaining(expires: string, now: number): string {
+function remaining(expires: string | null, now: number): string {
+  if (!expires) return 'Start time pending';
   const ms = Date.parse(expires) - now;
   if (!now || !Number.isFinite(ms)) return '7-day experiment';
   if (ms <= 0) return 'Experiment ended';
@@ -236,6 +242,412 @@ function EquityChart({ snapshot }: { snapshot: PaperMarketSnapshot }) {
   );
 }
 
+function ComparisonPanel({
+  comparison,
+  now,
+}: {
+  comparison: NonNullable<PaperMarketSnapshot['comparison']>;
+  now: number;
+}) {
+  const series = comparison.portfolios.map((p) => ({
+    name: p.name,
+    history: p.snapshot.equity_history,
+  }));
+  const benchmark = comparison.benchmark as {
+    equity_history?: { at: string; equity_usd: string | null }[];
+    symbol?: string;
+  } | null;
+  const stamps = [
+    ...series.flatMap((s) => s.history.map((h) => Date.parse(h.at)).filter(Number.isFinite)),
+    ...(benchmark?.equity_history ?? []).map((p) => Date.parse(p.at)).filter(Number.isFinite),
+  ];
+  const start = stamps.length ? Math.min(...stamps) : 0;
+  const end = stamps.length ? Math.max(...stamps) : 0;
+  const makePoints = (
+    history: { at: string; equity_usd: string | null; valuation_complete?: boolean }[]
+  ) =>
+    history.map((p) => ({
+      at: p.at,
+      t: Date.parse(p.at),
+      value: p.valuation_complete === false ? null : decimalNumber(p.equity_usd),
+    }));
+  const lineData = series.map((s) => ({ name: s.name, points: makePoints(s.history) }));
+  if (benchmark?.equity_history?.length) {
+    lineData.push({
+      name: benchmark.symbol || 'Benchmark',
+      points: makePoints(benchmark.equity_history),
+    });
+  }
+  const allValues = lineData.flatMap((line) =>
+    line.points.flatMap((point) => (point.value === null ? [] : [point.value / 10]))
+  );
+  const minValue = Math.min(0, ...allValues);
+  const maxValue = Math.max(0, ...allValues);
+  const range = Math.max(maxValue - minValue, 1);
+  const y = (value: number) => 18 + ((maxValue - value) / range) * 144;
+  const tones = [styles.seriesOne, styles.seriesTwo, styles.seriesThree, styles.seriesBenchmark];
+  const news =
+    comparison.news && typeof comparison.news === 'object'
+      ? (comparison.news as Record<string, unknown>)
+      : {};
+  const newsStatus = String(news.news_connection ?? news.status ?? 'status unavailable').replace(
+    /_/g,
+    ' '
+  );
+  const latestReport =
+    typeof news.news_latest_report_at === 'string'
+      ? news.news_latest_report_at
+      : typeof news.latest_report_at === 'string'
+        ? news.latest_report_at
+        : null;
+  const market = comparison.portfolios[0]?.snapshot.market;
+  const quoteRows = comparison.portfolios.flatMap((p) => p.snapshot.quotes);
+  const freshQuotes = quoteRows.filter((q) => q.status === 'fresh').length;
+  const readiness =
+    comparison.readiness && typeof comparison.readiness === 'object'
+      ? (comparison.readiness as Record<string, unknown>)
+      : {};
+  const newsState = news;
+  const settings = comparison.settings as Record<string, unknown>;
+  const models = comparison.portfolios.map(
+    (p) => `${p.snapshot.experiment.model} ${p.snapshot.experiment.effort}`
+  );
+  const newestQuote =
+    quoteRows
+      .map((q) => q.quoted_at)
+      .filter((v): v is string => !!v && Number.isFinite(Date.parse(v)))
+      .sort()
+      .at(-1) ?? null;
+  const totalCost = comparison.portfolios
+    .map((p) => decimalNumber(usageCost(comparison, p)))
+    .filter((v): v is number => v !== null);
+  return (
+    <>
+      <div className={styles.statusStrip} role="status" aria-label="Experiment status">
+        <span className={market?.is_open ? styles.marketOpen : styles.marketClosed}>
+          <i />[
+          {market ? human(market.status).toUpperCase() : human(comparison.status).toUpperCase()}]
+        </span>
+        <span>
+          STATE <b>{human(comparison.status).toUpperCase()}</b>
+        </span>
+        <span>
+          T-MINUS{' '}
+          <b>
+            {comparison.expires_at ? remaining(comparison.expires_at, now) : 'Start time pending'}
+          </b>
+        </span>
+        <span>
+          STARTED{' '}
+          <b>{comparison.started_at ? dateLabel(comparison.started_at, true) : 'Not started'}</b>
+        </span>
+        <span>
+          ENDS{' '}
+          <b>{comparison.expires_at ? dateLabel(comparison.expires_at, true) : 'Not scheduled'}</b>
+        </span>
+        <span>
+          IRONSIGHT <b>{newsStatus.toUpperCase()}</b>
+          {latestReport ? ` · ${ageLabel(latestReport, now)}` : ''}
+        </span>
+        <span>
+          QUOTES{' '}
+          <b>
+            {asciiBar(quoteRows.length ? freshQuotes / quoteRows.length : 0, 8)} {freshQuotes}/
+            {quoteRows.length}
+          </b>{' '}
+          fresh
+          {newestQuote ? ` · ${ageLabel(newestQuote, now)}` : ''}
+        </span>
+        <span>
+          TRADE <b>{String(settings.trading_model ?? models[0] ?? 'unknown')}</b>{' '}
+          {String(settings.trading_effort ?? '')}
+        </span>
+        <span>
+          SCREEN <b>{String(settings.screening_model ?? 'unknown')}</b>{' '}
+          {String(settings.screening_effort ?? '')}
+        </span>
+        <span>
+          EXP <b>{comparison.id}</b>
+        </span>
+      </div>
+      <section className={styles.chartCard} aria-label="Normalized portfolio comparison">
+        <div className={styles.sectionHead}>
+          <div>
+            <span className={styles.eyebrow}>SHARED PERFORMANCE</span>
+            <h3>Equity from $1,000</h3>
+          </div>
+        </div>
+        {lineData.some((l) => l.points.some((p) => p.value !== null && Number.isFinite(p.t))) ? (
+          <svg
+            viewBox="0 0 720 180"
+            role="img"
+            aria-label="Portfolio equity and benchmark comparison"
+            preserveAspectRatio="none"
+          >
+            {[18, 66, 114, 162].map((y) => (
+              <path key={y} d={`M0 ${y}H720`} className={styles.gridLine} />
+            ))}
+            {[0, 1, 2, 3, 4].map((step) => (
+              <text key={step} x="2" y={18 + step * 36 - 3} className={styles.chartAxisLabel}>
+                {money(String((maxValue - (range * step) / 4) * 10))}
+              </text>
+            ))}
+            {lineData.map((line, i) => {
+              const segments: string[][] = [[]];
+              for (const point of [...line.points].sort((a, b) => a.t - b.t)) {
+                if (!Number.isFinite(point.t) || point.value === null) {
+                  if (segments.at(-1)?.length) segments.push([]);
+                  continue;
+                }
+                segments
+                  .at(-1)!
+                  .push(
+                    `${12 + ((point.t - start) / Math.max(end - start, 1)) * 696},${y(point.value / 10)}`
+                  );
+              }
+              return segments
+                .filter((segment) => segment.length)
+                .map((segment, index) => (
+                  <polyline
+                    key={`${line.name}-${index}`}
+                    points={segment.join(' ')}
+                    className={tones[i % tones.length]}
+                  />
+                ));
+            })}
+          </svg>
+        ) : (
+          <div className={styles.chartEmpty}>
+            <strong>No valuations recorded yet</strong>
+            <span>Performance lines appear after the first complete marks.</span>
+          </div>
+        )}
+        <div className={styles.chartDates}>
+          {lineData.map((line, i) => (
+            <span key={line.name}>
+              <i className={tones[i % tones.length]} /> {line.name}
+            </span>
+          ))}
+        </div>
+      </section>
+      <div className={styles.activityGrid}>
+        {comparison.portfolios.map((p) => {
+          const s = p.snapshot,
+            complete = s.account.valuation_complete;
+          const recent = [...s.decisions].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+          const errors = s.decisions.filter((d) => d.error).length;
+          const evidence =
+            recent?.evidence && typeof recent.evidence === 'object'
+              ? (recent.evidence as Record<string, unknown>)
+              : {};
+          const reports = Array.isArray(evidence.news) ? evidence.news : [];
+          const blockers = portfolioBlockers(comparison, p);
+          const blocked = blockers.length > 0 && s.fills.length === 0;
+          const drawdown = decimalNumber(s.account.maximum_drawdown_pct ?? null);
+          return (
+            <details className={styles.card} key={p.id} open data-portfolio={p.id}>
+              <summary>
+                <strong>
+                  {trendGlyph(complete ? s.account.total_pnl_usd : null)} {p.name}
+                </strong>
+                <span className={styles.subtle}>
+                  {p.strategy} · {blocked ? 'BLOCKED' : human(s.experiment.status)}
+                </span>
+              </summary>
+              {blocked && (
+                <div className={styles.errorBanner} role="status">
+                  <strong>[BLOCKED] needs credentials</strong>
+                  <span>{blockers.join(' · ')} No fills are simulated while blocked.</span>
+                </div>
+              )}
+              <div className={styles.metrics}>
+                <div className={styles.equityMetric}>
+                  <span className={styles.eyebrow}>EQUITY</span>
+                  <strong>{money(complete ? s.account.equity_usd : null)}</strong>
+                  <small>Started at {money(s.experiment.initial_cash_usd)}</small>
+                </div>
+                <div>
+                  <span className={styles.eyebrow}>RETURN</span>
+                  <strong className={tone(s.account.total_pnl_usd)}>
+                    {money(complete ? s.account.total_pnl_usd : null, true)}
+                  </strong>
+                  <small>{percentage(complete ? s.account.total_return_pct : null)}</small>
+                </div>
+                <div>
+                  <span className={styles.eyebrow}>CASH / INVESTED</span>
+                  <strong>
+                    {money(s.account.cash_usd)} / {money(s.account.invested_value_usd ?? null)}
+                  </strong>
+                  <small>
+                    {s.holdings.length} holdings · {s.account.trade_count ?? s.fills.length} trades
+                  </small>
+                </div>
+              </div>
+              <dl className={styles.replayMetrics}>
+                <div>
+                  <dt>Realized P&amp;L</dt>
+                  <dd>{money(s.account.realized_pnl_usd, true)}</dd>
+                </div>
+                <div>
+                  <dt>Unrealized P&amp;L</dt>
+                  <dd>{money(complete ? s.account.unrealized_pnl_usd : null, true)}</dd>
+                </div>
+                <div>
+                  <dt>Max drawdown</dt>
+                  <dd>
+                    {drawdown === null
+                      ? 'Unknown'
+                      : `${asciiBar(Math.min(drawdown, 20) / 20, 8)} -${Math.abs(drawdown).toFixed(2)}%`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Usage cost (API, not in returns)</dt>
+                  <dd>
+                    {usageCost(comparison, p) === null
+                      ? 'Unavailable'
+                      : money(usageCost(comparison, p))}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Latest decision</dt>
+                  <dd>
+                    {recent
+                      ? `${human(recent.status)} · ${dateLabel(recent.at)}`
+                      : 'Pending first review'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Errors / pending</dt>
+                  <dd>
+                    {errors > 0 ? '[!] ' : ''}
+                    {errors} errors · {human(s.runtime.last_cycle_status)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Runtime model</dt>
+                  <dd>
+                    {s.experiment.model} · {s.experiment.effort}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Marks as of</dt>
+                  <dd>{dateLabel(s.account.marks_as_of ?? null, true)}</dd>
+                </div>
+              </dl>
+              <details>
+                <summary>Inspect decisions, fills, holdings and market metadata</summary>
+                <p>{recent?.rationale || 'No rationale recorded.'}</p>
+                {recent?.error && <p className={styles.warning}>{recent.error}</p>}
+                <p>Pending/error status: {s.runtime.last_error || 'No runtime error recorded'}</p>
+                {reports.length > 0 && (
+                  <section aria-label="Supporting news reports">
+                    <h4>Supporting news</h4>
+                    {reports.map((report, index) => {
+                      const item =
+                        report && typeof report === 'object'
+                          ? (report as Record<string, unknown>)
+                          : {};
+                      return (
+                        <p key={String(item.id ?? index)}>
+                          <strong>{String(item.title ?? item.summary ?? 'News report')}</strong> ·{' '}
+                          {String(item.source ?? 'Unknown source')} · ID{' '}
+                          {String(item.id ?? 'not recorded')}
+                          {item.received_at
+                            ? ` · received ${dateLabel(String(item.received_at), true)}`
+                            : ''}
+                        </p>
+                      );
+                    })}
+                  </section>
+                )}
+                {typeof evidence.source_trader === 'string' && (
+                  <p>
+                    Copy source: {String(evidence.source_trader)}
+                    {evidence.source_trade_id ? ` · trade ${String(evidence.source_trade_id)}` : ''}
+                  </p>
+                )}
+                {typeof evidence.scaling_calculation === 'string' && (
+                  <p>Copy scaling: {String(evidence.scaling_calculation)}</p>
+                )}
+                <ol className={styles.fills}>
+                  {s.fills.map((f) => (
+                    <li key={f.id}>
+                      <strong>
+                        {f.side} {f.symbol}
+                      </strong>
+                      <p>
+                        {quantity(f.quantity)} @ {money(f.price_usd)} · {dateLabel(f.at, true)}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+                <ol className={styles.decisions}>
+                  {s.decisions.slice(0, 5).map((d) => (
+                    <li key={d.id}>
+                      <strong>
+                        {human(d.status)} · {dateLabel(d.at, true)}
+                      </strong>
+                      <p>{d.rationale || d.error || 'No details'}</p>
+                      <small>
+                        {d.model} · {d.effort}
+                      </small>
+                      {Array.isArray((d.evidence as Record<string, unknown> | undefined)?.news) && (
+                        <small>
+                          Evidence reports:{' '}
+                          {((d.evidence as Record<string, unknown>).news as unknown[]).length}
+                        </small>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+                <p>
+                  {s.holdings
+                    .map((h) => `${h.symbol}: ${quantity(h.quantity)} shares`)
+                    .join(' · ') || 'No holdings'}
+                </p>
+              </details>
+            </details>
+          );
+        })}
+      </div>
+      <details className={styles.card}>
+        <summary>Experiment readiness, news feed and observation gaps</summary>
+        <p>
+          Readiness:{' '}
+          {readiness.ready === true
+            ? 'Ready'
+            : readiness.status
+              ? human(String(readiness.status))
+              : 'Checks pending'}
+          {Array.isArray(readiness.blockers) && readiness.blockers.length
+            ? ` · ${readiness.blockers.map(String).join('; ')}`
+            : ''}
+        </p>
+        <p>
+          News feed: {newsStatus}
+          {latestReport ? ` · latest report ${dateLabel(latestReport, true)}` : ''}
+          {typeof newsState.news_last_error === 'string' ? ` · ${newsState.news_last_error}` : ''}
+        </p>
+        <p>
+          API cost (excluded from returns):{' '}
+          {totalCost.length
+            ? money(String(totalCost.reduce((a, b) => a + b, 0).toFixed(2)))
+            : (comparison.usage_costs?.status ?? 'unavailable')}
+        </p>
+        <p>
+          Benchmark: {benchmark?.symbol || 'Not available'} ·{' '}
+          {benchmark?.equity_history?.length || 0} observations
+        </p>
+        <p>
+          {comparison.gaps.length
+            ? `${comparison.gaps.length} recorded service or market gaps affect observation continuity.`
+            : 'No gaps recorded.'}
+        </p>
+      </details>
+    </>
+  );
+}
+
 export function PaperTradingPanel({
   embedded = false,
   onClose,
@@ -256,7 +668,9 @@ export function PaperTradingPanel({
     : [];
   const expired = snapshot
     ? snapshot.experiment.status === 'expired' ||
-      (now > 0 && Date.parse(snapshot.experiment.expires_at) <= now)
+      (now > 0 &&
+        snapshot.experiment.expires_at !== null &&
+        Date.parse(snapshot.experiment.expires_at) <= now)
     : false;
   const replay = snapshot?.runtime.historical_replay;
   const complete = snapshot?.account.valuation_complete === true;
@@ -323,6 +737,8 @@ export function PaperTradingPanel({
               : 'Waiting for a verified account snapshot.'}
           </p>
         </div>
+      ) : snapshot.comparison ? (
+        <ComparisonPanel comparison={snapshot.comparison} now={now} />
       ) : (
         <>
           {replay && (

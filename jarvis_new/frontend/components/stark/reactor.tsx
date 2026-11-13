@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
-import { AsciiReactor } from '@/components/ascii/ascii-reactor';
 import type { JarvisState } from '@/hooks/hud/use-jarvis-state';
 import { useAscii } from '@/lib/character/hooks';
 import type { VoiceLink } from '@/lib/voice-link';
@@ -9,6 +8,7 @@ import { ClassicReactorEnergy } from './classic';
 import { arc, pt } from './geometry';
 import intro from './intro.module.css';
 import { type Metrics, fmtBytes, metricWarnings, reactorWarnings } from './metrics';
+import { OrbReactor } from './orb-reactor';
 import { ReactorWarningLight } from './reactor-plasma';
 import { ReactorProgress } from './reactor-progress';
 import s from './stark.module.css';
@@ -282,23 +282,20 @@ export function Reactor({
             <DataCallout key={c.key} c={c} />
           ))}
         </svg>
-        <div
-          className={s.rxEnergy}
-          data-reactor-energy="true"
-          data-ix-layer={ascii ? '0' : undefined}
-          aria-hidden="true"
-        >
-          {ascii ? (
-            <AsciiReactor
-              className={s.rxLayer}
-              color={muted ? MUTED : color}
-              jarvis={jarvis}
-              muted={muted}
-              activation={link.activation}
-            />
-          ) : (
-            <ClassicReactorEnergy color={color} jarvis={jarvis} muted={muted} />
-          )}
+        <div className={s.rxEnergy} data-reactor-energy="true" data-ix-layer="0" aria-hidden="true">
+          <OrbReactor
+            className={s.rxLayer}
+            color={muted ? MUTED : color}
+            jarvis={jarvis}
+            muted={muted}
+            activation={link.activation}
+            warn={warning.lit ? Math.min(1, 0.55 + 0.15 * (warning.active.length - 1)) : 0}
+            fallback={
+              ascii ? undefined : (
+                <ClassicReactorEnergy color={color} jarvis={jarvis} muted={muted} />
+              )
+            }
+          />
         </div>
         <ReactorProgress />
         <ReactorWarningLight warning={warning} />

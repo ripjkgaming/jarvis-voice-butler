@@ -12,8 +12,18 @@ const subscribers = new Set<Draw>();
 let frame = 0;
 let previous: number | null = null;
 
+/** Shortest gap between dispatched frames. A 60 Hz display (16.7 ms) is never
+ *  skipped; 120 / 144 Hz panels dispatch every second refresh (60 / 72 FPS), so
+ *  the orb and ambient field do not render 2.4x as often on a fast monitor. */
+const MIN_FRAME_MS = 12;
+
 function tick(now: number) {
   frame = 0;
+  if (previous !== null && now - previous < MIN_FRAME_MS) {
+    if (subscribers.size) frame = requestAnimationFrame(tick);
+    else previous = null;
+    return;
+  }
   const delta = previous === null ? 0 : Math.min(34, Math.max(0, now - previous));
   previous = now;
   subscribers.forEach((draw) => draw(delta));

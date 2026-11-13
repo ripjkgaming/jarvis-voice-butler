@@ -83,8 +83,27 @@ export function isIntroSfxEnabled(): boolean {
   return enabled;
 }
 
+/** A running AudioContext renders its graph on a realtime thread even when
+ *  nothing is scheduled. Park it once the last effect has had time to finish;
+ *  every caller already resumes a suspended context before scheduling. */
+const IDLE_SUSPEND_MS = 45_000;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function touchCtx(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    try {
+      if (ctx?.state === 'running') void ctx.suspend().catch(() => undefined);
+    } catch {
+      /* ignore */
+    }
+  }, IDLE_SUSPEND_MS);
+}
+
 function getCtx(): AudioContext | null {
   try {
+    touchCtx();
     if (ctx) return ctx;
     const Ctor =
       window.AudioContext ??
@@ -232,6 +251,7 @@ function arm(): void {
         ?.resume()
         .then(() => {
           if (ctx?.state === 'running') {
+            touchCtx();
             events.forEach((e) => window.removeEventListener(e, onGesture));
             armed = false;
           }

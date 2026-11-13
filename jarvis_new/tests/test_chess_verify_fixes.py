@@ -1,4 +1,5 @@
 """Fixes from verification: continuous takeover, spoken fallbacks, no unawaited coroutines."""
+
 import asyncio
 import gc
 import warnings
@@ -75,8 +76,10 @@ async def test_scoped_takeover_stays_single(tmp_path):
     assert len(_finished(g3)) <= 1
 
 
-@pytest.mark.parametrize("phrase", ["analyse the board", "explain", "what's the score",
-                                    "explain the last move"])
+@pytest.mark.parametrize(
+    "phrase",
+    ["analyse the board", "explain", "what's the score", "explain the last move"],
+)
 @pytest.mark.parametrize("moved", [False, True])
 async def test_analysis_phrases_always_reply_spoken(tmp_path, phrase, moved):
     g = mk(tmp_path)
@@ -100,4 +103,6 @@ async def test_no_never_awaited_warning(tmp_path):
         t2.cancel()
         await asyncio.gather(t, t2, return_exceptions=True)
         gc.collect()
-    assert not [x for x in w if "never awaited" in str(x.message)], [str(x.message) for x in w]
+    assert not [x for x in w if "never awaited" in str(x.message)], [
+        str(x.message) for x in w
+    ]

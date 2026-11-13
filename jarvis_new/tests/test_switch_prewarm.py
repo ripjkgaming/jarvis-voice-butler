@@ -12,7 +12,9 @@ import switch_conductor as sc
 
 
 class World:
-    def __init__(self, tmp_path, monkeypatch, prewarm_ms=0, prewarm_ok=True, no_socket=False):
+    def __init__(
+        self, tmp_path, monkeypatch, prewarm_ms=0, prewarm_ok=True, no_socket=False
+    ):
         monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
         cr.reset_runtime()
         sc.reset_conductor()
@@ -63,18 +65,6 @@ def mk(tmp_path, monkeypatch):
     sc.reset_conductor()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def test_motion_validates_prewarm_timeout(tmp_path):
     import characters
 
@@ -84,6 +74,8 @@ def test_motion_validates_prewarm_timeout(tmp_path):
     bad.mkdir()
     import yaml
 
-    (bad / "_motion.yaml").write_text(yaml.safe_dump({**base, "prewarm_timeout_ms": -1}))
+    (bad / "_motion.yaml").write_text(
+        yaml.safe_dump({**base, "prewarm_timeout_ms": -1})
+    )
     with pytest.raises(characters.CharacterError):
         characters.motion(bad)

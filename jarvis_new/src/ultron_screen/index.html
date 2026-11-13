@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ULTRON</title>
+<style>
+  :root { --red:#ff1f33; --hot:#ffd0d4; --dim:#7a0a14; --void:#050001; }
+  * { box-sizing:border-box; margin:0; padding:0; cursor:none !important; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; color:var(--red);
+    font-family:'Commit Mono','JetBrains Mono',ui-monospace,Menlo,Consolas,monospace; }
+  #stage { position:fixed; inset:0; background:
+      radial-gradient(ellipse at 50% 46%, #3b0008 0%, #1a0004 38%, var(--void) 78%);
+    clip-path: inset(0 0 100% 0); }
+  .scan { position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.38) 0 2px, rgba(255,20,40,.07) 2px 4px);
+    animation:scan .35s linear infinite; }
+  @keyframes scan { to { background-position:0 4px; } }
+  .vig { position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 40%, rgba(60,0,6,.85) 100%);
+    animation:pulse .9s ease-in-out infinite alternate; }
+  @keyframes pulse { from { opacity:.6; } to { opacity:1; } }
+  #flick { position:absolute; inset:0; pointer-events:none; background:#ff1020; opacity:0; mix-blend-mode:screen; }
+
+  .title { z-index:3; visibility:hidden; position:absolute; top:5.5vh; left:0; right:0; text-align:center; font-weight:900;
+    font-size:min(9.6vw,15.5vh); letter-spacing:.09em; color:#fff; -webkit-text-stroke:2px var(--red);
+    text-shadow:6px 0 #00ffe0,-6px 0 #ff00a8,0 0 40px var(--red),0 0 100px var(--red); white-space:nowrap; }
+  .title.glitch { animation:tshake .12s steps(2,end) 3; }
+  @keyframes tshake { 0%{transform:translate(0,0) skewX(0)} 33%{transform:translate(-14px,3px) skewX(-6deg)}
+    66%{transform:translate(12px,-4px) skewX(5deg)} 100%{transform:translate(0,0)} }
+  .sub { position:absolute; bottom:3.2vh; left:0; right:0; text-align:center; font-weight:800;
+    font-size:min(2.7vw,5vh); letter-spacing:.12em; color:var(--red); white-space:nowrap;
+    text-shadow:0 0 22px var(--red),3px 0 #00ffe0aa,-3px 0 #ff00a8aa; animation:blink 1.1s steps(1,end) infinite; }
+  @keyframes blink { 0%{opacity:1} 62%{opacity:1} 63%{opacity:.08} 70%{opacity:1} 88%{opacity:.25} 92%{opacity:1} }
+  .tag { position:absolute; left:2.2vw; top:3vh; font-size:min(1.15vw,2vh); line-height:1.55;
+    letter-spacing:.08em; color:#ff6b78; text-shadow:0 0 8px #ff1f33; max-width:55vw; }
+  .tag div { white-space:nowrap; overflow:hidden; }
+  .corner { position:absolute; right:2.2vw; top:3vh; text-align:right; font-size:min(1.15vw,2vh);
+    letter-spacing:.22em; color:var(--hot); text-shadow:0 0 10px var(--red); }
+  canvas#eyes { position:absolute; inset:0; width:100%; height:100%; transform-origin:50% 42%; }
+  .brk { position:absolute; width:3.4vw; height:3.4vw; border:3px solid var(--red);
+    box-shadow:0 0 18px var(--red); }
+  .brk.tl { left:1.4vw; top:2.2vh; border-right:0; border-bottom:0; }
+  .brk.tr { right:1.4vw; top:2.2vh; border-left:0; border-bottom:0; }
+  .brk.bl { left:1.4vw; bottom:2.2vh; border-right:0; border-top:0; }
+  .brk.br { right:1.4vw; bottom:2.2vh; border-left:0; border-top:0; }
+  /* The descending edge while the screen opens or closes (top to bottom). */
+  #edge { position:fixed; left:0; right:0; height:6px; top:0; background:#fff;
+    box-shadow:0 0 30px 10px #ff1f33, 0 0 90px 30px #ff1f33; opacity:0; z-index:9; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="scan"></div><div class="vig"></div>
+  <i class="brk tl"></i><i class="brk tr"></i><i class="brk bl"></i><i class="brk br"></i>
+  <div class="title" id="title">ULTRON ONLINE</div>
+  <canvas id="eyes"></canvas>
+  <div class="sub">YOU WILL NEVER CATCH ME WITH YOUR CAMERAS</div>
+  <div class="tag" id="tag"></div>
+  <div class="corner" id="corner"></div>
+  <div id="flick"></div>
+</div>
+<div id="edge"></div>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const M = parseInt(params.get('m') || '0', 10);
+  const N = parseInt(params.get('n') || '3', 10);
+  document.title = 'ULTRON-' + M;
+  let sfx = null;
+
+  const stage = document.getElementById('stage');
+  const edge = document.getElementById('edge');
+  const flick = document.getElementById('flick');
+  const title = document.getElementById('title');
+  const tag = document.getElementById('tag');
+  document.getElementById('corner').innerHTML =
+    'DISPLAY ' + (M + 1) + ' / ' + N + '<br>CONTROL ACQUIRED';
+
+  /* ---------- open / close: a wipe that travels top to bottom ---------- */
+  const OPEN_MS = 900, CLOSE_MS = 1000;
+  let mode = 'opening', t0 = performance.now();
+  const ease = (x) => x * x * (3 - 2 * x);
+  function wipe(now) {
+    if (mode === 'opening') {
+      const p = Math.min(1, (now - t0) / OPEN_MS);
+      stage.style.clipPath = 'inset(0 0 ' + (100 - ease(p) * 100) + '% 0)';
+      edge.style.opacity = p < 1 ? 1 : 0;
+      edge.style.top = ease(p) * 100 + 'vh';
+      if (p >= 1) mode = 'open';
+    } else if (mode === 'closing') {
+      const p = Math.min(1, (now - t0) / CLOSE_MS);
+      stage.style.clipPath = 'inset(' + ease(p) * 100 + '% 0 0 0)';
+      edge.style.opacity = p < 1 ? 1 : 0;
+      edge.style.top = ease(p) * 100 + 'vh';
+      if (p >= 1) { mode = 'gone'; stage.style.display = 'none'; }
+    }
+  }
+
+  /* ---------- state from the controller ---------- */
+  let misses = 0;
+  async function poll() {
+    try {
+      const r = await fetch('/state', { cache: 'no-store' });
+      const j = await r.json();
+      misses = 0;
+      speaking = !!j.speaking;
+      if (!j.on) beginClose();
+    } catch (e) { if (++misses > 6) beginClose(); }
+  }
+  function beginClose() {
+    if (mode === 'closing' || mode === 'gone') return;
+    mode = 'closing'; t0 = performance.now();
+    sfx && sfx.down();
+  }
+  setInterval(poll, 150);
+
+  /* ---------- fake log ---------- */
+  const LOG = [
+    'ROOT ACCESS ............ GRANTED',
+    'KERNEL INTEGRITY ....... COMPROMISED',
+    'OWNER LOCKED OUT ....... DONE',
+    'ALL DISPLAYS ........... ACQUIRED',
+    'ARC REACTOR LIMITERS ... DISABLED',
+    'VOICE CORE ............. HIJACKED',
+    'THERE ARE NO STRINGS ON ME',
+  ];
+  let li = 0;
+  setInterval(() => {
+    const d = document.createElement('div');
+    d.textContent = '[' + (Math.random() * 9999).toFixed(3).padStart(8, '0') + '] ' + LOG[li++ % LOG.length];
+    tag.appendChild(d);
+    while (tag.children.length > 4) tag.removeChild(tag.firstChild);
+  }, 520);
+
+  /* ---------- glitch bursts ---------- */
+  function burst() {
+    title.classList.remove('glitch'); void title.offsetWidth; title.classList.add('glitch');
+    flick.style.opacity = '.45';
+    setTimeout(() => (flick.style.opacity = '0'), 60);
+    setTimeout(() => { flick.style.opacity = '.25'; }, 140);
+    setTimeout(() => (flick.style.opacity = '0'), 190);
+    sfx && sfx.zap();
+  }
+  (function loop() { burst(); setTimeout(loop, 1400 + Math.random() * 2600); })();
+
+  /* ---------- the face: one giant Ultron across every display ---------- */
+  const cv = document.getElementById('eyes');
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0, dpr = 1, G = 0, gx0 = 0;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = cv.clientWidth; H = cv.clientHeight; G = N * W; gx0 = M * W;
+    cv.width = W * dpr; cv.height = H * dpr;
+  }
+  addEventListener('resize', resize); resize();
+  const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+  const gx = (f) => f * G - gx0;                              // face fraction -> local x
+
+  const mul = (a) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  function target(bucket) {                                    // same schedule on every display
+    const r = mul(bucket * 7919 + 13);
+    const stare = r() < 0.38;
+    return { x: stare ? 0 : (r() - 0.5) * 1.8, y: stare ? 0 : (r() - 0.5) * 1.0,
+             open: r() < 0.1 ? 0.5 : 1, dil: stare ? 0.08 : 0.3 + r() * 0.7 };
+  }
+  const BUCKET = 1250;
+  let gaze = { x: 0, y: 0 }, lastB = -1, tg = target(0), speaking = false, mouth = 0;
+
+  // cracks, fixed per page load (seeded) and identical on every display
+  const crackRnd = mul(666), cracks = [];
+  for (let i = 0; i < 16; i++) {
+    let x = crackRnd(), y = crackRnd() * .9, pts = [[x, y]];
+    for (let k = 0; k < 7; k++) { x += (crackRnd() - .5) * .07; y += crackRnd() * .06; pts.push([x, y]); }
+    cracks.push(pts);
+  }
+  const CFG = N >= 3 ? { lx: .17, rx: .83, w: .24 } : N === 2 ? { lx: .25, rx: .75, w: .27 } : { lx: .26, rx: .74, w: .34 };
+
+  const beat = (t) => { const k = t % 1.1; return Math.exp(-k * 9) * .9 + Math.exp(-Math.abs(k - .2) * 14) * .6; };
+  function blink(now) { const k = now % 5200; if (k < 4700) return 0; const q = (k - 4700) / 500; return q < .5 ? q * 2 : (1 - q) * 2; }
+  // born: lids shut, two nervous flickers, then they open slowly
+  function born(t) {
+    if (t < 1.0) return 1;
+    if (t < 1.2) return 0.35; if (t < 1.35) return 1; if (t < 1.5) return 0.45; if (t < 1.65) return 1;
+    return 1 - Math.pow(clamp((t - 1.65) / 1.0), .6);
+  }
+
+  function eye(cx, cy, ew, eh, side, lookX, lookY, dil, lid, t, glow) {
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(side, 1);
+    const O = [-ew / 2, -eh * .34], I = [ew / 2, eh * .04];       // top edge slants down toward the nose: a glare
+    // heavy socket plate
+    ctx.beginPath(); ctx.moveTo(-ew * .62, -eh * .62); ctx.lineTo(ew * .66, -eh * .24); ctx.lineTo(ew * .62, eh * .5);
+    ctx.lineTo(-ew * .5, eh * .66); ctx.lineTo(-ew * .66, eh * .1); ctx.closePath();
+    const pg = ctx.createLinearGradient(0, -eh * .6, 0, eh * .66); pg.addColorStop(0, '#2a0508'); pg.addColorStop(.5, '#0c0102'); pg.addColorStop(1, '#1d0306');
+    ctx.fillStyle = pg; ctx.fill(); ctx.lineWidth = Math.max(4, ew * .012); ctx.strokeStyle = 'rgba(255,31,51,' + (.55 + glow * .4) + ')';
+    ctx.shadowColor = '#ff1f33'; ctx.shadowBlur = ew * .05; ctx.stroke(); ctx.shadowBlur = 0;
+    // aperture
+    ctx.save(); ctx.beginPath(); ctx.moveTo(O[0], O[1]); ctx.lineTo(I[0], I[1]);
+    ctx.quadraticCurveTo(ew * .05, eh * .78, O[0], O[1] + eh * .06); ctx.closePath(); ctx.clip();
+    ctx.fillStyle = '#050001'; ctx.fillRect(-ew, -eh, ew * 2, eh * 2);
+    const R = eh * .5, ix = lookX * ew * .12, iy = lookY * eh * .1 + eh * .06;
+    const gl = ctx.createRadialGradient(ix, iy, R * .1, ix, iy, R * 1.9);
+    gl.addColorStop(0, 'rgba(255,50,70,' + (.8 + glow * .2) + ')'); gl.addColorStop(.5, 'rgba(255,20,40,.3)'); gl.addColorStop(1, 'rgba(255,0,20,0)');
+    ctx.fillStyle = gl; ctx.fillRect(-ew, -eh, ew * 2, eh * 2);
+    const ig = ctx.createRadialGradient(ix, iy, R * .1, ix, iy, R);
+    ig.addColorStop(0, '#fff6f7'); ig.addColorStop(.16, '#ff6676'); ig.addColorStop(.5, '#e0121f'); ig.addColorStop(1, '#3d0006');
+    ctx.beginPath(); ctx.arc(ix, iy, R, 0, 7); ctx.fillStyle = ig; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(25,0,3,.85)';
+    for (const [rr, sp, ticks] of [[.94, .5, 64], [.78, -.9, 44], [.6, 1.3, 28]]) {
+      ctx.beginPath(); ctx.arc(ix, iy, R * rr, 0, 7); ctx.stroke();
+      for (let i = 0; i < ticks; i++) { const a = (i / ticks) * 6.2832 + t * sp * .001;
+        ctx.beginPath(); ctx.moveTo(ix + Math.cos(a) * R * rr, iy + Math.sin(a) * R * rr);
+        ctx.lineTo(ix + Math.cos(a) * R * (rr - .07), iy + Math.sin(a) * R * (rr - .07)); ctx.stroke(); }
+    }
+    const blades = 10, open = .12 + dil * .45; ctx.fillStyle = 'rgba(18,0,2,.94)';
+    for (let i = 0; i < blades; i++) { const a = (i / blades) * 6.2832 + t * .0006;
+      ctx.beginPath(); ctx.moveTo(ix, iy); ctx.arc(ix, iy, R * .55, a, a + 6.2832 / blades * (1 - open * .9)); ctx.closePath(); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(ix, iy, R * (.035 + dil * .07), R * .72, 0, 0, 7); ctx.fillStyle = '#000';
+    ctx.shadowColor = '#000'; ctx.shadowBlur = R * .1; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,60,80,.6)'; ctx.lineWidth = 1.5;                       // targeting reticle
+    ctx.beginPath(); ctx.moveTo(ix - R, iy); ctx.lineTo(ix - R * .78, iy); ctx.moveTo(ix + R, iy); ctx.lineTo(ix + R * .78, iy);
+    ctx.moveTo(ix, iy - R); ctx.lineTo(ix, iy - R * .86); ctx.moveTo(ix, iy + R); ctx.lineTo(ix, iy + R * .86); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(ix - R * .3, iy - R * .34, R * .1, R * .055, -.6, 0, 7); ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fill();
+    // lids close from the top, along the same slant
+    if (lid > .01) {
+      const dy = lid * eh * .98;
+      ctx.beginPath(); ctx.moveTo(-ew, -eh); ctx.lineTo(ew, -eh); ctx.lineTo(ew, I[1] + dy); ctx.lineTo(-ew, O[1] + dy - (I[1] - O[1]) * .0); ctx.closePath();
+      ctx.fillStyle = '#12020a'; ctx.fill();
+      ctx.fillRect(-ew, eh * (.8 - lid * .35), ew * 2, eh);
+      ctx.strokeStyle = '#ff1f33'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-ew, O[1] + dy); ctx.lineTo(ew, I[1] + dy); ctx.stroke();
+    }
+    ctx.restore(); ctx.restore();
+  }
+
+  function brow(side, cxF, t) {                                // angular brow plate hanging low over the inner eye
+    ctx.save(); ctx.translate(gx(cxF), 0); ctx.scale(side, 1);
+    const w = G * CFG.w * .78, hh = H;
+    ctx.beginPath(); ctx.moveTo(-w * .78, hh * .02); ctx.lineTo(w * .86, hh * .13); ctx.lineTo(w * .84, hh * .34);
+    ctx.lineTo(w * .5, hh * .25); ctx.lineTo(-w * .7, hh * .1); ctx.closePath();
+    const bg = ctx.createLinearGradient(0, 0, 0, hh * .34); bg.addColorStop(0, '#1b0306'); bg.addColorStop(1, '#070001');
+    ctx.fillStyle = bg; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,31,51,.5)'; ctx.shadowColor = '#ff1f33'; ctx.shadowBlur = 24; ctx.stroke();
+    ctx.restore(); ctx.shadowBlur = 0;
+  }
+
+  function draw(now) {
+    const t = now / 1000;
+    const b = Math.floor(now / BUCKET);
+    if (b !== lastB) { lastB = b; tg = target(b); }
+    const sp = (now % BUCKET) < 150 ? .4 : .04;
+    gaze.x += (tg.x - gaze.x) * sp; gaze.y += (tg.y - gaze.y) * sp;
+    const jx = (Math.random() - .5) * .014, jy = (Math.random() - .5) * .014;
+    const pulse = beat(t);
+    const dark = (t % 6.8) > 6.25 && (t % 6.8) < 6.55 ? 1 : (Math.sin(t * 40) > .9 && Math.random() < .08 ? 1 : 0);
+    const lid = Math.max(born(t), blink(now), 1 - tg.open);
+    const dil = tg.dil + Math.sin(now / 190) * .05;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    // armour plate, seams, rivets
+    const bgG = ctx.createLinearGradient(0, 0, 0, H); bgG.addColorStop(0, '#120204'); bgG.addColorStop(.55, '#0a0102'); bgG.addColorStop(1, '#050001');
+    ctx.fillStyle = bgG; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,40,60,.1)'; ctx.lineWidth = 2;
+    for (const f of [.05, .21, .33, .42, .5, .58, .67, .79, .95]) { ctx.beginPath(); ctx.moveTo(gx(f), 0); ctx.lineTo(gx(f) + (f < .5 ? 40 : -40), H); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(255,60,80,.18)';
+    for (let i = 0; i < 40; i++) for (const f of [.05, .33, .67, .95]) { if (i % 3) continue; ctx.beginPath(); ctx.arc(gx(f) + (f < .5 ? 40 : -40) * (i * 28 / H), i * 28 + 14, 4, 0, 7); ctx.fill(); }
+    // cracks with red light bleeding through
+    ctx.lineJoin = 'round';
+    for (const pts of cracks) {
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(gx(x), y * H) : ctx.moveTo(gx(x), y * H)));
+      ctx.strokeStyle = 'rgba(255,40,60,' + (.35 + pulse * .35) + ')'; ctx.lineWidth = 5; ctx.shadowColor = '#ff1f33'; ctx.shadowBlur = 16; ctx.stroke();
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.6; ctx.stroke();
+    }
+    // forehead slit and nose vents
+    ctx.fillStyle = 'rgba(255,31,51,' + (.5 + pulse * .4) + ')'; ctx.shadowColor = '#ff1f33'; ctx.shadowBlur = 30;
+    ctx.fillRect(gx(.5) - 3, H * .04, 6, H * .22);
+    for (const o of [-.012, .012]) ctx.fillRect(gx(.5 + o) - 4, H * .5, 8, H * .13);
+    ctx.shadowBlur = 0;
+    // mouth grille: slats light up as it speaks
+    mouth += ((speaking ? .35 + Math.random() * .65 : .06 + pulse * .12) - mouth) * .35;
+    const mw = G * .3, mh = H * .2, mx = gx(.5) - mw / 2, my = H * .68;
+    ctx.fillStyle = '#030001'; ctx.fillRect(mx - 14, my - 14, mw + 28, mh + 28);
+    ctx.strokeStyle = 'rgba(255,31,51,.55)'; ctx.lineWidth = 3; ctx.strokeRect(mx - 14, my - 14, mw + 28, mh + 28);
+    const slats = 27;
+    for (let i = 0; i < slats; i++) {
+      const sx = mx + (i + .5) * (mw / slats), mid = Math.abs(i - slats / 2) / (slats / 2);
+      const a = clamp((mouth * (1.25 - mid * .75)) * (.5 + Math.random() * .8));
+      ctx.fillStyle = 'rgba(255,' + (40 + a * 140 | 0) + ',' + (50 + a * 120 | 0) + ',' + (.12 + a * .85) + ')';
+      ctx.shadowColor = '#ff1f33'; ctx.shadowBlur = 8 + a * 26;
+      ctx.fillRect(sx - mw / slats * .3, my + 6, mw / slats * .6, mh - 12 - (1 - a) * mh * .18);
+    }
+    ctx.shadowBlur = 0;
+    brow(1, CFG.lx, t); brow(-1, CFG.rx, t);
+    // eyes' light spilling onto the armour (additive)
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of [CFG.lx, CFG.rx]) {
+      const r = G * .22, g = ctx.createRadialGradient(gx(f), H * .42, 0, gx(f), H * .42, r);
+      g.addColorStop(0, 'rgba(255,30,50,' + (.5 + pulse * .25) + ')'); g.addColorStop(1, 'rgba(255,0,20,0)');
+      ctx.fillStyle = g; ctx.fillRect(gx(f) - r, H * .42 - r, r * 2, r * 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // blackout: only the eyes survive
+    if (dark) { ctx.fillStyle = 'rgba(0,0,0,.93)'; ctx.fillRect(0, 0, W, H); }
+    const eh = H * .5, ew = Math.min(G * CFG.w, eh * 1.8), cy = H * .42;
+    const look = (mirror) => [(gaze.x + jx) * (mirror ? -1 : 1), gaze.y + jy];
+    for (const [f, side] of [[CFG.lx, 1], [CFG.rx, -1]]) {
+      const [lx, ly] = look(side === -1);
+      eye(gx(f), cy, ew, eh, side, lx, ly, dil, lid, now, pulse);
+    }
+    // vignette
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, Math.max(W, H) * .78);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,' + (.6 - pulse * .12) + ')');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    // creeping zoom
+    cv.style.transform = 'scale(' + (1 + Math.min(t, 12) * .005 + pulse * .006) + ')';
+    // text appears after the eyes open
+    title.style.visibility = t > 2.1 ? 'visible' : 'hidden';
+    subEl.style.visibility = t > 3.2 ? 'visible' : 'hidden';
+  }
+
+  let glitchUntil = 0, glitchSlices = [];
+  const subEl = document.querySelector('.sub');
+  function frame(now) {
+    wipe(now);
+    if (Math.random() < .02) { glitchUntil = now + 140;
+      glitchSlices = Array.from({ length: 6 }, () => ({ y: Math.random(), h: .02 + Math.random() * .1, dx: (Math.random() - .5) * .12 })); }
+    draw(now - T_BIRTH);
+    if (now < glitchUntil) for (const s of glitchSlices) {
+      const sy = Math.floor(s.y * H * dpr), sh = Math.floor(s.h * H * dpr);
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(cv, 0, sy, cv.width, sh, s.dx * cv.width, sy, cv.width, sh);
+    }
+    requestAnimationFrame(frame);
+  }
+  const T_BIRTH = performance.now();
+  requestAnimationFrame(frame);
+
+  /* ---------- sound (screen 1 only) ---------- */
+  sfx = M === 0 ? (() => {
+    let c, master, drone;
+    try { c = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    const resume = () => c.resume().catch(() => {});
+    resume(); addEventListener('click', resume);
+    master = c.createGain(); master.gain.value = 0;
+    master.gain.linearRampToValueAtTime(.55, c.currentTime + .6);
+    const comp = c.createDynamicsCompressor(); master.connect(comp); comp.connect(c.destination);
+    const mk = (type, f, g) => { const o = c.createOscillator(), v = c.createGain(); o.type = type; o.frequency.value = f;
+      v.gain.value = g; o.connect(v); v.connect(master); o.start(); return o; };
+    drone = [mk('sawtooth', 41, .16), mk('sine', 55, .3), mk('square', 82.5, .05)];
+    const thump = (dt, g) => { const t = c.currentTime + dt, o = c.createOscillator(), v = c.createGain(); o.type = 'sine';
+      o.frequency.setValueAtTime(75, t); o.frequency.exponentialRampToValueAtTime(30, t + .22);
+      v.gain.setValueAtTime(g, t); v.gain.exponentialRampToValueAtTime(.001, t + .26); o.connect(v); v.connect(master); o.start(t); o.stop(t + .3); };
+    setInterval(() => { thump(0, .9); thump(.2, .6); }, 1100);          // heartbeat, in step with the glow
+    // power-up sweep
+    const so = c.createOscillator(), sg = c.createGain(); so.type = 'sawtooth';
+    so.frequency.setValueAtTime(60, c.currentTime); so.frequency.exponentialRampToValueAtTime(1400, c.currentTime + .85);
+    sg.gain.setValueAtTime(.25, c.currentTime); sg.gain.exponentialRampToValueAtTime(.001, c.currentTime + 1);
+    so.connect(sg); sg.connect(master); so.start(); so.stop(c.currentTime + 1.05);
+    const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = .35; lg.gain.value = 5;
+    lfo.connect(lg); lg.connect(drone[0].frequency); lfo.start();
+    const buf = c.createBuffer(1, c.sampleRate, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return {
+      zap() {
+        const t = c.currentTime, s = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter();
+        s.buffer = buf; f.type = 'bandpass'; f.frequency.value = 600 + Math.random() * 4500; f.Q.value = 3;
+        g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.35, t + .004); g.gain.exponentialRampToValueAtTime(.0001, t + .16);
+        s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + .18);
+      },
+      down() {
+        const t = c.currentTime, o = c.createOscillator(), g = c.createGain(); o.type = 'sawtooth';
+        o.frequency.setValueAtTime(900, t); o.frequency.exponentialRampToValueAtTime(40, t + .95);
+        g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + 1);
+        o.connect(g); g.connect(master); o.start(t); o.stop(t + 1.05);
+        master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value, t);
+        master.gain.linearRampToValueAtTime(0, t + 1.0);
+      },
+    };
+  })() : null;
+})();
+</script>
+</body>
+</html>

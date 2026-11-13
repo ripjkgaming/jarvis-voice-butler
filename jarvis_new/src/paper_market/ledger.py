@@ -94,7 +94,7 @@ class Ledger:
         finally:
             db.close()
 
-    def initialize(self, now: datetime) -> dict:
+    def initialize(self, now: datetime, *, identifier: str | None = None) -> dict:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT * FROM experiment").fetchone()
@@ -102,7 +102,7 @@ class Ledger:
                 db.execute(
                     "INSERT INTO experiment VALUES(1,?,?,?,?,?,?)",
                     (
-                        str(uuid.uuid4()),
+                        identifier or str(uuid.uuid4()),
                         stamp(now),
                         stamp(now + timedelta(hours=168)),
                         "1000.00",
@@ -352,6 +352,7 @@ class Ledger:
                         "verification": json.loads(row["verification_json"])
                         if row["verification_json"]
                         else None,
+                        "evidence": json.loads(row["input_json"]),
                     }
                 )
             fills = [
@@ -385,6 +386,17 @@ class Ledger:
                 row["key"]: json.loads(row["value"])
                 for row in db.execute("SELECT * FROM runtime")
             }
+            trade_count = db.execute("SELECT COUNT(*) FROM fills").fetchone()[0]
+        peak = initial
+        drawdown = ZERO
+        for point in history:
+            if point["equity_usd"] is not None:
+                observed = Decimal(point["equity_usd"])
+                peak = max(peak, observed)
+                drawdown = max(drawdown, (peak - observed) / peak * 100)
+        if equity is not None:
+            peak = max(peak, equity)
+            drawdown = max(drawdown, (peak - equity) / peak * 100)
         return {
             "schema_version": 1,
             "generated_at": stamp(now),
@@ -399,6 +411,10 @@ class Ledger:
             },
             "account": {
                 "cash_usd": dollars(cash),
+                "starting_balance_usd": dollars(initial),
+                "invested_value_usd": dollars(value) if complete else None,
+                "trade_count": trade_count,
+                "maximum_drawdown_pct": dollars(drawdown),
                 "equity_usd": dollars(equity),
                 "total_pnl_usd": dollars(pnl),
                 "total_return_pct": dollars(pnl / initial * 100)

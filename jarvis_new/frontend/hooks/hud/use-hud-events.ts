@@ -53,18 +53,26 @@ export function useHudEvents() {
 
   const live: HudTask[] = (() => {
     const byTool = new Map<string, HudTask>();
+    // A finish can land before its start (two separate data packets): remember
+    // it so the late start is born done instead of sticking as "in progress".
+    const earlyFinish = new Map<string, HudTaskEvent>();
     for (const ev of events) {
       if (ev.kind === 'tool_start' && ev.tool) {
         seq.current += 1;
+        const fin = earlyFinish.get(ev.tool);
+        const early = !!fin && fin.ts >= ev.ts;
+        if (early) earlyFinish.delete(ev.tool);
         byTool.set(ev.tool, {
           ...ev,
           id: `${ev.tool}-${seq.current}`,
           startedAt: ev.ts,
-          elapsedMs: Date.now() - ev.ts,
-          done: false,
+          elapsedMs: early && fin ? fin.ts - ev.ts : Date.now() - ev.ts,
+          done: early,
+          ok: early && fin ? fin.ok : undefined,
         });
       } else if (ev.kind === 'tool_finish' && ev.tool) {
         const t = byTool.get(ev.tool);
+        if (!t) earlyFinish.set(ev.tool, ev);
         if (t) {
           t.done = true;
           t.ok = ev.ok;

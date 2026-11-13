@@ -196,7 +196,9 @@ class WindowTools:
 
         Args:
             title: Existing application/window name, such as ChatGPT.
-            monitor: Other monitor, main, laptop, right, left, M1/M2/M3, DP-1.
+            monitor: "monitor 1" (main/where Claude runs), "monitor 2" (laptop
+                screen), "monitor 3" (final monitor), other, free (emptiest),
+                this, left, right, or an output name like DP-1.
         """
         _guard()
         from system.monitor_window_move import move_window

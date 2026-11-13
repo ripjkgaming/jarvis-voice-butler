@@ -16,7 +16,13 @@ def _rec(id_="20260101-000000-abcd", n=30, **kw):
         {"ply": i, "san": f"m{i}", "uci": f"u{i}", "fen_after": f"fen{i}"}
         for i in range(1, n + 1)
     ]
-    d = dict(id=id_, moves=moves, parent_id=None, branched_at_ply=None, started_at="2026-01-01T00:00:00")
+    d = dict(
+        id=id_,
+        moves=moves,
+        parent_id=None,
+        branched_at_ply=None,
+        started_at="2026-01-01T00:00:00",
+    )
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -56,7 +62,9 @@ class FakeStore:
 
 @pytest.fixture
 def view():
-    s = FakeStore([_rec(), _rec("20260102-000000-ffff", n=5, started_at="2026-01-02T10:00:00")])
+    s = FakeStore(
+        [_rec(), _rec("20260102-000000-ffff", n=5, started_at="2026-01-02T10:00:00")]
+    )
     return HistoryView(s), s
 
 
@@ -107,7 +115,11 @@ def test_not_open_raises():
 def test_navigation_zero_writes(view):
     v, s = view
     v.open(1)
-    v.step(-1); v.step(1); v.goto(3); v.goto_move(5); v.fen()
+    v.step(-1)
+    v.step(1)
+    v.goto(3)
+    v.goto_move(5)
+    v.fen()
     assert s.writes == 0
 
 
@@ -125,9 +137,14 @@ def test_branch_here(view):
 
 def test_undo_last():
     class GS:
-        def __init__(self, n): self.n = n
+        def __init__(self, n):
+            self.n = n
+
         def undo(self, k):
-            d = min(k, self.n); self.n -= d; return d
+            d = min(k, self.n)
+            self.n -= d
+            return d
+
     assert HistoryView.undo_last(GS(3)) is True
     assert HistoryView.undo_last(GS(0)) is False
 
@@ -138,17 +155,33 @@ def test_real_store_branch_leaves_original(tmp_path, monkeypatch):
     st = store_mod.GameStore(root=tmp_path)
     rec = st.new_record(mode="play", white="user", black="jarvis")
     import chess
+
     b = chess.Board()
     for i, mv in enumerate(["e2e4", "e7e5", "g1f3", "b8c6"], 1):
-        san = b.san(chess.Move.from_uci(mv)); b.push_uci(mv)
-        st.append_move(rec, {"ply": i, "san": san, "uci": mv, "fen_after": b.fen(), "eval_cp": None,
-                             "eval_mate": None, "depth": None, "best_uci": None, "think_ms": 0,
-                             "cls": None, "annotation": None})
+        san = b.san(chess.Move.from_uci(mv))
+        b.push_uci(mv)
+        st.append_move(
+            rec,
+            {
+                "ply": i,
+                "san": san,
+                "uci": mv,
+                "fen_after": b.fen(),
+                "eval_cp": None,
+                "eval_mate": None,
+                "depth": None,
+                "best_uci": None,
+                "think_ms": 0,
+                "cls": None,
+                "annotation": None,
+            },
+        )
     files = sorted(p for p in tmp_path.rglob("*") if p.is_file())
     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files}
     v = HistoryView(st)
     v.open(1)
-    v.step(-1); v.goto(2)
+    v.step(-1)
+    v.goto(2)
     assert {p for p in tmp_path.rglob("*") if p.is_file()} == set(files)
     assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files} == before
     new = v.branch_here()

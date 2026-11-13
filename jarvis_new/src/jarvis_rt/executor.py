@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, get_type_hints
 
@@ -26,7 +27,52 @@ from .tools import (
 
 log = logging.getLogger("jarvis_rt.executor")
 
+# A tool that never returns leaves the session stuck in "thinking" forever.
+# Cap every call; run_command allows up to 120s itself, so stay above that.
+TOOL_TIMEOUT_S = float(os.environ.get("JARVIS_TOOL_TIMEOUT_S", "150") or 150)
+
+#: After the timeout, how long a cancelled tool gets to unwind before it is
+#: abandoned. asyncio.wait_for would wait forever for a tool that swallows
+#: CancelledError, leaving the turn (and the HUD) stuck in "thinking".
+ABANDON_GRACE_S = 2.0
+
 _VALID = (str, int, float, bool, complex, type(None))
+
+
+async def _await_bounded(name: str, coro: Any) -> Any:
+    """Await a tool coroutine for at most TOOL_TIMEOUT_S, never longer.
+
+    The tool runs as its own task so a timeout can abandon it even when it
+    ignores cancellation; its HUD execution scopes are then released here.
+    """
+    task = asyncio.ensure_future(coro)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=TOOL_TIMEOUT_S)
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+    if task in done:
+        return task.result()
+    log.error("tool %s timed out after %ss; cancelling it", name, TOOL_TIMEOUT_S)
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=ABANDON_GRACE_S)
+    if task in done:
+        if not task.cancelled():
+            task.exception()  # retrieved: no "exception never retrieved" noise
+    else:
+        released = 0
+        try:
+            from hud_voice_state import release_task
+
+            released = release_task(task)
+        except Exception:
+            log.debug("could not release HUD scopes for %s", name, exc_info=True)
+        log.error(
+            "tool %s ignored cancellation; abandoned it (released %d HUD scope(s))",
+            name,
+            released,
+        )
+    raise ToolError(f"{name} took too long and was stopped, Sir.")
 
 
 def _valid_output(value: Any) -> bool:
@@ -193,7 +239,7 @@ async def execute_call(
             raise ToolError(f"Error parsing arguments for `{call.name}`: {e}") from e
         result = tool(*fargs, **fkwargs)
         if asyncio.iscoroutine(result):
-            result = await result
+            result = await _await_bounded(call.name, result)
         return make_result(call, result, None)
     except Exception as e:
         if not isinstance(e, (ToolError, StopResponse)):

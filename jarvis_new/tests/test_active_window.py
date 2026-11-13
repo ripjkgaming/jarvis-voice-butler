@@ -202,10 +202,13 @@ def _win_payload(items):
 
 def test_windows_routing_and_active_untouched():
     _reset()
-    assert AW.handle_dbus_message(
-        "Windows",
-        [_win_payload([{"id": "a", "title": "t", "app": "x", "pid": 1}])],
-    ) == "windows"
+    assert (
+        AW.handle_dbus_message(
+            "Windows",
+            [_win_payload([{"id": "a", "title": "t", "app": "x", "pid": 1}])],
+        )
+        == "windows"
+    )
     assert [w["id"] for w in AW.windows()] == ["a"]
     assert AW.push_active() is None
     assert AW.handle_dbus_message("Active", ["T", "A", 7, "w1"]) == "active"
@@ -225,8 +228,15 @@ def test_windows_parsing_filters_and_fail_soft():
     got = AW.parse_windows_payload(
         _win_payload(
             [
-                {"id": "keep", "title": " t ", "app": "brave", "pid": "42",
-                 "desktop": "brave.desktop", "active": True, "minimized": 0},
+                {
+                    "id": "keep",
+                    "title": " t ",
+                    "app": "brave",
+                    "pid": "42",
+                    "desktop": "brave.desktop",
+                    "active": True,
+                    "minimized": 0,
+                },
                 {"id": "self", "title": "orb", "app": "jarvis-shell", "pid": 9},
                 {"title": "no id", "app": "x"},
                 "junk",
@@ -234,27 +244,28 @@ def test_windows_parsing_filters_and_fail_soft():
         )
     )
     assert got == [
-        {"id": "keep", "title": "t", "app": "brave", "pid": 42,
-         "desktop": "brave.desktop", "active": True, "minimized": False}
+        {
+            "id": "keep",
+            "title": "t",
+            "app": "brave",
+            "pid": 42,
+            "desktop": "brave.desktop",
+            "active": True,
+            "minimized": False,
+        }
     ]
 
 
 def test_windows_order_stable_and_copy():
     _reset()
-    AW.handle_dbus_message(
-        "Windows", [_win_payload([{"id": "a"}, {"id": "b"}])]
-    )
+    AW.handle_dbus_message("Windows", [_win_payload([{"id": "a"}, {"id": "b"}])])
     # KWin re-sends in stacking order; first-seen order wins.
-    AW.handle_dbus_message(
-        "Windows", [_win_payload([{"id": "b"}, {"id": "a"}])]
-    )
+    AW.handle_dbus_message("Windows", [_win_payload([{"id": "b"}, {"id": "a"}])])
     assert [w["id"] for w in AW.windows()] == ["a", "b"]
     # Removal drops, re-add goes last.
     AW.handle_dbus_message("Windows", [_win_payload([{"id": "b"}])])
     assert [w["id"] for w in AW.windows()] == ["b"]
-    AW.handle_dbus_message(
-        "Windows", [_win_payload([{"id": "b"}, {"id": "a"}])]
-    )
+    AW.handle_dbus_message("Windows", [_win_payload([{"id": "b"}, {"id": "a"}])])
     assert [w["id"] for w in AW.windows()] == ["b", "a"]
     # Copy semantics: caller mutations never leak back in.
     first = AW.windows()
@@ -268,7 +279,8 @@ def test_startmenu_routes_to_helper(monkeypatch):
     _reset()
     calls = []
     monkeypatch.setattr(
-        AW, "toggle_start_menu", lambda *a, **k: calls.append(1) or True)
+        AW, "toggle_start_menu", lambda *a, **k: calls.append(1) or True
+    )
     assert AW.handle_dbus_message("StartMenu", []) == "startmenu"
     assert calls == [1]
     # Neither store is touched by the menu call.
@@ -307,8 +319,10 @@ def test_toggle_start_menu_search_order(monkeypatch):
     # Only the bare "jarvis-shell" resolves (repo binary + "jarvis" don't).
     monkeypatch.setattr(AW.Path, "exists", lambda self: False)
     monkeypatch.setattr(
-        shutil, "which",
-        lambda name: "/u/jarvis-shell" if name == "jarvis-shell" else None)
+        shutil,
+        "which",
+        lambda name: "/u/jarvis-shell" if name == "jarvis-shell" else None,
+    )
     calls = []
 
     def fake(argv, **kw):

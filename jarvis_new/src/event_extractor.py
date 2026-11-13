@@ -368,6 +368,36 @@ def ledger_path() -> Path:
     return (Path(h) if h else Path.home() / ".jarvis") / "auto_calendar.json"
 
 
+def _attempts_path() -> Path:
+    h = os.environ.get("JARVIS_HOME", "").strip()
+    return (Path(h) if h else Path.home() / ".jarvis") / "auto_calendar_attempts.json"
+
+
+def _attempts_load() -> list[dict]:
+    try:
+        data = json.loads(_attempts_path().read_text())
+    except (OSError, ValueError):
+        return []
+    rows = data.get("attempts") if isinstance(data, dict) else None
+    return (
+        [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    )
+
+
+def _attempts_save(rows: list[dict]) -> bool:
+    """Persist permanent source/provider IDs before and across uncertain writes."""
+    try:
+        target = _attempts_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"attempts": rows}, indent=2))
+        tmp.chmod(0o600)
+        os.replace(tmp, target)
+        return True
+    except OSError:
+        return False
+
+
 def _ledger_load() -> list[dict]:
     try:
         data = json.loads(ledger_path().read_text())
@@ -381,7 +411,8 @@ def _ledger_save(rows: list[dict]) -> bool:
     try:
         ledger_path().parent.mkdir(parents=True, exist_ok=True)
         tmp = ledger_path().with_suffix(".tmp")
-        tmp.write_text(json.dumps({"events": rows[-500:]}, indent=2))
+        # Receipts are the permanent idempotency boundary for external writes.
+        tmp.write_text(json.dumps({"events": rows}, indent=2))
         tmp.chmod(0o600)
         os.replace(tmp, ledger_path())
         return True
@@ -424,6 +455,8 @@ def auto_add_event(
     now: float | None = None,
     lister=None,
     inserter=None,
+    getter=None,
+    control=None,
 ) -> dict:
     """Write one extracted event straight to the calendar. Never raises.
 
@@ -458,7 +491,129 @@ def auto_add_event(
     from proactive.sources import calendar_source
 
     destination = (calendar_source.calendar_account(), calendar_source.calendar_id())
-    for row in _ledger_load():
+    rows = _ledger_load()
+    attempts = _attempts_load()
+    completed_attempt = next(
+        (
+            row
+            for row in attempts
+            if row.get("status") == "added"
+            and (row.get("msg_id") == msg_id or row.get("event_key") == key)
+            and (row.get("account"), row.get("calendar_id")) == destination
+        ),
+        None,
+    )
+    if completed_attempt:
+        ledger_receipt = next(
+            (
+                row
+                for row in rows
+                if row.get("google_id") == completed_attempt.get("google_id")
+            ),
+            None,
+        )
+        if ledger_receipt:
+            if msg_id != completed_attempt.get("msg_id"):
+                return {
+                    "status": "duplicate",
+                    "google_id": completed_attempt.get("google_id", ""),
+                }
+            return {
+                "status": "duplicate",
+                "google_id": completed_attempt.get("google_id", ""),
+            }
+        if msg_id != completed_attempt.get("msg_id"):
+            rows.append({**completed_attempt, "status": "added"})
+            _ledger_save(rows)
+            return {
+                "status": "duplicate",
+                "google_id": completed_attempt.get("google_id", ""),
+            }
+        if inserter is None:
+            import google_api
+
+            try:
+                made = google_api.calendar_create(
+                    {**event, "jarvis_id": completed_attempt["google_id"]},
+                    destination[1],
+                    destination[0],
+                )
+                completed_attempt["google_id"] = str(
+                    (made or {}).get("id") or completed_attempt["google_id"]
+                )
+            except Exception as exc:
+                return {
+                    "status": "uncertain",
+                    "error": f"{type(exc).__name__}: {exc}"[:160],
+                    "google_id": completed_attempt.get("google_id", ""),
+                }
+        rows.append({**completed_attempt, "status": "added"})
+        _ledger_save(rows)
+        _record_calendar_memory(
+            record, event, completed_attempt.get("google_id", ""), now
+        )
+        return {
+            "status": "added",
+            "google_id": completed_attempt.get("google_id", ""),
+        }
+    writing = next(
+        (
+            row
+            for row in attempts
+            if row.get("status") == "writing"
+            and (row.get("msg_id") == msg_id or row.get("event_key") == key)
+            and (row.get("account"), row.get("calendar_id")) == destination
+        ),
+        None,
+    )
+    retry_receipt = None
+    if writing:
+        if control is not None and not control():
+            return {"status": "paused", "google_id": writing.get("google_id", "")}
+        if getter is None and inserter is not None:
+            # An injected writer has no corresponding provider reader. Retry
+            # its same stable ID; the production Google writer uses readback.
+            retry_receipt = writing
+            writing = None
+        else:
+            # A timed-out write may already exist at Google. Read its exact
+            # stable ID before retrying; an unavailable read is uncertain.
+            try:
+                if getter is None:
+                    import google_api
+
+                    getter = google_api.calendar_get
+                found = getter(
+                    writing["google_id"],
+                    calendar_id=destination[1],
+                    account=destination[0],
+                )
+            except Exception as exc:
+                if getattr(exc, "http_status", None) == 404:
+                    retry_receipt = writing
+                    writing = None
+                else:
+                    return {
+                        "status": "uncertain",
+                        "error": f"{type(exc).__name__}: {exc}"[:160],
+                        "google_id": writing.get("google_id", ""),
+                    }
+            else:
+                if found.get("status") == "cancelled":
+                    writing["status"] = "cancelled"
+                    _attempts_save(attempts)
+                    return {"status": "duplicate", "google_id": writing["google_id"]}
+                writing.update(status="added", event=event, reconciled=now)
+                _attempts_save(attempts)
+                if not any(
+                    row.get("google_id") == writing["google_id"] for row in rows
+                ):
+                    rows.append({**writing, "status": "added"})
+                    _ledger_save(rows)
+                _record_calendar_memory(record, event, writing["google_id"], now)
+                return {"status": "added", "google_id": writing["google_id"]}
+
+    for row in rows:
         if (
             row.get("account", destination[0]),
             row.get("calendar_id", destination[1]),
@@ -481,69 +636,114 @@ def auto_add_event(
     except Exception:
         pass  # calendar unreadable: the write below decides
     try:
+        provider_id = (
+            "jarvis"
+            + hashlib.sha256(
+                (destination[0] + "|" + destination[1] + "|" + key).encode()
+            ).hexdigest()
+        )
         if inserter is None:
             import google_api
-            from proactive.sources import calendar_source
 
             def inserter(ev):
-                return google_api.calendar_create(
-                    {
-                        **ev,
-                        "jarvis_id": "jarvis"
-                        + hashlib.sha256(
-                            (
-                                calendar_source.calendar_account()
-                                + "|"
-                                + calendar_source.calendar_id()
-                                + "|"
-                                + key
-                            ).encode()
-                        ).hexdigest(),
-                    },
-                    calendar_source.calendar_id(),
-                    calendar_source.calendar_account(),
-                )
+                return google_api.calendar_create(ev, destination[1], destination[0])
+
+        receipt = (
+            retry_receipt
+            or writing
+            or {
+                "event_key": key,
+                "msg_id": msg_id,
+                "source_chat_id": str(record.get("source_chat_id") or ""),
+                "source_message_id": str(record.get("source_message_id") or msg_id),
+                "source": record.get("source", "mail"),
+                "sender": record.get("sender", ""),
+                "event": event,
+                "google_id": provider_id,
+                "account": destination[0],
+                "calendar_id": destination[1],
+                "title": event["title"],
+                "when": spoken_when(event),
+                "created": now,
+                "status": "writing",
+            }
+        )
+        if receipt not in attempts:
+            attempts.append(receipt)
+        else:
+            receipt.update(status="writing", event=event, event_key=key)
+        if not _attempts_save(attempts):
+            return {
+                "status": "failed",
+                "error": "could not persist calendar write receipt",
+            }
 
         gid = ""
         last_exc: Exception | None = None
         for delay in (0.0, 1.0, 3.0, 8.0):  # transient network/token errors: retry
+            if control is not None and not control():
+                return {"status": "paused", "google_id": receipt["google_id"]}
             if delay:
                 time.sleep(delay)
             try:
-                made = inserter(event)
+                made = inserter({**event, "jarvis_id": receipt["google_id"]})
                 gid = str((made or {}).get("id") or "")
                 if gid:
                     break
             except Exception as exc:
                 last_exc = exc
         if not gid:
+            receipt["last_error"] = (
+                f"{type(last_exc).__name__}: {last_exc}"[:160]
+                if last_exc
+                else "no event id returned"
+            )
+            _attempts_save(attempts)
             return {
                 "status": "failed",
-                "error": f"{type(last_exc).__name__}: {last_exc}"[:160]
-                if last_exc
-                else "no event id returned",
+                "error": receipt["last_error"],
+                "google_id": receipt["google_id"],
             }
     except Exception as exc:
         return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:160]}
-    rows = _ledger_load()
-    rows.append(
-        {
-            "event_key": key,
-            "msg_id": msg_id,
-            "source": record.get("source", "mail"),
-            "sender": record.get("sender", ""),
-            "event": event,
-            "google_id": gid,
-            "account": destination[0],
-            "calendar_id": destination[1],
-            "title": event["title"],
-            "when": spoken_when(event),
-            "created": now,
-            "status": "added",
-        }
-    )
+    receipt.update(status="added", google_id=gid, event=event, created=now)
+    _attempts_save(attempts)
+    rows.append({**receipt, "status": "added"})
     _ledger_save(rows)
+    _record_calendar_memory(record, event, gid, now)
     return {"status": "added", "google_id": gid}
+
+
+def _record_calendar_memory(
+    record: dict, event: dict, google_id: str, now: float
+) -> None:
+    """Write the action receipt to the readable Always Aware memory vault."""
+    try:
+        from aware import expansion_memory
+
+        expansion_memory.record(
+            "calendar_action",
+            source=str(record.get("source") or "calendar"),
+            timestamp=now,
+            confidence=float(event.get("confidence") or 0),
+            data={
+                "source_chat_id": str(record.get("source_chat_id") or ""),
+                "source_message_id": str(
+                    record.get("source_message_id") or record.get("id") or ""
+                ),
+                "calendar_event_id": str(google_id),
+                "title": str(event.get("title") or "")[:80],
+                "date": str(event.get("date") or ""),
+                "status": "added",
+                "summary": (
+                    f"Added {str(event.get('title') or 'event')[:80]} "
+                    f"for {str(event.get('date') or '')} from {record.get('source') or 'calendar'}"
+                ),
+            },
+            key=f"calendar:{record.get('id') or google_id}",
+        )
+    except Exception:
+        pass
 
 
 @_serialized_calendar
@@ -608,7 +808,9 @@ def added_line(record: dict) -> str:
     )
 
 
-def retry_pending(*, now=None, lister=None, inserter=None, notify_fn=None) -> int:
+def retry_pending(
+    *, now=None, lister=None, inserter=None, notify_fn=None, control=None
+) -> int:
     """Retry events whose calendar write failed earlier. Returns how many were added."""
     if not auto_enabled():
         return 0
@@ -617,13 +819,17 @@ def retry_pending(*, now=None, lister=None, inserter=None, notify_fn=None) -> in
     if not d.is_dir():
         return 0
     for f in sorted(d.glob("*.json")):
+        if control is not None and not control():
+            break
         try:
             record = json.loads(f.read_text())
         except Exception:
             continue
         if record.get("status") != "retry":
             continue
-        res = auto_add_event(record, now=now, lister=lister, inserter=inserter)
+        res = auto_add_event(
+            record, now=now, lister=lister, inserter=inserter, control=control
+        )
         st = res["status"]
         if st == "added":
             record["status"] = "added"
@@ -657,15 +863,24 @@ def suggest(
     lister=None,
     inserter=None,
     notify_fn=None,
+    control=None,
 ) -> str:
     """The full §1.3 flow for one email. Returns a reason-coded outcome."""
+    if control is not None and not control():
+        return "paused"
     source = str(parsed.get("source") or "mail")
     if not enabled(source):
         return "disabled"
     if any(parsed.get(k) for k in ("blocked", "guest", "private")):
         return "skipped-context"
     with contextlib.suppress(Exception):
-        retry_pending(now=now, lister=lister, inserter=inserter, notify_fn=notify_fn)
+        retry_pending(
+            now=now,
+            lister=lister,
+            inserter=inserter,
+            notify_fn=notify_fn,
+            control=control,
+        )
     msg_id = str(parsed.get("id") or "")
     if not msg_id:
         return "no-id"
@@ -674,6 +889,8 @@ def suggest(
     event, warning = extract(parsed, now=now, runner=runner)
     if event is None:
         return f"no-event{':' + warning if warning else ''}"[:80]
+    if control is not None and not control():
+        return "paused"
     if source == "whatsapp":
         duration = (
             " End time not supplied; a one-hour duration is assumed."
@@ -694,6 +911,8 @@ def suggest(
         "source": source,
         "sender": str(parsed.get("sender") or ""),
         "subject": str(parsed.get("subject") or ""),
+        "source_chat_id": str(parsed.get("source_chat_id") or ""),
+        "source_message_id": str(parsed.get("source_message_id") or msg_id),
         "event": event,
         "status": "pending",
         "created": time.time() if now is None else now,
@@ -703,7 +922,13 @@ def suggest(
 
         notify_fn = notify.send
     if auto_enabled():
-        res = auto_add_event(record, now=now, lister=lister, inserter=inserter)
+        res = auto_add_event(
+            record,
+            now=now,
+            lister=lister,
+            inserter=inserter,
+            control=control,
+        )
         st = res["status"]
         if st == "added":
             record["status"] = "added"

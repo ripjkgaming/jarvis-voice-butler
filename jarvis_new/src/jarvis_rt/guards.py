@@ -17,7 +17,22 @@ _SENTENCE = re.compile(r"[^.!?\n]+[.!?]+")
 MIN_SENTENCE_CHARS = 12
 
 
+# English hologram commands the speech recogniser often writes in Devanagari
+# ("एक्सप्लोर द होलोग्राम" = "explode the hologram"); these are not foreign speech.
+_ROMANISED_HOLO = (
+    "होलोग्राम",
+    "होलोग्रैम",
+    "एक्सप्लोड",
+    "एक्सप्लोर",
+    "डिसमिस",
+    "वायरफ्रेम",
+    "वायरफ्रेम",
+)
+
+
 def is_foreign_speech(text: str) -> bool:
+    if any(w in text for w in _ROMANISED_HOLO):
+        return False
     letters = [c for c in text if c.isalpha()]
     if len(letters) < 2:
         return False

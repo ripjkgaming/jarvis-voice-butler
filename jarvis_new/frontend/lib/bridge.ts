@@ -127,6 +127,25 @@ export type BridgeRoom = {
   room?: string | null;
 };
 
+/** Raw bytes from a bridge path (e.g. /model3d/glb). null on any failure. */
+export async function bridgeBytes(path: string, timeoutMs = 20000): Promise<ArrayBuffer | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { url, token } = await getEndpoint();
+    const res = await fetch(`${url}${path}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.ok ? await res.arrayBuffer() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Tail of ~/.jarvis/actions.log via bridge /actions (default 50 lines). */
 export async function bridgeActions(limit = 50): Promise<string[]> {
   const j = await getJson<BridgeActions>(`/actions?limit=${limit}`);
@@ -455,4 +474,33 @@ export async function bridgeWindowAction(
 export async function bridgeLaunch(desktop: string): Promise<boolean> {
   const j = await bridgePost<{ ok?: boolean }>('/launch', { desktop });
   return !!j?.ok;
+}
+
+/** HUD flags in ~/.jarvis/hud_state.json. `muted` never touches the microphone;
+ *  `breach` is the fake red "system takeover" show. */
+export type HudFlags = { muted: boolean; breach: boolean };
+
+export async function bridgeHudState(): Promise<HudFlags | null> {
+  const j = await getJson<{ ok?: boolean; muted?: boolean; breach?: boolean }>('/hud/state');
+  return j && j.ok === true ? { muted: j.muted === true, breach: j.breach === true } : null;
+}
+
+export async function bridgeSetHudState(patch: Partial<HudFlags>): Promise<HudFlags | null> {
+  try {
+    const { url, token } = await getEndpoint();
+    const res = await fetch(`${url}/hud/state`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { muted?: boolean; breach?: boolean };
+    return { muted: j.muted === true, breach: j.breach === true };
+  } catch {
+    return null;
+  }
 }

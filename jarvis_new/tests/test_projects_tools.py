@@ -123,6 +123,6 @@ async def test_open_projects_carries_navigation(monkeypatch):
     assert sent[-1]["args"]["commands"] == [{"action": "select", "index": 2}]
     assert out["say"]
     with pytest.raises(ToolError):
-        await ProjectTools.open_projects(ProjectTools(), _ctx(), command="make me a sandwich")
-
-
+        await ProjectTools.open_projects(
+            ProjectTools(), _ctx(), command="make me a sandwich"
+        )

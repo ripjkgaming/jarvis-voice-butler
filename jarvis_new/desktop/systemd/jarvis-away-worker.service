@@ -1,0 +1,18 @@
+[Unit]
+Description=Jarvis away worker (mail, calendar and WhatsApp while Sir is asleep; dry run unless JARVIS_AWAY_LIVE=1)
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/data/jarvis-voice-butler/jarvis_new
+# Dry run by default: it reads and drafts, logs "DRY RUN" and sends nothing.
+# To let it send while asleep, uncomment the line and restart the unit.
+# Environment=JARVIS_AWAY_LIVE=1
+ExecStart=/usr/bin/uv run --no-sync python -m src.away_worker run
+Restart=on-failure
+RestartSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

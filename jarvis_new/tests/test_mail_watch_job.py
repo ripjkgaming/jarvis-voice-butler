@@ -642,7 +642,9 @@ def test_poll_failed_backs_off_while_signin_expired():
     logs = []
     m._backoff.update(fails=0, until=0.0)
     for _ in range(3):
-        m._poll_failed(RuntimeError("Gmail sign-in expired, Sir."), lambda *a: logs.append(a))
+        m._poll_failed(
+            RuntimeError("Gmail sign-in expired, Sir."), lambda *a: logs.append(a)
+        )
     assert m._backoff["fails"] == 3 and len(logs) == 3
     assert "retry in 240s" in logs[-1][1]
     for _ in range(10):

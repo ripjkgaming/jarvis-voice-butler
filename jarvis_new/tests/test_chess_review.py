@@ -42,8 +42,16 @@ class FakeStore:
 def test_classify_thresholds():
     c = review.classify_loss
     assert [c(x) for x in (0, 10, 11, 50, 51, 100, 101, 250, 251, 900)] == [
-        "best", "best", "good", "good", "inaccuracy", "inaccuracy",
-        "mistake", "mistake", "blunder", "blunder",
+        "best",
+        "best",
+        "good",
+        "good",
+        "inaccuracy",
+        "inaccuracy",
+        "mistake",
+        "mistake",
+        "blunder",
+        "blunder",
     ]
     assert c(-30) == "best"
 
@@ -192,8 +200,16 @@ def _rec(moves):
 
 
 def _mv(ply, san, uci, fen_after, cp=None, mate=None, **kw):
-    d = dict(ply=ply, san=san, uci=uci, fen_after=fen_after, eval_cp=cp,
-             eval_mate=mate, best_uci=None, cls=None)
+    d = dict(
+        ply=ply,
+        san=san,
+        uci=uci,
+        fen_after=fen_after,
+        eval_cp=cp,
+        eval_mate=mate,
+        best_uci=None,
+        cls=None,
+    )
     d.update(kw)
     return d
 
@@ -208,10 +224,12 @@ def test_explain_facts_saved_only(monkeypatch):
     f1 = b.fen()
     b.push_san("e5")
     f2 = b.fen()
-    rec = _rec([
-        _mv(1, "e4", "e2e4", f1, cp=30),
-        _mv(2, "e5", "e7e5", f2, cp=400, best_uci="c7c5", pv_uci=["c7c5", "g1f3"]),
-    ])
+    rec = _rec(
+        [
+            _mv(1, "e4", "e2e4", f1, cp=30),
+            _mv(2, "e5", "e7e5", f2, cp=400, best_uci="c7c5", pv_uci=["c7c5", "g1f3"]),
+        ]
+    )
     f = review.explain_facts(rec, 2)
     assert f["cp_loss"] == 370 and f["cls"] == "blunder"
     assert f["best_uci"] == "c7c5" and f["best_san"] == "c5"
@@ -224,6 +242,7 @@ def test_analyse_board_short():
     fen = "4k3/8/2n5/8/3Q4/8/8/4K3 w - - 0 1"
     text, full = review.analyse_board(fen, Eval(-250))
     import re
+
     assert len(re.split(r"(?<=\.)\s+", text.strip())) <= 2 and len(text) < 300
     assert "queen" in text.lower() or "d4" in text
     assert full["eval"]["cp"] == -250
@@ -236,7 +255,17 @@ def test_key_moments_top3():
     moves = []
     losses = [0, 10, 500, 20, 120, 300]
     for i, ls in enumerate(losses):
-        moves.append(_mv(i + 1, "x", "a1a2", b.fen(), cp=0, cp_loss=ls, cls=review.classify_loss(ls)))
+        moves.append(
+            _mv(
+                i + 1,
+                "x",
+                "a1a2",
+                b.fen(),
+                cp=0,
+                cp_loss=ls,
+                cls=review.classify_loss(ls),
+            )
+        )
     km = review.key_moments(_rec(moves), 3)
     assert [m["ply"] for m in km] == [3, 6, 5]
     assert review.key_moments(_rec([]), 3) == []
@@ -248,11 +277,16 @@ def test_phrase_facts_never_invents():
     assert set(out["facts"]) <= set(facts["statements"])
     assert "d4" in out["text"]
     # honest rephrase accepted
-    out = review.phrase_facts(facts, llm=lambda st: "Careful, the queen on d4 hangs, and Bxf2 looms.")
+    out = review.phrase_facts(
+        facts, llm=lambda st: "Careful, the queen on d4 hangs, and Bxf2 looms."
+    )
     assert out["text"].startswith("Careful")
     # inventing a square/number rejected -> template
-    out = review.phrase_facts(facts, llm=lambda st: "Your queen on d4 hangs and the rook on h8 is lost in 3.")
+    out = review.phrase_facts(
+        facts, llm=lambda st: "Your queen on d4 hangs and the rook on h8 is lost in 3."
+    )
     assert "h8" not in out["text"] and set(out["facts"]) <= set(facts["statements"])
+
     # llm crash -> template
     def bad(st):
         raise RuntimeError

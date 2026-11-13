@@ -215,7 +215,9 @@ def test_chain_order_keeps_popular_qwen_late():
     assert chain[-1] == "openrouter/free"
     assert chain.index("qwen/qwen3.8-27b:free") == len(chain) - 2
     assert len(chain) == len(set(chain))
-    custom = openrouter_chat.model_chain("a", environ={"JARVIS_CHAT_FALLBACKS": "b, a ,c"})
+    custom = openrouter_chat.model_chain(
+        "a", environ={"JARVIS_CHAT_FALLBACKS": "b, a ,c"}
+    )
     assert custom == ["a", "b", "c"]
 
 

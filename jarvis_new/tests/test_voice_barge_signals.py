@@ -1,4 +1,5 @@
 """Model-authoritative mute/reply sequencing, no real account or devices."""
+
 import json
 
 from voice_barge_signals import TOPIC, BargeSync, ProviderEvents, decode, encode
@@ -10,12 +11,20 @@ def test_packets_validate_topic_and_payload():
     reply = provider.reply_created()
     assert decode(encode(user), TOPIC) == {"kind": "user_start", "user_seq": 1}
     assert decode(encode(reply), TOPIC) == {
-        "kind": "reply_start", "user_seq": 1, "reply_seq": 1
+        "kind": "reply_start",
+        "user_seq": 1,
+        "reply_seq": 1,
     }
     assert decode(encode(user), "unknown") is None
     assert decode(b"not json", TOPIC) is None
-    assert decode(json.dumps({"kind": "user_start", "user_seq": True}).encode(), TOPIC) is None
-    assert decode(encode({"kind": "reply_start", "user_seq": 1, "reply_seq": -1}), TOPIC) is None
+    assert (
+        decode(json.dumps({"kind": "user_start", "user_seq": True}).encode(), TOPIC)
+        is None
+    )
+    assert (
+        decode(encode({"kind": "reply_start", "user_seq": 1, "reply_seq": -1}), TOPIC)
+        is None
+    )
     assert decode(b"X" * 257, TOPIC) is None
 
 

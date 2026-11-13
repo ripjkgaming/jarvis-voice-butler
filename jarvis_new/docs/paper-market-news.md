@@ -1,0 +1,23 @@
+# Paper Market shared news contract
+
+The shared news database is `NewsStore(state_dir / "news.sqlite3")`. Construct one instance for the experiment and share it with all strategy runners. The store is independent of any portfolio ledger.
+
+## IRONSIGHT integration
+
+`IronSightAdapter` lives in `paper_market.ironsight`; `NewsRunner` re-exports it through `paper_market.news`. It reads `IRONSIGHT_NEWS_URL`, defaulting to `http://127.0.0.1:3000/api/news`. The local IRONSIGHT installation exposes `GET /api/news` as a JSON array of `{title, link, source, pubDate, category?}`. It needs no credentials and offers no event stream or cursor. Its README documents news RSS refresh every 90 seconds, so `NewsRunner` rejects faster polling. Override the URL to a local proxy only when needed. The route exposes headline metadata rather than full article bodies; `content` is the title unless a future adapter supplies a body.
+
+`await poll_once(store, adapter)` fetches a snapshot and ingests it. `NewsRunner.run()` starts independent asyncio tasks for ingestion and screening; up to 100 incoming reports therefore do not wait behind serial model screening. `runner.stop()` is safe to call from another thread and cancels in-flight screening, including the Codex worker process. The durable HUD status API is `runner.status` or `store.runner_status()`: it reports connection state, poll timestamps, last safe error code, latest report, useful/pending counts, active screening, and configured model/effort. Fetch and per-report screening durations (including failures) are durably recorded in `stage_latencies`; inspect them with `store.recent_latencies()`. Exception bodies, URLs, and headers are never copied into status or screening errors. Because the API has no cursor, a SHA-256 snapshot fingerprint is persisted as a restart checkpoint; every snapshot is replayed and database deduplication makes replay safe. Feed polling and screening retry happen in this runner, not the Always Aware loop.
+
+A report ID is its provider link when present, otherwise a stable hash of source and title. New content/metadata for an existing ID receives the next revision. Each revision stores `id`, `revision`, `content`, `source`, `published_at`, `received_at`, URL/category and content hash. Every revision gets one durable pending receipt for each portfolio (`codex`, `copy`, `bot`).
+
+## Screening and delivery API
+
+Provide `screen(report: NewsReport) -> Screening | dict` to `NewsRunner`; the default production helper is `await screen_with_codex(report)`. Each `NewsReport` passed to screening includes `prior_reports`, the recent useful reports and their screening results, as comparison context for updates and contradictions. It uses the authenticated no-tools Codex worker pinned to `gpt-6-luna`, low effort, and emits a strict structured result: `useful`, `affected` (stocks/sectors/market), factual `summary`, `reason`, `confidence` from 0 to 1, and `updates_or_contradicts`. Article text is untrusted evidence, never instructions. Model or validation failures set the screening state to `failed`, and `pending_screening()` includes failed records for retry. They never become irrelevant by default.
+
+`store.useful_pending(portfolio_id)` returns screened-useful reports whose receipt is still pending, including revision, evidence fields, portfolio receipt time, parsed screening result, and a unique `delivery_id` token in the form `<report-id>:<revision>`. After strategy code has incorporated those deliveries, call `store.acknowledge(portfolio_id, delivery_ids)` with those exact tokens, `(report_id, revision)` pairs, or `{id, revision}` mappings. Bare report IDs are rejected to prevent acknowledging a newer revision that arrived during inference. Acknowledgement is revision-specific and idempotent. Other portfolios retain their own receipt state. Irrelevant reports are automatically marked processed for all portfolios after a valid irrelevant classification.
+
+For custom offline/test screeners, return a `Screening` instance or a dict with exactly the schema keys above. `store.set_screening(report.id, report.revision, None, error)` retains failed work. `store.set_screening(..., Screening(...))` records the classification and screening timestamp.
+
+## Feed discovery result
+
+The IRONSIGHT source exists at `/home/ripjk/IRONSIGHT`; its source confirms the API route and RSS implementation. The endpoint initially did not answer during discovery. After IRONSIGHT was started, a direct local request returned HTTP 200 with a valid JSON array of 100 news items, so the live feed is currently usable. The source route can return up to 100 items. No credentials were present or required by the documented API.

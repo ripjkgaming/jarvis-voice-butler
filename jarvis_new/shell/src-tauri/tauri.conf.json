@@ -55,6 +55,18 @@
         "skipTaskbar": false
       },
       {
+        "label": "hologram",
+        "title": "Jarvis — Hologram",
+        "url": "hologram.html",
+        "width": 1280,
+        "height": 800,
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false
+      },
+      {
         "label": "drafts",
         "title": "Jarvis — Drafts",
         "url": "drafts.html",

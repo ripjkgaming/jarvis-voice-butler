@@ -456,5 +456,3 @@ def test_install_hooks_every_actual_audio_segment(monkeypatch):
     gate = approvals.install(session)
     assert audio.callbacks["playback_started"] == gate.playback_started
     assert session.callbacks["agent_state_changed"] == gate.agent_state
-
-

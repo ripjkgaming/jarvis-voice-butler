@@ -13,6 +13,7 @@ import mercury_decide
 @pytest.fixture(autouse=True)
 def isolated_decider(monkeypatch):
     monkeypatch.setenv("JARVIS_MERCURY", "1")
+    monkeypatch.setattr(mercury_decide, "FALLBACK_MODEL", "")
     monkeypatch.setattr(mercury_decide, "api_keys", lambda: ["first", "second"])
     monkeypatch.setattr(mercury_decide, "_rest_until", {})
     monkeypatch.setattr(mercury_decide, "_turn", itertools.count())
@@ -112,3 +113,21 @@ def test_invalid_timeout_fails_without_dispatch(timeout):
 def test_unserializable_state_is_fail_soft():
     answer, warning = mercury_decide.decide({"bad": object()}, {})
     assert answer is None and warning
+
+
+def test_model_fallback_shares_deadline(monkeypatch):
+    monkeypatch.setattr(mercury_decide, "FALLBACK_MODEL", "previous")
+    monkeypatch.setattr(mercury_decide, "api_keys", lambda: ["first"])
+    clock = [10.0]
+    monkeypatch.setattr(mercury_decide.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    def opener(req, timeout):
+        calls.append((json.loads(req.data)["model"], timeout))
+        if len(calls) == 1:
+            clock[0] += 2.0
+            raise urllib.error.HTTPError(req.full_url, 404, "x", {}, None)
+        return io.BytesIO(b'{"answers": {"ok": {"noul": 1}}}')
+
+    assert mercury_decide.decide("s", {}, timeout=3, opener=opener)[1] is None
+    assert calls == [(mercury_decide.MODEL, 3.0), ("previous", 1.0)]

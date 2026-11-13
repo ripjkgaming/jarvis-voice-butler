@@ -25,23 +25,9 @@ def _variant(cdir: Path, name: str, edit) -> None:
     (cdir / f"{name}.yaml").write_text(yaml.safe_dump(data))
 
 
-
-
-
-
 def test_skips_underscore_files(cdir):
     (cdir / "_junk.yaml").write_text("not: [valid")
     assert "_junk" not in C.load_all(cdir)
-
-
-
-
-
-
-
-
-
-
 
 
 def test_motion_validation(cdir):
@@ -73,8 +59,6 @@ def test_read_recent_missing(tmp_path, monkeypatch):
     assert C.read_recent() is None
 
 
-
-
 def test_public_dict_no_prompt():
     chars = C.load_all()
     d = C.public_dict(chars["jarvis"])
@@ -100,22 +84,20 @@ def _edit_motion(cdir: Path, edit) -> None:
     p.write_text(yaml.safe_dump(d))
 
 
-
-
-
-
 def test_layout_columns_must_sum_to_100(cdir):
-    _edit_motion(cdir, lambda d: d["layouts"]["hud_angular"].__setitem__("columns", [10, 50, 30]))
+    _edit_motion(
+        cdir, lambda d: d["layouts"]["hud_angular"].__setitem__("columns", [10, 50, 30])
+    )
     with pytest.raises(C.CharacterError, match="hud_angular.columns"):
         C.load_all(cdir)
 
 
 def test_layout_reactor_scale_bounds(cdir):
-    _edit_motion(cdir, lambda d: d["layouts"]["hud_glass"].__setitem__("reactor_scale", 3))
+    _edit_motion(
+        cdir, lambda d: d["layouts"]["hud_glass"].__setitem__("reactor_scale", 3)
+    )
     with pytest.raises(C.CharacterError, match="reactor_scale"):
         C.load_all(cdir)
-
-
 
 
 def test_glow_budget_cap(cdir):

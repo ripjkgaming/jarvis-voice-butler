@@ -11,7 +11,7 @@ import mercury_decide
 ROUTES = {
     "direct": "Jarvis handles conversation, short explanations, quick facts, arithmetic, or existing local tools (volume, apps, calendar, messages). Quick current facts use Jarvis's search tool. Questions ABOUT Claude/ChatGPT are not requests to use them. Explicit 'answer yourself / do not delegate' also stays here.",
     "backend": "The owner asks to send work to Claude, ChatGPT or a backend, or requests careful multi-step reasoning, a detailed plan, a long rewrite, or a substantial analysis that benefits from a background reasoning model. This is a text-only reasoning/drafting job, not code execution or live web research.",
-    "research": "Explicit in-depth research, deep dive, thorough sourced comparison, or a research report requiring web sources. Existing research_project tool handles this. Not quick searches or quick facts.",
+    "research": "Explicit in-depth research, deep dive, thorough sourced comparison, or a research report requiring web sources. Existing research_project tool handles this. Not quick searches or quick facts, and NOT 'pull up / open / show / find all you have on X' or papers/PDFs/reports to look at on screen (those open documents via research_pdfs).",
     "code": "An explicit request to write, build, fix or refactor code or a script in a project. Existing code_project/Assigner handles this. Explaining what a programming concept means can stay direct.",
 }
 PROVIDERS = {
@@ -26,6 +26,13 @@ _EXPLICIT = re.compile(
 _DIRECT = re.compile(
     r"^(?:please\s+)?(?:answer (?:it )?yourself\b|"
     r"(?:do not|don't|don\u2019t) (?:delegate\b|ask (?:claude|chatgpt)\b))",
+    re.I,
+)
+# 3D model edit / viewer phrases stay direct: edit_3d_object / view_3d handle them locally.
+_DIRECT_3D = re.compile(
+    r"^(?:please\s+)?(?:(?:show|hide|close|dismiss|open|spin|rotate|stop|pause|zoom|explode|assemble|scan|rebuild)\b.*\b(?:3d|model|viewer|hologram)\b"
+    r"|(?:turn|switch)\b.*\b(?:on|off)\b.*\b(?:lights?|lamp|bulb|headlights?|fan|hologram)\b"
+    r"|(?:undo|redo)\b.*\b(?:edit|change|model)\b|make (?:it|the model) (?:taller|bigger|smaller|wider))",
     re.I,
 )
 
@@ -68,7 +75,7 @@ def decide(request: str, *, default_route="direct") -> dict:
     }
     if not text or len(text) > 20000:
         return {**fallback, "route": "direct", "reason": "empty-or-oversized"}
-    if _DIRECT.match(text):
+    if _DIRECT.match(text) or _DIRECT_3D.match(text):
         return {**fallback, "route": "direct", "source": "explicit"}
     explicit = _EXPLICIT.match(text)
     provider = explicit.group(2).lower() if explicit else "auto"
@@ -116,3 +123,40 @@ def decide(request: str, *, default_route="direct") -> dict:
         }
     except Exception:
         return {**fallback, "reason": "unavailable"}
+
+
+def automatic(request: str, *, intent_confidence: float, actionable: bool) -> dict:
+    """Gate a model-estimated routing check; never classifies every utterance.
+
+    The confidence is the conversation model's intent estimate, not a measured
+    or calibrated probability. Keep the decision model's own 0.8 acceptance
+    threshold separate from this inclusive 0.5 activation threshold.
+    """
+    reason = None
+    if actionable is not True:
+        reason = "conversation"
+    elif (
+        isinstance(intent_confidence, bool)
+        or not isinstance(intent_confidence, (int, float))
+        or not math.isfinite(intent_confidence)
+        or not 0 <= intent_confidence <= 1
+    ):
+        reason = "invalid-confidence"
+    elif intent_confidence > 0.5:
+        reason = "confident"
+    elif not enabled():
+        reason = "disabled"
+    if reason:
+        return {
+            "route": "direct",
+            "provider": "auto",
+            "allow_fallback": True,
+            "source": "skipped",
+            "reason": reason,
+            "routing_skipped": True,
+        }
+    return {
+        **decide(request),
+        "routing_skipped": False,
+        "intent_confidence": intent_confidence,
+    }

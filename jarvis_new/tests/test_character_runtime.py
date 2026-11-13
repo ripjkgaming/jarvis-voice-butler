@@ -25,20 +25,6 @@ def test_boot_jarvis_despite_hint(tmp_path):
     assert cr.get_runtime() is cr.get_runtime()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_buffer_passthrough():
     rt = cr.get_runtime()
     rt.buffer_input("x")

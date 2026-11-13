@@ -14,7 +14,9 @@ import uuid
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parent
-SELF_WORDS = re.compile(r"\b(jarvis|yourself|your own|restart|reboot yourself|your code)\b", re.I)
+SELF_WORDS = re.compile(
+    r"\b(jarvis|yourself|your own|restart|reboot yourself|your code)\b", re.I
+)
 
 
 _HARD = re.compile(
@@ -31,7 +33,10 @@ _TRIVIAL = re.compile(
     r"single[- ]file|one file|typo|add a comment)\b",
     re.IGNORECASE,
 )
-_MULTI = re.compile(r"\b(modules|packages?|tests? for each|several|multiple|\d+ (?:files|modules))\b", re.I)
+_MULTI = re.compile(
+    r"\b(modules|packages?|tests? for each|several|multiple|\d+ (?:files|modules))\b",
+    re.I,
+)
 HAIKU = "claude-haiku-5-5"
 SONNET = "claude-sonnet-5-5"
 
@@ -105,10 +110,21 @@ def _spawn(spec_path: Path, unit: str) -> None:
     argv = [sys.executable, str(SRC / "claude_code_runner.py"), str(spec_path)]
     if _has_systemd_run():
         # Own transient unit (measured ~10 ms): survives a restart of Jarvis.
-        argv = ["systemd-run", "--user", "--collect", "--quiet",
-                f"--unit={unit}", *argv]
-    subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        argv = [
+            "systemd-run",
+            "--user",
+            "--collect",
+            "--quiet",
+            f"--unit={unit}",
+            *argv,
+        ]
+    subprocess.Popen(
+        argv,
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _read(path: Path) -> dict:
@@ -134,14 +150,19 @@ def list_jobs(limit: int = 10) -> list[dict]:
             created = spec_path.stat().st_mtime
         except OSError:
             continue
-        rows.append((float(st.get("ts") or created), {
-            "id": jid,
-            "task": str(st.get("task") or spec.get("task") or "")[:120],
-            "cwd": st.get("cwd") or spec.get("cwd") or "",
-            "state": st.get("state") or "unknown",
-            "summary": st.get("summary") or st.get("error") or "",
-            "finished_at": st.get("finished_at"),
-        }))
+        rows.append(
+            (
+                float(st.get("ts") or created),
+                {
+                    "id": jid,
+                    "task": str(st.get("task") or spec.get("task") or "")[:120],
+                    "cwd": st.get("cwd") or spec.get("cwd") or "",
+                    "state": st.get("state") or "unknown",
+                    "summary": st.get("summary") or st.get("error") or "",
+                    "finished_at": st.get("finished_at"),
+                },
+            )
+        )
     rows.sort(key=lambda r: r[0], reverse=True)
     return [r for _, r in rows[: max(1, int(limit))]]
 
@@ -168,11 +189,17 @@ def followup(job_id: str, text: str) -> dict:
         st = _read(d / f"{job_id}.status.json")
         if not spec:
             return {"ok": False, "error": f"No coding job {job_id}."}
-        if st.get("state") in ("running", "queued") and time.time() - float(st.get("ts") or 0) < 600:
+        if (
+            st.get("state") in ("running", "queued")
+            and time.time() - float(st.get("ts") or 0) < 600
+        ):
             return {"ok": False, "error": "That job is still running."}
         sid = st.get("session_id")
         if not sid:
-            return {"ok": False, "error": "That job has no saved conversation to continue."}
+            return {
+                "ok": False,
+                "error": "That job has no saved conversation to continue.",
+            }
         run = int(st.get("run") or 1) + 1
         rspec = {
             "id": job_id,

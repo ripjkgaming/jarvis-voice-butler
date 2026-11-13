@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import time
 from collections import OrderedDict
 from typing import Any, Protocol
@@ -34,6 +35,36 @@ from .speech_handle import SpeechHandle
 from .tools import RunContext
 
 log = logging.getLogger("jarvis_rt.session")
+
+
+def _stuck_turn_s() -> float:
+    try:
+        return float(os.environ.get("JARVIS_STUCK_TURN_S", "").strip() or 30.0)
+    except ValueError:
+        return 30.0
+
+
+#: A turn sitting in "thinking"/"speaking" with no tool running and no backend
+#: event for this long is wedged (a reply the model never sends, a speech
+#: handle nobody finishes). The watchdog resets the turn and asks the backend
+#: for a fresh connection. JARVIS_STUCK_TURN_S=0 disables it.
+STUCK_TURN_S = _stuck_turn_s()
+STUCK_CHECK_S = 2.0
+#: Longest one close step (agent on_exit, backend, room) may hold aclose.
+CLOSE_STEP_TIMEOUT_S = 10.0
+
+
+async def _bounded(aw: Any, timeout: float, what: str) -> None:
+    """Await ``aw`` for at most ``timeout`` s, abandoning it if it hangs or
+    ignores cancellation (asyncio.wait_for would wait for it to unwind)."""
+    task = asyncio.ensure_future(aw)
+    done, _ = await asyncio.wait({task}, timeout=timeout)
+    if task not in done:
+        task.cancel()
+        log.warning("%s did not finish in %.0fs; abandoned", what, timeout)
+        return
+    if not task.cancelled():
+        task.exception()
 
 
 class Backend(Protocol):
@@ -162,6 +193,11 @@ class AgentSession(EventEmitter):
         self._input_receipts: OrderedDict[str, str] = OrderedDict()
         self._input_partial = ""
         self._tool_receipts: OrderedDict[str, None] = OrderedDict()
+        # Stuck-turn watchdog (see STUCK_TURN_S).
+        self.stuck_turn_s = STUCK_TURN_S
+        self._last_activity = time.monotonic()
+        self._tools_inflight = 0
+        self._stuck_timer: asyncio.TimerHandle | None = None
 
     # ---- read-only state -------------------------------------------------
     @property
@@ -205,6 +241,7 @@ class AgentSession(EventEmitter):
             await self.backend.start(self, agent)
         self._set_agent_state("listening")
         self._arm_away()
+        self._arm_stuck_watch()
         await agent.on_enter()
 
     async def aclose(self, reason: CloseReason = CloseReason.USER_INITIATED) -> None:
@@ -212,20 +249,29 @@ class AgentSession(EventEmitter):
             return
         self._cancel_playout_timer()
         self._closed = True
+        if self._stuck_timer is not None:
+            self._stuck_timer.cancel()
+            self._stuck_timer = None
         if self._away_task:
             self._away_task.cancel()
         for t in list(self._tool_tasks):
             t.cancel()
+        # Each step is bounded: a hung on_exit or socket close must not keep
+        # a finished call open (and its HUD "live") forever.
         agent = self._agent
         if agent is not None:
             with contextlib.suppress(Exception):
-                await agent.on_exit()
+                await _bounded(agent.on_exit(), CLOSE_STEP_TIMEOUT_S, "agent on_exit")
         if self.backend is not None:
             with contextlib.suppress(Exception):
-                await self.backend.aclose()
+                await _bounded(
+                    self.backend.aclose(), CLOSE_STEP_TIMEOUT_S, "backend close"
+                )
         if self._room_io is not None:
             with contextlib.suppress(Exception):
-                await self._room_io.aclose()
+                await _bounded(
+                    self._room_io.aclose(), CLOSE_STEP_TIMEOUT_S, "room close"
+                )
         self.emit("close", CloseEvent(reason=reason))
 
     def _spawn(self, coro: Any) -> asyncio.Task:
@@ -251,6 +297,7 @@ class AgentSession(EventEmitter):
     def _set_agent_state(self, new: str) -> None:
         old, self._agent_state = self._agent_state, new
         if old != new:
+            self._last_activity = time.monotonic()
             self.emit(
                 "agent_state_changed",
                 AgentStateChangedEvent(old_state=old, new_state=new),
@@ -272,6 +319,67 @@ class AgentSession(EventEmitter):
                 self._set_user_state("away")
 
         self._away_task = loop.create_task(_away())
+
+    # ---- stuck-turn watchdog ---------------------------------------------
+    def _arm_stuck_watch(self) -> None:
+        if self._closed or not self.stuck_turn_s or self.stuck_turn_s <= 0:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._stuck_timer is not None:
+            self._stuck_timer.cancel()
+        self._stuck_timer = loop.call_later(
+            min(STUCK_CHECK_S, self.stuck_turn_s / 2), self._check_stuck
+        )
+
+    def _stuck_idle(self) -> float | None:
+        """Seconds the current turn has been wedged, or None if it is not."""
+        if self._agent_state not in ("thinking", "speaking") or self._tools_inflight:
+            return None
+        now = time.monotonic()
+        if self._playout_until > now:
+            return None  # queued speech is still playing
+        idle = now - max(self._last_activity, self._playout_until)
+        return idle if idle >= self.stuck_turn_s else None
+
+    def _check_stuck(self) -> None:
+        self._stuck_timer = None
+        if self._closed:
+            return
+        try:
+            idle = self._stuck_idle()
+            if idle is not None:
+                self._recover_stuck(idle)
+        except Exception:
+            log.exception("stuck-turn watchdog failed")
+        self._arm_stuck_watch()
+
+    def _recover_stuck(self, idle: float) -> None:
+        state = self._agent_state
+        speech = self._speech
+        log.warning(
+            "turn stuck in %r for %.0fs with no model activity "
+            "(speech_done=%s); resetting turn and reconnecting the model",
+            state,
+            idle,
+            None if speech is None else speech.done(),
+        )
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("stuck-turn", f"{state} {idle:.0f}s, reset")
+        self._last_activity = time.monotonic()
+        self._finish_turn(interrupted=True)
+        self._set_user_state("listening")
+        self._set_agent_state("listening")
+        recover = getattr(self.backend, "recover", None)
+        if callable(recover):
+            try:
+                recover(f"turn stuck in {state} for {idle:.0f}s")
+            except Exception:
+                log.exception("backend recovery failed")
 
     def _add_item(self, item: Any) -> None:
         self._history.items.append(item)
@@ -354,6 +462,11 @@ class AgentSession(EventEmitter):
         )
         self._set_agent_state("thinking")
 
+    def fade_next_flush(self, ms: int) -> None:
+        """The next interrupt fades the speaker out over ``ms`` instead of cutting."""
+        if self._room_io is not None:
+            self._room_io.request_fade(ms)
+
     def interrupt(self, *, force: bool = False) -> asyncio.Future:
         speech = self._speech
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
@@ -429,6 +542,7 @@ class AgentSession(EventEmitter):
 
     # ---- backend -> session ---------------------------------------------
     def backend_event(self, kind: str, **data: Any) -> None:
+        self._last_activity = time.monotonic()
         handler = getattr(self, f"_on_{kind}", None)
         if handler is None:
             log.debug("ignoring backend event %s", kind)
@@ -523,8 +637,8 @@ class AgentSession(EventEmitter):
         if self.output.audio_enabled and self.output.audio is not None:
             self.output.audio(pcm24k)
             now = time.monotonic()
-            self._playout_until = (
-                max(self._playout_until, now) + len(pcm24k) / (24_000 * 2)
+            self._playout_until = max(self._playout_until, now) + len(pcm24k) / (
+                24_000 * 2
             )
 
     def _release_text(self, upto: int) -> None:
@@ -558,10 +672,13 @@ class AgentSession(EventEmitter):
             self._hold_turn = True
             return
         self._release_text(len(text))
-        budget = int(
-            (len(text.strip()) / self.STREAM_CHARS_PER_S + self.STREAM_LEAD_S)
-            * 24_000
-        ) * 2
+        budget = (
+            int(
+                (len(text.strip()) / self.STREAM_CHARS_PER_S + self.STREAM_LEAD_S)
+                * 24_000
+            )
+            * 2
+        )
         while self._validated_audio:
             room = budget - self._released_audio_bytes
             if room <= 0:
@@ -696,6 +813,14 @@ class AgentSession(EventEmitter):
         return tools
 
     async def _run_tools(self, calls: list[FunctionCall]) -> None:
+        self._tools_inflight += 1
+        try:
+            await self._run_tools_inner(calls)
+        finally:
+            self._tools_inflight -= 1
+            self._last_activity = time.monotonic()
+
+    async def _run_tools_inner(self, calls: list[FunctionCall]) -> None:
         agent = self._agent
         if agent is None:
             return

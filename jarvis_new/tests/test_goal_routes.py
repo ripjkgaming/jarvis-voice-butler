@@ -18,11 +18,19 @@ def _route(text):
         ("What's my current email?", "gmail_inbox", {"n": 5, "unread_only": False}),
         ("Hey Jarvis, any new emails?", "gmail_inbox", {"n": 5, "unread_only": True}),
         ("check my inbox", "gmail_inbox", {"n": 5, "unread_only": False}),
-        ("could you have a look at my mail for me", "gmail_inbox", {"n": 5, "unread_only": False}),
+        (
+            "could you have a look at my mail for me",
+            "gmail_inbox",
+            {"n": 5, "unread_only": False},
+        ),
         ("read my latest email", "gmail_read", {"ref": "latest"}),
         ("When is my next exam?", "exam_times", {"when": "next"}),
         ("what exams do I have tomorrow", "exam_times", {"when": "tomorrow"}),
-        ("when's my physics paper", "exam_schedule", {"action": "find", "subject": "physics"}),
+        (
+            "when's my physics paper",
+            "exam_schedule",
+            {"action": "find", "subject": "physics"},
+        ),
         ("what's on my calendar today", "calendar_upcoming", {"days": 1}),
         ("is it going to rain today", "weather_now", {}),
         ("what's the weather like", "weather_now", {}),
@@ -64,7 +72,9 @@ async def test_execute_runs_on_the_owner_that_has_the_tool() -> None:
     class Other:
         pass
 
-    ok, say = await goals.execute([Other(), Inbox()], "gmail_inbox", {"n": 3, "unread_only": True})
+    ok, say = await goals.execute(
+        [Other(), Inbox()], "gmail_inbox", {"n": 3, "unread_only": True}
+    )
     assert ok and say == "Latest mail: 3 True"
     ok, say = await goals.execute([Other()], "gmail_inbox", {})
     assert not ok

@@ -187,3 +187,30 @@ async def test_existing_offline_client_refuses_before_chat_access(monkeypatch, r
             await DailyTools.whatsapp_read(
                 DailyTools(), None, chat="Offline test target"
             )
+
+
+def test_ensure_page_reloads_blank_whatsie(monkeypatch):
+    from system import whatsapp as wa
+
+    blank = [{"type": "page", "url": "about:blank", "webSocketDebuggerUrl": "ws://x"}]
+    state = {"loaded": False, "nav": 0}
+
+    monkeypatch.setattr(wa, "_targets", lambda: blank)
+    monkeypatch.setattr(wa, "alive", lambda: True)
+    monkeypatch.setattr(wa, "page_present", lambda targets=None: state["loaded"])
+
+    async def fake_nav(ws):
+        state["nav"] += 1
+        state["loaded"] = True
+
+    monkeypatch.setattr(wa, "_navigate", fake_nav)
+    assert wa.ensure_page(wait_s=2) is True
+    assert state["nav"] == 1
+
+
+def test_ensure_page_noop_when_dead(monkeypatch):
+    from system import whatsapp as wa
+
+    monkeypatch.setattr(wa, "_targets", lambda: [])
+    monkeypatch.setattr(wa, "alive", lambda: False)
+    assert wa.ensure_page(wait_s=1) is False

@@ -16,13 +16,25 @@ class FakePactl:
     def __call__(self, args):
         self.calls.append(args)
         if args[1:4] == ["-f", "json", "list"]:
-            return json.dumps([
-                {"index": i, "mute": x.get("mute", False),
-                 "volume": {f"c{k}": {"value": v} for k, v in enumerate(x["vols"])},
-                 "properties": {"application.name": x["app"],
-                                "application.process.binary": x.get("bin", x["app"].lower()),
-                                "application.process.id": str(x.get("pid", i))}}
-                for i, x in self.s.items()])
+            return json.dumps(
+                [
+                    {
+                        "index": i,
+                        "mute": x.get("mute", False),
+                        "volume": {
+                            f"c{k}": {"value": v} for k, v in enumerate(x["vols"])
+                        },
+                        "properties": {
+                            "application.name": x["app"],
+                            "application.process.binary": x.get(
+                                "bin", x["app"].lower()
+                            ),
+                            "application.process.id": str(x.get("pid", i)),
+                        },
+                    }
+                    for i, x in self.s.items()
+                ]
+            )
         if args[1] == "set-sink-input-volume":
             i = int(args[2])
             if i in self.s:
@@ -44,7 +56,12 @@ def streams():
         {"index": 1, "app": "Brave", "vols": [65536, 65536]},
         {"index": 2, "app": "Spotify", "vols": [30000, 32000]},
         {"index": 3, "app": "paplay", "vols": [65536, 65536]},
-        {"index": 4, "app": "ALSA plug-in [python3.11]", "bin": "python3.11", "vols": [65536, 65536]},
+        {
+            "index": 4,
+            "app": "ALSA plug-in [python3.11]",
+            "bin": "python3.11",
+            "vols": [65536, 65536],
+        },
         {"index": 5, "app": "Muted", "vols": [65536, 65536], "mute": True},
     ]
 
@@ -70,7 +87,8 @@ def test_duck_only_non_jarvis_and_exact_restore(tmp_path):
 
 def test_refcount_overlap_and_tail(tmp_path):
     f, d = mk(tmp_path, streams(), tail=0.3)
-    d.duck(); d.duck()
+    d.duck()
+    d.duck()
     time.sleep(0.15)
     d.unduck()
     time.sleep(0.5)
@@ -146,15 +164,23 @@ def test_disabled_env(tmp_path, monkeypatch):
 def test_level_env_and_text_parser(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_DUCK_LEVEL", "0.5")
     f, d = mk(tmp_path, [{"index": 1, "app": "Brave", "vols": [60000, 60000]}])
-    d.duck(); time.sleep(0.15)
+    d.duck()
+    time.sleep(0.15)
     assert f.vols(1) == [30000, 30000]
     d.release_all()
-    txt = ('Sink Input #7\n\tMute: no\n\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 32768 / 50% / -18 dB\n'
-           '\tProperties:\n\t\tapplication.name = "Brave"\n\t\tapplication.process.id = "88"\n')
+    txt = (
+        "Sink Input #7\n\tMute: no\n\tVolume: front-left: 65536 / 100% / 0.00 dB,   front-right: 32768 / 50% / -18 dB\n"
+        '\tProperties:\n\t\tapplication.name = "Brave"\n\t\tapplication.process.id = "88"\n'
+    )
     s = audio_duck.parse_streams(txt)
-    assert s[0]["index"] == 7 and s[0]["vols"] == [65536, 32768] and s[0]["app"] == "Brave"
+    assert (
+        s[0]["index"] == 7 and s[0]["vols"] == [65536, 32768] and s[0]["app"] == "Brave"
+    )
 
 
 def test_never_raises(tmp_path):
     d = Ducker(runner=lambda a: 1 / 0, tail=0.01, ledger=tmp_path / "x.json")
-    d.duck(); d.unduck(); time.sleep(0.1); d.release_all()
+    d.duck()
+    d.unduck()
+    time.sleep(0.1)
+    d.release_all()

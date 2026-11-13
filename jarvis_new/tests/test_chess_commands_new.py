@@ -83,7 +83,12 @@ TABLE = {
         "resume series",
         "continue series",
     ],
-    "series_cancel": ["cancel the series", "stop the series", "end the series", "cancel series"],
+    "series_cancel": [
+        "cancel the series",
+        "stop the series",
+        "end the series",
+        "cancel series",
+    ],
     "series_resume_offer": [
         "resume the old series",
         "continue the last series",
@@ -106,7 +111,13 @@ TABLE = {
         "open the last game",
         "open game latest",
     ],
-    "review_goto": ["go to move 14", "go to move fourteen", "jump to move 9", "go two move 14", "go too move 14"],
+    "review_goto": [
+        "go to move 14",
+        "go to move fourteen",
+        "jump to move 9",
+        "go two move 14",
+        "go too move 14",
+    ],
     "hist_branch": [
         "rewind to move 14 and continue from here",
         "rewind to move fourteen and continue from here",
@@ -135,9 +146,7 @@ TABLE = {
 }
 
 
-@pytest.mark.parametrize(
-    "intent,text", [(i, t) for i, ts in TABLE.items() for t in ts]
-)
+@pytest.mark.parametrize("intent,text", [(i, t) for i, ts in TABLE.items() for t in ts])
 def test_phrase_maps_to_intent(intent, text):
     assert name(text) == intent, text
 
@@ -168,8 +177,15 @@ def test_series_counts(text, n):
 
 @pytest.mark.parametrize(
     "text",
-    ["play 101 games", "play a hundred and one games", "play one hundred and one games",
-     "play 0 games", "play zero games", "play 1000 games", "play fifty hundred games"],
+    [
+        "play 101 games",
+        "play a hundred and one games",
+        "play one hundred and one games",
+        "play 0 games",
+        "play zero games",
+        "play 1000 games",
+        "play fifty hundred games",
+    ],
 )
 def test_series_count_out_of_range_rejected(text):
     h = cls(text)
@@ -221,7 +237,14 @@ def _boards():
     yield chess.Board()
 
 
-NEW_PHRASES = sorted({t for i, ts in TABLE.items() if i not in ("undo", "takeover", "handback", "explain") for t in ts})
+NEW_PHRASES = sorted(
+    {
+        t
+        for i, ts in TABLE.items()
+        if i not in ("undo", "takeover", "handback", "explain")
+        for t in ts
+    }
+)
 
 
 @pytest.mark.parametrize("text", NEW_PHRASES)
@@ -232,9 +255,23 @@ def test_new_phrases_never_parse_as_moves(text):
         assert not (pr.kind == "ambiguous" and pr.confidence >= 0.5), (text, pr)
 
 
-MOVE_TEXTS = ["night f three", "e four", "knight to f three", "go e five", "pawn to e four",
-              "bishop takes c six", "queen to d eight", "rook a one", "age four", "h three",
-              "castle kingside", "night takes e five", "e eight queen", "b to b four", "to e four"]
+MOVE_TEXTS = [
+    "night f three",
+    "e four",
+    "knight to f three",
+    "go e five",
+    "pawn to e four",
+    "bishop takes c six",
+    "queen to d eight",
+    "rook a one",
+    "age four",
+    "h three",
+    "castle kingside",
+    "night takes e five",
+    "e eight queen",
+    "b to b four",
+    "to e four",
+]
 
 
 @pytest.mark.parametrize("text", MOVE_TEXTS)
@@ -272,9 +309,17 @@ def test_previous_catalogue_unchanged():
 
 @pytest.mark.parametrize(
     "text,intent",
-    [("what's the score", "analyse"), ("score", "analyse"), ("step back", "ctl_prev"),
-     ("step forward", "ctl_next"), ("play chess", "start"), ("play a game", "start"),
-     ("take over", "takeover"), ("go to move 3", "review_goto"), ("analyse", "analyse")],
+    [
+        ("what's the score", "analyse"),
+        ("score", "analyse"),
+        ("step back", "ctl_prev"),
+        ("step forward", "ctl_next"),
+        ("play chess", "start"),
+        ("play a game", "start"),
+        ("take over", "takeover"),
+        ("go to move 3", "review_goto"),
+        ("analyse", "analyse"),
+    ],
 )
 def test_old_behaviour_kept(text, intent):
     assert name(text) == intent
@@ -346,7 +391,12 @@ async def test_series_flow(game):
 
 
 async def test_series_commands_without_series(game):
-    for t in ("how many games left", "pause the series", "cancel the series", "series level 3"):
+    for t in (
+        "how many games left",
+        "pause the series",
+        "cancel the series",
+        "series level 3",
+    ):
         r = await say(game, t)
         assert r is not None and not r.ok
 
@@ -362,7 +412,9 @@ async def test_list_and_open_and_step(game):
         m = chess.Move.from_uci(u)
         san = b.san(m)
         b.push(m)
-        game.store.append_move(rec, {"ply": i, "san": san, "uci": u, "fen_after": b.fen()})
+        game.store.append_move(
+            rec, {"ply": i, "san": san, "uci": u, "fen_after": b.fen()}
+        )
     game.store.finish(rec, "1-0", "resign")
     r = await say(game, "list games")
     assert r.ok and "one game" in r.say
@@ -387,7 +439,9 @@ async def test_branch_does_not_touch_original(game):
         m = chess.Move.from_uci(u)
         san = b.san(m)
         b.push(m)
-        game.store.append_move(rec, {"ply": i, "san": san, "uci": u, "fen_after": b.fen()})
+        game.store.append_move(
+            rec, {"ply": i, "san": san, "uci": u, "fen_after": b.fen()}
+        )
     game.store.finish(rec, "*", "abandoned")
     await say(game, "open game 1")
     r = await say(game, "rewind to move 1 and continue from here")
@@ -398,7 +452,9 @@ async def test_branch_does_not_touch_original(game):
 
 async def test_missing_modules_tolerated(game, monkeypatch):
     real = isx._mod
-    monkeypatch.setattr(isx, "_mod", lambda n: None if n in ("series", "history") else real(n))
+    monkeypatch.setattr(
+        isx, "_mod", lambda n: None if n in ("series", "history") else real(n)
+    )
     for t in ("play three games", "open game 1"):
         r = await say(game, t)
         assert not r.ok and "not available yet" in r.say.lower()
@@ -407,7 +463,12 @@ async def test_missing_modules_tolerated(game, monkeypatch):
 async def test_handlers_are_fast(game):
     import time
 
-    for t in ("play three games", "how many games left", "list games", "pause the series"):
+    for t in (
+        "play three games",
+        "how many games left",
+        "list games",
+        "pause the series",
+    ):
         t0 = time.perf_counter()
         await say(game, t)
         assert time.perf_counter() - t0 < 0.05
@@ -420,12 +481,17 @@ async def test_end_to_end_through_handle_text(tmp_path):
 
     g = ChessGame(
         ChessSettings(announce_moves=False, difficulty="novice", colour="white"),
-        engine=MiniEngine(7), save_dir=tmp_path, autosave=False, step_delay=0.0,
+        engine=MiniEngine(7),
+        save_dir=tmp_path,
+        autosave=False,
+        step_delay=0.0,
     )
     g.listening = True
     g.store = GameStore(tmp_path / "s")
     await g.new_game()
-    assert (await g.handle_text("how many games left")).say.startswith("There's no series")
+    assert (await g.handle_text("how many games left")).say.startswith(
+        "There's no series"
+    )
     r = await g.handle_text("play three games")
     assert r.kind == "series" and g.series.state.total == 3
     r = await g.handle_text("what's the score")

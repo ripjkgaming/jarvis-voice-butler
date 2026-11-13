@@ -1,4 +1,8 @@
 import asyncio
+import contextlib
+import importlib
+import json
+import sys
 
 import pytest
 
@@ -157,7 +161,7 @@ def test_wake_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_WAKE_THRESHOLD", "0.8")
     assert wake_threshold() == 0.8
     monkeypatch.setenv("JARVIS_WAKE_THRESHOLD", "nonsense")
-    assert wake_threshold() == 0.5
+    assert wake_threshold() == 0.35
 
 
 def test_wake_client_needs_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -625,3 +629,34 @@ async def test_summon_stays_out_when_check_finds_a_call(
     hub = FakeHub.last
     assert hub.events == ["connect", "disconnect"]
     assert hub.mic == [], "no microphone frames reach a call that was not joined"
+
+
+def test_double_clap_hook_only_writes_the_wake_request(tmp_path, monkeypatch) -> None:
+    """wake_client has no dbus: the clap hook touches wake_request and never wakes here."""
+    from wake_client import WakeClient
+
+    home = tmp_path / "jhome"
+    monkeypatch.setenv("JARVIS_HOME", str(home))
+    sleeper = importlib.import_module("sleep_controller")
+    sleeper._write_state("asleep", 1.0, home)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("the wake must not run in the wake_client process")
+
+    modules = [sleeper]
+    with contextlib.suppress(ImportError):
+        modules.append(importlib.import_module("src.sleep_controller"))
+    for mod in modules:
+        for attr in (
+            "request_wake",
+            "_wake_now",
+            "_call_sleep_ctl",
+            "_spawn_screensaver",
+        ):
+            monkeypatch.setattr(mod, attr, boom)
+    monkeypatch.setitem(sys.modules, "dbus", None)  # .venv-wake: no dbus
+
+    WakeClient.__new__(WakeClient)._on_double_clap(None)
+
+    assert (home / "wake_request").exists()
+    assert json.loads((home / "sleep_state.json").read_text())["state"] == "asleep"

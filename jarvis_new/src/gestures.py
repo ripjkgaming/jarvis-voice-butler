@@ -9,6 +9,9 @@ Default mapping (overridable via $JARVIS_HOME/gestures.json):
 - Thumb_Up    -> "confirm" event (logged)
 - Victory     -> summon a talk call (over wake.sock)
 - Closed_Fist -> stop gesture mode (2 s hold)
+- Two-finger pose (index+middle up, ring+pinky curled) -> HOLD-TO-MUTE:
+  mic mutes while the pose is held, unmutes when it is dropped. Level
+  triggered, not debounced/toggled; overrides Victory.
 
 Recognised actions are logged via system.log_action; nothing else.
 Fail-soft throughout: no camera, no model, no wake listener — no crash.
@@ -41,6 +44,12 @@ DEFAULT_MAPPING = {
     "Victory": "talk",
     "Closed_Fist": "stop",
 }
+
+#: Pseudo-gesture name for the hold-to-mute pose (landmark geometry).
+MUTE_POSE = "Mute_Hold"
+#: Pose must be seen this long before muting / absent this long before unmuting.
+MUTE_ON_S = 0.25
+MUTE_OFF_S = 0.6
 
 ACTIONS = frozenset({"mic_toggle", "confirm", "talk", "stop"})
 
@@ -157,6 +166,32 @@ def make_recognizer(model_path: str | None = None):
         return None
 
 
+def _d(a, b) -> float:
+    return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2) ** 0.5
+
+
+def is_mute_pose(landmarks) -> bool:
+    """Index+middle extended, ring+pinky curled (thumb ignored). Pure.
+
+    Rotation-invariant: a finger is extended when its tip is clearly
+    farther from the wrist than its PIP joint, curled when not.
+    """
+    try:
+        wrist = landmarks[0]
+
+        def ext(tip: int, pip: int) -> float:
+            return _d(wrist, landmarks[tip]) / max(_d(wrist, landmarks[pip]), 1e-6)
+
+        return (
+            ext(8, 6) > 1.15
+            and ext(12, 10) > 1.15
+            and ext(16, 14) < 1.0
+            and ext(20, 18) < 1.0
+        )
+    except (AttributeError, TypeError, IndexError):
+        return False
+
+
 def top_gesture(result) -> str | None:
     """Best canned-gesture name, or None when no hand seen. Pure-ish."""
     try:
@@ -169,21 +204,36 @@ def top_gesture(result) -> str | None:
         return None
 
 
-def recognize_frame(frame, recognizer) -> str | None:
-    """One BGR frame -> top gesture name. Fail-soft."""
+def recognize_hand(frame, recognizer, max_w: int = 0) -> tuple[str | None, bool]:
+    """One BGR frame -> (gesture name or MUTE_POSE, hand seen). Fail-soft.
+
+    `max_w` > 0 downscales wide frames first (inference cost ~ pixels).
+    """
     try:
         import cv2
         import mediapipe as mp
         import numpy as np
 
+        h, w = frame.shape[:2]
+        if max_w and w > max_w:
+            frame = cv2.resize(frame, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = mp.Image(
             image_format=mp.ImageFormat.SRGB,
             data=np.ascontiguousarray(rgb),
         )
-        return top_gesture(recognizer.recognize(image))
+        result = recognizer.recognize(image)
+        hands = getattr(result, "hand_landmarks", None)
+        if hands and is_mute_pose(hands[0]):
+            return MUTE_POSE, True
+        return top_gesture(result), bool(hands)
     except Exception:
-        return None
+        return None, False
+
+
+def recognize_frame(frame, recognizer) -> str | None:
+    """One BGR frame -> top gesture name (or MUTE_POSE). Fail-soft."""
+    return recognize_hand(frame, recognizer)[0]
 
 
 class GestureMonitor:
@@ -212,6 +262,35 @@ class GestureMonitor:
         self._debounce = debounce or GestureDebounce()
         self._now = now or time.time
         self.should_stop = False
+        self._pose_since: float | None = None
+        self._pose_gone: float | None = None
+        self._holding_mute = False
+
+    def _hold_mute(self, seen: bool, now: float) -> None:
+        """Level-triggered mute: mute while pose seen, unmute on release."""
+        if seen:
+            self._pose_gone = None
+            if self._pose_since is None:
+                self._pose_since = now
+            if not self._holding_mute and now - self._pose_since >= MUTE_ON_S:
+                reply = None
+                with contextlib.suppress(Exception):
+                    reply = self._send({"mute": True})
+                if isinstance(reply, dict) and reply.get("ok"):
+                    self._holding_mute = True
+        else:
+            self._pose_since = None
+            if not self._holding_mute:
+                return
+            if self._pose_gone is None:
+                self._pose_gone = now
+            if now - self._pose_gone >= MUTE_OFF_S:
+                reply = None
+                with contextlib.suppress(Exception):
+                    reply = self._send({"mute": False})
+                if isinstance(reply, dict) and reply.get("ok"):
+                    self._holding_mute = False
+                    self._pose_gone = None
 
     def _log(self, detail: str) -> None:
         with contextlib.suppress(Exception):
@@ -261,13 +340,18 @@ class GestureMonitor:
                 snap = camera_hub.latest_frame()
             if snap is None:
                 self._debounce.update(None, self._now())
+                self._hold_mute(False, self._now())
                 return
             if self._recognize is None:
                 return  # no model: stay quiet, keep the lease warm
             name = None
             with contextlib.suppress(Exception):
                 name = self._recognize(snap)
-            tripped = self._debounce.update(name, self._now())
+            now = self._now()
+            self._hold_mute(name == MUTE_POSE, now)
+            if name == MUTE_POSE:
+                name = None  # handled level-triggered, never debounced
+            tripped = self._debounce.update(name, now)
             if tripped:
                 self.fire(tripped)
         except Exception:
@@ -336,3 +420,131 @@ def stop() -> None:
     if thread is not None:
         with contextlib.suppress(Exception):
             thread.join(timeout=3.0)
+
+
+# --- always-on hold-to-mute (bridge sidecar), tuned for ~zero resources ---
+
+#: Idle poll rate (no hand in view) vs. active rate (hand seen recently).
+IDLE_FPS = 2.0
+ACTIVE_FPS = 10.0
+#: Stay at ACTIVE_FPS this long after the last hand sighting.
+ACTIVE_LINGER_S = 4.0
+#: Inference width: 480 px is plenty for a hand held up to the webcam.
+INFER_W = 480
+#: Screen-lock check cadence (camera fully released while locked).
+LOCK_CHECK_S = 10.0
+
+
+def screen_locked() -> bool:
+    """True when the login session is locked. Fail-open (False)."""
+    try:
+        import subprocess
+
+        sid = os.environ.get("XDG_SESSION_ID", "").strip() or "self"
+        out = subprocess.run(
+            ["loginctl", "show-session", sid, "-p", "LockedHint", "--value"],
+            capture_output=True, text=True, timeout=2.0,
+        ).stdout.strip()
+        return out == "yes"
+    except Exception:
+        return False
+
+
+#: Motion gate: mean abs diff of a 48x27 gray thumbnail that wakes inference,
+#: and a heartbeat so a perfectly still scene is still checked now and then.
+MOTION_THR = 1.5
+HEARTBEAT_S = 3.0
+
+
+def _thumb(frame):
+    """48x27 gray thumbnail for the motion gate. Fail-soft (None)."""
+    try:
+        import cv2
+
+        return cv2.resize(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (48, 27), interpolation=cv2.INTER_AREA
+        ).astype("int16")
+    except Exception:
+        return None
+
+
+def _mute_watch(stop: threading.Event) -> None:
+    """Adaptive-rate watch that does hold-to-mute and nothing else."""
+    import camera_hub
+
+    recognizer = None
+    seen = False
+    last_hand = 0.0
+    locked = False
+    next_lock_check = 0.0
+
+    def _recognize(frame):
+        nonlocal seen
+        name, seen = recognize_hand(frame, recognizer, INFER_W)
+        return name
+
+    mon = None
+    prev_thumb = None
+    last_infer = 0.0
+    try:
+        recognizer = make_recognizer()
+        if recognizer is None:
+            return  # no model: stay off entirely
+        mon = GestureMonitor(
+            recognize=_recognize,
+            frame=lambda: camera_hub.latest_frame(reduced=True),
+            mapping={"__none__": "noop"},  # mute pose only; no other actions
+            speaker=lambda *a: None,
+        )
+        while not stop.is_set():
+            now = time.time()
+            if now >= next_lock_check:
+                locked = screen_locked()
+                next_lock_check = now + LOCK_CHECK_S
+            if locked:
+                camera_hub.release("handmute")
+                mon._hold_mute(False, now)
+                mon._hold_mute(False, now + MUTE_OFF_S + 1)  # never stay muted
+                stop.wait(LOCK_CHECK_S / 2)
+                continue
+            active = now - last_hand < ACTIVE_LINGER_S
+            rate = ACTIVE_FPS if active else IDLE_FPS
+            with contextlib.suppress(Exception):
+                camera_hub.request("handmute", 15.0, fps=rate)
+            run = active or mon._holding_mute
+            if not run:
+                # Idle: only pay for inference when the picture changed.
+                frame = camera_hub.latest_frame(reduced=True)
+                th = _thumb(frame) if frame is not None else None
+                if th is not None:
+                    moved = prev_thumb is None or float(abs(th - prev_thumb).mean()) > MOTION_THR
+                    prev_thumb = th
+                    run = moved or now - last_infer >= HEARTBEAT_S
+                else:
+                    run = True  # let poll() handle the no-frame path
+            if run:
+                seen = False
+                last_infer = now
+                mon.poll()
+                if seen:
+                    last_hand = time.time()
+            stop.wait(max(0.05, 1.0 / rate - (time.time() - now)))
+    except Exception:
+        pass
+    finally:
+        with contextlib.suppress(Exception):
+            if mon is not None and mon._holding_mute:
+                mon._send({"mute": False})  # never leave the mic muted
+        with contextlib.suppress(Exception):
+            camera_hub.release("handmute")
+        with contextlib.suppress(Exception):
+            if recognizer is not None:
+                recognizer.close()
+
+
+def start_thread() -> tuple[threading.Thread, threading.Event]:
+    """Bridge sidecar entry: always-on hold-to-mute (kill: JARVIS_HAND_MUTE=0)."""
+    stop = threading.Event()
+    thread = threading.Thread(target=_mute_watch, args=(stop,), name="hand-mute", daemon=True)
+    thread.start()
+    return thread, stop

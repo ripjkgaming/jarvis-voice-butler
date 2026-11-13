@@ -10,12 +10,15 @@ import { skinStateColor, taglineOf, useAscii, useSkin, wordmarkOf } from '@/lib/
 import { useSaid } from '@/lib/hud-say';
 import { type VoiceLink } from '@/lib/voice-link';
 import { AwareGlyph } from './aware-glyph';
+import { BreachOverlay } from './breach-overlay';
 import { ClassicEmblem } from './classic';
 import { Desk } from './desk';
 import { Frame } from './frame';
 import { Links, Power, Trends } from './instruments';
+import { setIntroSfxEnabled } from './intro-sfx';
 import intro from './intro.module.css';
 import { type Sample, healthLine, metricsFrom, pushSample } from './metrics';
+import { MuteButton } from './mute-button';
 import { CommsLog, Execution, FoundationStatus, VoicePanels, useActivity } from './ops';
 import { Reactor } from './reactor';
 import { useReactorProgress } from './reactor-progress';
@@ -91,10 +94,12 @@ function TopBar({
   jarvis,
   muted,
   solo,
+  breach,
 }: {
   jarvis: JarvisState;
   muted: boolean | null;
   solo: boolean;
+  breach?: boolean;
 }) {
   const { ch } = useSkin();
   const ascii = useAscii();
@@ -103,9 +108,15 @@ function TopBar({
       <div className={s.brand} data-tauri-drag-region>
         <Emblem />
         <div className={s.brandCopy} data-tauri-drag-region>
-          <strong className={s.wordmark}>{ch ? wordmarkOf(ch) : 'J.A.R.V.I.S.'}</strong>
+          <strong className={s.wordmark}>
+            {breach ? 'U.L.T.R.O.N.' : ch ? wordmarkOf(ch) : 'J.A.R.V.I.S.'}
+          </strong>
           <small className={s.brandSub}>
-            {ch ? taglineOf(ch) : 'LOCKE OS · PERSONAL INTELLIGENCE'}
+            {breach
+              ? 'THERE ARE NO STRINGS ON ME'
+              : ch
+                ? taglineOf(ch)
+                : 'LOCKE OS · PERSONAL INTELLIGENCE'}
           </small>
         </div>
       </div>
@@ -114,7 +125,7 @@ function TopBar({
           <i className={s.chipDot} aria-hidden="true">
             {ascii ? '■' : null}
           </i>
-          {muted === true ? 'MUTED' : STATE_CHIP[jarvis]}
+          {breach ? 'HOSTILE' : muted === true ? 'MUTED' : STATE_CHIP[jarvis]}
         </span>
         <span className={s.chip} data-tone={muted === true ? 'warn' : 'ok'}>
           MIC {muted === true ? 'OFF' : muted === false ? 'ON' : '…'}
@@ -133,17 +144,23 @@ function Summary({
   jarvis,
   muted,
   activity,
+  breach,
 }: {
   m: ReturnType<typeof metricsFrom>;
   jarvis: JarvisState;
   muted: boolean | null;
   activity: ReturnType<typeof useActivity>;
+  breach?: boolean;
 }) {
   const running = activity.filter((a) => a.status === 'running').length;
   const done = activity.filter((a) => a.status === 'done').length;
   const health = healthLine(m);
   const cards: [string, string, string | undefined][] = [
-    ['STATUS', muted === true ? 'MUTED' : STATE_CHIP[jarvis], undefined],
+    [
+      'STATUS',
+      breach ? 'HOSTILE' : muted === true ? 'MUTED' : STATE_CHIP[jarvis],
+      breach ? 'warn' : undefined,
+    ],
     [
       'TASKS',
       running ? `${running} RUNNING` : done ? `${done} DONE` : 'ALL CLEAR',
@@ -233,6 +250,10 @@ export function StarkHud({
   solo,
   jarvis,
   muted,
+  hudMuted,
+  onToggleHudMute,
+  breach,
+  onStandDown,
   children,
   link,
 }: {
@@ -240,6 +261,12 @@ export function StarkHud({
   solo: boolean;
   jarvis: JarvisState;
   muted: boolean | null;
+  /** HUD-only mute (voice "mute"): grey HUD, sounds off, big MUTED button. */
+  hudMuted?: boolean;
+  onToggleHudMute?: () => void;
+  /** Fake red "system takeover" show (voice "system takeover" / "red alert"). */
+  breach?: boolean;
+  onStandDown?: () => void;
   children?: ReactNode;
   link: VoiceLink;
 }) {
@@ -260,9 +287,17 @@ export function StarkHud({
     busy: said !== null,
     jobs: progress.jobs.length > 0 || activity.some((a) => a.status === 'running'),
   });
+  useEffect(() => {
+    setIntroSfxEnabled(hudMuted !== true);
+  }, [hudMuted]);
   const { ch: skin } = useSkin();
-  const color =
-    muted === true ? MUTED_COLOR : skin ? skinStateColor(skin, jarvis) : JARVIS_COLORS[jarvis];
+  const color = breach
+    ? '#ff2a3c'
+    : muted === true || hudMuted === true
+      ? MUTED_COLOR
+      : skin
+        ? skinStateColor(skin, jarvis)
+        : JARVIS_COLORS[jarvis];
 
   const center = (
     <section className={s.center} data-ix-zone aria-label="Voice core">
@@ -297,7 +332,7 @@ export function StarkHud({
         className={s.ambient}
         anchorSelector={`.${s.reactor}`}
       />
-      <TopBar jarvis={jarvis} muted={muted} solo={solo} />
+      <TopBar jarvis={jarvis} muted={muted} solo={solo} breach={breach === true} />
       {solo ? (
         <main className={s.soloGrid} data-ix-zone>
           {center}
@@ -305,7 +340,13 @@ export function StarkHud({
         </main>
       ) : (
         <main className={s.grid} data-ix-zone>
-          <Summary m={m} jarvis={jarvis} muted={muted} activity={activity} />
+          <Summary
+            m={m}
+            jarvis={jarvis}
+            muted={muted}
+            activity={activity}
+            breach={breach === true}
+          />
           <aside className={s.left} data-ix-zone aria-label="Vitals">
             <Frame label="VITALS" index={1} aside="2 MIN">
               <Trends m={m} history={history} />
@@ -331,6 +372,8 @@ export function StarkHud({
       <StandbyBadge presence={presence} m={m} jobs={progress.jobs} />
       <i className={s.flashEdge} aria-hidden="true" />
       <ChatDock />
+      <MuteButton muted={hudMuted === true} onToggle={onToggleHudMute} />
+      <BreachOverlay on={breach === true} onStandDown={onStandDown} />
       <WatchIntro />
       {children}
     </div>

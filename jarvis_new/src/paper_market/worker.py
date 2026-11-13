@@ -7,7 +7,7 @@ exposed to the model. The caller must separately validate every financial
 constraint and simulate fills; a proposal is never an order.
 
 Protocol: https://learn.chatgpt.com/docs/app-server
-Model: https://developers.openai.com/api/docs/models/gpt-6-astra
+Model: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ from typing import Any
 from system.codex_worker import MAX_OUTPUT_BYTES, VERIFIED_VERSION, CodexWorker
 from system.codex_worker import CodexWorkerError as PaperMarketWorkerError
 
-RUNTIME_MODEL = "gpt-6-astra"
+from .runtime import codex_binary
+
+RUNTIME_MODEL = "gpt-6.1-sol"
 RUNTIME_EFFORT = "medium"
 ALLOWED_SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
 MAX_ACTIONS = 4
@@ -180,7 +182,7 @@ def _usage_snapshot(value: Any) -> dict[str, Any] | None:
 
 
 class PaperMarketWorker(CodexWorker):
-    """One ephemeral no-tools thread, fixed to GPT-6 Astra with medium effort.
+    """One ephemeral no-tools thread, fixed to GPT-6.1 Sol with medium effort.
 
     Call ``start(private_workspace)`` before ``propose(context)`` and always call
     ``close()`` in a finally block. Failures and cancellation also close the
@@ -189,7 +191,10 @@ class PaperMarketWorker(CodexWorker):
 
     def __init__(self, *, binary: str | None = None, timeout: float = 180.0) -> None:
         super().__init__(
-            model=RUNTIME_MODEL, effort=RUNTIME_EFFORT, binary=binary, timeout=timeout
+            model=RUNTIME_MODEL,
+            effort=RUNTIME_EFFORT,
+            binary=binary or codex_binary(),
+            timeout=timeout,
         )
         self.verification: dict[str, Any] = {}
 
@@ -222,14 +227,14 @@ class PaperMarketWorker(CodexWorker):
                     "inputModalities", ["text", "image"]
                 ):
                     raise PaperMarketWorkerError(
-                        "GPT-6 Astra with medium effort is unavailable in the Codex catalog."
+                        "GPT-6.1 Sol with medium effort is unavailable in the Codex catalog."
                     )
                 return
             cursor = page.get("nextCursor")
             if not cursor:
                 break
         raise PaperMarketWorkerError(
-            "The Codex catalog does not list gpt-6-astra; no fallback was used."
+            "The Codex catalog does not list gpt-6.1-sol; no fallback was used."
         )
 
     async def _request(self, method: str, params: dict[str, Any]) -> dict:
@@ -318,7 +323,7 @@ class PaperMarketWorker(CodexWorker):
             raise PaperMarketWorkerError("Paper worker is not started and verified.")
         if self.model != RUNTIME_MODEL or self.effort != RUNTIME_EFFORT:
             raise PaperMarketWorkerError(
-                "Paper worker requires exactly gpt-6-astra with medium effort."
+                "Paper worker requires exactly gpt-6.1-sol with medium effort."
             )
         try:
             if not isinstance(context, dict):

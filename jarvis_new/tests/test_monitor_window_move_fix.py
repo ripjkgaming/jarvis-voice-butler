@@ -4,6 +4,7 @@ All KWin calls are mocked. The fake desktop mirrors what KRunner does live:
 a probe matches a window when the probe text appears in its title or app
 identity, so "terminal" finds nothing and only "konsole" finds the terminal.
 """
+
 import copy
 
 import pytest
@@ -16,16 +17,40 @@ CHATGPT = "{44444444-4444-4444-8444-444444444444}"
 
 
 def win(caption, cls, name, desktop, x=0, y=0, pid=1, typ=0):
-    return {"caption": caption, "resourceClass": cls, "resourceName": name,
-            "desktopFile": desktop, "x": x, "y": y, "width": 1200,
-            "height": 800, "pid": pid, "type": typ, "maximizeHorizontal": 0}
+    return {
+        "caption": caption,
+        "resourceClass": cls,
+        "resourceName": name,
+        "desktopFile": desktop,
+        "x": x,
+        "y": y,
+        "width": 1200,
+        "height": 800,
+        "pid": pid,
+        "type": typ,
+        "maximizeHorizontal": 0,
+    }
 
 
 WINDOWS = {
-    KONSOLE: win("ripjk : bash", "org.kde.konsole", "konsole", "org.kde.konsole",
-                 x=0, y=0, pid=6118),
-    BRAVE: win("The Real Food - YouTube - Brave", "brave-browser", "brave",
-               "brave-browser", x=0, y=0, pid=7001),
+    KONSOLE: win(
+        "ripjk : bash",
+        "org.kde.konsole",
+        "konsole",
+        "org.kde.konsole",
+        x=0,
+        y=0,
+        pid=6118,
+    ),
+    BRAVE: win(
+        "The Real Food - YouTube - Brave",
+        "brave-browser",
+        "brave",
+        "brave-browser",
+        x=0,
+        y=0,
+        pid=7001,
+    ),
     CHATGPT: win("ChatGPT", "Chatgpt", "chatgpt", "", x=0, y=0, pid=8001),
 }
 
@@ -35,8 +60,10 @@ def fake_probe(text):
     needle = " ".join(text.lower().split())
     out = []
     for uuid, info in WINDOWS.items():
-        hay = " ".join(str(info.get(k) or "") for k in
-                       ("caption", "resourceClass", "resourceName", "desktopFile")).lower()
+        hay = " ".join(
+            str(info.get(k) or "")
+            for k in ("caption", "resourceClass", "resourceName", "desktopFile")
+        ).lower()
         if needle and needle.replace("-", " ") in hay.replace("-", " "):
             out.append((uuid, info["caption"]))
     return out
@@ -53,8 +80,11 @@ def _isolate_windows():
 @pytest.fixture
 def desktop(monkeypatch):
     monkeypatch.setattr(mm, "_probe", fake_probe)
-    monkeypatch.setattr(mm, "_info", lambda uuid: dict(WINDOWS[uuid], uuid=uuid)
-                        if uuid in WINDOWS else None)
+    monkeypatch.setattr(
+        mm,
+        "_info",
+        lambda uuid: dict(WINDOWS[uuid], uuid=uuid) if uuid in WINDOWS else None,
+    )
     monkeypatch.setattr(mm, "_active_pid", lambda: None)
     return WINDOWS
 
@@ -69,8 +99,11 @@ def screens_three():
 
 # ------------------------------------------------------------ window matching
 
-@pytest.mark.parametrize("query", ["terminal", "the terminal", "Terminal window",
-                                   "konsole", "the konsole", "bash"])
+
+@pytest.mark.parametrize(
+    "query",
+    ["terminal", "the terminal", "Terminal window", "konsole", "the konsole", "bash"],
+)
 def test_terminal_family_resolves_to_konsole(desktop, query):
     info = mm.kwin_info(query)
     assert info is not None, query
@@ -86,8 +119,13 @@ def test_browser_family_resolves_to_brave(desktop, query):
 
 
 def test_terminal_identity_beats_title_that_says_terminal(desktop):
-    desktop[BRAVE] = win("How to open a terminal - Brave", "brave-browser", "brave",
-                         "brave-browser", pid=7001)
+    desktop[BRAVE] = win(
+        "How to open a terminal - Brave",
+        "brave-browser",
+        "brave",
+        "brave-browser",
+        pid=7001,
+    )
     info = mm.kwin_info("terminal")
     assert info["uuid"] == KONSOLE
 
@@ -130,21 +168,34 @@ def test_candidates_expand_generic_words():
 
 # ------------------------------------------------------------ monitor names
 
+
 def test_main_uses_kde_priority_not_list_order():
     ss = screens_three()
     ss_reversed = list(reversed(ss))  # DP-1 listed first, but priority 3
     assert mm.pick_destination("main", ss_reversed, None)["name"] == "HDMI-A-2"
-    assert mm.pick_destination("primary monitor", ss_reversed, None)["name"] == "HDMI-A-2"
+    assert (
+        mm.pick_destination("primary monitor", ss_reversed, None)["name"] == "HDMI-A-2"
+    )
     assert mm.pick_destination("the main monitor", ss, None)["name"] == "HDMI-A-2"
 
 
-@pytest.mark.parametrize("spec,expected", [
-    ("DP-1", "DP-1"), ("dp1", "DP-1"), ("HDMI-A-2", "HDMI-A-2"),
-    ("hdmi a 2", "HDMI-A-2"), ("eDP-1", "eDP-1"),
-    ("laptop", "eDP-1"), ("built-in", "eDP-1"), ("laptop screen", "eDP-1"),
-    ("left", "HDMI-A-2"), ("right", "DP-1"), ("rightmost", "DP-1"),
-    ("second monitor", "DP-1"),
-])
+@pytest.mark.parametrize(
+    "spec,expected",
+    [
+        ("DP-1", "DP-1"),
+        ("dp1", "DP-1"),
+        ("HDMI-A-2", "HDMI-A-2"),
+        ("hdmi a 2", "HDMI-A-2"),
+        ("eDP-1", "eDP-1"),
+        ("laptop", "eDP-1"),
+        ("built-in", "eDP-1"),
+        ("laptop screen", "eDP-1"),
+        ("left", "HDMI-A-2"),
+        ("right", "DP-1"),
+        ("rightmost", "DP-1"),
+        ("second monitor", "DP-1"),
+    ],
+)
 def test_monitor_names_and_synonyms(spec, expected):
     dest = mm.pick_destination(spec, screens_three(), "HDMI-A-2")
     assert dest["name"] == expected
@@ -193,6 +244,7 @@ def test_priority_parsed_from_kscreen_output():
 
 
 # ------------------------------------------------------------ move flow
+
 
 def _move_harness(monkeypatch, *, lands_on="DP-1", accept=True, ss=None):
     ss = ss or screens_three()
@@ -246,8 +298,13 @@ def test_move_no_match_message_lists_open_windows(monkeypatch):
     _move_harness(monkeypatch)
     # No konsole open, but a Brave tab title says "terminal": must not match.
     del WINDOWS[KONSOLE]
-    WINDOWS[BRAVE] = win("How to open a terminal - Brave", "brave-browser", "brave",
-                         "brave-browser", pid=7001)
+    WINDOWS[BRAVE] = win(
+        "How to open a terminal - Brave",
+        "brave-browser",
+        "brave",
+        "brave-browser",
+        pid=7001,
+    )
     ok, msg = mm.move_window("terminal", "other")
     assert ok is False
     assert msg.startswith("No open window matches 'terminal'.")

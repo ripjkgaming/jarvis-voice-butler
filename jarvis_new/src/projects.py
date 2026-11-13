@@ -486,6 +486,41 @@ def _fast_research_on() -> bool:
         return False
 
 
+ORPHAN_GRACE_S = 60.0
+
+
+def reap_orphan_research(now: float | None = None) -> int:
+    """Mark running research projects that have no live worker thread as failed.
+
+    Research runs in a daemon thread inside the bridge, so a bridge restart or
+    crash strands its meta as "running" forever (the HUD reactor then shows a
+    frozen progress ring). A job with no ``research-<id>`` thread and no write
+    for ORPHAN_GRACE_S is dead. Never raises; returns the number reaped.
+    """
+    try:
+        now = time.time() if now is None else now
+        live = {t.name for t in threading.enumerate()}
+        reaped = 0
+        for child in projects_root().iterdir():
+            if not (child.is_dir() and valid_id(child.name)):
+                continue
+            meta = _read_meta(child.name)
+            if not meta or meta.get("kind") != "research":
+                continue
+            if meta.get("status") != "running":
+                continue
+            if f"research-{meta['id']}" in live:
+                continue
+            if now - float(meta.get("updated_at") or 0) < ORPHAN_GRACE_S:
+                continue
+            meta.update(status="failed", error="interrupted (worker gone)")
+            _write_meta(meta)
+            reaped += 1
+        return reaped
+    except Exception:
+        return 0
+
+
 def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
     """Start a research project through headless ChatGPT. Returns its meta."""
     topic = " ".join((topic or "").split())[:2000]
@@ -513,10 +548,9 @@ def start_research(topic: str, *, runner=None, background: bool = True) -> dict:
                     reply, warning = research_fast.generate(
                         topic,
                         progress=progress,
-                        is_cancelled=lambda: (_read_meta(meta["id"]) or {}).get(
-                            "status"
-                        )
-                        == "cancelled",
+                        is_cancelled=lambda: (
+                            (_read_meta(meta["id"]) or {}).get("status") == "cancelled"
+                        ),
                     )
                 except Exception as exc:  # incl. research_fast.Cancelled
                     if type(exc).__name__ == "Cancelled":

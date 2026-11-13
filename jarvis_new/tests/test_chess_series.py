@@ -19,12 +19,26 @@ class FakeStore:
         return None
 
 
-@pytest.mark.parametrize("t,n", [
-    ("five", 5), ("fifteen", 15), ("10", 10), ("a hundred", 100),
-    ("one hundred", 100), ("twenty five", 25), ("twenty-five games", 25),
-    ("101", None), ("0", None), ("five ten", None), ("two hundred", None),
-    ("", None), (None, None), ("banana", None), ("fifty fifteen", None),
-])
+@pytest.mark.parametrize(
+    "t,n",
+    [
+        ("five", 5),
+        ("fifteen", 15),
+        ("10", 10),
+        ("a hundred", 100),
+        ("one hundred", 100),
+        ("twenty five", 25),
+        ("twenty-five games", 25),
+        ("101", None),
+        ("0", None),
+        ("five ten", None),
+        ("two hundred", None),
+        ("", None),
+        (None, None),
+        ("banana", None),
+        ("fifty fifteen", None),
+    ],
+)
 def test_parse_count(t, n):
     assert parse_count(t) == n
 
@@ -129,21 +143,29 @@ def test_no_offer_when_done():
 
 
 def _g(gid, evals, white="user"):
-    mv = [{"ply": i + 1, "san": f"m{i+1}", "eval_cp": e} for i, e in enumerate(evals)]
-    return {"id": gid, "white": white,
-            "black": "jarvis" if white == "user" else "user", "moves": mv}
+    mv = [{"ply": i + 1, "san": f"m{i + 1}", "eval_cp": e} for i, e in enumerate(evals)]
+    return {
+        "id": gid,
+        "white": white,
+        "black": "jarvis" if white == "user" else "user",
+        "moves": mv,
+    }
 
 
 def test_summary():
     _, c = mk(2)
     c.record_result("g1", "1-0", "white")
     c.record_result("g2", "0-1", "white")
-    g1 = _g("g1", [20, 10, 300, 290])          # ply3 user +290 best
-    g2 = _g("g2", [0, 0, -600, -600, -600, -600], white="user")  # ply3 user -600 blunder
+    g1 = _g("g1", [20, 10, 300, 290])  # ply3 user +290 best
+    g2 = _g(
+        "g2", [0, 0, -600, -600, -600, -600], white="user"
+    )  # ply3 user -600 blunder
     sm = c.summary([g1, g2])
     assert sm["score"] == "1 win, 0 draws, 1 loss"
     assert sm["longest_game"] == {"game_id": "g2", "moves": 6}
-    assert sm["biggest_blunder"]["game_id"] == "g2" and sm["biggest_blunder"]["ply"] == 3
+    assert (
+        sm["biggest_blunder"]["game_id"] == "g2" and sm["biggest_blunder"]["ply"] == 3
+    )
     assert sm["best_move"]["game_id"] == "g1" and sm["best_move"]["ply"] == 3
     assert len(sm["key_moments"]) == 3
     assert sm["key_moments"][0]["ply"] == 3 and sm["key_moments"][0]["game_id"] == "g2"
@@ -151,9 +173,15 @@ def test_summary():
 
 def test_summary_mate_and_empty():
     _, c = mk(1)
-    g = {"id": "x", "white": "jarvis", "black": "user",
-         "moves": [{"ply": 1, "san": "e4", "eval_cp": 30},
-                   {"ply": 2, "san": "f6", "eval_mate": 3}]}
+    g = {
+        "id": "x",
+        "white": "jarvis",
+        "black": "user",
+        "moves": [
+            {"ply": 1, "san": "e4", "eval_cp": 30},
+            {"ply": 2, "san": "f6", "eval_mate": 3},
+        ],
+    }
     sm = c.summary({"x": g})
     assert sm["biggest_blunder"]["swing"] == -970  # user (black) lost 970
     assert c.summary([])["longest_game"] is None
@@ -162,6 +190,7 @@ def test_summary_mate_and_empty():
 def test_integration_real_store():
     store_mod = pytest.importorskip("games.chess.store")
     import tempfile
+
     s = store_mod.GameStore(root=tempfile.mkdtemp())
     c = SeriesController(s)
     c.start(3)

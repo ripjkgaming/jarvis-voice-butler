@@ -16,6 +16,26 @@ from intent import needle_router
 from intent.resolver import resolve_intent
 
 
+def test_daemon_limits_background_cpu_before_loading(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setattr(needle_router.os, "nice", lambda n: calls.append(("nice", n)))
+    monkeypatch.setattr(needle_router.os, "sched_getaffinity", lambda pid: {2, 4, 6, 8})
+    monkeypatch.setattr(
+        needle_router.os,
+        "sched_setaffinity",
+        lambda pid, cpus: calls.append(("affinity", pid, cpus)),
+    )
+
+    def stop_before_loading():
+        assert calls == [("nice", 10), ("affinity", 0, {6, 8})]
+        raise RuntimeError("stop before real model load")
+
+    monkeypatch.setattr(needle_router, "_build_agent", stop_before_loading)
+    with pytest.raises(RuntimeError, match="stop before real model load"):
+        needle_router._daemon_main()
+
+
 def _fake_needle_module(complete_fn):
     mod = types.ModuleType("needle")
 
@@ -44,6 +64,7 @@ def _fake_needle_module(complete_fn):
 def needle_env(monkeypatch):
     monkeypatch.setenv("JARVIS_NEEDLE", "1")
     monkeypatch.setenv("JARVIS_NEEDLE_ISOLATE", "0")
+    monkeypatch.setenv("JARVIS_NEEDLE_DAEMON", "0")
     yield
     needle_router.reset_agent()
     needle_router.reset_agent()
@@ -228,6 +249,7 @@ def _isolated_env(monkeypatch, tmp_path, body: str):
     stub = _write_worker_stub(tmp_path, body)
     monkeypatch.setenv("JARVIS_NEEDLE", "1")
     monkeypatch.setenv("JARVIS_NEEDLE_ISOLATE", "1")
+    monkeypatch.setenv("JARVIS_NEEDLE_DAEMON", "0")
     monkeypatch.setattr(needle_router, "needle_enabled", lambda: True)
     real_popen = subprocess.Popen
     monkeypatch.setattr(
@@ -308,7 +330,48 @@ def test_worker_stub_disables_dumpability_before_test_body(tmp_path):
     assert result.stdout.strip() == "0"
 
 
-def test_needle_is_opt_in_even_when_package_is_installed(monkeypatch):
+def test_needle_is_on_by_default_and_opt_out(monkeypatch):
     monkeypatch.delenv("JARVIS_NEEDLE", raising=False)
     monkeypatch.setitem(sys.modules, "needle", _fake_needle_module(lambda text: {}))
+    assert needle_router.needle_enabled()
+    monkeypatch.setenv("JARVIS_NEEDLE", "0")
     assert not needle_router.needle_enabled()
+
+
+def test_daemon_client_roundtrip_and_respawn(monkeypatch, tmp_path):
+    """Client talks line-JSON over the unix socket; a dead socket abstains and
+    asks for a (rate limited) respawn instead of loading a model itself."""
+    import json
+    import socket
+    import threading
+
+    monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_NEEDLE", "1")
+    monkeypatch.setenv("JARVIS_NEEDLE_DAEMON", "1")
+    monkeypatch.setattr(needle_router, "needle_enabled", lambda: True)
+    spawns = []
+    monkeypatch.setattr(needle_router, "_ensure_daemon", lambda: spawns.append(1))
+    monkeypatch.setenv("JARVIS_NEEDLE_DAEMON", "1")
+
+    assert needle_router.route_with_needle("hide") is None
+    assert spawns == [1]  # nothing listening -> abstain + request daemon
+
+    raw = {
+        "type": "call",
+        "confidence": 0.9,
+        "function_calls": [{"name": "stop_speaking", "arguments": {}}],
+    }
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(needle_router._sock_path())
+    srv.listen(1)
+
+    def serve():
+        conn, _ = srv.accept()
+        with conn:
+            assert json.loads(conn.recv(4096))["text"] == "cut that off"
+            conn.sendall((json.dumps({"raw": raw}) + "\n").encode())
+
+    threading.Thread(target=serve, daemon=True).start()
+    hit = needle_router.route_with_needle("cut that off", 2.0)
+    srv.close()
+    assert hit == {"action": "stop_speaking", "params": {}, "confidence": 0.9}

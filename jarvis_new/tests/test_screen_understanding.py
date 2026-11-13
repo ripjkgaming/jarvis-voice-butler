@@ -567,4 +567,3 @@ async def test_simultaneous_external_cancellation_is_not_timeout():
             await task
     else:
         assert await task == "unsupported"
-

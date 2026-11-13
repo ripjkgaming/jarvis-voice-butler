@@ -143,14 +143,18 @@ class _Client:
             self._audio_bytes += len(data)
         self._wake.set()
 
-    def flush(self) -> None:
-        """Drop queued playback now; in-flight audio is discarded by generation."""
+    def flush(self, fade_ms: int = 0) -> None:
+        """Drop queued playback now; in-flight audio is discarded by generation.
+
+        ``fade_ms`` > 0 asks the client to ramp its speaker down over that long
+        instead of cutting hard (``{"fade_ms": n}`` payload, optional)."""
         self.queue = collections.deque(i for i in self.queue if i.cls != "audio")
         self._counts["audio"] = 0
         self._audio_bytes = 0
         self.generation += 1
         self._next_audio_at = 0.0
-        self.enqueue("control", encode_text("flush", None))
+        payload = {"fade_ms": int(fade_ms)} if fade_ms > 0 else None
+        self.enqueue("control", encode_text("flush", payload))
 
     async def _run_writer(self) -> None:
         try:
@@ -354,9 +358,9 @@ class HubRoom:
             for client in list(self._clients):
                 client.enqueue("audio", frame)
 
-    def flush_playback(self) -> None:
+    def flush_playback(self, fade_ms: int = 0) -> None:
         for client in list(self._clients):
-            client.flush()
+            client.flush(fade_ms)
 
     def send_text(self, topic: str, payload: Any) -> None:
         self._broadcast(topic, encode_text(topic, payload))

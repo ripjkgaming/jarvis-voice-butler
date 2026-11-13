@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Jarvis overlay: custom invoke commands for the static HUD + project archive","local":true,"windows":["overlay","projects","drafts","chess"],"permissions":["core:default"]}}
+{"default":{"identifier":"default","description":"Jarvis overlay: custom invoke commands for the static HUD + project archive","local":true,"windows":["overlay","projects","drafts","chess","hologram"],"permissions":["core:default"]}}

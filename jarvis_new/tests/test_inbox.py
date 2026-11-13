@@ -228,7 +228,9 @@ async def test_weather_unnamed_uses_home_not_ip(
     monkeypatch.setattr(
         inbox_mod,
         "open_meteo_at",
-        lambda name, lat, lon: seen.append((name, lat, lon)) or f"{name}: 28°C Overcast",
+        lambda name, lat, lon: (
+            seen.append((name, lat, lon)) or f"{name}: 28°C Overcast"
+        ),
     )
     result = await InboxTools.weather_now(InboxTools(), None, city="")  # type: ignore[arg-type]
     assert result["say"] == "Central Singapore: 28°C Overcast"

@@ -160,7 +160,9 @@ async def test_symlink_is_trashed_not_its_target(home, tmp_path):
     link.parent.mkdir(parents=True)
     os.symlink(outside, link)
 
-    await FilesTools.find_and_delete(FilesTools(), _ctx(), description="", path=str(link))
+    await FilesTools.find_and_delete(
+        FilesTools(), _ctx(), description="", path=str(link)
+    )
 
     assert not os.path.lexists(link)
     assert (outside / "keep.txt").read_text() == "keep"

@@ -236,7 +236,9 @@ class Settings(ChessSettings):
 
 async def make_engine(texts, tmp_path):
     game = ChessGame(
-        ChessSettings(commentary_muted=False, announce_moves=False, difficulty="novice"),
+        ChessSettings(
+            commentary_muted=False, announce_moves=False, difficulty="novice"
+        ),
         engine=MiniEngine(1),
         save_dir=tmp_path,
         autosave=False,

@@ -365,6 +365,34 @@ pub fn close_chess_window(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// Window label of the separate 3D hologram projector (matches `tauri.conf.json`).
+pub const HOLO_LABEL: &str = "hologram";
+
+/// Show the hologram window (fullscreen, no focus steal needed: voice-driven).
+#[tauri::command]
+pub fn show_holo_window(app: AppHandle) -> Result<(), String> {
+    match app.get_webview_window(HOLO_LABEL) {
+        Some(win) => {
+            let _ = win.unminimize();
+            win.show().map_err(|e| format!("show hologram: {e}"))?;
+            Ok(())
+        }
+        None => Err("hologram window is not configured".to_string()),
+    }
+}
+
+/// Hide the hologram window. Missing window = no-op success.
+#[tauri::command]
+pub fn hide_holo_window(app: AppHandle) -> Result<(), String> {
+    match app.get_webview_window(HOLO_LABEL) {
+        Some(win) => {
+            let _ = win.set_fullscreen(false);
+            win.hide().map_err(|e| format!("hide hologram: {e}"))
+        }
+        None => Ok(()),
+    }
+}
+
 /// Hide the overlay window. Called by the HUD on Esc (blur-hide is handled
 /// shell-side via `WindowEvent::Focused`). Missing window = no-op success.
 #[tauri::command]
@@ -392,9 +420,24 @@ pub fn overlay_frame(app: AppHandle) -> Result<serde_json::Value, String> {
     let k = mon.scale_factor().max(0.1);
     let mp = mon.position();
     let ms = mon.size();
+    let (mut rx, mut ry) = (pos.x - mp.x, pos.y - mp.y);
+    // Native Wayland never tells a client where its window is: the position
+    // reads (0, 0) in global space, which is off-monitor for any screen not
+    // at the origin (e.g. DP-1 at x=3840 gives rx = -3840). Then assume the
+    // window fills the work area (maximized; the title bar sits on top), so
+    // the content is centred horizontally and bottom-aligned in it.
+    let (mw, mh) = (ms.width as i32, ms.height as i32);
+    if rx < 0 || ry < 0 || rx >= mw || ry >= mh {
+        let inner = win.inner_size().map_err(|e| format!("size: {e}"))?;
+        let wa = mon.work_area();
+        let (wx, wy) = (wa.position.x - mp.x, wa.position.y - mp.y);
+        let (ww, wh) = (wa.size.width as i32, wa.size.height as i32);
+        rx = (wx + (ww - inner.width as i32) / 2).max(0);
+        ry = (wy + wh - inner.height as i32).max(0);
+    }
     Ok(serde_json::json!({
-        "x": f64::from(pos.x - mp.x) / k,
-        "y": f64::from(pos.y - mp.y) / k,
+        "x": f64::from(rx) / k,
+        "y": f64::from(ry) / k,
         "monitorWidth": f64::from(ms.width) / k,
         "monitorHeight": f64::from(ms.height) / k,
     }))

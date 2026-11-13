@@ -399,6 +399,14 @@ def _match_voice_tool(
     expr = _spoken_math(text)
     if expr is not None:
         return ("do_math", {"expr": expr}, None)
+    # Monitor Mode: vault doors on every screen, nothing recorded.
+    try:
+        import monitor_mode as _monitor
+
+        if _monitor.parse_command(lowered):
+            return ("monitor_mode", {}, "Locking the vault, Sir.")
+    except Exception:
+        pass
     # Productive observation takes precedence over the legacy camera guard.
     try:
         import computer_watch
@@ -832,6 +840,8 @@ SIDECAR_THREADS = (
     # Lease-based shared webcam: idle (camera closed, LED off) until
     # presence/eyes/gestures ask for frames.
     ("camera_hub", "JARVIS_CAMERA_HUB"),
+    # Hold the two-finger sign to mute the mic (adaptive 3-10 fps, 480 px).
+    ("gestures", "JARVIS_HAND_MUTE"),
     # Focus sessions survive agent restarts: the drift loop lives here.
     ("focus", "JARVIS_FOCUS"),
     # Remember the last foreground YouTube video for "download this video".
@@ -1099,6 +1109,7 @@ def _running_research() -> list[dict]:
     try:
         import projects as _projects
 
+        _projects.reap_orphan_research()
         return [
             {
                 "id": m["id"],
@@ -1838,7 +1849,7 @@ def build_status() -> dict:
         "livekit_configured": True,
         "voice_transport_ready": voice_transport_ready(),
         "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
-        "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
+        "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.35"),
         "voice_model_present": _voice_model_present(),
         "whatsapp_reachable": _whatsapp_reachable(),
         "log": _log_stats(),
@@ -2444,6 +2455,19 @@ def run_phone_tool(tool: str, args: dict) -> dict:
             else computer_watch.briefing()
         )
         return _tool_result(ok, **got, say=say)
+    if tool == "monitor_mode":
+        import monitor_mode
+
+        got = monitor_mode.launch()
+        if not got.get("ok"):
+            return _tool_result(
+                False, error=str(got.get("error") or "Monitor mode did not start.")
+            )
+        return _tool_result(
+            True,
+            state=got.get("state", "monitoring"),
+            say="Monitoring this device, Sir. Nothing is recorded.",
+        )
     if tool == "watch_mode":
         import watch_mode
 
@@ -3641,7 +3665,9 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        if urlparse(self.path).path.startswith(("/health-recorder/", "/auto-calendar/")):
+        if urlparse(self.path).path.startswith(
+            ("/health-recorder/", "/auto-calendar/")
+        ):
             self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         # The Tauri webview (tauri://localhost) and the Next dev server
@@ -3747,7 +3773,10 @@ class _Handler(BaseHTTPRequestHandler):
         # (401, 400...) would leave the body to be parsed as the next
         # request. Drain it (bounded) or close the connection.
         reader = self.rfile
-        if not isinstance(reader, _CountingReader) or self.command != "POST":
+        if (
+            not isinstance(reader, _CountingReader)
+            or getattr(self, "command", None) != "POST"
+        ):
             return
         try:
             want = int(self.headers.get("Content-Length") or 0)
@@ -3788,7 +3817,13 @@ class _Handler(BaseHTTPRequestHandler):
 
             body = _read_json_body(self, 4096)
             if _effective_guest(body if isinstance(body, dict) else {}):
-                self._send(403, {"ok": False, "error": "Calendar review requires the owner session."})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "Calendar review requires the owner session.",
+                    },
+                )
                 return
             self._send(*auto_calendar_bridge.dismiss(body))
             return
@@ -3979,6 +4014,59 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             else:
                 self._send(200, {"ok": True})
+            return
+        if route == "/calls/command":
+            body = _read_json_body(self, 1024)
+            if body is None:
+                self._send(400, {"ok": False, "error": "invalid JSON body"})
+                return
+            if _effective_guest(body):
+                self._send(403, {"ok": False, "error": "owner session required"})
+                return
+            from calls import hud_feed
+
+            res = hud_feed.queue_command(str(body.get("command", "")))
+            self._send(200 if res["ok"] else 400, res)
+            return
+        if route == "/hud/state":
+            body = _read_json_body(self, 1024)
+            keys = ("muted", "breach")
+            if not isinstance(body, dict) or not any(
+                isinstance(body.get(k), bool) for k in keys
+            ):
+                self._send(
+                    400, {"ok": False, "error": 'body must be {"muted"|"breach": bool}'}
+                )
+                return
+            from intent import hud_commands
+
+            ok = True
+            if isinstance(body.get("muted"), bool):
+                ok = hud_commands.set_hud_muted(body["muted"]) and ok
+            if isinstance(body.get("breach"), bool):
+                ok = hud_commands.set_hud_breach(body["breach"]) and ok
+            self._send(
+                200 if ok else 500,
+                {
+                    "ok": ok,
+                    "muted": hud_commands.hud_muted(),
+                    "breach": hud_commands.hud_breach(),
+                },
+            )
+            return
+        if route == "/hud/parse":
+            # Passive wake-listener fallback: grammar + local Needle 3 -> command.
+            body = _read_json_body(self, 2048)
+            text = body.get("text") if isinstance(body, dict) else None
+            if not isinstance(text, str) or not text.strip() or len(text) > 300:
+                self._send(400, {"ok": False, "error": "body needs text 1..300 chars"})
+                return
+            from intent import hud_commands
+
+            command = hud_commands.parse(text) or hud_commands.parse_needle(
+                text, timeout=12.0
+            )
+            self._send(200, {"ok": True, "command": command})
             return
         if route == "/mic":
             body = _read_json_body(self, 1024)
@@ -4359,7 +4447,13 @@ class _Handler(BaseHTTPRequestHandler):
             import auto_calendar_bridge
 
             if _effective_guest({}):
-                self._send(403, {"ok": False, "error": "Calendar activity requires the owner session."})
+                self._send(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "Calendar activity requires the owner session.",
+                    },
+                )
                 return
             self._send(200, auto_calendar_bridge.status())
             return
@@ -4547,6 +4641,17 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, **state})
         elif route == "/mode":
             self._send(200, {"ok": True, "mode": _school.current()})
+        elif route == "/hud/state":
+            from intent import hud_commands
+
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "muted": hud_commands.hud_muted(),
+                    "breach": hud_commands.hud_breach(),
+                },
+            )
         elif route == "/mic":
             reply = _wake_rpc({"status": True})
             if reply is None:
@@ -4614,6 +4719,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(
                 200, {"ok": True, "captions": [] if hidden else read_captions(limit)}
             )
+        elif route in ("/calls/events", "/calls/state"):
+            # Phone-call HUD feed (src/calls/hud_feed.py). Owner only.
+            if _effective_guest({}):
+                self._send(403, {"ok": False, "error": "owner session required"})
+                return
+            from calls import hud_feed
+
+            if route == "/calls/state":
+                self._send(200, {"ok": True, **hud_feed.snapshot()})
+            else:
+                raw = qs.get("since", [""])[0]
+                since = int(raw) if raw.lstrip("-").isdigit() else None
+                self._send(200, {"ok": True, **hud_feed.read_events(since)})
         elif route == "/caption/live":
             import phone_session
 
@@ -4636,6 +4754,47 @@ class _Handler(BaseHTTPRequestHandler):
             import hud_panels
 
             self._send(200, hud_panels.payload())
+        elif route == "/model3d/state":
+            # HUD 3D viewer state (src/model3d.py): open/rotate/zoom/version.
+            import model3d
+
+            self._send(200, {"ok": True, **model3d.state_payload()})
+        elif route == "/model3d/place":
+            # Hologram window just appeared: fullscreen it on the emptiest monitor.
+            import threading
+
+            import model3d
+
+            threading.Thread(target=model3d._place_holo_window, daemon=True).start()
+            self._send(200, {"ok": True})
+        elif route == "/model3d/shape4d":
+            import model3d
+
+            sp = model3d.shape4d_path()
+            if sp is None:
+                self._send(404, {"ok": False, "error": "no 4d shape"})
+            else:
+                self._send_bytes(
+                    200, "application/json", sp.read_bytes(), no_store=True
+                )
+        elif route == "/model3d/sim":
+            import model3d
+
+            sp = model3d.sim_path()
+            if sp is None:
+                self._send(404, {"ok": False, "error": "no simulation"})
+            else:
+                self._send_bytes(
+                    200, "application/json", sp.read_bytes(), no_store=True
+                )
+        elif route == "/model3d/glb":
+            import model3d
+
+            g = model3d.glb_path()
+            if g is None:
+                self._send(404, {"ok": False, "error": "no model yet"})
+                return
+            self._send_bytes(200, "model/gltf-binary", g.read_bytes(), no_store=True)
         elif route == "/camera/latest":
             latest = _phone_cam_dir() / "latest.jpg"
             try:
@@ -4704,7 +4863,7 @@ class _Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "pipeline": _env("JARVIS_PIPELINE", "realtime"),
-                    "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.5"),
+                    "wake_threshold": _env("JARVIS_WAKE_THRESHOLD", "0.35"),
                     "needle_enabled": _env("JARVIS_NEEDLE", "1") != "0",
                     "local_unlocked": _env("JARVIS_LOCAL") == "1",
                     # Deprecated alias, always true (see /status).
@@ -4808,6 +4967,11 @@ def main() -> None:
         pf = netscan.refresh_preflight()
         if pf["message"]:
             print(f"[protocols] {pf['message']}", flush=True)
+    with contextlib.suppress(Exception):
+        # Needle 3 is always on: start the shared daemon with the bridge.
+        from intent.needle_router import warm_up
+
+        warm_up()
     serve_forever(port=port, token=token, host=host)
 
 

@@ -65,18 +65,6 @@ def mk(tmp_path, monkeypatch):
 PAIRS = list(itertools.permutations(["jarvis", "friday", "ultron"], 2))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def test_input_when_idle_not_buffered(mk):
     w = mk()
     assert w.cond.submit_input({"text": "x"}) is False

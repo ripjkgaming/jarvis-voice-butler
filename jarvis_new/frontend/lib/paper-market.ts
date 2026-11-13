@@ -3,11 +3,13 @@
  */
 export type PaperMarketSnapshot = {
   schema_version: 1;
+  /** Optional multi-portfolio envelope added by the comparison service. */
+  comparison?: PaperMarketComparison;
   generated_at?: string;
   experiment: {
     id: string;
-    started_at: string;
-    expires_at: string;
+    started_at: string | null;
+    expires_at: string | null;
     initial_cash_usd: string;
     status: string;
     model: string;
@@ -23,6 +25,9 @@ export type PaperMarketSnapshot = {
     valuation_complete: boolean;
     valuation_fresh?: boolean;
     marks_as_of?: string | null;
+    invested_value_usd?: string | null;
+    maximum_drawdown_pct?: string | null;
+    trade_count?: number;
   };
   market: {
     is_open: boolean;
@@ -69,6 +74,9 @@ export type PaperMarketSnapshot = {
       notional_usd: string | null;
       quantity: string | null;
     }[];
+    evidence?: unknown;
+    usage?: unknown;
+    verification?: unknown;
   }[];
   fills: {
     id: string;
@@ -120,6 +128,28 @@ export type PaperMarketSnapshot = {
   };
 };
 
+export type PaperMarketComparison = {
+  id: string;
+  status: string;
+  started_at: string | null;
+  expires_at: string | null;
+  settings: Record<string, unknown>;
+  readiness: unknown;
+  news: unknown;
+  portfolios: {
+    id: string;
+    name: string;
+    strategy: string;
+    snapshot: PaperMarketSnapshot;
+    usage_cost_usd?: string | null;
+  }[];
+  benchmark: unknown;
+  equity_history: unknown[];
+  gaps: unknown[];
+  usage_costs?: { included_in_returns?: boolean; usd?: string | null; status?: string } | null;
+  remaining_seconds?: number | null;
+};
+
 export function decimalNumber(value: unknown): number | null {
   if (typeof value !== 'string' || !/^-?\d+(?:\.\d+)?$/.test(value)) return null;
   const number = Number(value);
@@ -139,15 +169,40 @@ const items = (value: unknown, valid: (item: Record<string, unknown>) => boolean
 
 /** Reject unavailable/error payloads instead of rendering invented zero balances. */
 export function parsePaperMarketSnapshot(value: unknown): PaperMarketSnapshot | null {
+  // The comparison service may expose the envelope directly instead of wrapping it in
+  // the legacy single-account root. Use a real ledger snapshot as the compatibility base.
+  if (
+    record(value) &&
+    value.schema_version === undefined &&
+    (record(value.comparison) || (typeof value.id === 'string' && Array.isArray(value.portfolios)))
+  ) {
+    const c = (record(value.comparison) ? value.comparison : value) as Record<string, unknown>;
+    if (!Array.isArray(c.portfolios) || c.portfolios.length === 0) return null;
+    const first = c.portfolios[0];
+    if (!record(first)) return null;
+    const ledger = record(first.snapshot) ? first.snapshot : first;
+    const base = parsePaperMarketSnapshot(ledger);
+    if (!base) return null;
+    return parsePaperMarketSnapshot({ ...base, comparison: c });
+  }
   if (!record(value) || value.schema_version !== 1) return null;
   const { experiment: e, account: a, market: m, runtime: r } = value;
   if (!record(e) || !record(a) || !record(m) || !record(r)) return null;
   if (
-    !strings(e, ['id', 'started_at', 'expires_at', 'status', 'model', 'effort']) ||
+    !strings(e, ['id', 'status', 'model', 'effort']) ||
+    !optionalStrings(e, ['started_at', 'expires_at']) ||
     !decimals(e, ['initial_cash_usd']) ||
     !decimals(a, ['cash_usd', 'realized_pnl_usd']) ||
     !decimals(a, ['equity_usd', 'total_pnl_usd', 'total_return_pct', 'unrealized_pnl_usd'], true) ||
     typeof a.valuation_complete !== 'boolean' ||
+    (a.invested_value_usd !== undefined &&
+      decimalNumber(a.invested_value_usd) === null &&
+      a.invested_value_usd !== null) ||
+    (a.maximum_drawdown_pct !== undefined && decimalNumber(a.maximum_drawdown_pct) === null) ||
+    (a.trade_count !== undefined &&
+      (typeof a.trade_count !== 'number' ||
+        !Number.isFinite(a.trade_count) ||
+        a.trade_count < 0)) ||
     (a.valuation_fresh !== undefined && typeof a.valuation_fresh !== 'boolean') ||
     (a.marks_as_of !== undefined && a.marks_as_of !== null && typeof a.marks_as_of !== 'string') ||
     typeof m.is_open !== 'boolean' ||
@@ -249,7 +304,62 @@ export function parsePaperMarketSnapshot(value: unknown): PaperMarketSnapshot | 
       ))
   )
     return null;
-  return value as PaperMarketSnapshot;
+  const result = value as PaperMarketSnapshot;
+  if (value.comparison !== undefined) {
+    const c = value.comparison;
+    if (
+      !record(c) ||
+      !strings(c, ['id', 'status']) ||
+      !optionalStrings(c, ['started_at', 'expires_at']) ||
+      !record(c.settings) ||
+      !Array.isArray(c.portfolios) ||
+      !Array.isArray(c.equity_history) ||
+      !Array.isArray(c.gaps)
+    )
+      return null;
+    const portfolios = c.portfolios.map((p) => {
+      if (!record(p) || !strings(p, ['id', 'name', 'strategy'])) return null;
+      // Accept either a nested snapshot or a ledger snapshot spread alongside identity metadata.
+      const raw = record(p.snapshot) ? p.snapshot : p;
+      const snapshot = parsePaperMarketSnapshot(raw);
+      if (
+        !snapshot ||
+        (typeof p.usage_cost_usd !== 'undefined' &&
+          p.usage_cost_usd !== null &&
+          decimalNumber(p.usage_cost_usd) === null)
+      )
+        return null;
+      return {
+        id: p.id as string,
+        name: p.name as string,
+        strategy: p.strategy as string,
+        snapshot,
+        usage_cost_usd: p.usage_cost_usd as string | null | undefined,
+      };
+    });
+    if (portfolios.some((p) => p === null)) return null;
+    result.comparison = {
+      id: c.id as string,
+      status: c.status as string,
+      started_at: c.started_at as string | null,
+      expires_at: c.expires_at as string | null,
+      settings: c.settings,
+      readiness: c.readiness,
+      news: c.news,
+      portfolios: portfolios as NonNullable<(typeof portfolios)[number]>[],
+      benchmark: c.benchmark,
+      equity_history: c.equity_history,
+      gaps: c.gaps,
+      usage_costs: record(c.usage_costs)
+        ? (c.usage_costs as PaperMarketComparison['usage_costs'])
+        : null,
+      remaining_seconds:
+        typeof c.remaining_seconds === 'number' && Number.isFinite(c.remaining_seconds)
+          ? c.remaining_seconds
+          : null,
+    };
+  }
+  return result;
 }
 
 export type ChartMetric = 'equity_usd' | 'total_pnl_usd';
@@ -329,4 +439,49 @@ export function ageLabel(at: string | null, now: number, fallback?: number | nul
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+/** Blockers keep a portfolio from trading (e.g. copy trader without credentials).
+ * Taken from the shared readiness evidence and the portfolio's own runtime; never invented.
+ */
+export function portfolioBlockers(
+  comparison: PaperMarketComparison,
+  portfolio: PaperMarketComparison['portfolios'][number]
+): string[] {
+  const out: string[] = [];
+  const readiness = record(comparison.readiness) ? comparison.readiness : {};
+  const checks = record(readiness.checks) ? readiness.checks : {};
+  const key = portfolio.id === 'copy' || portfolio.id === 'bot' ? portfolio.id : null;
+  const check = key && record(checks[key]) ? checks[key] : null;
+  if (check && check.ready !== true && Array.isArray(check.blockers))
+    out.push(...check.blockers.filter((b): b is string => typeof b === 'string'));
+  const runtime = portfolio.snapshot.runtime as Record<string, unknown>;
+  if (runtime.last_cycle_status === 'blocked' && Array.isArray(runtime.blockers))
+    out.push(...runtime.blockers.filter((b): b is string => typeof b === 'string'));
+  // A copy portfolio with no fills and a failed check is blocked even before launch.
+  if (portfolio.strategy === 'verified_copy' && !out.length && check && check.ready !== true)
+    out.push('integration verification pending');
+  return [...new Set(out)];
+}
+
+/** Per-portfolio API cost; falls back to the shared total only when it is a real number. */
+export function usageCost(
+  comparison: PaperMarketComparison,
+  portfolio: PaperMarketComparison['portfolios'][number]
+): string | null {
+  if (portfolio.usage_cost_usd !== undefined && portfolio.usage_cost_usd !== null)
+    return portfolio.usage_cost_usd;
+  return null;
+}
+
+/** ASCII meter: filled cells out of `width`, clamped. Display only. */
+export function asciiBar(fraction: number, width = 10): string {
+  const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0;
+  const n = Math.round(f * width);
+  return '█'.repeat(n) + '░'.repeat(width - n);
+}
+
+export function trendGlyph(value: string | null | undefined): string {
+  const n = decimalNumber(value);
+  return n === null || n === 0 ? '■' : n > 0 ? '▲' : '▼';
 }

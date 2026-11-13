@@ -9,7 +9,13 @@ import pytest
 
 pytest.importorskip("PyQt6")
 
-_PATH = Path(__file__).resolve().parent.parent / "desktop" / "cinematic" / "dragfx" / "dragfx.py"
+_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "desktop"
+    / "cinematic"
+    / "dragfx"
+    / "dragfx.py"
+)
 
 
 @pytest.fixture()
@@ -105,25 +111,30 @@ def test_reports_keep_reform_owned_by_dragged_window(dragfx):
     from types import SimpleNamespace
 
     app = SimpleNamespace(
-        locked=False, field=dragfx.Field(), window_id=None, last_report=0,
+        locked=False,
+        field=dragfx.Field(),
+        window_id=None,
+        last_report=0,
         clock=SimpleNamespace(isValid=lambda: True, nsecsElapsed=lambda: 1000000000),
         timer=SimpleNamespace(isActive=lambda: True),
     )
 
     def report(kind, window_id, x):
-        dragfx.App.Report(app, json.dumps(dict(s=kind, id=window_id, x=x, y=0,
-                                               w=400, h=300, cx=0, cy=0)))
+        dragfx.App.Report(
+            app,
+            json.dumps(dict(s=kind, id=window_id, x=x, y=0, w=400, h=300, cx=0, cy=0)),
+        )
 
-    report('start', 1, 100)
-    report('step', 1, 150)
-    report('end', 1, 150)
-    report('end', 2, 3000)
-    report('target', 2, 3000)
+    report("start", 1, 100)
+    report("step", 1, 150)
+    report("end", 1, 150)
+    report("end", 2, 3000)
+    report("target", 2, 3000)
     assert app.field.home == (150, 0, 400, 300)
-    report('target', 1, 1920)
+    report("target", 1, 1920)
     assert app.field.home == (1920, 0, 400, 300)
-    report('step', 1, 150)
+    report("step", 1, 150)
     assert app.field.home == (1920, 0, 400, 300)
-    report('start', 2, 3000)
-    report('target', 1, 100)
+    report("start", 2, 3000)
+    report("target", 1, 100)
     assert app.field.home is None

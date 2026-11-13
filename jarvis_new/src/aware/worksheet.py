@@ -5,7 +5,7 @@
    recent list first, then a bounded walk of $HOME and /mnt/data) and open it.
 2. Read it as slots (Writer paragraphs and table cells, Calc cells) through
    ``lo_uno.py`` under the system python.
-3. Ask Gemini which slots are unanswered or wrong and what goes in them.
+3. Ask Claude Haiku (Gemini as fallback) which slots are unanswered or wrong and what goes in them.
 4. Write the answers into the live document as one undo step. Never saves:
    Sir reviews, Ctrl+Z takes it all back, and nothing hits disk until Sir saves.
 
@@ -251,6 +251,51 @@ def ask_answers(
     raise RuntimeError(last)
 
 
+HAIKU_MODEL = os.environ.get("JARVIS_WORKSHEET_MODEL", "claude-haiku-5-5")
+HAIKU_TIMEOUT_S = 90.0
+HAIKU_REPLY = (
+    "\n\nReply with ONE JSON object and nothing else: "
+    '{"edits": [{"id": "<slot id>", "text": "<new slot text>", '
+    '"question": "<which question>"}], "summary": "<one line>"}. '
+    'An already complete worksheet gives {"edits": []}.'
+)
+
+
+def haiku_answers(slots: list[dict], context: dict, call=None) -> list:
+    """Claude Haiku via the isolated ``claude --print`` path (no tools, no
+    MCP, no session). Raises on failure so the next engine can try."""
+    import research_fast as rf
+
+    call = call or rf._call
+    prompt = answer_prompt(slots, context)
+    system, task = ANSWER_PROMPT + HAIKU_REPLY, prompt[len(ANSWER_PROMPT) :].strip()
+    text = call(
+        HAIKU_MODEL,
+        system,
+        task,
+        tools=(),
+        timeout=HAIKU_TIMEOUT_S,
+        tracker=rf.Tracker(),
+    )
+    obj = rf._json_object(text or "")
+    if not isinstance(obj, dict) or not isinstance(obj.get("edits"), list):
+        raise RuntimeError("haiku: no JSON edits")
+    return obj["edits"]
+
+
+def best_answers(slots: list[dict], context: dict, engines=None) -> list:
+    """Haiku first (better at the maths, no Gemini free-tier quota), then
+    Gemini. Raises only when every engine fails."""
+    engines = engines or [haiku_answers, ask_answers]
+    last: Exception | None = None
+    for engine in engines:
+        try:
+            return engine(slots, context)
+        except Exception as exc:
+            last = exc
+    raise RuntimeError(str(last)[:120] if last else "no engine")
+
+
 def clean_edits(edits: list, slots: list[dict]) -> list[dict]:
     """Keep edits to known slots that change something. Pure."""
     known = {s["id"]: s["text"] for s in slots}
@@ -301,7 +346,7 @@ def complete(
     """Fill in the worksheet in ``title``. Returns a Result with a spoken line."""
     context = context or {}
     helper = helper or call_helper
-    answers = answers or ask_answers
+    answers = answers or best_answers
     name = doc_name(title) or "the worksheet"
     url, how = locate(title, helper=helper, finder=finder)
     if not url:

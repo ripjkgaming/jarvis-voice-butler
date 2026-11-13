@@ -33,6 +33,7 @@ from system.core import DATA_DIR, TODOS_PATH
 from system.whatsapp import SETUP_HINT as _WA_SETUP_HINT
 from system.whatsapp import alive as _wa_alive
 from system.whatsapp import list_chats as _wa_list_chats
+from system.whatsapp import ensure_page as _wa_ensure_page
 from system.whatsapp import page_present as _wa_page_present
 from system.whatsapp import read_chat as _wa_read_chat
 
@@ -237,7 +238,8 @@ def _wa_targets() -> list:
 
 
 def wa_page_present() -> bool:
-    return _wa_page_present()
+    # Blank WhatSie window (about:blank) is reloaded once instead of failing.
+    return _wa_page_present() or _wa_ensure_page()
 
 
 class DailyTools:

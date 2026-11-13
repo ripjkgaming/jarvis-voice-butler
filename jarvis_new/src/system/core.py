@@ -442,9 +442,12 @@ async def _guarded_thread_action(
         try:
             result = work()
             from action_outcome import parse_outcome
+
             receipt = parse_outcome(result)
             if receipt is not None:
-                action_guard.settle(tool, args, source, receipt.accepted, lease=lease, outcome=receipt)
+                action_guard.settle(
+                    tool, args, source, receipt.accepted, lease=lease, outcome=receipt
+                )
                 return result
             ok, say = result
         except BaseException:
@@ -761,10 +764,12 @@ class SystemTools:
 
         # Verify the volume change and return the real read-back.
         ticket = phone_session.approval_ticket()
+
         def authorize():
             phone_session.check_approval_effect(ticket, current=True)
             if phone_session.guest_required():
                 raise LocalSystemError("Guest mode refuses owner actions.")
+
         def change_volume() -> dict:
             result = audio_ctl.volume_result(action, level, authorize=authorize)
             ok = bool(result["ok"])
@@ -910,7 +915,10 @@ class SystemTools:
         # hears the same audio and calls us too).
         dup = action_guard.claim("play_media", {"query": query}, _source(context))
         if dup is not None:
-            return action_guard.duplicate_reply(dup, "The video launch request is already handled; playback is not verified.")
+            return action_guard.duplicate_reply(
+                dup,
+                "The video launch request is already handled; playback is not verified.",
+            )
         try:
             from system.desktop import sandbox_display
 
@@ -918,6 +926,7 @@ class SystemTools:
             from media_selection import receipt, resolve_async
 
             ticket = phone_session.approval_ticket()
+
             def authorize():
                 phone_session.check_approval_effect(ticket, current=True)
                 error = phone_session.private_tool_error("play_media")
@@ -929,10 +938,20 @@ class SystemTools:
             selection = await resolve_async(query, guard=authorize) if query else None
             if selection is not None and selection.decision != "selected":
                 result = receipt(selection)
-                action_guard.settle("play_media", {"query": query}, _source(context),
-                                    False, result["say"], outcome=result)
+                action_guard.settle(
+                    "play_media",
+                    {"query": query},
+                    _source(context),
+                    False,
+                    result["say"],
+                    outcome=result,
+                )
                 return result
-            url = selection.url if selection else "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+            url = (
+                selection.url
+                if selection
+                else "https://www.youtube.com/watch?v=ABFW7Tp_2HI&list=PLR1n3ezbUDL0"
+            )
             brave = shutil.which("brave-browser") or shutil.which("brave")
             if brave is None:
                 raise ToolError("Brave is not installed on this system.")
@@ -1190,6 +1209,7 @@ class SystemTools:
         import hashlib
 
         from system.action_verify import MAX_TEXT_BYTES, write_verified
+
         try:
             require_local()
             if phone_session.guest_required():
@@ -1208,11 +1228,17 @@ class SystemTools:
         target = Path(os.path.abspath(target))
         # Do not resolve symlinks here: the verifier refuses every symlink component.
         ticket = phone_session.approval_ticket()
+
         def authorize():
             phone_session.check_approval_effect(ticket, current=True)
             if phone_session.guest_required():
                 raise LocalSystemError("Guest mode refuses owner actions.")
-        args = {"path": str(target), "text_digest": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+
+        args = {
+            "path": str(target),
+            "text_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        }
+
         def work():
             result = write_verified(
                 target,
@@ -1227,7 +1253,14 @@ class SystemTools:
             )
             log_action("files-write", result["outcome"]["state"])
             return result
-        return await _guarded_thread_action("write_file", args, _source(context), work, "The file write is not verified.")
+
+        return await _guarded_thread_action(
+            "write_file",
+            args,
+            _source(context),
+            work,
+            "The file write is not verified.",
+        )
 
     @function_tool()
     async def move_file(
@@ -1511,7 +1544,12 @@ class SystemTools:
         # "open YouTube": the fast path may already have launched it from
         # the transcript; never open the same thing twice.
         guard_args = {"app": app, "url": url}
-        dup = action_guard.claim("open_app", guard_args, _source(context), request_id=action_guard.request_id(context))
+        dup = action_guard.claim(
+            "open_app",
+            guard_args,
+            _source(context),
+            request_id=action_guard.request_id(context),
+        )
         if dup is not None:
             return action_guard.duplicate_reply(dup, f"Opening {app}.")
         try:
@@ -1539,7 +1577,14 @@ class SystemTools:
             if pri is not None and not pri.argv:
                 # Single-instance app already up (Sober/Resolve): no duplicate.
                 say = pri.say or f"{pri.target} is already running, Sir."
-                action_guard.settle("open_app", guard_args, _source(context), True, say, request_id=action_guard.request_id(context))
+                action_guard.settle(
+                    "open_app",
+                    guard_args,
+                    _source(context),
+                    True,
+                    say,
+                    request_id=action_guard.request_id(context),
+                )
                 return {"say": say}
             if pri is not None:
                 argv = list(pri.argv)
@@ -1603,6 +1648,7 @@ class SystemTools:
             # real session (see system.desktop.sandbox_display).
             if not display:
                 from system.cinematic import mark_launch
+
                 await asyncio.to_thread(mark_launch, argv)
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -1617,7 +1663,11 @@ class SystemTools:
             # The process exists now. Record success before optional window
             # bookkeeping so an error there cannot permit a website retry.
             action_guard.settle(
-                "open_app", guard_args, _source(context), True, say,
+                "open_app",
+                guard_args,
+                _source(context),
+                True,
+                say,
                 request_id=action_guard.request_id(context),
             )
             # Maximize what just opened without delaying the reply: the
@@ -1629,10 +1679,23 @@ class SystemTools:
             self._tasks.add(_max_task)
             _max_task.add_done_callback(self._tasks.discard)
             log_action("launch", target)
-            action_guard.settle("open_app", guard_args, _source(context), True, say, request_id=action_guard.request_id(context))
+            action_guard.settle(
+                "open_app",
+                guard_args,
+                _source(context),
+                True,
+                say,
+                request_id=action_guard.request_id(context),
+            )
             return {"say": say, "pid": str(proc.pid or 0)}
         except BaseException:
-            action_guard.settle("open_app", guard_args, _source(context), False, request_id=action_guard.request_id(context))
+            action_guard.settle(
+                "open_app",
+                guard_args,
+                _source(context),
+                False,
+                request_id=action_guard.request_id(context),
+            )
             raise
 
     @function_tool()

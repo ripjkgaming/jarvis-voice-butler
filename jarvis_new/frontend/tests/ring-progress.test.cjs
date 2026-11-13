@@ -306,3 +306,29 @@ test('bank: focus cycles live rings and parks on a completing one', () => {
   bank.step(t, dt);
   assert.equal(bank.focus, 1);
 });
+
+test('lagging feed echo of a finished job never reopens its ring', () => {
+  const bank = new R.RingBank();
+  bank.sync([task('r:p1', 0.9)], 0);
+  bank.step(16, 16);
+  // done reported, then a stale "running" echo arrives (other poll clock)
+  bank.sync([task('r:p1', 0.9, { state: 'done' })], 1000);
+  bank.sync([task('r:p1', 0.9)], 1100);
+  let t = 1100;
+  for (let i = 0; i < 600; i++) bank.step((t += 16), 16);
+  assert.equal(bank.slots.filter((s) => s.phase !== 'free').length, 0);
+});
+
+test('collectTasks: research fed by /sys and /activity is one id; terminal wins', () => {
+  const rs = [{ id: 'p1', title: 'edu', progress: 88 }];
+  const act = (status) => [
+    { id: 'project-p1', kind: 'research', title: 'edu', progress: 88, status },
+  ];
+  let out = R.collectTasks(rs, act('running'));
+  assert.equal(out.length, 1);
+  out = R.collectTasks([], act('running'));
+  assert.equal(JSON.stringify(out.map((x) => x.id)), '["r:p1"]');
+  out = R.collectTasks(rs, act('cancelled'));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].state, 'cancelled');
+});

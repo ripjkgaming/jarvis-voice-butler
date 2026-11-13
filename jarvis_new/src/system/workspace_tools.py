@@ -910,17 +910,43 @@ class WorkspaceTools:
         return {"say": ("Coming up: " + "; ".join(rows))[:1200]}
 
     @function_tool()
-    async def route_request(self, context: RunContext, request: str) -> dict:
-        """Decide direct Jarvis vs backend when the owner's intent is unclear.
+    async def route_request(
+        self,
+        context: RunContext,
+        request: str,
+        intent_confidence: float = 0.5,
+        actionable: bool = True,
+    ) -> dict:
+        """Automatically consult the decider for uncertain actionable requests.
 
-        Advisory only: starts no job and executes no action. Obvious conversation,
-        volume/media/app controls and quick facts need no routing call. Preserve
-        the owner's full request including any explicit Claude/ChatGPT preference.
+        Call without asking the owner when your intent_confidence <= 0.5.
+        Skip ordinary conversation and confidently understood workflows. This is
+        your intent estimate, not factual-answer certainty or measured confidence.
+        Advisory only: starts no job and executes no action. Preserve the full
+        original request and any explicit provider preference. Follow next_tool
+        afterward; the normal execution and confirmation guards still apply.
+
+        Args:
+            request: The owner's full unchanged actionable request.
+            intent_confidence: Your estimated confidence, 0 to 1, in the correct workflow.
+            actionable: True for a request to do work; false for ordinary conversation.
         """
         _guard()
         import request_router
 
-        decision = await asyncio.to_thread(request_router.decide, request)
+        decision = await asyncio.to_thread(
+            request_router.automatic,
+            request,
+            intent_confidence=intent_confidence,
+            actionable=actionable,
+        )
+        if decision.get("routing_skipped"):
+            return {
+                **decision,
+                "backend_started": False,
+                "next_tool": "",
+                "guidance": "Routing check skipped. Continue the selected workflow with existing tools and guards; clarify missing intent rather than guessing.",
+            }
         return {
             **decision,
             "backend_started": False,

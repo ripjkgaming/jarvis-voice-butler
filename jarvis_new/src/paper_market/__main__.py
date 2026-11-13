@@ -74,8 +74,20 @@ def main():
         "install-service",
         "enable-auto",
         "pause-auto",
+        "prepare-comparison",
+        "comparison-status",
+        "check-comparison",
     ):
         subparsers.add_parser(name)
+    for name in ("trial-comparison", "start-comparison"):
+        gated_parser = subparsers.add_parser(name)
+        gated_parser.add_argument(
+            "--gate",
+            action="append",
+            default=[],
+            choices=["codex", "copy", "bot"],
+            help="run without this portfolio; it stays blocked and never fills",
+        )
     server_parser = subparsers.add_parser("serve")
     server_parser.add_argument("--port", type=int, default=PORT)
     replay_parser = subparsers.add_parser("replay")
@@ -84,6 +96,23 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     state_dir = args.state_dir.expanduser().resolve()
+    if args.command.endswith("comparison") or args.command == "comparison-status":
+        from .comparison import Comparison
+        from .comparison_runtime import probe, trial
+
+        comparison = Comparison(state_dir)
+        if args.command == "prepare-comparison":
+            result = comparison.prepare()
+        elif args.command == "check-comparison":
+            result = asyncio.run(probe(comparison))
+        elif args.command == "trial-comparison":
+            result = asyncio.run(trial(comparison, seconds=1200, gate=tuple(args.gate)))
+        elif args.command == "start-comparison":
+            result = comparison.start(gate=tuple(args.gate))
+        else:
+            result = comparison.snapshot()
+        print(json.dumps(result, allow_nan=False, indent=2))
+        return
     ledger = Ledger(state_dir / "ledger.sqlite3")
     if args.command == "replay":
         from .openrouter_worker import OpenRouterWorker

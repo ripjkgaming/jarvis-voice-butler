@@ -413,8 +413,14 @@ def request_stop() -> bool:
     does not reliably get keyboard focus. True when a watch is running.
     Never raises.
     """
+    # The same shortcut also closes Monitor Mode (src/monitor_mode.py).
+    monitor_stopped = False
+    with contextlib.suppress(Exception):
+        import monitor_mode
+
+        monitor_stopped = monitor_mode.request_stop()
     if not is_running():
-        return leave_guest(GUEST_WATCH)
+        return leave_guest(GUEST_WATCH) or monitor_stopped
     try:
         state_dir().mkdir(parents=True, exist_ok=True)
         stop_path().write_text(str(time.time()))

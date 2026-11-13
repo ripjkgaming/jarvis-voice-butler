@@ -31,7 +31,9 @@ MATCH_BRAVE = f"""method return time=1 sender=:1.9 -> destination=:1.2 serial=5 
    ]
 """
 
-MATCH_NONE = "method return time=1 sender=:1.9 -> destination=:1.2 serial=5\n   array [\n   ]\n"
+MATCH_NONE = (
+    "method return time=1 sender=:1.9 -> destination=:1.2 serial=5\n   array [\n   ]\n"
+)
 
 # Shape copied from a live `qdbus org.kde.KWin /KWin org.kde.KWin.getWindowInfo`.
 INFO_PLAIN = """caption: Less Talk, More Action - YouTube - Brave
@@ -48,9 +50,9 @@ x: 0
 y: 0
 """
 
-INFO_MAXIMISED = INFO_PLAIN.replace("maximizeHorizontal: 0", "maximizeHorizontal: 2").replace(
-    "maximizeVertical: 0", "maximizeVertical: 1"
-)
+INFO_MAXIMISED = INFO_PLAIN.replace(
+    "maximizeHorizontal: 0", "maximizeHorizontal: 2"
+).replace("maximizeVertical: 0", "maximizeVertical: 1")
 INFO_FULLSCREEN = INFO_PLAIN.replace("fullscreen: false", "fullscreen: true")
 INFO_MINIMISED = INFO_PLAIN.replace("minimized: false", "minimized: true")
 
@@ -122,13 +124,23 @@ def test_parse_window_info_handles_colons_in_captions() -> None:
 
 
 def test_state_predicates() -> None:
-    assert window_ctl._state_ok("maximize", window_ctl.parse_window_info(INFO_MAXIMISED))
-    assert not window_ctl._state_ok("maximize", window_ctl.parse_window_info(INFO_PLAIN))
-    assert window_ctl._state_ok("fullscreen", window_ctl.parse_window_info(INFO_FULLSCREEN))
+    assert window_ctl._state_ok(
+        "maximize", window_ctl.parse_window_info(INFO_MAXIMISED)
+    )
+    assert not window_ctl._state_ok(
+        "maximize", window_ctl.parse_window_info(INFO_PLAIN)
+    )
+    assert window_ctl._state_ok(
+        "fullscreen", window_ctl.parse_window_info(INFO_FULLSCREEN)
+    )
     assert window_ctl._state_ok("restore", window_ctl.parse_window_info(INFO_PLAIN))
-    assert not window_ctl._state_ok("restore", window_ctl.parse_window_info(INFO_MAXIMISED))
+    assert not window_ctl._state_ok(
+        "restore", window_ctl.parse_window_info(INFO_MAXIMISED)
+    )
     assert window_ctl._state_ok("attention", window_ctl.parse_window_info(INFO_PLAIN))
-    assert not window_ctl._state_ok("attention", window_ctl.parse_window_info(INFO_MINIMISED))
+    assert not window_ctl._state_ok(
+        "attention", window_ctl.parse_window_info(INFO_MINIMISED)
+    )
 
 
 def test_restore_name_clash_keeps_the_old_restore() -> None:
@@ -164,7 +176,9 @@ def test_alias_is_tried_after_the_literal_query_misses(tmp_path) -> None:
             return _cp(argv, 0, MATCH_NONE)
         return run0(argv, **kw)
 
-    ok, _ = window_ctl.maximize("browser", run=run, active=lambda: "Brave", sleep=no_sleep)
+    ok, _ = window_ctl.maximize(
+        "browser", run=run, active=lambda: "Brave", sleep=no_sleep
+    )
     assert ok
 
 
@@ -208,7 +222,9 @@ def test_maximize_fails_when_kwin_does_not_load_the_script(tmp_path) -> None:
             return _cp(argv, 0, "-1")
         return _cp(argv, 0, "")
 
-    ok, say = window_ctl.maximize("brave", run=run, active=lambda: "Brave", sleep=no_sleep)
+    ok, say = window_ctl.maximize(
+        "brave", run=run, active=lambda: "Brave", sleep=no_sleep
+    )
     assert ok is False and "didn't take" in say
 
 
@@ -264,7 +280,13 @@ def test_non_plasma_falls_back_to_wmctrl(monkeypatch) -> None:
         sleep=no_sleep,
     )
     assert ok is True and "can't read the state back" in say
-    assert ["wmctrl", "-r", "spotify", "-b", "add,maximized_vert,maximized_horz"] in calls
+    assert [
+        "wmctrl",
+        "-r",
+        "spotify",
+        "-b",
+        "add,maximized_vert,maximized_horz",
+    ] in calls
 
 
 def test_non_plasma_without_wmctrl_says_so(monkeypatch) -> None:
@@ -295,20 +317,30 @@ async def test_maximize_window_tool(monkeypatch) -> None:
     monkeypatch.setattr(
         window_ctl,
         "maximize",
-        lambda t, fullscreen=False, **k: seen.append((t, fullscreen)) or (True, "Terminal is maximised."),
+        lambda t, fullscreen=False, **k: (
+            seen.append((t, fullscreen)) or (True, "Terminal is maximised.")
+        ),
     )
     out = await WindowTools.maximize_window(WindowTools(), None, title="terminal")  # type: ignore[arg-type]
     assert out["say"] == "Terminal is maximised." and seen == [("terminal", False)]
-    out = await WindowTools.maximize_window(WindowTools(), None, title="spotify", fullscreen=True)  # type: ignore[arg-type]
+    out = await WindowTools.maximize_window(
+        WindowTools(), None, title="spotify", fullscreen=True
+    )  # type: ignore[arg-type]
     assert seen[-1] == ("spotify", True)
-    monkeypatch.setattr(window_ctl, "maximize", lambda t, fullscreen=False, **k: (False, "nope"))
+    monkeypatch.setattr(
+        window_ctl, "maximize", lambda t, fullscreen=False, **k: (False, "nope")
+    )
     with pytest.raises(ToolError):
         await WindowTools.maximize_window(WindowTools(), None, title="zzz")  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
 async def test_restore_window_tool(monkeypatch) -> None:
-    monkeypatch.setattr(window_ctl, "restore_window", lambda t, **k: (True, "Spotify is back to normal size."))
+    monkeypatch.setattr(
+        window_ctl,
+        "restore_window",
+        lambda t, **k: (True, "Spotify is back to normal size."),
+    )
     out = await WindowTools.restore_window(WindowTools(), None, title="spotify")  # type: ignore[arg-type]
     assert out["say"] == "Spotify is back to normal size."
     monkeypatch.setattr(window_ctl, "restore_window", lambda t, **k: (False, "nope"))
@@ -319,10 +351,20 @@ async def test_restore_window_tool(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_bring_to_attention_tool_routes_maximize(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr(window_ctl, "attention", lambda t, **k: calls.append(("attention", t)) or (True, "a"))
-    monkeypatch.setattr(window_ctl, "maximize", lambda t, fullscreen=False, **k: calls.append(("maximize", t)) or (True, "m"))
+    monkeypatch.setattr(
+        window_ctl,
+        "attention",
+        lambda t, **k: calls.append(("attention", t)) or (True, "a"),
+    )
+    monkeypatch.setattr(
+        window_ctl,
+        "maximize",
+        lambda t, fullscreen=False, **k: calls.append(("maximize", t)) or (True, "m"),
+    )
     await WindowTools.bring_to_attention(WindowTools(), None, title="browser")  # type: ignore[arg-type]
-    await WindowTools.bring_to_attention(WindowTools(), None, title="browser", maximize=True)  # type: ignore[arg-type]
+    await WindowTools.bring_to_attention(
+        WindowTools(), None, title="browser", maximize=True
+    )  # type: ignore[arg-type]
     assert calls == [("attention", "browser"), ("maximize", "browser")]
     monkeypatch.setattr(window_ctl, "attention", lambda t, **k: (False, "not in front"))
     with pytest.raises(ToolError):

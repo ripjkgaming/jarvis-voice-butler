@@ -198,7 +198,8 @@ def test_visual_enrollment_preserves_vetted_sensor_error_only():
 
         visual.enroll = unavailable
         instance = watch.ComputerWatch(
-            allowed=lambda: True, visual_factory=lambda *_a, _visual=visual, **_k: _visual
+            allowed=lambda: True,
+            visual_factory=lambda *_a, _visual=visual, **_k: _visual,
         )
         result = instance.start_visual("session", object())
         assert expected in result["error"]

@@ -199,6 +199,41 @@ def execution_pending(session):
     return bool(getattr(session, "_jarvis_executing", 0))
 
 
+#: Scopes still held, per asyncio task that entered them (see release_task).
+_held = weakref.WeakKeyDictionary()
+
+
+def _current_task():
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
+def _release(token):
+    session, monitor, released = token
+    if released:
+        return
+    token[2] = True
+    if session is not None:
+        session._jarvis_executing = max(0, getattr(session, "_jarvis_executing", 0) - 1)
+    if monitor:
+        monitor.executing = max(0, monitor.executing - 1)
+        monitor.refresh()
+
+
+def release_task(task):
+    """Force-release every scope ``task`` still holds (a hung, abandoned tool).
+
+    The scope's own exit later becomes a no-op, so nothing is released twice.
+    Returns how many scopes were released.
+    """
+    tokens = (_held.pop(task, None) or []) if task is not None else []
+    for token in tokens:
+        _release(token)
+    return len(tokens)
+
+
 @contextlib.contextmanager
 def execution_scope(session):
     """Actual tool lifetime outranks SDK speech; errors/cancellation release it."""
@@ -208,11 +243,14 @@ def execution_scope(session):
     if monitor:
         monitor.executing += 1
         monitor.refresh()
+    token = [session, monitor, False]
+    task = _current_task()
+    if task is not None:
+        _held.setdefault(task, []).append(token)
     try:
         yield
     finally:
-        if session is not None:
-            session._jarvis_executing = max(0, session._jarvis_executing - 1)
-        if monitor:
-            monitor.executing = max(0, monitor.executing - 1)
-            monitor.refresh()
+        if task is not None:
+            with contextlib.suppress(KeyError, ValueError):
+                _held[task].remove(token)
+        _release(token)

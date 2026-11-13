@@ -195,7 +195,7 @@ class ScreenService:
 
         try:
             check()
-            if await self.backend.select() != ticket.selected:
+            if not _same_window(await self.backend.select(), ticket.selected):
                 raise ScreenError("The selected window changed. Ask again.")
             check()
             async with _deadline(25):
@@ -311,6 +311,14 @@ async def _command(argv, timeout):
             await _drain(reading)
 
 
+def _same_window(a, b):
+    """Selected-window identity match. Under owner auto-approve, ignore the
+    overlay list: HUD/taskbar/notification churn is not a window change."""
+    if os.environ.get("JARVIS_AUTO_APPROVE", "1") != "0":
+        return tuple(a)[:4] == tuple(b)[:4]
+    return a == b
+
+
 def _has_occlusion(snapshot):
     """FocusProbe validates rectangles; disjoint monitors/windows do not cover it."""
     if os.environ.get("JARVIS_AUTO_APPROVE", "1") != "0":
@@ -365,12 +373,14 @@ class ForegroundBackend:
             async with self._probe(directory) as probe:
                 before = await probe.snapshot()
                 check()
-                if before.signature != selected or _has_occlusion(before):
+                if not _same_window(before.signature, selected) or _has_occlusion(
+                    before
+                ):
                     raise ScreenError("The selected window changed. Ask again.")
                 await self.run(("spectacle", "-b", "-n", "-a", "-o", str(path)), 15)
                 check()
                 after = await probe.snapshot()
-                if after.signature != selected:
+                if not _same_window(after.signature, selected):
                     raise ScreenError("The selected window changed. Ask again.")
                 if (
                     not path.is_file()

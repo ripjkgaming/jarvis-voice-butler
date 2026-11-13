@@ -123,7 +123,9 @@ class EndCallTool:
                 await asyncio.sleep(_POLL_S)
                 now = loop.time()
                 if now - t0 > FAREWELL_MAX_S:
-                    log.warning("farewell still playing after %.0fs, closing", FAREWELL_MAX_S)
+                    log.warning(
+                        "farewell still playing after %.0fs, closing", FAREWELL_MAX_S
+                    )
                     break
                 started = created.done() or clock.seen
                 if not started:

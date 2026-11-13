@@ -25,6 +25,8 @@ const HOLD_INDET_MS = 1000;
 const FLASH_HOLD_MS = 1100;
 const FOCUS_CYCLE_MS = 5000;
 const MAX_DT_MS = 100;
+/** A ring that just ended ignores a "running" echo of the same id this long. */
+const REOPEN_GUARD_MS = 4000;
 /** Spring natural frequency (rad/s): ~0.65 s to settle. */
 export const OMEGA = 8;
 
@@ -150,7 +152,20 @@ export function collectTasks(
 ): RingTask[] {
   const out: RingTask[] = [];
   const rs = research ?? [];
+  // A research project is fed twice: /sys (id = project id, no status) and
+  // /activity (id = "project-<id>", mirrored ~1 s later). Both polls run on
+  // their own clocks, so one can show the job finished while the other still
+  // says running. Key both feeds by the SAME id, and let a terminal activity
+  // status win, else the lagging feed opens a second ring after done / stop.
+  const canon = (a: ActivityRow) =>
+    a.kind === 'research' && a.id.startsWith('project-') ? a.id.slice(8) : null;
+  const ended = new Set<string>();
+  for (const a of items ?? []) {
+    const pid = canon(a);
+    if (pid && toState(a.status) !== 'running') ended.add(pid);
+  }
   for (const r of rs) {
+    if (ended.has(String(r.id))) continue; // activity says done / stopped: use that
     out.push({
       id: `r:${r.id}`,
       tag: KIND_TAG.research,
@@ -162,9 +177,12 @@ export function collectTasks(
     });
   }
   for (const a of items ?? []) {
-    if (a.kind === 'research' && rs.some((r) => r.id === a.id || r.title === a.title)) continue;
+    const pid = canon(a);
+    if (pid && rs.some((r) => String(r.id) === pid) && !ended.has(pid)) continue;
+    if (!pid && a.kind === 'research' && rs.some((r) => r.id === a.id || r.title === a.title))
+      continue;
     out.push({
-      id: `a:${a.id}`,
+      id: pid ? `r:${pid}` : `a:${a.id}`,
       tag: KIND_TAG[a.kind] ?? 'TASK',
       title: a.title,
       stage: a.detail ?? '',
@@ -282,10 +300,13 @@ export class RingBank {
   burst = 0;
   private lay = { r: 0, w: 0 };
   private clock = 0;
+  /** id -> wall time its ring ended: a lagging feed must not reopen it. */
+  private ended = new Map<string, number>();
 
   /** Feed the latest task list. Safe to call at poll rate, idempotent. */
   sync(tasks: readonly RingTask[], now: number): void {
     const slots = this.slots;
+    this.clock = now;
     const byId = new Map<string, RingTask>();
     for (const t of tasks) byId.set(t.id, t);
 
@@ -299,6 +320,11 @@ export class RingBank {
       }
       if (t.state === 'running') {
         if (s.phase !== 'running') {
+          // a stale "running" echo right after the end must not revive it
+          if (now - (this.ended.get(s.id) ?? -Infinity) < REOPEN_GUARD_MS) {
+            byId.delete(s.id);
+            continue;
+          }
           s.phase = 'running'; // same id restarted while fading out
           s.phaseMs = 0;
           s.flash = 0;
@@ -312,6 +338,8 @@ export class RingBank {
 
     for (const t of byId.values()) {
       if (t.state !== 'running') continue; // never saw it run: don't animate
+      const e = this.ended.get(t.id);
+      if (e !== undefined && now - e < REOPEN_GUARD_MS) continue; // stale echo of a finished job
       const s = slots.find((x) => x.phase === 'free');
       if (!s) continue;
       this.open(s, t, now);
@@ -352,6 +380,7 @@ export class RingBank {
   }
 
   private finish(s: Slot, ok: boolean): void {
+    this.ended.set(s.id, this.clock);
     if (ok && s.holdUntil <= this.clock) {
       s.phase = 'completing';
       s.pct = 1;
@@ -477,6 +506,7 @@ export class RingBank {
   }
 
   private release(s: Slot): void {
+    if (s.id) this.ended.set(s.id, this.clock);
     s.phase = 'free';
     s.id = '';
     s.shown = false;

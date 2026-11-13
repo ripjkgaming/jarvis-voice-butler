@@ -35,8 +35,12 @@ class FakeEngine(BaseEngine):
         return next(iter(board.legal_moves))
 
     async def analyse(self, board, depth=12):
-        return Analysis(Eval(cp=-600 if len(board.move_stack) >= 3 else 20),
-                        next(iter(board.legal_moves), None), [], depth)
+        return Analysis(
+            Eval(cp=-600 if len(board.move_stack) >= 3 else 20),
+            next(iter(board.legal_moves), None),
+            [],
+            depth,
+        )
 
     def cancel(self):
         pass
@@ -53,7 +57,9 @@ class FakeEval(FakeEngine):
         ply = 2 * (board.fullmove_number - 1) + (0 if board.turn == chess.WHITE else 1)
         if board.is_checkmate():
             return Analysis(Eval(cp=-9000), None, [], depth)
-        best = chess.Move.from_uci("d2d4") if ply == 2 else next(iter(board.legal_moves))
+        best = (
+            chess.Move.from_uci("d2d4") if ply == 2 else next(iter(board.legal_moves))
+        )
         return Analysis(Eval(cp=-600 if ply >= 3 else 20), best, [best], depth)
 
 
@@ -101,7 +107,9 @@ async def test_lazy_store_and_autosave_each_move(tmp_path):
     await user_move(g, "g2g4")
     await quiet(g)
     rec = g.store.load(g._rec.id)
-    assert rec.status == "finished" and rec.result == "0-1" and rec.termination == "mate"
+    assert (
+        rec.status == "finished" and rec.result == "0-1" and rec.termination == "mate"
+    )
     gid = rec.id
     g._finish_record()  # idempotent
     g._finish_record()
@@ -134,7 +142,9 @@ async def test_resign_finishes_with_resign(tmp_path):
     await quiet(g)
     await g.handle_text("I resign")
     rec = g.store.load(g._rec.id)
-    assert rec.status == "finished" and rec.termination == "resign" and rec.result == "0-1"
+    assert (
+        rec.status == "finished" and rec.termination == "resign" and rec.result == "0-1"
+    )
     await g.close()
 
 

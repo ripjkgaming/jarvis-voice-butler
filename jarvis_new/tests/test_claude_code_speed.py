@@ -24,9 +24,18 @@ print(json.dumps({"type": "result", "session_id": "sess-1", "is_error": False,
 """
 
 REAL_FLAGS = {
-    "--print", "--verbose", "--output-format", "--model", "--permission-mode",
-    "--allowedTools", "--effort", "--strict-mcp-config", "--mcp-config",
-    "--disable-slash-commands", "--setting-sources", "--resume",
+    "--print",
+    "--verbose",
+    "--output-format",
+    "--model",
+    "--permission-mode",
+    "--allowedTools",
+    "--effort",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "--disable-slash-commands",
+    "--setting-sources",
+    "--resume",
 }
 
 
@@ -43,6 +52,7 @@ def _setup(tmp_path, monkeypatch, sleep="0"):
     monkeypatch.delenv("JARVIS_CODE_MODEL", raising=False)
     monkeypatch.delenv("JARVIS_CODE_EFFORT", raising=False)
     import claude_code_launch as L
+
     L.claude_binary.cache_clear()
     monkeypatch.setattr(L, "_has_systemd_run", lambda: "")
     procs = []
@@ -67,19 +77,27 @@ def _args(tmp_path):
 
 def test_routing():
     import claude_code_launch as L
-    assert L.route("make a python script fizzbuzz.py and run it")[::2] == (L.HAIKU, "trivial")
+
+    assert L.route("make a python script fizzbuzz.py and run it")[::2] == (
+        L.HAIKU,
+        "trivial",
+    )
     assert L.route("write a hello world html page")[0] == L.HAIKU
     assert L.route("rename the variable foo to bar")[0] == L.HAIKU
     m, e, t = L.route("add a settings screen with dark mode toggle")
     assert (m, e, t) == (L.SONNET, "medium", "normal")
     m, e, t = L.route("refactor the auth module and debug the race condition")
     assert (m, e, t) == (L.SONNET, "high", "hard")
-    assert L.route("a python package with 3 small modules and a pytest for each")[2] == "normal"
+    assert (
+        L.route("a python package with 3 small modules and a pytest for each")[2]
+        == "normal"
+    )
     assert L.route("x" * 300)[2] == "hard"
 
 
 def test_env_override(monkeypatch):
     import claude_code_launch as L
+
     monkeypatch.setenv("JARVIS_CODE_MODEL", "claude-opus-x")
     monkeypatch.setenv("JARVIS_CODE_EFFORT", "max")
     assert L.route("hello world")[:2] == ("claude-opus-x", "max")

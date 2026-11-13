@@ -20,9 +20,10 @@ def test_compose_is_pure_ascii_and_sized():
     assert text.isascii()
     assert "JARVIS :: WATCH" in text and "14:02" in text
     assert "R E C" in text and "E V E N T S" in text
-    assert wa.compose(170, 50, 5.0, clock="14:02", status="x").text() == wa.compose(
-        170, 50, 5.0, clock="14:02", status="x"
-    ).text()
+    assert (
+        wa.compose(170, 50, 5.0, clock="14:02", status="x").text()
+        == wa.compose(170, 50, 5.0, clock="14:02", status="x").text()
+    )
 
 
 def test_eye_opens_closes_and_glows_on_motion():
@@ -44,7 +45,9 @@ def test_title_falls_back_when_narrow_and_tiny_grid_is_safe():
     assert "SAVING"[:8] in tiny.text()
 
 
-@pytest.mark.parametrize("target", [None, (1,), ("x", 1), (float("nan"), 0), (0.5, 0.5)])
+@pytest.mark.parametrize(
+    "target", [None, (1,), ("x", 1), (float("nan"), 0), (0.5, 0.5)]
+)
 def test_norm_target_is_bounded(target):
     out = wa.norm_target(target)
     if out is not None:

@@ -82,6 +82,8 @@ class FastAudioPlayback:
         self._queue = deque()
         self._queued_samples = 0
         self._muted = False
+        self._fade_left = 0
+        self._fade_total = 1
         self._closed = False
         self._stream = None
         self._rate = None
@@ -90,10 +92,23 @@ class FastAudioPlayback:
             max_workers=1, thread_name_prefix="jarvis-fast-speaker"
         )
 
+    def fade_out(self, ms: float = 120.0) -> None:
+        """Ramp the speaker to silence over ``ms``, then stay muted like mute().
+
+        The ramp runs inside the hardware callback, so it is click-free and
+        independent of the event loop. Resume works exactly as after mute().
+        """
+        with self._guard:
+            if self._muted or self._fade_left:
+                return
+            total = max(1, int((self._rate or 24000) * max(5.0, ms) / 1000.0))
+            self._fade_total = self._fade_left = total
+
     def mute(self) -> None:
         """Synchronous, thread-safe and independent of slow model calls."""
         with self._guard:
             self._muted = True
+            self._fade_left = 0
             self._queue.clear()
             self._queued_samples = 0
 
@@ -101,6 +116,7 @@ class FastAudioPlayback:
         with self._guard:
             self._queue.clear()
             self._queued_samples = 0
+            self._fade_left = 0
             self._muted = False
 
     def _callback(self, outdata, frames, _time_info, _status):
@@ -120,6 +136,18 @@ class FastAudioPlayback:
                     self._queue.popleft()
                 else:
                     self._queue[0] = data[take:]
+            if self._fade_left:
+                import numpy as np
+
+                n = min(self._fade_left, frames)
+                gain = (self._fade_left - np.arange(n)) / self._fade_total
+                outdata[:n, 0] = (outdata[:n, 0] * gain).astype(np.int16)
+                outdata[n:] = 0
+                self._fade_left -= n
+                if not self._fade_left:
+                    self._muted = True
+                    self._queue.clear()
+                    self._queued_samples = 0
 
     def _open(self, rate):
         import sounddevice as sd

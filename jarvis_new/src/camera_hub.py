@@ -160,23 +160,28 @@ def active_leases(now: float | None = None) -> list[str]:
 
 
 def wanted_fps(now: float | None = None, default: float = FPS) -> float:
-    """Highest fps any live lease asks for (at least `default`). Never raises."""
+    """Highest fps any live lease asks for. Never raises.
+
+    A lease without `fps` wants `default`; a lease with `fps` wants that
+    (may be below default, so a quiet watcher can keep the hub slow).
+    No live lease -> `default`.
+    """
     now = time.time() if now is None else now
-    best = default
+    rates: list[float] = []
     try:
         files = list(leases_dir().glob("*.json"))
     except OSError:
-        return best
+        return default
     for path in files:
         if not _WHO_OK.match(path.stem):
             continue
         try:
             data = json.loads(path.read_text())
-            if float(data.get("until", 0.0)) > now and "fps" in data:
-                best = max(best, min(MAX_FPS, float(data["fps"])))
+            if float(data.get("until", 0.0)) > now:
+                rates.append(min(MAX_FPS, float(data["fps"])) if "fps" in data else default)
         except (OSError, ValueError, TypeError, AttributeError):
             continue
-    return best
+    return max(rates) if rates else default
 
 
 def has_lease(now: float | None = None) -> bool:
@@ -193,8 +198,10 @@ def latest_meta() -> dict:
         return {}
 
 
-def latest_frame(max_age_s: float = 1.5):
-    """Newest hub frame as a BGR array, or None when missing/stale. Fail-soft."""
+def latest_frame(max_age_s: float = 1.5, reduced: bool = False):
+    """Newest hub frame as a BGR array, or None when missing/stale. Fail-soft.
+
+    `reduced` decodes at half size (cheap JPEG DCT scaling)."""
     try:
         meta = latest_meta()
         try:
@@ -205,7 +212,8 @@ def latest_frame(max_age_s: float = 1.5):
             return None
         import cv2
 
-        frame = cv2.imread(str(latest_path()))
+        flag = cv2.IMREAD_REDUCED_COLOR_2 if reduced else cv2.IMREAD_COLOR
+        frame = cv2.imread(str(latest_path()), flag)
         return frame if frame is not None else None
     except Exception:
         return None

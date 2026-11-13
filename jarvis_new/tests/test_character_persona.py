@@ -35,16 +35,10 @@ def test_jarvis_identity() -> None:
     assert persona.build_instructions(BASE, j, memory_block="\nMEM") == BASE + "\nMEM"
 
 
-
-
-
-
 def test_gate_phrases_preserved() -> None:
     out = persona.build_instructions(BASE, ULTRON)
     assert '"confirm delete"' in out and '"confirm visual watch"' in out
     assert '"Sir, please confirm the thing"' in out
-
-
 
 
 def test_memory_last() -> None:
@@ -62,5 +56,3 @@ def test_neutral_and_tag() -> None:
     assert "confirm" in persona.neutral_security_line("confirm_delete")
     assert persona.neutral_security_line("zzz")
     assert persona.speaker_tag(ULTRON) == "Ultron"
-
-

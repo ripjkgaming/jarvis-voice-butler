@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import html as _html
 import os
 import re
@@ -882,7 +883,17 @@ class BrowserTools:
             self._research_active = True
             return await research.open_url(resolve_url(url))
         except BrowserError as exc:
+            await self._close_research_quietly()
             raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            await self._close_research_quietly()
+            raise ToolError(f"I could not start the research browser: {exc}") from exc
+
+    async def _close_research_quietly(self) -> None:
+        self._research_active = False
+        if self._research_browser is not None:
+            with contextlib.suppress(Exception):
+                await self._research_browser.close()
 
     @function_tool()
     async def read_research_page(self, context: RunContext) -> dict[str, str | bool]:
@@ -891,6 +902,9 @@ class BrowserTools:
             return await self._get_research_browser().read_page()
         except BrowserError as exc:
             raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            await self._close_research_quietly()
+            raise ToolError(f"I could not read the research page: {exc}") from exc
 
     @function_tool()
     async def close_deep_research(self, context: RunContext) -> dict[str, bool]:

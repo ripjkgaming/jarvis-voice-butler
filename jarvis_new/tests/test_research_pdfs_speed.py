@@ -42,6 +42,10 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(rp, "SEARCH_CACHE_PATH", tmp_path / "cache" / "search.json")
     monkeypatch.setattr(rp, "PAGE_CACHE_PATH", tmp_path / "cache" / "pages.json")
     monkeypatch.setattr(rp, "_log", lambda category, detail: None)
+    monkeypatch.setattr(rp, "SESSION_PATH", tmp_path / "cache" / "session.json")
+    monkeypatch.setattr(rp, "hide_viewer_sidebar", lambda: None)
+    monkeypatch.setattr(rp, "ARXIV_ENABLED", False)
+    monkeypatch.setattr(rp, "dismiss_viewer_dialogs", lambda *a, **k: 0)
     monkeypatch.setattr(rp, "_throttle_state", {})
     monkeypatch.setattr(rp, "screens", lambda: SCREENS)
     monkeypatch.delenv("JARVIS_PDF_BUDGET_S", raising=False)
@@ -58,9 +62,19 @@ def rows_for(n: int, delays_by_idx=None) -> list[dict]:
     ]
 
 
-def install(monkeypatch, *, rows, delays=None, search_delay=0.05, slow_query=None,
-            slow_search=0.0, open_delay=0.1, pdftotext_delay=0.05, page_count=12,
-            fetch_default=0.05):
+def install(
+    monkeypatch,
+    *,
+    rows,
+    delays=None,
+    search_delay=0.05,
+    slow_query=None,
+    slow_search=0.0,
+    open_delay=0.1,
+    pdftotext_delay=0.05,
+    page_count=12,
+    fetch_default=0.05,
+):
     rec = Rec()
     delays = delays or {}
 
@@ -108,8 +122,14 @@ def install(monkeypatch, *, rows, delays=None, search_delay=0.05, slow_query=Non
 
 
 def test_stages_overlap_wall_time_far_below_sum(monkeypatch, tmp_path):
-    rec = install(monkeypatch, rows=rows_for(6), search_delay=0.4, pdftotext_delay=0.2,
-                  open_delay=0.3, fetch_default=0.5)
+    rec = install(
+        monkeypatch,
+        rows=rows_for(6),
+        search_delay=0.4,
+        pdftotext_delay=0.2,
+        open_delay=0.3,
+        fetch_default=0.5,
+    )
     t = time.monotonic()
     res = rp.run_pipeline("lithium battery recycling", 3, tmp_path / "dl")
     wall = time.monotonic() - t
@@ -139,7 +159,7 @@ def test_slots_stay_distinct_regardless_of_arrival_order(monkeypatch, tmp_path):
     delays = {f"https://site{i}.org/report{i}.pdf": 0.6 - 0.15 * i for i in range(4)}
     rec = install(monkeypatch, rows=rows_for(4), delays=delays)
     res = rp.run_pipeline("lithium battery recycling", 4, tmp_path / "dl")
-    planned = rp.tile_rects(4, SCREENS)
+    planned = rp.reading_rects(4, SCREENS)
     rects = [o["rect"] for o in sorted(rec.opens, key=lambda o: o["start"])]
     assert rects == planned  # slot k always gets planned rect k
     assert len({(r["x"], r["y"]) for r in rects}) == 4
@@ -172,8 +192,13 @@ def test_budget_default_and_env_parsing(monkeypatch):
 
 
 def test_stops_searching_once_enough_candidates(monkeypatch, tmp_path):
-    rec = install(monkeypatch, rows=rows_for(6), search_delay=0.05, slow_query="review",
-                  slow_search=5.0)
+    rec = install(
+        monkeypatch,
+        rows=rows_for(6),
+        search_delay=0.05,
+        slow_query="review",
+        slow_search=5.0,
+    )
     t = time.monotonic()
     res = rp.run_pipeline("lithium battery recycling", 1, tmp_path / "dl")
     assert time.monotonic() - t < 2.0
@@ -231,6 +256,7 @@ def test_web_search_merges_providers_concurrently(monkeypatch):
         def fn(*a):
             time.sleep(0.4)
             return rows
+
         return fn
 
     def broken(*a):

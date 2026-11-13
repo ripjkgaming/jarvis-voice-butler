@@ -526,6 +526,17 @@ class ActivityWatcher:
                 except Exception:
                     return
             by_id = {m.get("id"): m for m in (projects or []) if m.get("id")}
+            # Adopt mirror items left "running" by a previous bridge run so the
+            # close-out loop below finishes them (else a frozen ring persists).
+            with contextlib.suppress(Exception):
+                for item in activity.list_items(now=now):
+                    iid = str(item.get("id", ""))
+                    if (
+                        item.get("status") == "running"
+                        and item.get("source") == "projects"
+                        and iid.startswith("project-")
+                    ):
+                        self._projects.add(iid)
             for pid, meta in by_id.items():
                 try:
                     if meta.get("status") != "running":

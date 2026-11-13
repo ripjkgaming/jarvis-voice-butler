@@ -39,7 +39,9 @@ async def build(
     tmp_path, text="pawn to e4", delay=0.0, watcher=None, time_control="untimed"
 ):
     game = ChessGame(
-        ChessSettings(commentary_muted=False, announce_moves=False, difficulty="novice"),
+        ChessSettings(
+            commentary_muted=False, announce_moves=False, difficulty="novice"
+        ),
         engine=MiniEngine(1),
         save_dir=tmp_path,
         autosave=False,

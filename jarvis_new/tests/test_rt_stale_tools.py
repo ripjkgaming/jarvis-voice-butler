@@ -85,8 +85,10 @@ async def _settle(session):
 
 async def _run_calls(session, backend, names):
     before = len(backend.batches)
+    # call ids must be unique per session: replayed ids are ignored
     session.backend_event(
-        "tool_calls", calls=[_call(n, f"c{i}") for i, n in enumerate(names)]
+        "tool_calls",
+        calls=[_call(n, f"c{before}-{i}") for i, n in enumerate(names)],
     )
     await _settle(session)
     assert len(backend.batches) == before + 1

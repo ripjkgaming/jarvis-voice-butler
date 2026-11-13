@@ -114,7 +114,12 @@ async def test_scripted_twenty_move_voice_game_uses_no_network(tmp_path, monkeyp
     guard = NetGuard(monkeypatch)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     game = ChessGame(
-        ChessSettings(commentary_muted=False, announce_moves=True, difficulty="novice", confirm_moves=False),
+        ChessSettings(
+            commentary_muted=False,
+            announce_moves=True,
+            difficulty="novice",
+            confirm_moves=False,
+        ),
         engine=MiniEngine(4),
         save_dir=tmp_path,
         autosave=False,
@@ -215,7 +220,9 @@ async def test_openrouter_is_the_only_host_and_only_when_asked(tmp_path, monkeyp
         key="sk-or-1",
     )
     game = ChessGame(
-        ChessSettings(commentary_muted=False, announce_moves=False, difficulty="novice"),
+        ChessSettings(
+            commentary_muted=False, announce_moves=False, difficulty="novice"
+        ),
         engine=MiniEngine(1),
         commentary=Commentary(router),
         save_dir=tmp_path,

@@ -40,13 +40,25 @@ def test_media_controls_unchanged(text, tool) -> None:
 
 def test_youtube_url_uses_shared_metadata_match(monkeypatch) -> None:
     import media_selection
-    monkeypatch.setattr(media_selection, "resolve", lambda *a, **k: media_selection.Selection("selected", "metadata_match", "bbbbbbbbbbb", 2))
+
+    monkeypatch.setattr(
+        media_selection,
+        "resolve",
+        lambda *a, **k: media_selection.Selection(
+            "selected", "metadata_match", "bbbbbbbbbbb", 2
+        ),
+    )
     assert bridge._youtube_url("x") == "https://www.youtube.com/watch?v=bbbbbbbbbbb"
 
 
 def test_youtube_url_no_match_opens_nothing(monkeypatch) -> None:
     import media_selection
-    monkeypatch.setattr(media_selection, "resolve", lambda *a, **k: media_selection.Selection("unavailable", "no_supported_match"))
+
+    monkeypatch.setattr(
+        media_selection,
+        "resolve",
+        lambda *a, **k: media_selection.Selection("unavailable", "no_supported_match"),
+    )
     assert bridge._youtube_url("grant wisler") is None
 
 

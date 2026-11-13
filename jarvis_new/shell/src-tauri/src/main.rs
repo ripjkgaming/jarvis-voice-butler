@@ -57,6 +57,13 @@ fn main() {
                 "chess" | "chessshow" => tray::show_chess(app),
                 "chesshide" => tray::hide_chess(app),
                 "chessstate" => print_window_state(app, "chess"),
+                // Separate 3D hologram window (driven by src/model3d.py).
+                "holoshow" => {
+                    let _ = commands::show_holo_window(app.clone());
+                }
+                "holohide" => {
+                    let _ = commands::hide_holo_window(app.clone());
+                }
                 // `jarvis show`: bring the HUD forward without toggling it away
                 // (the character commands use this before they switch).
                 "show" => tray::show_overlay(app),
@@ -107,6 +114,8 @@ fn main() {
             commands::overlay_frame,
             commands::open_chess_window,
             commands::close_chess_window,
+            commands::show_holo_window,
+            commands::hide_holo_window,
             commands::set_overlay_click_through,
             commands::set_mic_muted,
             commands::mic_status,

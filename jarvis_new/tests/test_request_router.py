@@ -113,3 +113,106 @@ async def test_backend_tool_keeps_provider_preference(monkeypatch):
     assert got["backend_started"] is True
     await jobs[0]()
     assert seen[0]["preferred"] == "claude"
+
+
+@pytest.mark.parametrize("confidence", [0.0, 0.49, 0.5])
+def test_automatic_routing_consults_at_or_below_half(monkeypatch, confidence):
+    calls = []
+    monkeypatch.setattr(
+        request_router,
+        "decide",
+        lambda request: (
+            calls.append(request)
+            or {"route": "research", "provider": "auto", "source": "decider"}
+        ),
+    )
+    result = request_router.automatic(
+        "Compare these options thoroughly",
+        intent_confidence=confidence,
+        actionable=True,
+    )
+    assert calls == ["Compare these options thoroughly"]
+    assert result["route"] == "research" and result["routing_skipped"] is False
+
+
+@pytest.mark.parametrize(
+    ("confidence", "actionable", "reason"),
+    [
+        (0.5001, True, "confident"),
+        (0.9, True, "confident"),
+        (0.0, False, "conversation"),
+        (0.5, False, "conversation"),
+        (True, True, "invalid-confidence"),
+        (float("nan"), True, "invalid-confidence"),
+        (float("inf"), True, "invalid-confidence"),
+        (-0.1, True, "invalid-confidence"),
+        (1.1, True, "invalid-confidence"),
+        (None, True, "invalid-confidence"),
+    ],
+)
+def test_automatic_routing_skips_confident_conversation_and_invalid_inputs(
+    monkeypatch, confidence, actionable, reason
+):
+    monkeypatch.setattr(
+        request_router,
+        "decide",
+        lambda *_: pytest.fail("unexpected decision-model routing"),
+    )
+    result = request_router.automatic(
+        "Hello there", intent_confidence=confidence, actionable=actionable
+    )
+    assert result["routing_skipped"] is True and result["reason"] == reason
+
+
+@pytest.mark.asyncio
+async def test_route_tool_passes_confidence_gate_without_starting_work(monkeypatch):
+    monkeypatch.setattr(
+        request_router,
+        "decide",
+        lambda *_: pytest.fail("confident turn must not reach decider"),
+    )
+    tools = WorkspaceTools()
+    result = await WorkspaceTools.route_request(
+        tools, None, request="Prepare a report", intent_confidence=0.9, actionable=True
+    )
+    assert result["routing_skipped"] is True
+    assert result["backend_started"] is False and tools._tasks == set()
+    assert "selected workflow" in result["guidance"]
+
+
+def test_route_tool_schema_exposes_confidence_and_actionability():
+    from jarvis_rt import tool_schema
+
+    schema = tool_schema(WorkspaceTools().route_request)
+    properties = schema["parameters"]["properties"]
+    assert properties["intent_confidence"]["type"] == "number"
+    assert properties["actionable"]["type"] == "boolean"
+
+
+def test_automatic_trigger_does_not_lower_decider_acceptance(monkeypatch):
+    calls = []
+
+    def decide(*args, **kwargs):
+        calls.append(args)
+        return answer(route="backend", p=0.55), None
+
+    monkeypatch.setattr(mercury_decide, "decide", decide)
+    result = request_router.automatic(
+        "Work out what should handle this task", intent_confidence=0.5, actionable=True
+    )
+    assert len(calls) == 1
+    assert result["routing_skipped"] is False
+    assert result["route"] == "direct" and result["reason"] == "uncertain"
+
+
+def test_automatic_routing_respects_existing_kill_switch(monkeypatch):
+    monkeypatch.setenv("JARVIS_REQUEST_DECIDER", "0")
+    monkeypatch.setattr(
+        mercury_decide,
+        "decide",
+        lambda *_args, **_kwargs: pytest.fail("disabled route invoked decision API"),
+    )
+    result = request_router.automatic(
+        "Research or write a plan", intent_confidence=0.5, actionable=True
+    )
+    assert result["routing_skipped"] is True and result["reason"] == "disabled"

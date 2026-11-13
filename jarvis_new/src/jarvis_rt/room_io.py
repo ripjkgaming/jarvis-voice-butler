@@ -156,8 +156,13 @@ class RoomIO:
         elif text:
             self._sync.push_text(text)
 
+    def request_fade(self, ms: int) -> None:
+        """Make the next flush ramp the speaker down over ``ms`` (one-shot)."""
+        self._fade_ms = max(0, min(int(ms), 1000))
+
     def _on_flush(self) -> None:
-        self.room.flush_playback()
+        fade_ms, self._fade_ms = getattr(self, "_fade_ms", 0), 0
+        self.room.flush_playback(fade_ms)
         self._sync.reset()
 
     def _publish_state(self, _event: Any) -> None:

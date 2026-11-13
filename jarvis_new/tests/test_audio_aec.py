@@ -89,7 +89,11 @@ def test_parse_control_db() -> None:
 
 
 def test_dmic_gain_env(monkeypatch) -> None:
+    # Default leaves the system mixer alone: writing Dmic0 behind PipeWire's
+    # back drops the system mic source to 46% (-20 dB) for every app.
     monkeypatch.delenv("JARVIS_DMIC_GAIN_DB", raising=False)
+    assert audio_aec.dmic_gain_db() is None
+    monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "0")
     assert audio_aec.dmic_gain_db() == 0.0
     monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "6")
     assert audio_aec.dmic_gain_db() == 6.0
@@ -99,7 +103,7 @@ def test_dmic_gain_env(monkeypatch) -> None:
 
 def test_headroom_lowers_but_never_raises(monkeypatch) -> None:
     calls = []
-    monkeypatch.delenv("JARVIS_DMIC_GAIN_DB", raising=False)
+    monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "0")
     monkeypatch.setattr(audio_aec, "_dmic_card", lambda: "1")
 
     def fake(*args):
@@ -115,7 +119,16 @@ def test_headroom_lowers_but_never_raises(monkeypatch) -> None:
     assert audio_aec.set_mic_headroom() == "kept (-3 dB)"
 
 
+def test_headroom_default_never_touches_mixer(monkeypatch) -> None:
+    monkeypatch.delenv("JARVIS_DMIC_GAIN_DB", raising=False)
+    monkeypatch.setattr(
+        audio_aec, "_amixer", lambda *a: (_ for _ in ()).throw(AssertionError(a))
+    )
+    assert audio_aec.set_mic_headroom() == "skipped (off)"
+
+
 def test_headroom_never_raises(monkeypatch) -> None:
+    monkeypatch.setenv("JARVIS_DMIC_GAIN_DB", "0")
     monkeypatch.setattr(
         audio_aec, "_dmic_card", lambda: (_ for _ in ()).throw(OSError("x"))
     )

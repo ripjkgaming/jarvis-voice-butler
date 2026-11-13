@@ -44,7 +44,9 @@ def shared_owner(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tool_start_fast_status_and_tool_stop_share_owner(shared_owner, monkeypatch):
+async def test_tool_start_fast_status_and_tool_stop_share_owner(
+    shared_owner, monkeypatch
+):
     import watch_mode
 
     owner, requests = shared_owner

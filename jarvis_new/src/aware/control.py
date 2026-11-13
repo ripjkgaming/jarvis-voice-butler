@@ -372,7 +372,30 @@ def _status(now: float) -> str:
         head += ", in shadow mode"
     last = s.get("last_reason") or ""
     tail = f" Last tick: {last.replace('_', ' ')}." if last else ""
-    return f"{head}, Sir: {spend}.{tail}"
+    progress = ""
+    try:
+        from aware.coordinator import status as poll_status
+
+        components = poll_status().get("components", {})
+        wa = components.get("whatsapp", {})
+        if wa.get("selected") is not None:
+            chats = wa.get("chats", [])
+            complete = sum(c.get("status") == "complete" for c in chats)
+            partial = sum(c.get("status") == "partial" for c in chats)
+            progress += f" WhatsApp: {complete} of {wa['selected']} chats covered, {partial} partial."
+        elif wa.get("status") == "running":
+            progress += " The previous WhatsApp scan is still running."
+        cal = components.get("calendar", {})
+        if cal.get("staged") is not None:
+            progress += f" Calendar: {cal['staged']} new messages staged."
+        failures = [
+            name for name, item in components.items() if item.get("status") == "error"
+        ]
+        if failures:
+            progress += " Retrying: " + ", ".join(failures) + "."
+    except (ImportError, TypeError, ValueError):
+        pass
+    return f"{head}, Sir: {spend}.{tail}{progress} Exercise detection is observation-only. Opening WhatsApp chats marks messages as read."
 
 
 def _period(arg: str, now: float) -> tuple[float, str]:
@@ -410,7 +433,10 @@ def handle(action: str, arg: str = "", now: float | None = None) -> str:
         st.update(enabled=True, paused_until=0.0)
         return (
             "Always Aware is on, Sir. I'll glance at your other monitors every few "
-            "minutes, never the HUD screen, and black out anything sensitive."
+            "minutes, never the HUD screen, and black out anything sensitive. "
+            "I'll also check computer health and the first 20 WhatsApp chats. "
+            "Opening chats marks messages as read in WhatsApp. "
+            "Exercise detection is observation-only until desktop safety verification."
         )
     if action == "off":
         st.update(enabled=False, paused_until=0.0, phase="idle", phase_until=0.0)

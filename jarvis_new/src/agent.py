@@ -56,8 +56,11 @@ from system.alternatives_tools import AlternativesTools
 from system.files_tools import FilesTools
 from system.focus_tools import FocusTools
 from draft_tools import DraftTools
+from make3d_tools import Make3DTools
+from model3d_tools import Model3DTools
 from notify_tools import NotifyTools
 from system.schedule_tools import ScheduleTools
+from calls.voice_commands import CallTools
 from system.exam_tools import ExamTools
 from system.muse_tools import MuseTools
 from system.aware_tools import AwareTools
@@ -447,7 +450,17 @@ def _task_work_pending(session) -> bool:
         latency.TRACKER.pending > 0
         or execution_pending(session)
         or _background_task_running()
+        or _make3d_build_running()
     )
+
+
+def _make3d_build_running() -> bool:
+    try:
+        import make3d_tools
+
+        return make3d_tools.build_running()
+    except Exception:
+        return False
 
 
 BACKGROUND_TASK_HOLD_S = 20 * 60.0
@@ -1713,6 +1726,7 @@ def _never_demote(tool_id: str) -> bool:
         in {
             "calendar_add",
             "calendar_events_on",
+            "call_control",
             "route_request",
             "ask_backend",
             "latency_report",
@@ -1722,6 +1736,8 @@ def _never_demote(tool_id: str) -> bool:
             "build_monitor_status",
             "monitor_create",
             "research_pdfs",
+            "read_papers",
+            "show_paper_page",
             "monitor_list",
             "monitor_status",
             "monitor_stop",
@@ -1777,7 +1793,10 @@ class Assistant(Agent):
         self.reddit_tools = reddit_tools or RedditTools()
         self.draft_tools = DraftTools(self.inbox_tools)
         self.notify_tools = NotifyTools()
+        self.make3d_tools = Make3DTools()
+        self.model3d_tools = Model3DTools()
         self.schedule_tools = ScheduleTools()
+        self.call_tools = CallTools()
         self.osint_tools = OsintTools()
         self.project_tools = ProjectTools()
         self.research_pdf_tools = ResearchPdfTools()
@@ -1894,7 +1913,12 @@ class Assistant(Agent):
             *self.workshop_tools.tools,
             # One voice tool: notify Sir (spoken if present, toast otherwise).
             *self.notify_tools.tools,
+            # Build a 3D model from a prompt (Codex driving Blender MCP).
+            *self.make3d_tools.tools,
+            # Edit the live 3D model by voice + drive the HUD viewer.
+            *self.model3d_tools.tools,
             *self.schedule_tools.tools,
+            *self.call_tools.tools,
             *[
                 tool
                 for group in (
@@ -2095,6 +2119,23 @@ class Assistant(Agent):
                 import computer_watch_client
                 from watch_control import confirmation_command
 
+                import monitor_mode
+
+                if (
+                    getattr(new_message, "role", None) == "user"
+                    and not (features is not None and features.is_echo(text))
+                    and monitor_mode.parse_command(text)
+                ):
+                    # Monitor Mode = vault doors on every screen, nothing recorded.
+                    launched = await asyncio.to_thread(monitor_mode.launch)
+                    await self.session.say(
+                        "Monitoring this device, Sir."
+                        if launched.get("ok")
+                        else str(launched.get("error") or "Monitor Mode unavailable."),
+                        add_to_chat_ctx=False,
+                    )
+                    raise StopResponse()
+
                 turn_id = getattr(new_message, "id", None)
                 seen = getattr(self, "_watch_control_turns", set())
                 if (
@@ -2188,6 +2229,8 @@ class Assistant(Agent):
 
                 if await self._aware_fast_route(text):
                     raise StopResponse()
+                if await self._hud_fast_route(text):
+                    raise StopResponse()
                 proto = protocols.parse(text)
                 if proto is not None:
                     # Protocols answer only "Protocol N engaged" (nothing when
@@ -2241,6 +2284,26 @@ class Assistant(Agent):
 
                 log_action("fastpath", "error; deferring to Gemini")
             return
+
+    async def _hud_fast_route(self, text: str) -> bool:
+        """mute / hide / hide all / stop: silent instant commands (grammar,
+        then local Needle 3). Owner only; never raises."""
+        try:
+            from intent import hud_commands
+
+            if phone_session.guest_required():
+                return False
+            command = await hud_commands.parse_async(text)
+            if command is None:
+                return False
+            ok = await hud_commands.execute(command, self.session)
+        except Exception:
+            return False
+        with contextlib.suppress(Exception):
+            from system import log_action
+
+            log_action("fastpath", f"hud {command} ok={ok}")
+        return ok
 
     async def _aware_fast_route(self, text: str) -> bool:
         """Clear Always Aware phrasings ("always aware off", "pause awareness
@@ -3021,6 +3084,13 @@ async def my_agent(ctx: JobContext):
             try:
                 if assistant._watch_guest:
                     continue
+                # An instruction change reconnects Gemini Live and drops any
+                # in-flight utterance (hung "listening"). Refresh only when idle.
+                if (
+                    str(session.user_state) != "away"
+                    or str(session.agent_state) != "listening"
+                ):
+                    continue
                 old = assistant._owner_instructions
                 base = old.split("\n\n[Session awareness]\n", 1)[0]
                 new = base + session_awareness.build_awareness_block()
@@ -3514,4 +3584,8 @@ async def my_agent(ctx: JobContext):
 
 
 if __name__ == "__main__":
+    # Phone calls (WhatsApp) stay off until JARVIS_CALLS=1.
+    from calls.runtime import maybe_start as _start_calls
+
+    _start_calls()
     run_app(server)

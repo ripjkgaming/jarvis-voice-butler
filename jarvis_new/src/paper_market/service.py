@@ -16,7 +16,7 @@ HOST = "127.0.0.1"
 PORT = 8767
 
 
-def handler_for(ledger: Ledger):
+def handler_for(ledger: Ledger, comparison=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "JarvisPaperMarket/1"
         sys_version = ""
@@ -30,14 +30,17 @@ def handler_for(ledger: Ledger):
 
         def _json(self, status: int, payload: dict):
             raw = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(raw)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(raw)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(raw)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True  # client went away; nothing to send
 
         def do_GET(self):
             port = self.server.server_port
@@ -65,7 +68,10 @@ def handler_for(ledger: Ledger):
                 )
             elif self.path == "/api/paper-market":
                 try:
-                    self._json(200, ledger.snapshot())
+                    payload = ledger.snapshot()
+                    if comparison is not None and comparison.exists:
+                        payload["comparison"] = comparison.snapshot()
+                    self._json(200, payload)
                 except (RuntimeError, ValueError, TypeError):
                     self._json(503, {"error": "The paper ledger is unavailable."})
             else:
@@ -83,7 +89,11 @@ def serve(ledger: Ledger, *, port: int = PORT):
     if not 1024 <= port <= 65535:
         raise ValueError("Paper service port must be between 1024 and 65535.")
     stopped = threading.Event()
-    server = HTTPServer((HOST, port), handler_for(ledger))
+    from .comparison import Comparison
+    from .comparison_runtime import ComparisonRuntime
+
+    comparison = Comparison(ledger.path.parent)
+    server = HTTPServer((HOST, port), handler_for(ledger, comparison))
     server.timeout = 1
 
     def mark_loop():
@@ -136,6 +146,23 @@ def serve(ledger: Ledger, *, port: int = PORT):
     decision_thread.start()
     thread = threading.Thread(target=mark_loop, name="paper-quote-marks", daemon=True)
     thread.start()
+
+    def comparison_loop():
+        while not stopped.is_set():
+            if comparison.exists:
+                try:
+                    asyncio.run(ComparisonRuntime(comparison, stopped).run())
+                except Exception:
+                    # Keep the read-only dashboard available during an adapter failure.
+                    ledger.runtime(
+                        comparison_error="Comparison runner failed; queued evidence retained."
+                    )
+            stopped.wait(2)
+
+    comparison_thread = threading.Thread(
+        target=comparison_loop, name="paper-comparison", daemon=True
+    )
+    comparison_thread.start()
     try:
         server.serve_forever(poll_interval=0.5)
     finally:
@@ -143,3 +170,4 @@ def serve(ledger: Ledger, *, port: int = PORT):
         server.server_close()
         thread.join(timeout=20)
         decision_thread.join(timeout=5)
+        comparison_thread.join(timeout=5)

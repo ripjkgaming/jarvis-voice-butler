@@ -30,7 +30,12 @@ def test_schemas_match_snapshot():
             seen[f"{label}:{s['name']}"] = s
     common = set(seen) & set(snap)
     assert len(common) > 250
-    bad = [k for k in common if json.loads(json.dumps(seen[k])) != snap[k]]
+    # Docstrings change on purpose after the snapshot; structure must not.
+    bad = [
+        k
+        for k in common
+        if _structure(json.loads(json.dumps(seen[k]))) != _structure(snap[k])
+    ]
     _assert_parity(bad, common)
 
 

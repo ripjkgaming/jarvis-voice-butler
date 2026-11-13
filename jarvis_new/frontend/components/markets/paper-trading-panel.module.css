@@ -314,6 +314,33 @@
   vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
 }
+.chartAxisLabel {
+  fill: var(--pm-muted);
+  font: 9px var(--pm-mono);
+}
+.seriesOne,
+.seriesTwo,
+.seriesThree,
+.seriesBenchmark {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.seriesOne { stroke: var(--pm-cyan); }
+.seriesTwo { stroke: var(--pm-green); }
+.seriesThree { stroke: #d6a6ff; }
+.seriesBenchmark { stroke: var(--pm-gold); stroke-dasharray: 5 3; }
+.chartDates i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  vertical-align: middle;
+}
+.chartDates .seriesOne { background: var(--pm-cyan); }
+.chartDates .seriesTwo { background: var(--pm-green); }
+.chartDates .seriesThree { background: #d6a6ff; }
+.chartDates .seriesBenchmark { background: var(--pm-gold); }
 .chartPoint {
   fill: var(--pm-cyan);
   stroke: var(--pm-cyan);

@@ -1,0 +1,22 @@
+[Unit]
+Description=Jarvis sleep/wake controller (idle sleep, screensaver, window cover, clap wake)
+After=graphical-session.target sound.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/data/jarvis-voice-butler/jarvis_new
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+# Screensaver module (default src.sleep_screensaver, the Haiku build). Swap to
+# src.sleep_screensaver_opus or src.sleep_screensaver_sonnet, then restart the unit.
+# Environment=JARVIS_SCREENSAVER_MODULE=src.sleep_screensaver_opus
+# /usr/bin/python3 on purpose: the uv venv has no dbus, and sleep_ctl needs it.
+ExecStart=/usr/bin/python3 -m src.sleep_controller run
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

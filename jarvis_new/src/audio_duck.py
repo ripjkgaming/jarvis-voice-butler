@@ -30,19 +30,27 @@ _OWN_MARKS = ("jarvis", "piper", "paplay", "livekit", "portaudio", "python")
 
 def _enabled() -> bool:
     return os.environ.get("JARVIS_DUCK", "1").strip().lower() not in (
-        "0", "off", "false", "no",
+        "0",
+        "off",
+        "false",
+        "no",
     )
 
 
 def _level() -> float:
     try:
-        return min(1.0, max(0.0, float(os.environ.get("JARVIS_DUCK_LEVEL", DEFAULT_LEVEL))))
+        return min(
+            1.0, max(0.0, float(os.environ.get("JARVIS_DUCK_LEVEL", DEFAULT_LEVEL)))
+        )
     except ValueError:
         return DEFAULT_LEVEL
 
 
 def _ledger_path() -> Path:
-    return Path(os.environ.get("JARVIS_HOME", Path.home() / ".jarvis")) / "audio_duck_state.json"
+    return (
+        Path(os.environ.get("JARVIS_HOME", Path.home() / ".jarvis"))
+        / "audio_duck_state.json"
+    )
 
 
 def default_runner(args: list[str]) -> str:
@@ -58,7 +66,12 @@ def _text_streams(text: str) -> list[dict]:
     for line in text.splitlines():
         m = re.match(r"Sink Input #(\d+)", line)
         if m:
-            cur = {"index": int(m.group(1)), "mute": False, "volume": {}, "properties": {}}
+            cur = {
+                "index": int(m.group(1)),
+                "mute": False,
+                "volume": {},
+                "properties": {},
+            }
             out.append(cur)
             continue
         if cur is None:
@@ -87,15 +100,17 @@ def parse_streams(text: str) -> list[dict]:
         try:
             props = s.get("properties") or {}
             vols = [int(v["value"]) for v in (s.get("volume") or {}).values()]
-            out.append({
-                "index": int(s["index"]),
-                "mute": bool(s.get("mute")),
-                "vols": vols,
-                "app": str(props.get("application.name", "")),
-                "binary": str(props.get("application.process.binary", "")),
-                "role": str(props.get("media.role", "")),
-                "pid": str(props.get("application.process.id", "")),
-            })
+            out.append(
+                {
+                    "index": int(s["index"]),
+                    "mute": bool(s.get("mute")),
+                    "vols": vols,
+                    "app": str(props.get("application.name", "")),
+                    "binary": str(props.get("application.process.binary", "")),
+                    "role": str(props.get("media.role", "")),
+                    "pid": str(props.get("application.process.id", "")),
+                }
+            )
         except Exception:
             continue
     return out
@@ -106,7 +121,9 @@ def _ancestors() -> set[str]:
     for _ in range(8):
         pids.add(str(pid))
         try:
-            pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+            pid = int(
+                Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1]
+            )
         except Exception:
             break
         if pid <= 1:
@@ -116,7 +133,11 @@ def _ancestors() -> set[str]:
 
 def is_own(s: dict) -> bool:
     names = f"{s['app']} {s['binary']}".lower()
-    extra = [x.strip().lower() for x in os.environ.get("JARVIS_DUCK_EXEMPT", "").split(",") if x.strip()]
+    extra = [
+        x.strip().lower()
+        for x in os.environ.get("JARVIS_DUCK_EXEMPT", "").split(",")
+        if x.strip()
+    ]
     if any(m in names for m in _OWN_MARKS + tuple(extra)):
         return True
     if s["role"].lower() in ("phone", "communication"):
@@ -129,8 +150,15 @@ def _near(a: list[int], b: list[int]) -> bool:
 
 
 class Ducker:
-    def __init__(self, runner=None, tail: float = TAIL_S, rescan: float = RESCAN_S,
-                 ramp: float = RAMP_S, ledger: Path | None = None, sleep=time.sleep):
+    def __init__(
+        self,
+        runner=None,
+        tail: float = TAIL_S,
+        rescan: float = RESCAN_S,
+        ramp: float = RAMP_S,
+        ledger: Path | None = None,
+        sleep=time.sleep,
+    ):
         self._run = runner or default_runner
         self.tail, self.rescan, self.ramp = tail, rescan, ramp
         self._ledger = Path(ledger) if ledger else None
@@ -160,7 +188,9 @@ class Ducker:
             with self._cv:
                 self._count = max(0, self._count - 1)
                 if self._count == 0:
-                    self._release_at = time.monotonic() + (0 if immediate else self.tail)
+                    self._release_at = time.monotonic() + (
+                        0 if immediate else self.tail
+                    )
                 self._cv.notify_all()
 
     def release_all(self, timeout: float = 3.0) -> None:
@@ -191,8 +221,12 @@ class Ducker:
             cur = {s["index"]: s for s in self._scan()}
             for key, e in saved.items():
                 s = cur.get(int(key))
-                if s and s["pid"] == e.get("pid") and s["app"] == e.get("app") \
-                        and _near(s["vols"], e["set"]):
+                if (
+                    s
+                    and s["pid"] == e.get("pid")
+                    and s["app"] == e.get("app")
+                    and _near(s["vols"], e["set"])
+                ):
                     self._set(int(key), e["orig"])
             self._ledger.unlink(missing_ok=True)
 
@@ -202,7 +236,9 @@ class Ducker:
             return
         if not self._repaired:
             self.repair()
-        self._thread = threading.Thread(target=self._loop, name="audio-duck", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop, name="audio-duck", daemon=True
+        )
         self._thread.start()
 
     def _loop(self) -> None:
@@ -265,7 +301,9 @@ class Ducker:
     def _ramp(self, moves: dict[int, tuple[list[int], list[int]]]) -> None:
         for i in range(1, RAMP_STEPS + 1):
             for idx, (a, b) in moves.items():
-                self._set(idx, [round(x + (y - x) * i / RAMP_STEPS) for x, y in zip(a, b)])
+                self._set(
+                    idx, [round(x + (y - x) * i / RAMP_STEPS) for x, y in zip(a, b)]
+                )
             if i < RAMP_STEPS:
                 self._sleep(self.ramp / RAMP_STEPS)
 
@@ -282,7 +320,12 @@ class Ducker:
             e = self._streams.get(idx)
             if e is None:
                 tgt = [int(v * level) for v in s["vols"]]
-                self._streams[idx] = {"orig": s["vols"], "set": tgt, "app": s["app"], "pid": s["pid"]}
+                self._streams[idx] = {
+                    "orig": s["vols"],
+                    "set": tgt,
+                    "app": s["app"],
+                    "pid": s["pid"],
+                }
                 moves[idx] = (s["vols"], tgt)
             elif not _near(s["vols"], e["set"]):
                 # Sir changed it while ducked: new value is the new original.
@@ -335,9 +378,11 @@ def unduck() -> None:
 
 def repair() -> None:
     """Restore anything a crashed run left ducked (call at agent start)."""
+
     def _go():
         with contextlib.suppress(Exception):
             get_ducker().repair()
+
     threading.Thread(target=_go, name="audio-duck-repair", daemon=True).start()
 
 

@@ -16,7 +16,7 @@ Binary: `[1-byte kind][payload]`
 - `0x03` video: `[8-byte BE ms timestamp][JPEG]`, client -> server (phone camera/screen).
 
 Text frames are JSON `{"topic": str, "payload": any}`; topics keep their former LiveKit names:
-- `jarvis-tasks` (HUD events, server -> all), `jarvis.voice.barge.v1` (<= 256 B payload, validated as today), `lk.chat` (typed text, client -> server as `{"text": str}`), `state` (`{"agent": "...", "user": "..."}`), `caption` (`{"text": str, "final": bool}`), `flush` (server -> client: drop queued playback now, sent on interrupt), `hello` (server -> client on accept: `{identity, room, mode}`), `ping`/`pong`.
+- `jarvis-tasks` (HUD events, server -> all), `jarvis.voice.barge.v1` (<= 256 B payload, validated as today), `lk.chat` (typed text, client -> server as `{"text": str}`), `state` (`{"agent": "...", "user": "..."}`), `caption` (`{"text": str, "final": bool}`), `flush` (server -> client: drop queued playback now, sent on interrupt; optional payload `{"fade_ms": n}` asks the client to ramp its speaker down over n ms instead of cutting), `hello` (server -> client on accept: `{identity, room, mode}`), `ping`/`pong`.
 
 ## Close codes
 4001 bad/expired token, 4002 replayed token, 4003 call already active, 4004 observer sent forbidden frame, 4010 client requested close, 4011 room closed/deleted, 4012 duplicate identity, 4013 owner revoked. Unlisted = lost connection (client reconnect/backoff policy applies).

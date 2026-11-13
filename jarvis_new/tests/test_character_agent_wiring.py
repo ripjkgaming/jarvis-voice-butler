@@ -36,15 +36,12 @@ def _activate(cid):
 def test_jarvis_prompt_greeting_ack_byte_identical(monkeypatch):
     monkeypatch.setattr(agent, "_with_memory", lambda s: s + "\n\n# Memory\nm")
     assert agent._persona_instructions() == AGENT_INSTRUCTIONS + "\n\n# Memory\nm"
-    for kind, text in [("greet", "Good day, Sir. What do you require?"),
-                       ("greet", "Yes, Sir?"), ("farewell", "Very good, Sir. Ring when you require me.")]:
+    for kind, text in [
+        ("greet", "Good day, Sir. What do you require?"),
+        ("greet", "Yes, Sir?"),
+        ("farewell", "Very good, Sir. Ring when you require me."),
+    ]:
         assert agent._canned(kind, text) == text
     monkeypatch.setenv("JARVIS_ACKS", "1")
     assert acks.next_line("search_the_web", now=1000.0) == acks.LINES[0]
     assert acks.next_line("search_the_web", now=2000.0) == acks.LINES[1]
-
-
-
-
-
-

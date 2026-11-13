@@ -123,7 +123,9 @@ def test_sober_is_the_roblox_app_not_music() -> None:
 def test_research_search_and_site_opens_never_mix() -> None:
     assert "Three separate jobs, never mixed" in AGENT_INSTRUCTIONS
     assert "= research_project" in AGENT_INSTRUCTIONS
-    assert "Never turn a search or a site open into research_project" in AGENT_INSTRUCTIONS
+    assert (
+        "Never turn a search or a site open into research_project" in AGENT_INSTRUCTIONS
+    )
     assert "= code_project" in AGENT_INSTRUCTIONS
     assert "= open_projects" in AGENT_INSTRUCTIONS
 
@@ -139,3 +141,11 @@ def test_interrupt_min_s_default_env_and_floor(monkeypatch) -> None:
     assert agent.interrupt_min_s() == 0.3
     monkeypatch.setenv("JARVIS_INTERRUPT_MIN_S", "junk")
     assert agent.interrupt_min_s() == 0.9
+
+
+def test_low_confidence_action_routes_automatically_but_chatter_does_not():
+    assert "intent_confidence <= 0.5" in AGENT_INSTRUCTIONS
+    assert "automatically call route_request" in AGENT_INSTRUCTIONS
+    assert "actionable=True" in AGENT_INSTRUCTIONS
+    assert "Do not run this check for ordinary conversation" in AGENT_INSTRUCTIONS
+    assert "intent estimate, not a measured probability" in AGENT_INSTRUCTIONS

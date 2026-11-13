@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("JARVIS_LIVE_CONNECT_GAP_S", "0")
+os.environ.setdefault("JARVIS_LIVE_QUOTA_BACKOFF_S", "0")
 """Test isolation for the persistent Brave profiles.
 
 Every test gets throwaway profile dirs so the suite never touches the
@@ -12,12 +16,22 @@ import pytest
 
 _HOST_SUBPROCESS_RUN = subprocess.run
 
+
 @pytest.fixture(autouse=True)
 def _isolated_browser_profiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JARVIS_BROWSER_PROFILE", str(tmp_path / "brave-profile"))
     monkeypatch.setenv(
         "JARVIS_BROWSER_RESEARCH_PROFILE", str(tmp_path / "brave-research-profile")
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_needle_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must never spawn the machine-wide Needle daemon."""
+    monkeypatch.setenv("JARVIS_NEEDLE_DAEMON", "0")
+    from intent import needle_router
+
+    monkeypatch.setattr(needle_router, "_ensure_daemon", lambda: None)
 
 
 @pytest.fixture(autouse=True)
@@ -110,13 +124,11 @@ def _no_real_dbus(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Listener thread + bus name: tests get "no listener" by default.
     monkeypatch.setattr(active_window, "ensure_listener", lambda: False)
-    monkeypatch.setattr(active_window, "_listener_loop",
-                         lambda stop: None)
+    monkeypatch.setattr(active_window, "_listener_loop", lambda stop: None)
     # KWin scripting traffic (load/start/unload/isScriptLoaded) goes
     # through _qdbus: answer "not loaded" so ensure/unload stay no-ops
     # unless a test stubs _qdbus itself.
-    monkeypatch.setattr(active_window, "_qdbus",
-                         lambda argv, timeout=8.0: "")
+    monkeypatch.setattr(active_window, "_qdbus", lambda argv, timeout=8.0: "")
     # Disabling the listener makes active() try the synchronous kdotool
     # fallback. Keep that isolated too: an unrelated test's broad which()
     # mock previously resolved kdotool to Brave and opened command-name
@@ -151,13 +163,20 @@ _PLACEHOLDER_KEYS = {
 def _live_llm_on() -> bool:
     import os
 
-    return os.environ.get("JARVIS_LIVE_LLM", "").strip().lower() in ("1", "true", "yes", "on")
+    return os.environ.get("JARVIS_LIVE_LLM", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     if _live_llm_on():
         return
-    skip = pytest.mark.skip(reason="live model call: set JARVIS_LIVE_LLM=1 (and real keys) to run")
+    skip = pytest.mark.skip(
+        reason="live model call: set JARVIS_LIVE_LLM=1 (and real keys) to run"
+    )
     for item in items:
         if "live_llm" in item.keywords:
             item.add_marker(skip)

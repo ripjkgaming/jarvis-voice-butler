@@ -22,7 +22,7 @@ but we use the ONNX backend) live in a dedicated venv:
 (JARVIS_LOCAL=1 not required; this client only joins rooms, it never
 touches the laptop itself.)
 
-JARVIS_WAKE_THRESHOLD (default 0.5) tunes sensitivity; lower hears
+JARVIS_WAKE_THRESHOLD (default 0.35) tunes sensitivity; lower hears
 more, higher false-alarms less.
 """
 
@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections import deque
 import logging
 import os
 import socket
@@ -45,6 +46,19 @@ from mint_token import active_call_exists as _call_active
 from voice_barge_signals import TOPIC as BARGE_TOPIC
 from voice_barge_signals import BargeSync
 from voice_barge_signals import decode as decode_barge
+from clap_detect import (
+    PAIR_LEVEL_DB,
+    PAIR_MAX_S,
+    PAIR_MIN_S,
+    CalibrationWatcher,
+    ClapDetector,
+    ClapGrace,
+    SleepStateReader,
+    default_calibration_path,
+    default_home,
+    should_wake,
+    write_wav,
+)
 from wake_events import WakeEventBroadcaster
 
 logger = logging.getLogger("jarvis-wake")
@@ -56,6 +70,10 @@ MIC_RATE = 48000
 RECORD_MAX_S = 6.0
 SPEECH_DROP = 0.3
 BLOCKSIZE = 1536  # 48k samples decimate exactly to a 512-sample 16k frame
+CLAP_RING_S = 20.0  # raw mic kept for clap_last.wav (diagnosis of misses)
+CLAP_RINGS_KEEP = 20  # clap_rings/clap_<epoch>.wav files kept
+CLAP_DUMP_S = 10.0  # at most one clap_last.wav save per onset burst this often
+CLAP_LOG_PER_S = 5  # clap-level onset log lines per second, at most
 OWW_FRAME = 1280  # openWakeWord native frame: 80ms at 16kHz
 WAKE_MODEL = "hey_jarvis"
 # Legacy direct-stream rewake acknowledgement. Buffered calls use the HUD
@@ -93,11 +111,11 @@ REWAKE_FRAMES = 2  # consecutive frames at or above REWAKE_THRESHOLD
 
 
 def wake_threshold() -> float:
-    """Sensitivity 0..1: explicit > JARVIS_WAKE_THRESHOLD > 0.5 default."""
+    """Sensitivity 0..1: explicit > JARVIS_WAKE_THRESHOLD > 0.35 default."""
     try:
-        return float(os.environ.get("JARVIS_WAKE_THRESHOLD", "0.5"))
+        return float(os.environ.get("JARVIS_WAKE_THRESHOLD", "0.35"))
     except ValueError:
-        return 0.5
+        return 0.35
 
 
 def frame_16k_chunks(
@@ -561,6 +579,7 @@ class WakeClient:
         from keyword_spot import WhisperWorker
 
         self._spotter = WhisperWorker()
+        self._passive_busy = False
         # Mic mute state (tray/HUD driven via the wake.sock listener below).
         # Guarded by a lock: set from the socket thread, read from the
         # asyncio mic loops and the hotword loop.
@@ -974,6 +993,9 @@ class WakeClient:
 
         cleaner = None
 
+        clap_raw: deque = deque(maxlen=400)  # ~12 s of raw blocks, detector-side
+        clap_ring: deque = deque(maxlen=int(CLAP_RING_S * MIC_RATE / BLOCKSIZE))
+
         def _audio_callback(indata, frames, time_info, status) -> None:
             nonlocal cleaner
             if status:
@@ -985,6 +1007,11 @@ class WakeClient:
                     return
                 epoch = getattr(self, "_mute_epoch", 0)
             blocks = [bytes(indata)]
+            # Raw (pre-denoise) copy for the double-clap detector, and the
+            # rolling ring saved as clap_last.wav. Denoising is a speech
+            # model: it treats a clap transient as noise.
+            clap_raw.append(blocks[0])
+            clap_ring.append(blocks[0])
             if cleaner is not None:
                 try:
                     blocks = cleaner.process(blocks[0])
@@ -1016,6 +1043,9 @@ class WakeClient:
             import school as _school
 
             hot = {"run": 0}
+            from passive_commands import UtteranceSlicer
+
+            passive_slicer = UtteranceSlicer()
             # ~1.5 s of audio before the wake frame: in school mode it is
             # replayed so the transcript starts "Hey Jarvis, ..." (the
             # agent only answers turns that address it).
@@ -1025,6 +1055,32 @@ class WakeClient:
                 maxlen=int(1.5 * MIC_RATE / BLOCKSIZE)
             )
             ring_epoch = getattr(self, "_mute_epoch", 0)
+            # Double-clap wake: fed the RAW mic, only while the sleep state is
+            # "asleep". Awake, a clap does nothing at all.
+            clap = ClapDetector(
+                sample_rate=16000,
+                on_candidate=self._clap_candidate_logger(clap_ring),
+            )
+            cal_watch = CalibrationWatcher(on_change=self._clap_calibration_logger)
+            cal_watch.poll(clap)
+            logger.warning(
+                "clap detector armed on raw mic: peak margin %.1f dB (%s)",
+                clap.peak_db,
+                "calibrated" if cal_watch.active else "default, no calibration file",
+            )
+            sleep_state = SleepStateReader()
+            clap_armed = False
+            clap_grace = ClapGrace()
+            logger.warning(
+                "clap wake: ratio floor %.1f dB, peak floor %s dBFS, pair within "
+                "%.0f dB at %.2f-%.1f s, post-sleep grace %.1f s",
+                clap.margin(),
+                clap.peak_floor_dbfs,
+                PAIR_LEVEL_DB,
+                PAIR_MIN_S,
+                PAIR_MAX_S,
+                clap_grace.grace_s,
+            )
             if _school.is_school():
                 # Warm the Whisper worker so the first school wake is quick.
                 loop.run_in_executor(
@@ -1055,6 +1111,39 @@ class WakeClient:
                     self._talk_event.clear()  # never summon while muted
                     pending16 = pending16[-OWW_FRAME:]  # bounded while deaf
                     continue  # tray/HUD mute: deaf but still listening locally
+                asleep = sleep_state.is_asleep()
+                if asleep != clap_armed:
+                    clap.reset()
+                    clap_raw.clear()
+                    clap_armed = asleep
+                    if not asleep:
+                        self._dump_clap_ring(clap_ring, "woke")
+                cal_watch.poll(clap)
+                grace_over = clap_grace.armed(asleep, sleep_state.since(), time.time())
+                if asleep:
+                    fired = False
+                    while clap_raw and not fired:
+                        fired = clap.feed(
+                            np.frombuffer(clap_raw.popleft(), dtype=np.int16)
+                        )
+                    if fired:
+                        self._log_clap_pair(clap)
+                    if not grace_over:
+                        if fired:
+                            self._dump_clap_ring(
+                                clap_ring, "double clap in grace", keep=True
+                            )
+                        fired = False  # keep the background tracked, ignore claps
+                    if should_wake(asleep, fired):
+                        clap_raw.clear()
+                        self._on_double_clap(clap_ring)
+                else:
+                    clap_raw.clear()
+                if not asleep and not self._in_call and not _school.is_school():
+                    utterance = passive_slicer.feed(block16)
+                    if utterance is not None and not self._passive_busy:
+                        self._passive_busy = True
+                        asyncio.create_task(self._passive_command(utterance))
                 if self._talk_event.is_set():
                     # PTT (HUD NumpadEnter / shell talk): the hotword summon
                     # path, without the hotword. In-call presses just make
@@ -1075,6 +1164,14 @@ class WakeClient:
                         ring.clear()
                         with contextlib.suppress(Exception):
                             model.reset()
+                    continue
+                if asleep:
+                    # Asleep: only a double clap may wake. The hey-Jarvis
+                    # model hears claps and noise as 0.4+ scores, so it must
+                    # not start a session here.
+                    hot["run"] = 0
+                    pending16 = pending16[-OWW_FRAME:]
+                    ring.clear()
                     continue
                 scores, pending16 = score_frames(model, pending16)
                 strict = _school.is_school()
@@ -1168,6 +1265,171 @@ class WakeClient:
                         with contextlib.suppress(Exception):
                             model.reset()
                         break
+
+    def _clap_calibration_logger(self, cal, detector) -> None:
+        """Logs every calibration change seen by the wake loop (hot reload)."""
+        if cal is None:
+            logger.warning(
+                "clap calibration gone (%s): peak margin %.1f dB (default)",
+                default_calibration_path(),
+                detector.peak_db,
+            )
+            return
+        logger.warning(
+            "clap calibration loaded (%s): calibrated margin %.2f dB, "
+            "effective %.1f dB; floors: ratio >= %.1f dB AND peak >= %.1f dBFS",
+            default_calibration_path(),
+            cal["peak_margin_db"],
+            detector.peak_db,
+            detector.margin(),
+            detector.peak_floor_dbfs,
+        )
+
+    def _clap_candidate_logger(self, ring=None):
+        """Logs each clap-level onset (margin at or above the effective margin).
+
+        Capped at CLAP_LOG_PER_S lines per second: room noise fires many
+        onsets, and the log must not flood. Also saves the raw ring to
+        clap_last.wav, at most every CLAP_DUMP_S.
+        """
+        last_dump = {"t": -1e9}
+        window = {"t": -1e9, "n": 0}
+
+        def log_candidate(info: dict) -> None:
+            if info["margin_db"] < info["peak_db_cfg"]:
+                return  # below the margin: ordinary room noise, not logged
+            now = time.monotonic()
+            if now - window["t"] >= 1.0:
+                window["t"] = now
+                window["n"] = 0
+            if window["n"] >= CLAP_LOG_PER_S:
+                return
+            window["n"] += 1
+            logger.warning(
+                "clap onset peak=%.1fdBFS floor=%.1fdBFS ratio=%.1fdB reason=%s "
+                "t=%.2f margin_cfg=%.1f",
+                info["peak_db"],
+                info["floor_db"],
+                info["margin_db"],
+                info["reason"],
+                info["t"],
+                info["peak_db_cfg"],
+            )
+            if now - last_dump["t"] >= CLAP_DUMP_S:
+                last_dump["t"] = now
+                self._dump_clap_ring(ring, "onset")
+
+        return log_candidate
+
+    @staticmethod
+    def _log_clap_pair(clap) -> None:
+        """Log peak and ratio of both claps of a would-be double clap."""
+        pair = getattr(clap, "last_pair", None)
+        if not pair:
+            return
+        a, b = pair
+        logger.warning(
+            "double clap: clap1 peak=%.1fdBFS ratio=%.1fdB t=%.2f, "
+            "clap2 peak=%.1fdBFS ratio=%.1fdB t=%.2f, floors ratio>=%.1fdB peak>=%s",
+            a.get("peak_db", 0.0),
+            a.get("margin_db", 0.0),
+            a.get("t", 0.0),
+            b.get("peak_db", 0.0),
+            b.get("margin_db", 0.0),
+            b.get("t", 0.0),
+            clap.margin(),
+            clap.peak_floor_dbfs,
+        )
+
+    def _dump_clap_ring(self, ring, why: str, keep: bool = False) -> None:
+        """Write the last CLAP_RING_S of raw mic to $JARVIS_HOME/clap_last.wav.
+
+        keep=True also stores it as clap_rings/clap_<epoch>.wav (last
+        CLAP_RINGS_KEEP kept) so a false wake can be diagnosed later.
+        """
+        if ring is None:
+            return
+        import numpy as np
+
+        blocks = list(ring)  # one C-level copy: safe against the callback thread
+
+        def write() -> None:
+            try:
+                pcm = np.frombuffer(b"".join(blocks), dtype=np.int16)
+                path = write_wav(default_home() / "clap_last.wav", pcm, MIC_RATE)
+                if keep:
+                    rings = default_home() / "clap_rings"
+                    path = write_wav(
+                        rings / f"clap_{int(time.time())}.wav", pcm, MIC_RATE
+                    )
+                    for old in sorted(rings.glob("clap_*.wav"))[:-CLAP_RINGS_KEEP]:
+                        old.unlink(missing_ok=True)
+                logger.warning(
+                    "clap ring saved: %s (%s, %.1f s raw)",
+                    path,
+                    why,
+                    pcm.size / MIC_RATE,
+                )
+            except Exception as exc:
+                logger.warning("clap ring save failed: %s", exc)
+
+        threading.Thread(target=write, name="clap-ring", daemon=True).start()
+
+    def _on_double_clap(self, clap_ring=None) -> None:
+        """Two claps while asleep: ask the sleep controller to wake up.
+
+        Only writes the wake_request file. The wake itself runs in the controller
+        service, which has dbus; this process (.venv-wake) has none.
+        """
+        logger.warning("double clap heard while asleep")
+        self._dump_clap_ring(clap_ring, "double clap", keep=True)
+        try:
+            try:
+                from src.sleep_controller import touch_wake_request
+            except ImportError:
+                from sleep_controller import touch_wake_request
+            if not touch_wake_request():
+                logger.warning(
+                    "double clap: not asleep any more, no wake request written"
+                )
+        except Exception as exc:
+            logger.warning("double clap: wake request failed: %s", exc)
+
+    async def _passive_command(self, pcm16) -> None:
+        """Idle-time voice commands (mute / hide / hide all / stop), no wake word."""
+        try:
+            from intent import hud_commands
+            from passive_commands import resolve
+
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(None, self._spotter.transcribe, pcm16)
+            if not text.strip():
+                return
+            command = await loop.run_in_executor(None, resolve, text)
+            if command is None:
+                return
+            logger.warning("passive command %r from %r", command, text[:60])
+            if command == "stop":
+                self._passive_stop()
+            else:
+                await hud_commands.execute(command, None)
+        except Exception as exc:
+            logger.warning("passive command failed: %s", exc)
+        finally:
+            self._passive_busy = False
+
+    def _passive_stop(self) -> None:
+        """Fade out whatever Jarvis is saying outside a call."""
+        self._say_seq = getattr(self, "_say_seq", 0) + 1  # drop queued lines
+        for name in ("_agent_output", "_say_output"):
+            output = getattr(self, name, None)
+            if output is None or getattr(output, "_closed", False):
+                continue
+            if hasattr(output, "fade_out"):
+                output.fade_out(140.0)
+            elif hasattr(output, "cancel"):
+                with contextlib.suppress(Exception):
+                    output.cancel()
 
     def _play_ack(self) -> None:
         if not self._ack_pcm:
@@ -1339,7 +1601,7 @@ class WakeClient:
 
         client.on_topic("state", on_agent_online)
         client.on_topic("caption", on_agent_online)
-        client.on_topic("flush", lambda _payload=None: self._flush_playback())
+        client.on_topic("flush", lambda payload=None: self._flush_playback(payload))
         client.on_topic(BARGE_TOPIC, self._on_barge)
         client.on_topic("jarvis.turn", self._on_turn_payload)
 
@@ -1527,13 +1789,17 @@ class WakeClient:
                     await client.close()
                     logger.warning("session over, back to listening")
 
-    def _fast_mute_speaker(self, now: float) -> None:
-        """Mute locally without stopping microphone or Gemini input."""
+    def _fast_mute_speaker(self, now: float, fade_ms: float = 0.0) -> None:
+        """Mute locally without stopping microphone or Gemini input.
+
+        ``fade_ms`` > 0 ramps down first (same resume gate afterwards)."""
         sync = getattr(self, "_barge_sync", None)
         if sync is not None:
             sync.interrupt(now)
         output = getattr(self, "_active_audio_playback", None)
-        if output is not None and hasattr(output, "mute"):
+        if output is not None and fade_ms > 0 and hasattr(output, "fade_out"):
+            output.fade_out(fade_ms)
+        elif output is not None and hasattr(output, "mute"):
             output.mute()
 
     def _on_barge(self, payload: object) -> None:
@@ -1550,15 +1816,22 @@ class WakeClient:
     def _on_turn_payload(self, payload: object) -> None:
         self._handle_turn_data(json.dumps(payload).encode())
 
-    def _flush_playback(self) -> None:
-        """Server ``flush``: drop agent audio already queued for the speaker now."""
+    def _flush_playback(self, payload: object = None) -> None:
+        """Server ``flush``: drop agent audio already queued for the speaker now.
+
+        A ``{"fade_ms": n}`` payload (the "stop" voice command) ramps the
+        speaker to silence over n ms instead of cutting hard."""
         output = getattr(self, "_agent_output", None)
         if output is None:
             return
+        fade_ms = payload.get("fade_ms") if isinstance(payload, dict) else None
         if getattr(self, "_fast_barge", None) is not None and hasattr(output, "mute"):
             # Same gate as a local barge-in: only a new reply after confirmed
             # user speech releases the speaker again (see _play_agent).
-            self._fast_mute_speaker(time.monotonic())
+            self._fast_mute_speaker(
+                time.monotonic(),
+                fade_ms=float(fade_ms) if isinstance(fade_ms, (int, float)) else 0.0,
+            )
         elif hasattr(output, "cancel"):
             output.cancel()
 

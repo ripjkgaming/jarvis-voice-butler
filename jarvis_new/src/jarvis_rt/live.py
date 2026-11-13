@@ -44,6 +44,23 @@ RECOVERY_NOTICE = (
 )
 
 
+CONNECT_TIMEOUT_S = 5.0
+# Every (re)connect resends the whole system prompt + tool schema (~33k tokens).
+# Gemini Live free tier is capped at ~65k tokens/min, so two connects inside a
+# minute can trip 1011 "quota exceeded" and turn one stall into a reconnect
+# storm. Space connects out; after a quota error wait a full minute.
+CONNECT_MIN_GAP_S = float(os.environ.get("JARVIS_LIVE_CONNECT_GAP_S", "35"))
+QUOTA_BACKOFF_S = float(os.environ.get("JARVIS_LIVE_QUOTA_BACKOFF_S", "60"))
+_QUOTA_MARKERS = ("1011", "quota", "RESOURCE_EXHAUSTED", "429")
+#: Longest a socket close or a cancelled send/receive task may hold a restart.
+TEARDOWN_TIMEOUT_S = 5.0
+STALE_HANDLE_ERRORS = (
+    "Invalid session handle",
+    "session history not found",
+    "already connected to an existing client",
+)
+
+
 def http_options() -> types.HttpOptions:
     """Verified TLS defaults (certifi), built once off the audio path."""
     import ssl
@@ -165,6 +182,9 @@ class LiveBackend:
         self._mic: deque[bytes] = deque(maxlen=MIC_BACKLOG_BLOCKS)
         self._mic_ready = asyncio.Event()
         self._out: asyncio.Queue = asyncio.Queue()
+        # Items taken off ``_out`` by a send loop that was already being
+        # replaced (agent handoff): they belong to the NEXT connection.
+        self._carry: list[tuple] = []
         self._gen: _Generation | None = None
         self._repeat = RepeatGuard()
         self._pending_reply = False
@@ -177,6 +197,9 @@ class LiveBackend:
         self._fresh = False
         self._notice_pending = False
         self._recovery_until = 0.0
+        self._last_connect: float | None = None
+        self._pace_next = False
+        self._connect_not_before = 0.0
         #: Connection whose late resumption handles must be ignored after a recovery.
         self._stale_conn: Any = None
         self._drop_audio = False
@@ -357,6 +380,38 @@ class LiveBackend:
             self._notice_pending or self._fresh or self._clock() < self._recovery_until
         )
 
+    def recover(self, reason: str) -> None:
+        """Session watchdog: the turn is wedged; open a fresh connection now.
+
+        Unlike the reply/stall watchdogs this is not gated by their cooldown:
+        the session only asks after a long, verified silence.
+        """
+        if self._closing:
+            return
+        log.warning(
+            "Gemini Live recovery requested (%s); opening a fresh connection", reason
+        )
+        _log_system_action("gemini-watchdog", f"{reason}, reconnecting")
+        if self._stall is not None:
+            now = self._clock()
+            self._stall.forced_at = now
+            self._stall.server(now)
+        # A reply asked for on the wedged connection is lost with it; left
+        # set, it would also swallow the next real interruption.
+        self._pending_reply = False
+        self._recover()
+
+    def _connect_wait(self) -> float:
+        """Seconds to hold off the next connect (0 for the first one)."""
+        now = time.monotonic()
+        wait = self._connect_not_before - now
+        if self._pace_next and self._last_connect is not None:
+            # Only recovery/error reconnects are paced; a deliberate agent
+            # handoff or tool-set change must reconnect at once.
+            wait = max(wait, self._last_connect + CONNECT_MIN_GAP_S - now)
+        self._pace_next = False
+        return max(wait, 0.0)
+
     def _request_restart(self, error: BaseException | None = None) -> None:
         self._restart_error = error
         self._restart.set()
@@ -364,6 +419,7 @@ class LiveBackend:
     def _recover(self) -> None:
         """Watchdog: fresh connection, no resumption identity, one-time notice."""
         self._fresh = True
+        self._pace_next = True
         self._notice_pending = True
         self._handle = None
         self._recovery_until = self._clock() + gemini_watchdog.RECOVERY_S
@@ -427,21 +483,47 @@ class LiveBackend:
         while not self._closing:
             model = self.chain.pick()
             self._restart.clear()
+            wait = self._connect_wait()
+            if wait > 0:
+                log.warning(
+                    "Gemini Live reconnect paced: waiting %.0fs (token-per-minute guard)",
+                    wait,
+                )
+                await asyncio.sleep(wait)
+                if self._closing:
+                    break
+            self._last_connect = time.monotonic()
+            _t_conn = self._last_connect
             error: BaseException | None = None
             try:
                 async with self._lock:
                     self._cm = self._client_obj().aio.live.connect(
                         model=model, config=self._config(model)
                     )
-                    self._conn = await self._cm.__aenter__()
+                    self._conn = await asyncio.wait_for(
+                        self._cm.__aenter__(), timeout=CONNECT_TIMEOUT_S
+                    )
                     self._model = model
                     if self._handle is None:
+                        # Fresh server session: it never issued these calls.
+                        self._carry = [
+                            i for i in self._carry if i[0] != "tool_response"
+                        ]
                         turns = self._history_turns()
                         if turns:
-                            await self._conn.send_client_content(
-                                turns=turns, turn_complete=False
+                            await asyncio.wait_for(
+                                self._conn.send_client_content(
+                                    turns=turns, turn_complete=False
+                                ),
+                                timeout=CONNECT_TIMEOUT_S,
                             )
                 self._ready.set()
+                log.info(
+                    "Gemini Live connected in %.2fs (%s, %d tools)",
+                    time.monotonic() - _t_conn,
+                    model,
+                    len(getattr(self.agent, "tools", []) or []),
+                )
                 self._send = asyncio.create_task(self._send_loop(self._conn))
                 self._recv = asyncio.create_task(self._recv_loop(self._conn))
                 waiter = asyncio.create_task(self._restart.wait())
@@ -451,8 +533,19 @@ class LiveBackend:
                 )
                 for task in pending:
                     task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError, Exception):
-                        await task
+                if pending:
+                    # Bounded: a send stuck on a dead socket must not block
+                    # the reconnect that is meant to rescue it.
+                    ended, stuck = await asyncio.wait(
+                        pending, timeout=TEARDOWN_TIMEOUT_S
+                    )
+                    for task in ended:
+                        if not task.cancelled():
+                            task.exception()  # retrieved, not re-raised
+                    if stuck:
+                        log.warning(
+                            "Gemini Live task ignored cancellation; abandoning it"
+                        )
                 for task in done:
                     if task is not waiter and task.exception():
                         error = task.exception()
@@ -472,6 +565,13 @@ class LiveBackend:
             if error is not None:
                 self.chain.fail(model)
                 log.warning("Gemini Live session error on %s: %s", model, error)
+                self._pace_next = True
+                if any(m in str(error) for m in _QUOTA_MARKERS):
+                    self._connect_not_before = time.monotonic() + QUOTA_BACKOFF_S
+                if any(m in str(error) for m in STALE_HANDLE_ERRORS):
+                    # Resumption handle is dead: every model would fail on it.
+                    self._handle = None
+                    self._fresh = True
                 self._emit("error", error=error)
                 self._ready.set()
                 await asyncio.sleep(0.2)
@@ -479,8 +579,17 @@ class LiveBackend:
     async def _close_conn(self) -> None:
         cm, self._cm, self._conn = self._cm, None, None
         if cm is not None:
-            with contextlib.suppress(Exception):
-                await cm.__aexit__(None, None, None)
+            close = asyncio.ensure_future(cm.__aexit__(None, None, None))
+            done, _ = await asyncio.wait({close}, timeout=TEARDOWN_TIMEOUT_S)
+            if close in done:
+                if not close.cancelled():
+                    close.exception()  # close errors are expected; ignore
+            else:
+                close.cancel()
+                log.warning(
+                    "Gemini Live close hung for %.0fs; abandoning the old socket",
+                    TEARDOWN_TIMEOUT_S,
+                )
 
     async def _teardown(self) -> None:
         for t in (self._send, self._recv):
@@ -501,7 +610,17 @@ class LiveBackend:
         mic = asyncio.create_task(self._mic_loop(conn))
         try:
             while True:
-                item = await self._out.get()
+                if self._carry:
+                    item = self._carry.pop(0)
+                else:
+                    item = await self._out.get()
+                if self._restart.is_set():
+                    # This connection is being replaced (handoff / tool-set
+                    # change): sending now would lose the item (a handoff's
+                    # reply turn was swallowed this way and timed out 10s
+                    # later). Hand it to the next connection instead.
+                    self._carry.append(item)
+                    await asyncio.sleep(3600)
                 kind = item[0]
                 if kind == "content":
                     await conn.send_client_content(

@@ -342,7 +342,9 @@ async def test_ask_backend_returns_at_once_and_delivers_answer(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_ask_backend_generate_reply_failure_falls_back_to_say(monkeypatch) -> None:
+async def test_ask_backend_generate_reply_failure_falls_back_to_say(
+    monkeypatch,
+) -> None:
     _local(monkeypatch)
 
     def _think(task: str, *args, **kwargs):  # type: ignore[no-untyped-def]

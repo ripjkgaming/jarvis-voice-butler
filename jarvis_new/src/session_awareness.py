@@ -3,6 +3,7 @@
 Everything here is best effort and never raises. Owner-only: never feed the
 block to guest instructions.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,8 +30,10 @@ def now_line(ts: float | None = None) -> str:
         off = dt.strftime("%z")
         off = f"UTC{off[:3]}:{off[3:]}" if off else "UTC"
         h = dt.hour % 12 or 12
-        return (f"{dt.strftime('%A')} {dt.day} {dt.strftime('%B %Y')}, "
-                f"{h}:{dt.minute:02d} {dt.strftime('%p')}, {dt.tzname() or ''} ({off})")
+        return (
+            f"{dt.strftime('%A')} {dt.day} {dt.strftime('%B %Y')}, "
+            f"{h}:{dt.minute:02d} {dt.strftime('%p')}, {dt.tzname() or ''} ({off})"
+        )
     except Exception:
         return ""
 
@@ -74,13 +77,21 @@ def _summarize(rows) -> dict:
     if last6:
         summary = "Sir asked: " + " | ".join(last6[-4:])
     if jar:
-        summary += (" ; Jarvis last said: " + jar[-1][:150]) if summary else "Jarvis last said: " + jar[-1][:150]
+        summary += (
+            (" ; Jarvis last said: " + jar[-1][:150])
+            if summary
+            else "Jarvis last said: " + jar[-1][:150]
+        )
     return {"summary": summary[:SUMMARY_MAX], "requests": last6}
 
 
 def _unfinished(jobs: list[dict]) -> list[str]:
-    return [f"{j.get('task') or j.get('id')} ({j.get('state')})"[:100]
-            for j in jobs if str(j.get("state", "")).lower() in ("running", "queued", "failed", "error", "started")][:3]
+    return [
+        f"{j.get('task') or j.get('id')} ({j.get('state')})"[:100]
+        for j in jobs
+        if str(j.get("state", "")).lower()
+        in ("running", "queued", "failed", "error", "started")
+    ][:3]
 
 
 def record_session_end(transcript_tail=None) -> None:
@@ -133,7 +144,9 @@ def recent_code_jobs(limit: int = 3) -> list[dict]:
         d = _home() / "code-jobs"
         if not d.is_dir():
             return []
-        files = sorted(d.glob("*.status.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+        files = sorted(
+            d.glob("*.status.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        )[:limit]
         jobs = []
         for f in files:
             try:
@@ -164,7 +177,9 @@ def _build(last, jobs, now) -> str:
     lines = [f"Now: {now_line(now)}."]
     if last:
         end = float(last["end_epoch"])
-        lines.append(f"Last session ended {_relative(now - end)} ago ({now_line(end)}).")
+        lines.append(
+            f"Last session ended {_relative(now - end)} ago ({now_line(end)})."
+        )
         if last.get("summary"):
             lines.append("It: " + str(last["summary"])[:SUMMARY_MAX])
         if last.get("unfinished"):
@@ -178,7 +193,9 @@ def _build(last, jobs, now) -> str:
             head = str(j.get("task") or j.get("id") or "job")[:80]
             s = str(j.get("summary") or "")[:160]
             lines.append(f"- {head} [{', '.join(bits)}]" + (f": {s}" if s else ""))
-    lines.append("Use this to carry on where Sir left off; do not recite it unless relevant.")
+    lines.append(
+        "Use this to carry on where Sir left off; do not recite it unless relevant."
+    )
     text = "\n".join(lines)
     if len(text) > MAX_BLOCK:
         tail = lines[-1]
@@ -192,7 +209,9 @@ def build_awareness_block(now: float | None = None) -> str:
         if _cached_last is None:
             _cached_last = load_last_session() or {}
         t = now if now is not None else time.time()
-        return "\n\n[Session awareness]\n" + _build(_cached_last or None, recent_code_jobs(), t)
+        return "\n\n[Session awareness]\n" + _build(
+            _cached_last or None, recent_code_jobs(), t
+        )
     except Exception:
         return ""
 

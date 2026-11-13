@@ -14,22 +14,37 @@ REPORT = (
 
 
 def plan_json(n=5):
-    return json.dumps({"subquestions": [{"q": f"q{i}", "queries": [f"s{i}"]} for i in range(n)]})
+    return json.dumps(
+        {"subquestions": [{"q": f"q{i}", "queries": [f"s{i}"]} for i in range(n)]}
+    )
 
 
 def worker_json(tag="x"):
-    return json.dumps({"findings": [f"fact {tag} 42%"], "sources": [{"url": f"https://{tag}.example/p", "title": tag}],
-                       "confidence": "high"})
+    return json.dumps(
+        {
+            "findings": [f"fact {tag} 42%"],
+            "sources": [{"url": f"https://{tag}.example/p", "title": tag}],
+            "confidence": "high",
+        }
+    )
 
 
 def recs(text, tools=()):
-    return [{"type": "system", "subtype": "init", "tools": list(tools), "mcp_servers": []},
-            {"type": "result", "is_error": False, "result": text}]
+    return [
+        {"type": "system", "subtype": "init", "tools": list(tools), "mcp_servers": []},
+        {"type": "result", "is_error": False, "result": text},
+    ]
 
 
 class Fake:
     def __init__(self, n=5, delay=0.0, plan=None, worker=None, writer=REPORT, slow=()):
-        self.n, self.delay, self.plan, self.writer, self.slow = n, delay, plan, writer, set(slow)
+        self.n, self.delay, self.plan, self.writer, self.slow = (
+            n,
+            delay,
+            plan,
+            writer,
+            set(slow),
+        )
         self.worker = worker
         self.calls = []
         self.lock = threading.Lock()
@@ -38,7 +53,11 @@ class Fake:
         model = argv[argv.index("--model") + 1]
         with self.lock:
             self.calls.append((model, task))
-        if model == rf.PLAN_MODEL and "--tools" in argv and argv[argv.index("--tools") + 1] == "":
+        if (
+            model == rf.PLAN_MODEL
+            and "--tools" in argv
+            and argv[argv.index("--tools") + 1] == ""
+        ):
             if self.plan is RuntimeError:
                 raise RuntimeError("boom")
             return recs(self.plan if self.plan is not None else plan_json(self.n)), 0
@@ -127,10 +146,10 @@ def test_straggler_cutoff(monkeypatch):
 def test_cache_hit_skips_workers(monkeypatch):
     fake = install(monkeypatch, Fake(n=5, delay=0.05))
     rf.generate("topic", workers=8)
-    first = len([c for c in fake.calls if c[1].startswith('Sub-question')])
+    first = len([c for c in fake.calls if c[1].startswith("Sub-question")])
     assert first == 5
     rf.generate("topic", workers=8)
-    assert len([c for c in fake.calls if c[1].startswith('Sub-question')]) == 5
+    assert len([c for c in fake.calls if c[1].startswith("Sub-question")]) == 5
 
 
 def test_cache_ttl(monkeypatch):
@@ -152,7 +171,10 @@ def test_cancel(monkeypatch):
 def _luna_ok(seen):
     def luna(task, timeout):
         seen.append(task)
-        return json.dumps({"findings": ["fact luna 99%"], "sources": [{"url": "https://l.example/z"}]})
+        return json.dumps(
+            {"findings": ["fact luna 99%"], "sources": [{"url": "https://l.example/z"}]}
+        )
+
     return luna
 
 
@@ -206,10 +228,20 @@ def test_paired_mode_opt_in(monkeypatch):
 
 
 def test_merge_dedupes():
-    a = {"findings": ["Same 5%"], "sources": [{"url": "https://u", "title": ""}], "confidence": "high"}
-    b = {"findings": ["same 5%", "other"], "sources": [{"url": "https://u", "title": ""}], "confidence": "low"}
+    a = {
+        "findings": ["Same 5%"],
+        "sources": [{"url": "https://u", "title": ""}],
+        "confidence": "high",
+    }
+    b = {
+        "findings": ["same 5%", "other"],
+        "sources": [{"url": "https://u", "title": ""}],
+        "confidence": "low",
+    }
     m = rf.merge({"haiku": a, "luna": b})
-    assert len(m["findings"]) == 2 and len(m["sources"]) == 1 and m["confidence"] == "low"
+    assert (
+        len(m["findings"]) == 2 and len(m["sources"]) == 1 and m["confidence"] == "low"
+    )
 
 
 def test_missing_summary_raises(monkeypatch):

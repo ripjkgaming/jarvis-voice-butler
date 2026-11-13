@@ -1,9 +1,7 @@
 """Local paper exchange. No brokerage credentials or real order endpoints."""
 
-import os
-
-MODEL = os.environ.get("PAPER_MARKET_MODEL", "dots-studio/dots-3-note-preview:free")
-EFFORT = os.environ.get("PAPER_MARKET_EFFORT", "default")
+MODEL = "gpt-6.1-sol"
+EFFORT = "medium"
 SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META")
 DECISION_INTERVAL_SECONDS = 300
 MAX_QUOTE_AGE_SECONDS = 120

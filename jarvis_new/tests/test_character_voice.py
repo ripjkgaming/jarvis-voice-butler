@@ -12,8 +12,13 @@ import wake_client
 
 
 def ch(cid, **voice):
-    base = {"model": "m-" + cid, "pitch_semitones": 0, "length_scale": 1.0,
-            "effects": [], "whoosh": "holo"}
+    base = {
+        "model": "m-" + cid,
+        "pitch_semitones": 0,
+        "length_scale": 1.0,
+        "effects": [],
+        "whoosh": "holo",
+    }
     base.update(voice)
     return types.SimpleNamespace(id=cid, voice=base)
 
@@ -84,8 +89,12 @@ def test_jarvis_no_fx_and_legacy_scale(bank, monkeypatch):
 
 def test_fx_called_for_ultron(bank, monkeypatch):
     seen = []
-    monkeypatch.setattr(cv.voice_fx, "pitch_shift", lambda p, sr, s: seen.append(("p", s)) or p)
-    monkeypatch.setattr(cv.voice_fx, "apply_effects", lambda p, sr, e: seen.append(("e", e)) or p)
+    monkeypatch.setattr(
+        cv.voice_fx, "pitch_shift", lambda p, sr, s: seen.append(("p", s)) or p
+    )
+    monkeypatch.setattr(
+        cv.voice_fx, "apply_effects", lambda p, sr, e: seen.append(("e", e)) or p
+    )
     bank.render_pcm("hi", ULTRON)
     assert seen == [("p", -3.0), ("e", ["ringmod_light"])]
     assert bank.calls == [1.0]
@@ -139,14 +148,18 @@ def client(monkeypatch):
     import audio_playback
     import character_runtime
 
-    FakePlayback.active = FakePlayback.max_active = FakePlayback.cancels = FakePlayback.streams = 0
+    FakePlayback.active = FakePlayback.max_active = FakePlayback.cancels = (
+        FakePlayback.streams
+    ) = 0
     FakePlayback.writes = []
     monkeypatch.setattr(audio_playback, "AudioPlayback", FakePlayback)
     rt = types.SimpleNamespace(chars={"ultron": ULTRON, "jarvis": JARVIS})
     monkeypatch.setattr(character_runtime, "get_runtime", lambda: rt)
     pcm = (np.sin(np.arange(22050) / 10) * 30000).astype(np.int16)
     monkeypatch.setattr(cv, "render_pcm", lambda t, c: (pcm.copy(), 22050))
-    monkeypatch.setattr(cv, "whoosh_pcm", lambda c, sr, d=800: np.full(sr, 32000, np.int16))
+    monkeypatch.setattr(
+        cv, "whoosh_pcm", lambda c, sr, d=800: np.full(sr, 32000, np.int16)
+    )
     c = wake_client.WakeClient.__new__(wake_client.WakeClient)
     yield c
     lp = getattr(c, "_say_loop", None)
@@ -166,7 +179,8 @@ def test_character_say_mixes_whoosh_peak_safe(client, monkeypatch):
     got = {}
     real = wake_client.prepare_character_pcm
     monkeypatch.setattr(
-        wake_client, "prepare_character_pcm",
+        wake_client,
+        "prepare_character_pcm",
         lambda p, sr, ms: got.setdefault("pcm", real(p, sr, ms)),
     )
     r = client._character_say({"text": "hello", "character": "ultron", "whoosh": True})
@@ -200,6 +214,7 @@ def test_crossfade_single_writer_no_overlap(client):
     client._character_say({"text": "two", "character": "jarvis", "interrupt": True})
     wait_writes(2)
     import time
+
     time.sleep(0.3)
     assert FakePlayback.max_active == 1
     assert FakePlayback.streams == 1  # one playback, never a second stream

@@ -157,3 +157,38 @@ def test_monitor_fist_stops(home) -> None:
         if mon.should_stop:
             break
     assert mon.should_stop
+
+
+def _hand(ext_idx, ext_mid, ext_ring, ext_pinky):
+    """21 fake landmarks: wrist at origin, PIP at 1.0, tip 1.6 or 0.5."""
+    pts = [SimpleNamespace(x=0.0, y=0.0, z=0.0) for _ in range(21)]
+    for tip, pip, up in ((8, 6, ext_idx), (12, 10, ext_mid), (16, 14, ext_ring), (20, 18, ext_pinky)):
+        pts[pip] = SimpleNamespace(x=0.0, y=-1.0, z=0.0)
+        pts[tip] = SimpleNamespace(x=0.0, y=-1.6 if up else -0.5, z=0.0)
+    return pts
+
+
+def test_is_mute_pose() -> None:
+    assert gestures.is_mute_pose(_hand(1, 1, 0, 0))
+    assert not gestures.is_mute_pose(_hand(1, 0, 0, 0))
+    assert not gestures.is_mute_pose(_hand(1, 1, 1, 1))
+    assert not gestures.is_mute_pose(_hand(1, 1, 1, 0))
+    assert not gestures.is_mute_pose([])
+
+
+def test_monitor_hold_to_mute_and_release(home) -> None:
+    sent = []
+    t = [0.0]
+    seq = [gestures.MUTE_POSE] * 4 + [None] * 6
+    it = iter(seq)
+    mon = gestures.GestureMonitor(
+        frame=lambda: np.zeros((2, 2, 3), np.uint8),
+        recognize=lambda f: next(it),
+        sender=lambda m: (sent.append(m), {"ok": True})[1],
+        speaker=lambda *a: None,
+        now=lambda: t[0],
+    )
+    for _ in range(10):
+        mon.poll()
+        t[0] += 0.2
+    assert sent == [{"mute": True}, {"mute": False}]

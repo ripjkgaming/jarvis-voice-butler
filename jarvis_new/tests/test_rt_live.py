@@ -335,3 +335,54 @@ def test_reply_instructions_are_marked_internal():
     ]
     marked = [t for t in texts if "Chain tools silently until done." in t]
     assert marked and "never" in marked[0].lower() and "aloud" in marked[0].lower()
+
+
+class _Spec(Agent):
+    def __init__(self):
+        super().__init__(instructions="specialist")
+
+    async def on_enter(self):
+        await self.session.generate_reply(instructions="do task")
+
+
+class _Router(Main):
+    def __init__(self):
+        super().__init__()
+        self.spec = _Spec()
+
+    @function_tool()
+    async def transfer(self):
+        """Hand off."""
+        return self.spec, "Handing off"
+
+
+def test_handoff_reply_and_tool_result_go_to_the_new_connection():
+    """The handoff's tool result and the specialist's first reply turn must
+    reach the NEW connection; sent to the closing one they were lost and the
+    reply timed out 10s later (the slow 'transfer_to_system_control')."""
+
+    async def run():
+        client = FakeClient()
+        be = LiveBackend(["gemini-3.8-live"], client=client, watchdog=False)
+        s = AgentSession(backend=be)
+        await s.start(_Router())
+        await asyncio.sleep(0.05)
+        c0 = client.conns[0]
+        c0.push(
+            session_resumption_update=types.LiveServerSessionResumptionUpdate(
+                new_handle="h1", resumable=True
+            )
+        )
+        c0.push(
+            tool_call=types.LiveServerToolCall(
+                function_calls=[types.FunctionCall(id="x1", name="transfer", args={})]
+            )
+        )
+        await asyncio.sleep(0.5)
+        out = [c.kinds() for c in client.conns]
+        await be.aclose()
+        return out
+
+    old, new = asyncio.run(run())
+    assert "content" not in old and "tool_response" not in old
+    assert new == ["tool_response", "content"]

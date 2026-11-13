@@ -68,6 +68,31 @@ function useMinuteClock(on: boolean): string {
   return text;
 }
 
+/** Breathing pip, stepped at 8 Hz from a timer instead of a CSS animation.
+ *  While Jarvis is gone this 7 px dot is the only thing moving; a continuous
+ *  animation made the whole full-screen window render and present at the
+ *  display rate (60-144 FPS) around the clock. Same 3.6 s curve, 8 frames/s. */
+const PIP_PERIOD_MS = 3600;
+const PIP_STEP_MS = 125;
+function usePipBreath(on: boolean) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!on || !el) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const apply = () => {
+      if (document.hidden) return;
+      const k = 0.5 - 0.5 * Math.cos((performance.now() / PIP_PERIOD_MS) * Math.PI * 2);
+      el.style.opacity = (0.3 + 0.7 * k).toFixed(2);
+      el.style.transform = `rotate(45deg) scale(${(0.8 + 0.25 * k).toFixed(3)})`;
+    };
+    apply();
+    const t = setInterval(apply, PIP_STEP_MS);
+    return () => clearInterval(t);
+  }, [on]);
+  return ref;
+}
+
 /** Merge the live jobs into display rows; a job that vanishes flashes DONE. */
 function useRows(jobs: Job[], on: boolean): Row[] {
   const [rows, setRows] = useState<Row[]>([]);
@@ -126,6 +151,7 @@ export const StandbyBadge = memo(function StandbyBadge({
   const ascii = useAscii();
   const time = useMinuteClock(on);
   const rows = useRows(jobs, on);
+  const pip = usePipBreath(on);
   if (!on) return null;
   const shown = rows.slice(0, MAX_ROWS);
   const extra = rows.length - shown.length;
@@ -157,7 +183,7 @@ export const StandbyBadge = memo(function StandbyBadge({
         </ul>
       ) : null}
       <div className={s.badgeHead}>
-        <i className={s.badgePip} />
+        <i ref={pip} className={s.badgePip} />
         <span>J.A.R.V.I.S. · STANDBY</span>
         <AwareGlyph variant="badge" />
       </div>

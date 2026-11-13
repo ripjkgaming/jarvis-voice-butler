@@ -21,7 +21,9 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import RunnableLambda
 
-CODEX = os.environ.get("CODEX_BIN", "/usr/lib/chatgpt/resources/codex")
+from .runtime import codex_binary
+
+CODEX = codex_binary() or os.environ.get("CODEX_BIN", "codex")
 _slots = threading.Semaphore(int(os.environ.get("CODEX_PARALLEL", "2")))
 
 
@@ -70,6 +72,7 @@ class CodexChat(BaseChatModel):
         return "codex-exec"
 
     def _run(self, prompt: str) -> str:
+        deadline = time.monotonic() + self.timeout
         with tempfile.TemporaryDirectory(prefix="codex-llm-") as scratch:
             out = os.path.join(scratch, "last.txt")
             command = [
@@ -77,6 +80,7 @@ class CodexChat(BaseChatModel):
                 "exec",
                 "--skip-git-repo-check",
                 "--ephemeral",
+                "--ignore-user-config",
                 "-s",
                 "read-only",
                 "-m",
@@ -89,20 +93,55 @@ class CodexChat(BaseChatModel):
                 out,
                 "-",
             ]
+            for feature in (
+                "apps",
+                "browser_use",
+                "computer_use",
+                "plugins",
+                "shell_tool",
+                "unified_exec",
+                "multi_agent",
+                "code_mode",
+            ):
+                command[-1:-1] = ["--disable", feature]
             for attempt in range(8):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                cancel_event = None
+                try:
+                    from .ta_runner import ANALYSIS_CANCEL
+
+                    cancel_event = ANALYSIS_CANCEL.get()
+                except ImportError:
+                    pass
+                if cancel_event is not None and cancel_event.is_set():
+                    raise TimeoutError("TradingAgents review was cancelled.")
                 with _slots:
-                    done = subprocess.run(
+                    process = subprocess.Popen(
                         command,
-                        input=prompt,
-                        text=True,
-                        capture_output=True,
-                        timeout=self.timeout,
                         cwd=scratch,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
                     )
+                    try:
+                        process.communicate(prompt, timeout=remaining)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate()
+                        raise TimeoutError("Codex model call timed out.") from None
+                    if cancel_event is not None and cancel_event.is_set():
+                        process.kill()
+                        process.communicate()
+                        raise TimeoutError("TradingAgents review was cancelled.")
                 if os.path.exists(out) and os.path.getsize(out):
                     return open(out, encoding="utf-8").read()
-                time.sleep(min(30 * (attempt + 1), 180))  # 429 / transient: back off
-            raise RuntimeError(f"codex exec failed: {done.stderr[-200:]}")
+                delay = min(30 * (attempt + 1), 180, deadline - time.monotonic())
+                if delay > 0:
+                    time.sleep(delay)  # 429 / transient: bounded backoff
+            raise RuntimeError("Codex CLI inference failed or exceeded its deadline.")
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         tools = kwargs.get("tools") or self.tools
@@ -189,11 +228,11 @@ class CodexClient:
     """Duck-types TradingAgents' BaseLLMClient."""
 
     def __init__(self, model: str, base_url=None, **kwargs):
-        self.model = model
+        # Persisted TradingAgents preferences cannot override this runner's model.
+        self.model = "gpt-6.1-sol:medium"
 
     def get_llm(self):
-        name, _, effort = self.model.partition(":")
-        return CodexChat(model=name, effort=effort or "medium")
+        return CodexChat(model="gpt-6.1-sol", effort="medium")
 
     def validate_model(self) -> bool:
         return True

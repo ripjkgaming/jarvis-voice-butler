@@ -64,7 +64,7 @@ _dead = False
 
 def needle_enabled() -> bool:
     """True when the layer may run: opted in and package importable."""
-    if os.environ.get("JARVIS_NEEDLE", "0").strip().lower() in (
+    if os.environ.get("JARVIS_NEEDLE", "1").strip().lower() in (
         "0",
         "false",
         "no",
@@ -179,7 +179,37 @@ def _build_agent():
         "Hand multi-page comparison or citation gathering to deep research. Repeat the topic verbatim."
         return {"topic": topic}
 
+    @needle.tool
+    def jarvis_mute():
+        "Mute the assistant's HUD display and its sounds. Not about screens, windows or the volume."
+        return {"ok": True}
+
+    @needle.tool
+    def jarvis_unmute():
+        "Unmute the assistant HUD again after it was muted."
+        return {"ok": True}
+
+    @needle.tool
+    def jarvis_hide():
+        "Hide the assistant's on-screen HUD interface: dismiss it, get rid of the interface, vanish, fade into the wallpaper."
+        return {"ok": True}
+
+    @needle.tool
+    def hide_all_windows():
+        "Minimise all the open application windows on the computer and show the bare desktop. Not about the assistant itself."
+        return {"ok": True}
+
+    @needle.tool
+    def stop_speaking():
+        "Stop talking right now: cut off Jarvis's current spoken reply."
+        return {"ok": True}
+
     tools = [
+        jarvis_mute,
+        jarvis_unmute,
+        jarvis_hide,
+        hide_all_windows,
+        stop_speaking,
         tell_time,
         set_volume,
         media_control,
@@ -218,6 +248,11 @@ def _get_agent():
 
 # Needle tool name -> (Jarvis action, params mapping).
 _ACTION_MAP: dict[str, str] = {
+    "jarvis_mute": "jarvis_mute",
+    "jarvis_unmute": "jarvis_unmute",
+    "jarvis_hide": "jarvis_hide",
+    "hide_all_windows": "hide_all_windows",
+    "stop_speaking": "stop_speaking",
     "tell_time": "tell_time",
     "set_volume": "set_volume",
     "media_control": "media_control",
@@ -347,7 +382,7 @@ def _spawn() -> None:
     threading.Thread(target=_pump, args=(_proc, _replies), daemon=True).start()
 
 
-def _route_isolated(text: str) -> dict | None:
+def _route_isolated(text: str, timeout: float | None = None) -> dict | None:
     with _lock:
         if _retired:
             return None
@@ -363,7 +398,7 @@ def _route_isolated(text: str) -> dict | None:
         try:
             _proc.stdin.write(json.dumps({"text": text.strip()[:200]}) + "\n")
             _proc.stdin.flush()
-            reply = _replies.get(timeout=_REPLY_TIMEOUT)
+            reply = _replies.get(timeout=timeout or _REPLY_TIMEOUT)
         except (OSError, ValueError, queue.Empty):
             _kill_worker(crashed=True)
             return None
@@ -373,8 +408,147 @@ def _route_isolated(text: str) -> dict | None:
         return _to_result(reply.get("raw"))
 
 
+# --- Shared always-on daemon -------------------------------------------------
+# One Needle process for the whole machine (agent, bridge and any future
+# client), loaded once and kept warm on a unix socket. Per-process workers
+# each paid a ~16 s model load on one niced core, so commands abstained while
+# loading and workers piled up. A segfault only kills the daemon: the next
+# call respawns it (rate limited) and that single turn abstains.
+
+DAEMON_ENV = "JARVIS_NEEDLE_DAEMON"
+_SPAWN_GAP = 10.0  # s between daemon spawn attempts
+_daemon_spawned_at = 0.0
+_daemon_lock = threading.Lock()
+
+
+def _daemon_enabled() -> bool:
+    return os.environ.get(DAEMON_ENV, "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _jarvis_home():
+    from pathlib import Path
+
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    return Path(home) if home else Path.home() / ".jarvis"
+
+
+def _sock_path() -> str:
+    return str(_jarvis_home() / "needle.sock")
+
+
+def _ensure_daemon() -> None:
+    """Spawn the daemon if absent; never blocks, never raises."""
+    global _daemon_spawned_at
+    with _daemon_lock:
+        now = time.monotonic()
+        if now - _daemon_spawned_at < _SPAWN_GAP:
+            return
+        _daemon_spawned_at = now
+        try:
+            _jarvis_home().mkdir(parents=True, exist_ok=True)
+            subprocess.Popen(
+                [sys.executable, os.path.abspath(__file__), "--daemon"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,  # outlives the client that started it
+                env={
+                    **os.environ,
+                    "OMP_NUM_THREADS": "4",
+                    "MKL_NUM_THREADS": "4",
+                    "OPENBLAS_NUM_THREADS": "4",
+                    "TOKENIZERS_PARALLELISM": "false",
+                },
+            )
+        except OSError:
+            pass
+
+
+def _route_daemon(text: str, timeout: float | None = None) -> dict | None:
+    import socket
+
+    wait = timeout or _REPLY_TIMEOUT
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(min(wait, 1.0))
+            conn.connect(_sock_path())  # absent/loading daemon -> OSError
+            conn.settimeout(wait)
+            conn.sendall((json.dumps({"text": text.strip()[:200]}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    return None
+                buf += chunk
+        return _to_result(json.loads(buf).get("raw"))
+    except (OSError, ValueError):
+        _ensure_daemon()
+        return None
+
+
+def _daemon_main() -> None:
+    """Server: load Needle once, answer line-JSON requests on the unix socket."""
+    import fcntl
+    import socket
+
+    home = _jarvis_home()
+    home.mkdir(parents=True, exist_ok=True)
+    lock_fh = open(home / "needle.lock", "w")  # noqa: SIM115 - held for life
+    try:
+        fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return  # another daemon already owns it
+    # Model loading/warm-up is background work. Native runtimes can ignore
+    # thread-count environment variables, so bound all threads before loading.
+    with __import__("contextlib").suppress(OSError, AttributeError):
+        os.nice(10)
+    with __import__("contextlib").suppress(OSError, AttributeError):
+        os.sched_setaffinity(0, set(sorted(os.sched_getaffinity(0))[-2:]))
+    agent = _build_agent()
+    with __import__("contextlib").suppress(Exception):
+        agent.complete("what time is it")  # first call compiles/caches: do it now
+    path = _sock_path()
+    with __import__("contextlib").suppress(OSError):
+        os.unlink(path)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    os.chmod(path, 0o600)
+    server.listen(8)
+    infer = threading.Lock()  # one native complete() at a time
+
+    def serve(conn: socket.socket) -> None:
+        with conn:
+            conn.settimeout(15)
+            try:
+                buf = b""
+                while not buf.endswith(b"\n"):
+                    chunk = conn.recv(65536)
+                    if not chunk:
+                        return
+                    buf += chunk
+                text = json.loads(buf)["text"]
+                with infer:
+                    raw = agent.complete(str(text)[:200])
+                conn.sendall((json.dumps({"raw": raw}, default=str) + "\n").encode())
+            except Exception:
+                with __import__("contextlib").suppress(OSError):
+                    conn.sendall(b'{"raw": null}\n')
+
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=serve, args=(conn,), daemon=True).start()
+
+
 def warm_up() -> None:
     """Start the worker early so the first real turn already has a model."""
+    if needle_enabled() and _daemon_enabled():
+        _ensure_daemon()
+        return
     if needle_enabled() and _isolated():
         with _lock:
             if not _retired and (_proc is None or _proc.poll() is not None):
@@ -390,12 +564,17 @@ def _isolated() -> bool:
     )
 
 
-def route_with_needle(text: str) -> dict | None:
-    """Semantic route for text, or None when abstaining/unavailable. Pure I/O."""
+def route_with_needle(text: str, timeout: float | None = None) -> dict | None:
+    """Semantic route for text, or None when abstaining/unavailable. Pure I/O.
+
+    ``timeout`` raises the per-call reply deadline for callers that can wait
+    (passive commands); the voice turn path keeps the short default."""
     if not needle_enabled():
         return None
+    if _daemon_enabled():
+        return _route_daemon(text, timeout)
     if _isolated():
-        return _route_isolated(text)
+        return _route_isolated(text, timeout)
     return _route_in_process(text)
 
 
@@ -433,5 +612,7 @@ def reset_agent() -> None:
         _kill_worker(crashed=False)
 
 
-if __name__ == "__main__" and "--worker" in sys.argv:
+if __name__ == "__main__" and "--daemon" in sys.argv:
+    _daemon_main()
+elif __name__ == "__main__" and "--worker" in sys.argv:
     _worker_main()

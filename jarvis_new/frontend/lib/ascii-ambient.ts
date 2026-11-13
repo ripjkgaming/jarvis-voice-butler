@@ -44,6 +44,8 @@ export function createAsciiAmbientScene(
   let scan = 'rgba(168,235,255,0.035)';
   const lattice = document.createElement('canvas');
   let streams: Float32Array = new Float32Array(0);
+  const FRAME_MS = 1000 / 30;
+  let pending = 0;
 
   const bake = () => {
     const mo = getCharacterState().motion;
@@ -80,6 +82,16 @@ export function createAsciiAmbientScene(
 
   const draw = (delta = 0) => {
     if (!width || !height) return;
+    // Every moving part here is cell-quantised (streams, wave) or slow (the
+    // scanline), so repainting this full-window canvas at the display rate
+    // (60-144 Hz) only burns raster time. Accumulate and paint at 30 Hz;
+    // delta 0 (resize / static redraw) still paints at once.
+    if (delta > 0) {
+      pending += delta;
+      if (pending < FRAME_MS) return;
+      delta = pending;
+      pending = 0;
+    }
     sinceBake += delta;
     if (seen !== particleSkin.version) {
       // Skin changed (cross-fade frame): re-bake at a capped rate.

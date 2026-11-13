@@ -14,11 +14,14 @@ from tools import BrowserTools
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
     action_guard.reset()
+
     # Google resolution is mocked below. Execute those fakes inline to keep
     # these interface tests bounded and independent of host executor shutdown.
     async def mocked_lookup(fn, *args, **kwargs):
         import contextvars
+
         return contextvars.copy_context().run(fn, *args, **kwargs)
+
     monkeypatch.setattr(vu.asyncio, "to_thread", mocked_lookup)
     monkeypatch.setenv("JARVIS_LOCAL", "1")
     monkeypatch.setenv("DISPLAY", ":1")
@@ -317,9 +320,7 @@ async def test_google_active_review_blocks_lookup(monkeypatch):
     owner = ps._Owner("google-review", active=True)
     owner.approval_gate = SimpleNamespace(transaction_active=True)
     owner_token = ps._OWNER.set(owner)
-    lookup = Mock(
-        side_effect=AssertionError("No lookup during review")
-    )
+    lookup = Mock(side_effect=AssertionError("No lookup during review"))
     monkeypatch.setattr(google_apps, "resolve", lookup)
     try:
         with pytest.raises(ToolError, match="WhatsApp"):

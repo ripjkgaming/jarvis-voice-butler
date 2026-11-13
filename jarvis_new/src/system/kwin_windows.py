@@ -77,3 +77,63 @@ def act_on(action: str, uuid: str, run=subprocess.run) -> None:
 
     mark_window(action, uuid, run=run)
     _dbus("Run", f"string:{ACTIONS[action]}_{uuid}", "string:", run=run)
+
+
+# --- bulk actions (KWin scripting) -------------------------------------------
+# Plasma 6 has no "MinimizeAll" global shortcut (invokeShortcut on an unknown
+# name returns 0 and does nothing), and the runner cannot enumerate windows, so
+# bulk minimise/close load a one-shot KWin script that walks workspace windows.
+
+#: Never touched by a bulk action: Jarvis UI, the shell, lockscreen, terminals
+#: (so close-all cannot kill the terminal Jarvis or an agent runs in).
+PROTECTED = (
+    r"jarvis|plasmashell|krunner|kscreenlocker|ksmserver|polkit|kwin|xwaylandvideobridge"
+    r"|konsole|yakuake|kitty|alacritty|foot|wezterm|ghostty|xterm|gnome-terminal|ptyxis|tilix|terminator"
+)
+
+_BULK_JS = """
+(function () {{
+  var protect = new RegExp("{protect}", "i");
+  var wins = workspace.windowList ? workspace.windowList() : workspace.clientList();
+  for (var i = 0; i < wins.length; i++) {{
+    var w = wins[i];
+    if (!w.normalWindow || w.skipTaskbar) continue;
+    var id = (w.resourceClass || "") + " " + (w.resourceName || "") + " " + (w.caption || "");
+    if (protect.test(id)) continue;
+    {body}
+  }}
+}})();
+"""
+
+
+def bulk(action: str, run=subprocess.run, protect: str = PROTECTED) -> bool:
+    """Minimise or close every normal, unprotected window. True when KWin ran it."""
+    import tempfile
+
+    body = {"minimize": "w.minimized = true;", "close": "w.closeWindow();"}[action]
+    js = _BULK_JS.format(protect=protect.replace('"', ""), body=body)
+    name = f"jarvis_bulk_{action}_{os.getpid()}"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(js)
+        path = fh.name
+    try:
+
+        def call(*a: str) -> subprocess.CompletedProcess:
+            return run(
+                ["qdbus", "org.kde.KWin", *a], capture_output=True, text=True, timeout=5
+            )
+
+        loaded = call("/Scripting", "org.kde.kwin.Scripting.loadScript", path, name)
+        sid = (loaded.stdout or "").strip()
+        if loaded.returncode != 0 or not sid.lstrip("-").isdigit() or int(sid) < 0:
+            return False
+        started = call(f"/Scripting/Script{sid}", "org.kde.kwin.Script.run")
+        call("/Scripting", "org.kde.kwin.Scripting.unloadScript", name)
+        return started.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass

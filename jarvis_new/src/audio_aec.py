@@ -36,12 +36,12 @@ AEC_ARGS = (
 
 #: ALSA control for the built-in digital mic array's hardware gain (SOF).
 DMIC_CONTROL = "Dmic0"
-#: Default hardware gain cap. The driver ships at +18 dB, which clips about
-#: 20% of samples even in a quiet room; clipped speech can't be recovered
-#: downstream, while the canceller's digital gain control (and the agent's
-#: AGC) restore level losslessly. 0 dB keeps ~20 dB of headroom for a loud
-#: canteen.
-DMIC_GAIN_DB = 0.0
+#: Default hardware gain cap: None = leave the mixer alone. PipeWire owns
+#: Dmic0 through the Mic1 source volume, so writing it here dropped the
+#: system mic to 46% (-20 dB) for every app on each wake-client start
+#: (claps then read as too weak). Opt in with JARVIS_DMIC_GAIN_DB=0 if the
+#: driver's +20 dB clips a loud room.
+DMIC_GAIN_DB: float | None = None
 
 
 def _pactl(*args: str) -> str:
@@ -200,7 +200,7 @@ def release() -> str:
 
 
 def dmic_gain_db() -> float | None:
-    """Hardware mic gain cap from JARVIS_DMIC_GAIN_DB; None = leave it. Pure."""
+    """Hardware mic gain cap from JARVIS_DMIC_GAIN_DB (opt-in); None = leave it. Pure."""
     raw = os.environ.get("JARVIS_DMIC_GAIN_DB", "").strip().lower()
     if raw in ("off", "none", "keep"):
         return None

@@ -33,6 +33,56 @@ JARVIS_PROFILE_DIRNAME = "brave-profile"
 JARVIS_RESEARCH_PROFILE_DIRNAME = "brave-research-profile"
 
 
+LAUNCH_TIMEOUT_S = 30.0
+
+
+def _find_profile_pids(profile_dir: Path, *, proc_root: str = "/proc") -> list[int]:
+    """PIDs whose cmdline has exactly ``--user-data-dir=<profile_dir>``."""
+    target = str(Path(profile_dir).expanduser())
+    found: list[int] = []
+    me = os.getpid()
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.isdigit() or int(entry) == me:
+            continue
+        try:
+            raw = Path(proc_root, entry, "cmdline").read_bytes()
+        except OSError:
+            continue
+        args = raw.split(b"\0")
+        for i, arg in enumerate(args):
+            text = arg.decode("utf-8", "ignore")
+            if text == f"--user-data-dir={target}" or (
+                text == "--user-data-dir"
+                and i + 1 < len(args)
+                and args[i + 1].decode("utf-8", "ignore") == target
+            ):
+                found.append(int(entry))
+                break
+    return found
+
+
+def _clear_stale_profile(profile_dir: Path, *, kill: bool = True) -> list[int]:
+    """Kill orphan browsers on THIS profile (by PID) and drop stale locks."""
+    import signal
+
+    killed: list[int] = []
+    if kill:
+        for pid in _find_profile_pids(profile_dir):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+                killed.append(pid)
+        if killed:
+            time.sleep(0.3)
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        with contextlib.suppress(OSError):
+            (Path(profile_dir) / name).unlink()
+    return killed
+
+
 def _default_profile_dir() -> Path:
     """Dedicated Jarvis Brave profile (never the live user profile).
 
@@ -282,8 +332,15 @@ class BrowserManager:
         self._active_tab: str = "main"
         self._next_tab_id: int = 1
         self._lock = asyncio.Lock()
+        self._start_lock = asyncio.Lock()
 
     async def start(self) -> None:
+        # Concurrent tool calls must not run launch/teardown at once: one
+        # call's _shutdown_unlocked nulls _playwright under the other.
+        async with self._start_lock:
+            await self._start_unlocked()
+
+    async def _start_unlocked(self) -> None:
         if self._page is not None and self._is_alive():
             return
 
@@ -291,8 +348,11 @@ class BrowserManager:
         # closed) before launching a fresh browser.
         await self._shutdown_unlocked()
 
-        self._playwright = await async_playwright().start()
         self._profile_dir.mkdir(parents=True, exist_ok=True)
+        # Orphans from earlier launches hold the profile lock and make
+        # launch_persistent_context die with TargetClosedError.
+        await asyncio.to_thread(_clear_stale_profile, self._profile_dir)
+        self._playwright = await async_playwright().start()
         launch_kwargs: dict[str, object] = {
             "user_data_dir": str(self._profile_dir),
             "headless": self._headless,
@@ -310,9 +370,25 @@ class BrowserManager:
         }
         if self._browser_bin:
             launch_kwargs["executable_path"] = self._browser_bin
-        self._context = await self._playwright.chromium.launch_persistent_context(
-            **launch_kwargs  # type: ignore[arg-type]
-        )
+        last_exc: BaseException | None = None
+        for attempt in range(2):
+            try:
+                self._context = await asyncio.wait_for(
+                    self._playwright.chromium.launch_persistent_context(
+                        **launch_kwargs  # type: ignore[arg-type]
+                    ),
+                    timeout=LAUNCH_TIMEOUT_S,
+                )
+                break
+            except Exception as exc:  # TargetClosedError, TimeoutError, ...
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.to_thread(_clear_stale_profile, self._profile_dir)
+        else:
+            await self._shutdown_unlocked()
+            raise BrowserError(
+                f"I could not start the browser: {last_exc or 'launch failed'}"
+            ) from last_exc
         await self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
         )

@@ -54,7 +54,9 @@ class FakeLLM:
 
 
 def llm_router(reply, **kw):
-    f = FakeLLM(reply, **{k: kw.pop(k) for k in ("available", "delay", "exc") if k in kw})
+    f = FakeLLM(
+        reply, **{k: kw.pop(k) for k in ("available", "delay", "exc") if k in kw}
+    )
     return IntentRouter(f, **kw), f
 
 
@@ -259,9 +261,16 @@ def test_out_of_range_rejected(rep):
 
 def test_valid_variants():
     cases = [
-        (tool("series_start", total=None, colour="white", level=4),
-         "series_start", {"total": None, "colour": "white", "level": 4}),
-        (tool("series_start", total=5), "series_start", {"total": 5, "colour": "alternate"}),
+        (
+            tool("series_start", total=None, colour="white", level=4),
+            "series_start",
+            {"total": None, "colour": "white", "level": 4},
+        ),
+        (
+            tool("series_start", total=5),
+            "series_start",
+            {"total": 5, "colour": "alternate"},
+        ),
         (tool("series_pause"), "series_pause", {}),
         (tool("series_resume"), "series_resume", {}),
         (tool("series_cancel"), "series_cancel", {}),
@@ -279,7 +288,11 @@ def test_valid_variants():
         (tool("undo", n=2), "undo", {"n": 2}),
         (tool("undo"), "undo", {"n": 1}),
         (tool("analyse_board"), "analyse_board", {}),
-        (tool("explain", which="number", move=14), "explain", {"which": "number", "n": 14}),
+        (
+            tool("explain", which="number", move=14),
+            "explain",
+            {"which": "number", "n": 14},
+        ),
         (tool("difficulty"), "difficulty", {}),
         (tool("level_adjust", direction="up"), "level_adjust", {"direction": "up"}),
     ]
@@ -360,14 +373,19 @@ class FakeHTTP:
             status_code = 200
 
             def json(_s):  # noqa: N805
-                return {"model": "m", "choices": [{"message": {"content": self.content}}]}
+                return {
+                    "model": "m",
+                    "choices": [{"message": {"content": self.content}}],
+                }
 
         return R()
 
 
 def test_with_real_openrouter_client(tmp_path):
     http = FakeHTTP(json.dumps(tool("set_level", n=8)))
-    client = OpenRouter(["m"], client=http, key="sk-or-test", quota=Quota(path=tmp_path / "q.json"))
+    client = OpenRouter(
+        ["m"], client=http, key="sk-or-test", quota=Quota(path=tmp_path / "q.json")
+    )
     r = run(IntentRouter(client).route(MISS, RouteCtx()))
     assert r.intent.args == {"n": 8}
     body = http.posts[0]

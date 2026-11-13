@@ -1,4 +1,5 @@
 """Regression tests: existing window movement between KDE/Wayland monitors."""
+
 import pytest
 from system import monitor_window_move as mm
 
@@ -24,7 +25,9 @@ def test_explicit_unknown_screen_does_not_silently_fallback():
 
 
 def test_move_script_moves_existing_window_and_retains_maximization():
-    js = mm.move_script("ChatGPT", "DP-1", [{"name": "DP-1", "x": 3840, "y": 0, "w": 1920, "h": 1080}])
+    js = mm.move_script(
+        "ChatGPT", "DP-1", [{"name": "DP-1", "x": 3840, "y": 0, "w": 1920, "h": 1080}]
+    )
     assert "workspace.windowList()" in js
     assert "chatgpt" in js.lower()
     assert "setMaximize(false,false)" in js
@@ -50,66 +53,90 @@ def test_default_routing_excludes_ui_and_current():
 
 
 def test_compositor_geometry_not_wrong_xwayland_coordinates():
-    ss=screens()
-    info={"x": 3840, "y": 0, "width": 1920, "height": 1030}
-    assert mm.info_screen(info,ss) == "DP-1"
-    assert mm.info_screen(None,ss) is None
+    ss = screens()
+    info = {"x": 3840, "y": 0, "width": 1920, "height": 1030}
+    assert mm.info_screen(info, ss) == "DP-1"
+    assert mm.info_screen(None, ss) is None
     goal = mm.target_rect(info, ss[1])
     assert 1920 <= goal["x"] < 3840
     assert goal["w"] <= 1920
 
 
 def test_move_validates_compositor_position(monkeypatch):
-    ss=screens()
-    before={"uuid": "{uuid}", "pid": 12, "caption": "ChatGPT",
-            "x": 0, "y": 0, "width": 1200, "height": 720}
-    after=dict(before,x=1920)
-    state={"info": before, "calls": []}
+    ss = screens()
+    before = {
+        "uuid": "{uuid}",
+        "pid": 12,
+        "caption": "ChatGPT",
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 720,
+    }
+    after = dict(before, x=1920)
+    state = {"info": before, "calls": []}
     monkeypatch.setattr(mm, "monitors", lambda: ss)
     monkeypatch.setattr(mm, "kwin_info", lambda q: state["info"])
     monkeypatch.setattr(mm, "hud_screen", lambda s: "DP-1")
     monkeypatch.setattr(mm, "portal_available", lambda: False)
+
     def command(js):
         state["calls"].append(js)
         return True
+
     monkeypatch.setattr(mm, "run_move_script", command)
     monkeypatch.setattr(mm.time, "sleep", lambda sec: None)
-    ok, message=mm.move_window("ChatGPT", "other")
+    ok, message = mm.move_window("ChatGPT", "other")
     assert not ok and "verify" in message
-    state["info"]=after
-    ok, message=mm.move_window("ChatGPT", "eDP-1")
+    state["info"] = after
+    ok, message = mm.move_window("ChatGPT", "eDP-1")
     assert ok and "already" in message
-    state["info"]=before
+    state["info"] = before
+
     def successful(js):
-        state["info"]=after
+        state["info"] = after
         return True
+
     monkeypatch.setattr(mm, "run_move_script", successful)
-    ok, message=mm.move_window("ChatGPT", "other")
+    ok, message = mm.move_window("ChatGPT", "other")
     assert ok and "eDP-1" in message
 
 
 def test_portal_commits_geometry_before_animation_without_timing_race(monkeypatch):
     from system import cinematic
-    ss=screens()
-    before={"uuid":"{uuid}", "pid":12, "caption":"ChatGPT",
-            "x":0, "y":0, "width":1200, "height":720}
-    current=dict(before)
-    actions=[]
-    monkeypatch.setattr(mm,"monitors",lambda:ss)
-    monkeypatch.setattr(mm,"kwin_info",lambda q:current)
-    monkeypatch.setattr(mm,"hud_screen",lambda s:"DP-1")
-    monkeypatch.setattr(mm,"portal_available",lambda:True)
-    monkeypatch.setattr(cinematic,"mark_window",
-                        lambda action,uuid,**kwargs:actions.append((action,uuid,kwargs)) or True)
-    monkeypatch.setattr(mm.time,"sleep",lambda sec: actions.append(("sleep",sec)))
+
+    ss = screens()
+    before = {
+        "uuid": "{uuid}",
+        "pid": 12,
+        "caption": "ChatGPT",
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 720,
+    }
+    current = dict(before)
+    actions = []
+    monkeypatch.setattr(mm, "monitors", lambda: ss)
+    monkeypatch.setattr(mm, "kwin_info", lambda q: current)
+    monkeypatch.setattr(mm, "hud_screen", lambda s: "DP-1")
+    monkeypatch.setattr(mm, "portal_available", lambda: True)
+    monkeypatch.setattr(
+        cinematic,
+        "mark_window",
+        lambda action, uuid, **kwargs: actions.append((action, uuid, kwargs)) or True,
+    )
+    monkeypatch.setattr(mm.time, "sleep", lambda sec: actions.append(("sleep", sec)))
+
     def move(js):
-        current["x"]=1920
+        current["x"] = 1920
         actions.append(("move",))
         return True
-    monkeypatch.setattr(mm,"run_move_script",move)
-    ok,message=mm.move_window("ChatGPT","other")
+
+    monkeypatch.setattr(mm, "run_move_script", move)
+    ok, message = mm.move_window("ChatGPT", "other")
     assert ok and "Particle Portal" in message
-    assert actions[0][:2] == ("portal","{uuid}")
+    assert actions[0][:2] == ("portal", "{uuid}")
     assert actions[0][2]["to"]["x"] >= 1920
     assert actions[1] == ("move",)
     assert actions[2][:2] == ("portal-commit", "{uuid}")
@@ -119,13 +146,16 @@ def test_portal_commits_geometry_before_animation_without_timing_race(monkeypatc
 @pytest.mark.parametrize("accepted", [False, True])
 def test_failed_portal_move_releases_hidden_window(monkeypatch, accepted):
     from system import cinematic
-    before={"uuid":"{uuid}", "x":0, "y":0, "width":1200, "height":720}
-    actions=[]
+
+    before = {"uuid": "{uuid}", "x": 0, "y": 0, "width": 1200, "height": 720}
+    actions = []
     monkeypatch.setattr(mm, "monitors", screens)
     monkeypatch.setattr(mm, "kwin_info", lambda q: before)
     monkeypatch.setattr(mm, "hud_screen", lambda s: "DP-1")
     monkeypatch.setattr(mm, "portal_available", lambda: True)
-    monkeypatch.setattr(cinematic, "mark_window", lambda action,*a,**k: actions.append(action) or True)
+    monkeypatch.setattr(
+        cinematic, "mark_window", lambda action, *a, **k: actions.append(action) or True
+    )
     monkeypatch.setattr(mm, "run_move_script", lambda js: accepted)
     monkeypatch.setattr(mm.time, "sleep", lambda sec: None)
     ok, _ = mm.move_window("ChatGPT", "other")

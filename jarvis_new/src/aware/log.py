@@ -17,7 +17,7 @@ import time
 from aware import state as st
 
 KEEP_DAYS = 14
-OUTCOMES = ("seen", "unchanged", "skip", "error")
+OUTCOMES = ("seen", "unchanged", "skip", "error", "poll")
 
 
 def log_dir():

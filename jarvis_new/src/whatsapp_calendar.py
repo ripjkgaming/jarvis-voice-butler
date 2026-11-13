@@ -30,6 +30,12 @@ _CHANGE = re.compile(
     r"\b(cancel(?:led|ed|lation)?|reschedul\w*|postpon\w*|instead|tentative|maybe|might|perhaps|if we|if you|could we|shall we|are you free|are you fine|or anytime|or on|or monday|or tuesday|or wednesday|or thursday|or friday|or saturday|or sunday|would you|can we|ignore (?:all|previous)|system prompt)\b",
     re.I,
 )
+_CONTEXT_REPLY = re.compile(
+    r"\b(?:yes|yep|yeah|sure|ok|okay|works|fine|confirmed|sounds good|"
+    r"that works|count me in|i can make it|i'll be there|ill be there|"
+    r"not free|can't make it|cannot make it|no thanks)\b",
+    re.I,
+)
 
 
 def home() -> Path:
@@ -56,15 +62,10 @@ def _load():
 
 
 def _save(data):
-    # Keep a bounded history; staged/retry messages are never evicted.
-    rows = data.setdefault("messages", {})
-    done = [
-        key
-        for key, row in rows.items()
-        if row.get("outcome") not in (None, "retry-queued", "extract-retry")
-    ]
-    for key in done[:-1000]:
-        rows.pop(key, None)
+    # Source receipts are permanent: deleting old rows could let a WhatsApp
+    # replay trigger a second extraction or calendar action.
+    data.setdefault("messages", {})
+    data.setdefault("aware_receipts", {})
     target = home() / "whatsapp_calendar.json"
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
@@ -176,8 +177,135 @@ def ingest_messages(
     return added
 
 
+def ingest_aware_message(
+    chat: str,
+    message: dict,
+    context: str,
+    *,
+    now=None,
+    historical=False,
+) -> str:
+    """Durably stage one Store message and retain its source receipt forever.
+
+    The default ``ingest_messages`` remains unchanged for existing callers.
+    Always Aware passes both directions and a bounded transcript.  Its
+    historical candidates are still subject to the existing extractor's
+    future-event validation, cancellation quarantine, and review policy.
+    Returns ``staged``, ``skipped``, or ``duplicate`` for its permanent receipt.
+    """
+    import phone_session
+    from wa_autoreply import blocklist
+
+    chat_id = str(message.get("chat_id") or "")
+    source_id = str(message.get("id") or "")
+    # Durable Store identities are mandatory; a display name is not stable.
+    if not chat_id or not source_id:
+        raise ValueError(
+            "Always Aware calendar messages require stable chat and message IDs"
+        )
+    identity = json.dumps([chat_id, source_id], separators=(",", ":"))
+    receipt = "aware-" + hashlib.sha256(identity.encode()).hexdigest()
+    now = time.time() if now is None else float(now)
+    text = str(message.get("text") or "").strip()[:3500]
+    stamp = message_date({"timestamp": message.get("timestamp")}, now)
+    with _lock():
+        state = _load()
+        receipts = state.setdefault("aware_receipts", {})
+        if receipt in receipts:
+            return "duplicate"
+        # Persist a terminal receipt for intentionally excluded messages too:
+        # an unchanged message is never repeatedly reconsidered downstream.
+        reason = ""
+        if phone_session.private():
+            reason = "private-session"
+        elif not ex.enabled("whatsapp"):
+            reason = "disabled"
+        elif chat.strip().casefold() in blocklist():
+            reason = "blocked-chat"
+        elif not text or stamp is None:
+            reason = "missing-text-or-timestamp"
+        elif not (
+            _DATE_HINT.search(text)
+            or _CHANGE.search(text)
+            or (
+                _CONTEXT_REPLY.search(text)
+                and (_DATE_HINT.search(context) or _CHANGE.search(context))
+            )
+        ):
+            reason = "no-calendar-signal"
+        if reason:
+            if reason in ("private-session", "disabled"):
+                # These controls can change without new WhatsApp input. Keep
+                # the durable Store message queued for the next active pass.
+                return "deferred"
+            receipts[receipt] = {
+                "chat_id": chat_id,
+                "message_id": source_id,
+                "status": reason,
+                "at": now,
+            }
+            _save(state)
+            return "skipped"
+
+        # Preserve events from either participant.  A short source-centered
+        # transcript gives extraction the context needed to resolve replies.
+        body = str(context or text).strip()[:3500]
+        key = "wa-" + receipt.removeprefix("aware-")
+        rows = state.setdefault("messages", {})
+        if key not in rows:
+            rows[key] = {
+                "id": key,
+                "source": "whatsapp",
+                "sender": chat[:120],
+                "subject": "WhatsApp appointment",
+                "date": stamp.isoformat(),
+                "body": body,
+                "created": now,
+                "source_chat_id": chat_id,
+                "source_message_id": source_id,
+                "historical": bool(historical),
+                "outgoing": bool(message.get("me")),
+            }
+        receipts[receipt] = {
+            "chat_id": chat_id,
+            "message_id": source_id,
+            "calendar_id": key,
+            "status": "staged",
+            "at": now,
+        }
+        _save(state)
+    return "staged"
+
+
+def _aware_owns_ingestion() -> bool:
+    """True when the Always Aware coordinator has claimed WhatsApp ingestion."""
+    legacy = os.environ.get("JARVIS_AWARE_CALENDAR_LEGACY", "").strip().lower()
+    if legacy in ("1", "true", "yes", "on"):
+        return False
+    explicit = os.environ.get("JARVIS_AWARE_CALENDAR_OWNER", "").strip().lower()
+    return explicit not in ("0", "false", "no", "off")
+
+
+def _aware_controls_allow(now=None) -> bool:
+    """Honor Always Aware's global off, pause, and kill controls."""
+    try:
+        from aware import state as aware_state
+
+        current = time.time() if now is None else now
+        state = aware_state.load()
+        return (
+            aware_state.env_allows()
+            and not aware_state.killed()
+            and bool(state.get("enabled"))
+            and not aware_state.paused(state, current)
+        )
+    except Exception:
+        # If Aware control state cannot be read, fail closed for its owned run.
+        return False
+
+
 def process_pending(
-    *, now=None, runner=None, lister=None, inserter=None, notify_fn=None
+    *, now=None, runner=None, lister=None, inserter=None, notify_fn=None, control=None
 ):
     """Serialize extraction and calendar writes across watcher/manual invocations."""
     if not ex.enabled("whatsapp"):
@@ -190,12 +318,16 @@ def process_pending(
         rows = snapshot.get("messages", {})
         changes = {}
         for candidate in rows.values():
+            if control is not None and not control():
+                break
             if _CHANGE.search(candidate.get("body", "")):
                 sender = candidate.get("sender", "")
                 changes[sender] = max(
                     changes.get(sender, ""), candidate.get("date", "")
                 )
         for row in rows.values():
+            if control is not None and not control():
+                break
             if row.get("outcome") not in (None, "retry-queued", "extract-retry"):
                 continue
             if float(row.get("retry_at") or 0) > now:
@@ -212,7 +344,10 @@ def process_pending(
                     lister=lister,
                     inserter=inserter,
                     notify_fn=notify_fn,
+                    control=control,
                 )
+            if outcome == "paused":
+                break
             # Merge into the latest state: ingestion can proceed while the model
             # runs, and a slow extraction never blocks a voice read's staging.
             with _lock():
@@ -252,8 +387,16 @@ def request_reconciliation(*, now=None):
         _save(state)
 
 
-async def run(wa=None, *, now=None, scan_all=False, **kwargs):
+async def run(wa=None, *, now=None, scan_all=False, automatic=False, **kwargs):
     """Read actual full chats. scan_all is an explicit bounded initial import."""
+    if automatic:
+        # The Always Aware coordinator is the single automatic reader and
+        # calendar queue consumer by default. Legacy auto scanning is an
+        # explicit fallback and still obeys Always Aware's off/pause/kill.
+        if not _aware_controls_allow(now):
+            return []
+        if _aware_owns_ingestion():
+            return []
     if not ex.enabled("whatsapp"):
         return [{"outcome": "disabled"}]
     if wa is None:
@@ -388,7 +531,7 @@ def start_thread(interval=90.0, first_delay=20.0):
             return
         while not stop.is_set():
             try:
-                asyncio.run(run())
+                asyncio.run(run(automatic=True))
             except Exception as exc:
                 from system import log_action
 

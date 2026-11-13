@@ -1,14 +1,16 @@
-"""Perplexity Decider v1.2 via the OpenRouter Decisions API.
+"""Perplexity Decider v1.3 free, with v1.2 fallback, via the OpenRouter Decisions API.
 
 The historical module name and JARVIS_MERCURY kill switch remain compatible
-with existing callers. The larger Perplexity model handles email urgency,
+with existing callers. The Perplexity models handle email urgency,
 phishing and the calendar extraction gate; it does not generate text.
-JARVIS_DECIDE_MODEL can override the default. There is no automatic routing
+JARVIS_DECIDE_MODEL and JARVIS_DECIDE_FALLBACK_MODEL override the defaults.
+Both models share one request deadline. There is no automatic routing
 to Jev, Flash or the unavailable Mercury free model.
 
 JARVIS_DECIDE_API_KEY in env or $JARVIS_HOME/keys.env pins a dedicated
 OpenRouter key. Without it, the existing general OpenRouter keys are used.
-A key returning 402/429 rests for COOLDOWN_S; callers retain ChatGPT fallback.
+A key/model pair returning 402/429 rests for COOLDOWN_S; callers retain
+ChatGPT fallback after both decision models fail.
 
 Stdlib only. Fail-soft like openrouter_chat: functions return (answers,
 warning) and never raise. The key is never logged or printed.
@@ -28,7 +30,10 @@ import urllib.request
 
 import openrouter_chat
 
-DEFAULT_MODEL = "perplexity/pplx-decider-v1.2"
+DEFAULT_MODEL = "perplexity/pplx-decider-v1.3:free"
+FALLBACK_MODEL = os.environ.get(
+    "JARVIS_DECIDE_FALLBACK_MODEL", "perplexity/pplx-decider-v1.2"
+).strip()
 MODEL = os.environ.get("JARVIS_DECIDE_MODEL", "").strip() or DEFAULT_MODEL
 URL = "https://openrouter.ai/api/alpha/decisions"
 ENV = "JARVIS_MERCURY"
@@ -36,7 +41,7 @@ _OFF = ("0", "false", "off", "no")
 #: Seconds a key rests after 402/429 before it is tried again.
 COOLDOWN_S = 300.0
 _lock = threading.Lock()
-_rest_until: dict[str, float] = {}
+_rest_until: dict[tuple[str, str], float] = {}
 _turn = itertools.count()
 
 
@@ -66,14 +71,14 @@ def api_keys(environ=None) -> list[str]:
     return keys
 
 
-def _order(keys: list[str], now: float) -> list[str]:
+def _order(keys: list[str], now: float, model: str) -> list[str]:
     """Alternate the start key, omitting keys still in quota cooldown."""
     if not keys:
         return []
     start = next(_turn) % len(keys)
     ordered = keys[start:] + keys[:start]
     with _lock:
-        return [k for k in ordered if _rest_until.get(k, 0.0) <= now]
+        return [k for k in ordered if _rest_until.get((model, k), 0.0) <= now]
 
 
 def enabled() -> bool:
@@ -134,41 +139,47 @@ def decide(
     keys = api_keys()
     if not keys:
         return None, "Decision model unavailable: no OpenRouter key"
+    models = list(dict.fromkeys(m for m in (MODEL, FALLBACK_MODEL) if m))
     try:
-        body = json.dumps(
-            {"model": MODEL, "state": state, "questions": questions}
-        ).encode()
+        bodies = [
+            json.dumps(
+                {"model": model, "state": state, "questions": questions}
+            ).encode()
+            for model in models
+        ]
     except (TypeError, ValueError, RecursionError, UnicodeError):
         return None, "Decision model received invalid input"
-    ordered = _order(keys, time.monotonic())
-    if not ordered:
-        return None, "Decision model quota spent (keys cooling down)"
-    warning = "Decision model unavailable"
-    raw = None
-    for key in ordered:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return None, "Decision model timed out"
-        raw, warning = _post(key, body, remaining, opener)
-        # Provider quota state remains useful even when the response arrived
-        # too late to use for this decision.
-        if "quota spent" in (warning or ""):
-            with _lock:
-                _rest_until[key] = time.monotonic() + COOLDOWN_S
-        if time.monotonic() > deadline:
-            return None, "Decision model timed out"
-        if raw is not None:
-            break
-    if raw is None:
-        return None, warning
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-        answers = data["answers"]
-    except (ValueError, UnicodeDecodeError, KeyError, TypeError, AttributeError):
-        return None, "Decision model returned a bad response"
-    if not isinstance(answers, dict):
-        return None, "Decision model returned a bad response"
-    return answers, None
+    warning = "Decision model quota spent (keys cooling down)"
+    for model, body in zip(models, bodies):
+        for key in _order(keys, time.monotonic(), model):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None, "Decision model timed out"
+            raw, warning = _post(key, body, remaining, opener)
+            # A free-model quota must not suppress the paid fallback.
+            if "quota spent" in (warning or ""):
+                with _lock:
+                    _rest_until[(model, key)] = time.monotonic() + COOLDOWN_S
+            if time.monotonic() > deadline:
+                return None, "Decision model timed out"
+            if raw is None:
+                continue
+            try:
+                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                answers = data["answers"]
+            except (
+                ValueError,
+                UnicodeDecodeError,
+                KeyError,
+                TypeError,
+                AttributeError,
+            ):
+                warning = "Decision model returned a bad response"
+                continue
+            if isinstance(answers, dict):
+                return answers, None
+            warning = "Decision model returned a bad response"
+    return None, warning
 
 
 def yes_prob(answers: dict, name: str) -> float | None:

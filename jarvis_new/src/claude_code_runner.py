@@ -59,12 +59,16 @@ Sir's request:
 
 RULES = BRIEF.split("Rules:", 1)[1].split("Sir's request:", 1)[0]
 
-RESUME_BRIEF = """Sir has a follow-up on the work you did earlier in this conversation. \
+RESUME_BRIEF = (
+    """Sir has a follow-up on the work you did earlier in this conversation. \
 Same rules as before; do not ask questions, pick sensible defaults.
 
-Rules:""" + RULES + """Sir's follow-up:
+Rules:"""
+    + RULES
+    + """Sir's follow-up:
 {task}
 """
+)
 
 
 def _notify(text: str, urgency: str = "info", gap_key: str = "") -> None:
@@ -92,9 +96,17 @@ EMPTY_MCP = '{"mcpServers":{}}'
 
 def build_argv(spec: dict, binary: str) -> list[str]:
     """claude argv for a spec. Only flags that exist in the installed CLI."""
-    argv = [binary, "--print", "--verbose", "--output-format", "stream-json",
-            "--model", spec.get("model") or "claude-sonnet-5-5",
-            "--permission-mode", "acceptEdits"]
+    argv = [
+        binary,
+        "--print",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--model",
+        spec.get("model") or "claude-sonnet-5-5",
+        "--permission-mode",
+        "acceptEdits",
+    ]
     if spec.get("legacy"):
         argv += ["--allowedTools", LEGACY_TOOLS]
     else:
@@ -103,8 +115,14 @@ def build_argv(spec: dict, binary: str) -> list[str]:
             argv += ["--effort", spec["effort"]]
         # headless coding needs none of the user's MCP servers, skills,
         # plugins or SessionStart hooks; project CLAUDE.md still loads.
-        argv += ["--strict-mcp-config", "--mcp-config", EMPTY_MCP,
-                 "--disable-slash-commands", "--setting-sources", "project,local"]
+        argv += [
+            "--strict-mcp-config",
+            "--mcp-config",
+            EMPTY_MCP,
+            "--disable-slash-commands",
+            "--setting-sources",
+            "project,local",
+        ]
     if (spec.get("resume") or "").strip():
         argv += ["--resume", spec["resume"].strip()]
     return argv
@@ -138,8 +156,13 @@ def main(spec_path: str) -> int:
     base_task = data.get("task") or spec.get("base_task") or spec["task"]
     started_at = data.get("started_at") or time.time()
     data.update(
-        id=spec["id"], task=base_task, cwd=spec["cwd"], model=spec.get("model") or "",
-        started_at=started_at, followups=followups, run=run_n,
+        id=spec["id"],
+        task=base_task,
+        cwd=spec["cwd"],
+        model=spec.get("model") or "",
+        started_at=started_at,
+        followups=followups,
+        run=run_n,
     )
     data.pop("error", None)
 
@@ -155,11 +178,20 @@ def main(spec_path: str) -> int:
         status_path.write_text(json.dumps(data))
 
     t_launch = float(spec.get("launched_at") or t_main)
-    timings = {"spawn_ms": max(0, int((t_main - t_launch) * 1000)),
-               "model": spec.get("model") or "", "tier": spec.get("tier") or "",
-               "effort": spec.get("effort") or ""}
+    timings = {
+        "spawn_ms": max(0, int((t_main - t_launch) * 1000)),
+        "model": spec.get("model") or "",
+        "tier": spec.get("tier") or "",
+        "effort": spec.get("effort") or "",
+    }
     data.update(timings)
-    for k in ("first_token_ms", "first_progress_ms", "total_ms", "lock_wait_ms", "steps"):
+    for k in (
+        "first_token_ms",
+        "first_progress_ms",
+        "total_ms",
+        "lock_wait_ms",
+        "steps",
+    ):
         data.pop(k, None)
     cwd = Path(spec["cwd"])
     cwd.mkdir(parents=True, exist_ok=True)
@@ -171,7 +203,11 @@ def main(spec_path: str) -> int:
         status("queued")
         fcntl.flock(lock_f, fcntl.LOCK_EX)
     data["lock_wait_ms"] = int((time.time() - t_main) * 1000)
-    binary = spec.get("binary") or shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+    binary = (
+        spec.get("binary")
+        or shutil.which("claude")
+        or str(Path.home() / ".local/bin/claude")
+    )
     env = {
         k: v
         for k, v in os.environ.items()
@@ -183,8 +219,7 @@ def main(spec_path: str) -> int:
     else:
         prompt = BRIEF.format(cwd=cwd, repo=SRC.parent, task=spec["task"])
     status("running")
-    _notify("Picking that up, Sir." if resume
-            else "Starting the coding job, Sir.")
+    _notify("Picking that up, Sir." if resume else "Starting the coding job, Sir.")
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,

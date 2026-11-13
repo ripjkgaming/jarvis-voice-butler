@@ -239,20 +239,20 @@ async def test_organize_refuses_unsafe(local):
         )
 
 
-@pytest.mark.parametrize('needle', ['quarterly revenue', 'total [42]', '--follow'])
+@pytest.mark.parametrize("needle", ["quarterly revenue", "total [42]", "--follow"])
 async def test_content_search_uses_real_ripgrep_with_literal_text(local, needle):
     """Exercise the command line; stubbed backends hid invalid rg flags."""
-    base = local / 'content'
+    base = local / "content"
     base.mkdir()
-    match = base / 'match.txt'
-    match.write_text(f'Notes: {needle}\n')
-    (base / 'other.txt').write_text('unrelated text')
+    match = base / "match.txt"
+    match.write_text(f"Notes: {needle}\n")
+    (base / "other.txt").write_text("unrelated text")
     _write_config(local, base)
     tools = FilesTools()
     result = await tools.find_files(
-        _ctx(), query=f'files containing {needle}', kind='file'
+        _ctx(), query=f"files containing {needle}", kind="file"
     )
-    assert result.get('paths') == str(match)
+    assert result.get("paths") == str(match)
     assert tools._last_results == [str(match)]
 
 
@@ -260,16 +260,16 @@ async def test_content_search_reports_backend_failure(local, monkeypatch):
     _write_config(local, local)
 
     async def failed(*args, **kwargs):
-        return 124, '', 'timed out'
+        return 124, "", "timed out"
 
-    monkeypatch.setattr(files_tools, 'run_cmd', failed)
-    with pytest.raises(ToolError, match='could not finish'):
-        await FilesTools().find_files(_ctx(), query='files containing notes')
+    monkeypatch.setattr(files_tools, "run_cmd", failed)
+    with pytest.raises(ToolError, match="could not finish"):
+        await FilesTools().find_files(_ctx(), query="files containing notes")
 
 
 def test_relative_open_paths_start_at_user_home(local, monkeypatch):
-    app = local / 'app'
+    app = local / "app"
     app.mkdir()
     monkeypatch.chdir(app)
-    monkeypatch.setattr(files_tools.Path, 'home', classmethod(lambda cls: local))
-    assert resolve_safe('Videos/Jarvis Watch') == local / 'Videos/Jarvis Watch'
+    monkeypatch.setattr(files_tools.Path, "home", classmethod(lambda cls: local))
+    assert resolve_safe("Videos/Jarvis Watch") == local / "Videos/Jarvis Watch"

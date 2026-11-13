@@ -29,8 +29,11 @@ def _setup(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_ARGS", str(tmp_path / "args.txt"))
     import claude_code_launch as L
+
     # run the runner in-process-like via subprocess, no systemd
-    monkeypatch.setattr(L.shutil, "which", lambda n: str(bindir / "claude") if n == "claude" else None)
+    monkeypatch.setattr(
+        L.shutil, "which", lambda n: str(bindir / "claude") if n == "claude" else None
+    )
     L.claude_binary.cache_clear()
     L._has_systemd_run.cache_clear()
     procs = []
@@ -77,10 +80,14 @@ def test_refusals(tmp_path, monkeypatch):
     d = L.jobs_dir()
     (d / "cc-a.json").write_text(json.dumps({"id": "cc-a", "task": "t", "cwd": "/tmp"}))
     (d / "cc-a.status.json").write_text(
-        json.dumps({"id": "cc-a", "state": "running", "ts": time.time(), "session_id": "s"}))
+        json.dumps(
+            {"id": "cc-a", "state": "running", "ts": time.time(), "session_id": "s"}
+        )
+    )
     r = L.followup("cc-a", "more")
     assert not r["ok"] and "running" in r["error"]
     (d / "cc-a.status.json").write_text(
-        json.dumps({"id": "cc-a", "state": "done", "ts": time.time()}))
+        json.dumps({"id": "cc-a", "state": "done", "ts": time.time()})
+    )
     r = L.followup("cc-a", "more")
     assert not r["ok"] and "no saved" in r["error"]

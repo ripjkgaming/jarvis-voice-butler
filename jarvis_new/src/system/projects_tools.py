@@ -115,7 +115,8 @@ class ProjectTools:
 
         Only for explicit research requests: "research X", "look into X in
         depth", "do a deep dive / write me a report on X", "compare X and Y
-        thoroughly". NOT for quick facts or "search for / google X" (use the
+        thoroughly". NOT for "pull up / open / show / find all you have on X", papers,
+        reports or PDFs (use research_pdfs: it opens the documents on screen), NOT for quick facts or "search for / google X" (use the
         search tools) and NOT for opening a website (open_app). The report
         lands in Sir's Project Archive; you'll be told when it's done.
 

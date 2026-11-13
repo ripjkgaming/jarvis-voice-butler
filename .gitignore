@@ -15,6 +15,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Local image-generation weights and outputs
+models/image-generation/sd15-uncensored-photoreal/
+forge-image*.png
+
 # Node
 node_modules/
 .next/

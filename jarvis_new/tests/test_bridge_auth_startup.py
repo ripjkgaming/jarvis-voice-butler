@@ -20,7 +20,9 @@ def test_startup_fails_closed(monkeypatch, tmp_path, content):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     if content is not None:
         (tmp_path / "bridge_token").write_text(content)
-    monkeypatch.setattr(bridge, "serve_forever", lambda **kw: pytest.fail("must not bind"))
+    monkeypatch.setattr(
+        bridge, "serve_forever", lambda **kw: pytest.fail("must not bind")
+    )
     with pytest.raises(SystemExit) as error:
         bridge.main()
     assert error.value.code == 2

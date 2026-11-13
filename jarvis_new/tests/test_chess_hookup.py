@@ -94,14 +94,22 @@ async def test_route_confirm_yes_no(tmp_path):
 
     g = await mk(tmp_path)
     it = commands.Intent("set_level", {"n": 9}, "game")
-    g.router.route = _fake_route(router.RouteResult(None, "Did you mean level 9, Sir?", "llm", candidate=it))
+    g.router.route = _fake_route(
+        router.RouteResult(None, "Did you mean level 9, Sir?", "llm", candidate=it)
+    )
     r = await g.handle_text("something vague about strength please")
     assert r.kind == "offer" and g.pending["type"] == "route_confirm"
     json.dumps(g.snapshot(), default=str)
     await g.handle_text("yes")
     assert g.settings.difficulty == "level:9" and g.pending is None
-    g.router.route = _fake_route(router.RouteResult(None, "Did you mean level 2, Sir?", "llm",
-                                 candidate=commands.Intent("set_level", {"n": 2}, "game")))
+    g.router.route = _fake_route(
+        router.RouteResult(
+            None,
+            "Did you mean level 2, Sir?",
+            "llm",
+            candidate=commands.Intent("set_level", {"n": 2}, "game"),
+        )
+    )
     await g.handle_text("something vague about strength please")
     r = await g.handle_text("no")
     assert g.settings.difficulty == "level:9" and g.pending is None

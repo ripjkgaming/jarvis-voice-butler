@@ -228,6 +228,7 @@ class Runner:
         self.last_prune = 0.0
         self.takeovers: list[threading.Thread] = []
         self._speaker_set = False
+        self.coordinator = None
 
     # -- opportunity pipeline ------------------------------------------------
 
@@ -319,6 +320,15 @@ class Runner:
         return alog.skip(reason, now)
 
     def tick(self) -> dict:
+        if self.coordinator is not None:
+            from aware.coordinator import allowed
+
+            if not allowed(self.deps.now()):
+                return self.skip("controls", self.deps.now(), log_it=False)
+            return self.coordinator.poll()
+        return self._screen_tick()
+
+    def _screen_tick(self) -> dict:
         d = self.deps
         now = d.now()
         state = st.load()
@@ -326,6 +336,8 @@ class Runner:
             return self.skip("disabled", now, log_it=False)
         if st.killed():
             return self.skip("killed", now, log_it=False)
+        if st.paused(state, now):
+            return self.skip("paused", now)
         backoff = self.sched.backoff_reason(now)
         if backoff:
             return self.skip(backoff, now)
@@ -494,6 +506,8 @@ class Runner:
             "previous": self.prev_summary,
             "history": list(self.history),
         }
+        if not st.load().get("enabled") or st.killed() or st.paused(st.load(), d.now()):
+            return self.skip("controls", d.now(), log_it=False)
         try:
             res = d.ask(clips, vctx)
         except vision.QuotaError:
@@ -504,6 +518,13 @@ class Runner:
             self.sched.note_error("outage", now)
             set_phase("idle", now, last_reason="error:vision")
             return alog.error(f"vision:{str(exc)[:80]}", now, tick_id=tick_id)
+        if (
+            not st.env_allows()
+            or not st.load().get("enabled")
+            or st.killed()
+            or st.paused(st.load(), d.now())
+        ):
+            return self.skip("controls", d.now(), log_it=False)
         ledger.record(res.get("tokens", 0), now)
         for name in labels:
             mon = changed[name]
@@ -647,7 +668,8 @@ class Runner:
             sig = self.deps.signals()
         except Exception:
             sig = scheduler.Signals()
-        return self.sched.next_delay(sig)
+        delay = self.sched.next_delay(sig)
+        return min(delay, 180.0) if self.coordinator is not None else delay
 
     def loop(self, stop: threading.Event, first_delay: float = 60.0) -> None:
         # Crash recovery runs even when Always Aware is off: a run that was
@@ -666,12 +688,16 @@ class Runner:
             now = self.deps.now()
             row = None
             with scheduler.tick_lock(lock) as got:
-                if got and self.sched.may_tick(now):
+                if got and (self.coordinator is not None or self.sched.may_tick(now)):
                     with contextlib.suppress(Exception):
                         row = self.tick()
             with contextlib.suppress(Exception):
                 self.housekeeping(self.deps.now())
-            if isinstance(row, dict) and row.get("reason") == "idle":
+            if (
+                self.coordinator is None
+                and isinstance(row, dict)
+                and row.get("reason") == "idle"
+            ):
                 # No input and nothing playing: park until Sir is back.
                 with contextlib.suppress(Exception):
                     st.update(next_tick=0.0, parked=True)
@@ -817,6 +843,8 @@ def status(now: float | None = None) -> dict:
         state = phase
     else:
         state = "armed"
+    from aware.coordinator import status as poll_status
+
     budget = ledger.summary(now)
     nxt = float(s.get("next_tick") or 0)
     return {
@@ -831,6 +859,9 @@ def status(now: float | None = None) -> dict:
         "tokens_today": budget["tokens"],
         "budget": budget["level"],
         "paused_until": float(s.get("paused_until") or 0) or None,
+        "poll": poll_status(),
+        "exercise_mode": "observation_only",
+        "whatsapp_marks_read": True,
         "day": dt.date.fromtimestamp(now).isoformat(),
     }
 
@@ -844,6 +875,11 @@ def start_thread(first_delay: float = 60.0):
         return _THREAD[0]
     stop = threading.Event()
     runner = Runner()
+    from aware.coordinator import live
+
+    runner.coordinator = live(
+        runner._screen_tick, speak=lambda line: asyncio.run(runner.deps.speak(line))
+    )
     thread = threading.Thread(
         target=runner.loop, args=(stop, first_delay), name="aware", daemon=True
     )

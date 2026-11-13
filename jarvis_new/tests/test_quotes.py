@@ -127,7 +127,13 @@ def _tools(monkeypatch, sys=None):
 
     monkeypatch.setattr(quotes_tools, "_bridge_call", fake_bridge)
     system, inbox, browser = _Fake(), _Fake(), _Fake()
-    return QuoteTools(system=system, inbox=inbox, browser=browser), system, inbox, browser, bridge
+    return (
+        QuoteTools(system=system, inbox=inbox, browser=browser),
+        system,
+        inbox,
+        browser,
+        bridge,
+    )
 
 
 async def test_every_action_runs(monkeypatch):
@@ -141,8 +147,17 @@ async def test_every_action_runs(monkeypatch):
         out = await QuoteTools.quote_action(tools, _ctx(), quote=q.phrases[0])
         assert out["quote"] == q.id and out["say"].startswith(q.reply)
     names = [c[0] for c in system.calls + inbox.calls + browser.calls]
-    for want in ("play_media", "set_volume", "disk_space", "open_app", "battery_status",
-                 "morning_briefing", "weather_now", "close_helper", "open_helper_google"):
+    for want in (
+        "play_media",
+        "set_volume",
+        "disk_space",
+        "open_app",
+        "battery_status",
+        "morning_briefing",
+        "weather_now",
+        "close_helper",
+        "open_helper_google",
+    ):
         assert want in names
     assert ("play_media", ("Rick Astley Never Gonna Give You Up",)) in system.calls
     hides = [b for b in bridge if b[1] == "/tool"]
@@ -173,12 +188,19 @@ async def test_end_call_closes_the_session(monkeypatch):
 
 def test_spoken_lines():
     assert "85 degrees, running hot" in vitals_line(
-        {"cpu_temp_c": 85, "load_1_5_15": ["6", "5", "4"], "cpu_count": 12,
-         "mem_bytes": {"MemTotal": 100, "MemAvailable": 25}, "home_free_bytes": 50e9}
+        {
+            "cpu_temp_c": 85,
+            "load_1_5_15": ["6", "5", "4"],
+            "cpu_count": 12,
+            "mem_bytes": {"MemTotal": 100, "MemAvailable": 25},
+            "home_free_bytes": 50e9,
+        }
     )
     assert "monitor" in vitals_line(None)
     assert "tailnet" in phone_line({"phone": None, "phone_tailnet": {"online": True}})
-    assert "76 percent, charging" in phone_line({"phone": {"battery": 76, "charging": True}})
+    assert "76 percent, charging" in phone_line(
+        {"phone": {"battery": 76, "charging": True}}
+    )
     assert "offline" in phone_line({})
     assert "Nothing cooking" in coding_line([])
     assert "1 coding job cooking" in coding_line(

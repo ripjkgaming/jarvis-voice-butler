@@ -4,6 +4,8 @@ import io
 import json
 import urllib.error
 
+import pytest
+
 import mercury_decide
 import urgency_judge
 
@@ -37,9 +39,9 @@ def _on(monkeypatch):
     monkeypatch.setattr(mercury_decide, "api_keys", lambda: ["k"])
 
 
-def test_default_model_is_larger_perplexity(monkeypatch):
+def test_default_model_is_free_perplexity(monkeypatch):
     _on(monkeypatch)
-    assert mercury_decide.DEFAULT_MODEL == "perplexity/pplx-decider-v1.2"
+    assert mercury_decide.DEFAULT_MODEL == "perplexity/pplx-decider-v1.3:free"
     monkeypatch.setattr(mercury_decide, "MODEL", mercury_decide.DEFAULT_MODEL)
     seen = []
 
@@ -49,7 +51,7 @@ def test_default_model_is_larger_perplexity(monkeypatch):
 
     _, warning = mercury_decide.decide("email", {"urgent": {}}, opener=opener)
     assert warning is None
-    assert seen[0]["model"] == "perplexity/pplx-decider-v1.2"
+    assert seen[0]["model"] == "perplexity/pplx-decider-v1.3:free"
 
 
 def test_dedicated_key_env_takes_priority(monkeypatch, tmp_path):
@@ -184,3 +186,38 @@ def test_event_gate_skips_chatgpt_only_when_confident(monkeypatch):
     assert not ee.mercury_says_no_event(parsed)
     monkeypatch.setattr(mercury_decide, "decide", lambda *a, **k: (None, "quota"))
     assert not ee.mercury_says_no_event(parsed)
+
+
+@pytest.mark.parametrize("failure", [404, 429, "malformed", "network"])
+def test_previous_model_is_fallback(monkeypatch, failure):
+    _on(monkeypatch)
+    monkeypatch.setattr(mercury_decide, "_rest_until", {})
+    seen = []
+
+    def opener(req, timeout=None):
+        model = json.loads(req.data)["model"]
+        seen.append(model)
+        if model == mercury_decide.DEFAULT_MODEL:
+            if isinstance(failure, int):
+                raise urllib.error.HTTPError(req.full_url, failure, "x", {}, None)
+            if failure == "network":
+                raise urllib.error.URLError("unavailable")
+            return _Resp(b"{}")
+        return _Resp(json.dumps(_ans(0.9, 0.1)).encode())
+
+    answer, warning = mercury_decide.decide("s", {}, opener=opener)
+    assert warning is None and answer["urgent"]["noul"] == 0.9
+    assert seen == ["perplexity/pplx-decider-v1.3:free", "perplexity/pplx-decider-v1.2"]
+
+
+def test_primary_success_does_not_call_fallback(monkeypatch):
+    _on(monkeypatch)
+    monkeypatch.setattr(mercury_decide, "_rest_until", {})
+    seen = []
+
+    def opener(req, timeout=None):
+        seen.append(json.loads(req.data)["model"])
+        return _Resp(json.dumps(_ans(0.9, 0.1)).encode())
+
+    assert mercury_decide.decide("s", {}, opener=opener)[1] is None
+    assert seen == [mercury_decide.DEFAULT_MODEL]

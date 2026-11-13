@@ -31,11 +31,17 @@ def test_mode_roundtrip_and_default(tmp_path):
 @pytest.mark.parametrize(
     ("text", "want"),
     [
-        ("enter school mode", "school"), ("school mode", "school"),
-        ("Can you turn on school mode please", "school"), ("school mode on", "school"),
-        ("exit school mode", "normal"), ("turn off school mode", "normal"),
-        ("school mode off", "normal"), ("back to normal mode", "normal"),
-        ("what is school mode", None), ("my school mode of transport", None), ("", None),
+        ("enter school mode", "school"),
+        ("school mode", "school"),
+        ("Can you turn on school mode please", "school"),
+        ("school mode on", "school"),
+        ("exit school mode", "normal"),
+        ("turn off school mode", "normal"),
+        ("school mode off", "normal"),
+        ("back to normal mode", "normal"),
+        ("what is school mode", None),
+        ("my school mode of transport", None),
+        ("", None),
     ],
 )
 def test_parse_command(text, want):
@@ -133,7 +139,9 @@ async def test_follow_up_ends_call_after_window(monkeypatch):
     now = {"t": 0.0}
     monkeypatch.setattr(school, "FOLLOW_UP_S", 8.0)
     s = _Session()
-    task = asyncio.create_task(agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001))
+    task = asyncio.create_task(
+        agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001)
+    )
     await asyncio.sleep(0.01)
     s.emit("user_state_changed", "speaking")
     s.emit("agent_state_changed", "thinking")
@@ -159,7 +167,9 @@ async def test_follow_up_noise_cannot_hold_call_forever(monkeypatch):
 
     now = {"t": 0.0}
     s = _Session()
-    task = asyncio.create_task(agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001))
+    task = asyncio.create_task(
+        agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001)
+    )
     await asyncio.sleep(0.01)
     now["t"] = 1.0
     s.emit("user_state_changed", "speaking")  # noise, never ends
@@ -177,7 +187,9 @@ async def test_follow_up_custom_window_for_normal_calls():
     now = {"t": 0.0}
     s = _Session()
     task = asyncio.create_task(
-        agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001, first=15.0, window=15.0)
+        agent._school_follow_up(
+            s, clock=lambda: now["t"], tick=0.001, first=15.0, window=15.0
+        )
     )
     await asyncio.sleep(0.01)
     s.emit("agent_state_changed", "speaking")
@@ -193,7 +205,11 @@ async def test_follow_up_custom_window_for_normal_calls():
 @pytest.mark.parametrize(
     ("text", "addressed", "question"),
     [
-        ("Hey Jarvis, what is the capital of France?", True, "what is the capital of France?"),
+        (
+            "Hey Jarvis, what is the capital of France?",
+            True,
+            "what is the capital of France?",
+        ),
         ("Jarvis, play music.", True, "play music."),
         ("hey jarvis what time is it", True, "what time is it"),
         ("Hey Jarvis.", True, ""),
@@ -202,7 +218,11 @@ async def test_follow_up_custom_window_for_normal_calls():
         ("", False, None),
         # Whisper's real mishearings of "hey Jarvis" (wake.log, 2026-09-29).
         ("Are you nervous?", True, ""),
-        ("He's nervous. Some of the Iron Man suit.", True, "Some of the Iron Man suit."),
+        (
+            "He's nervous. Some of the Iron Man suit.",
+            True,
+            "Some of the Iron Man suit.",
+        ),
         ("Hey nervous, what time is it?", True, "what time is it?"),
         ("why are you so nervous about the exam", False, None),
         ("he is nervous", False, None),
@@ -240,23 +260,40 @@ def _meta_fake(current=""):
     def run(argv, **kw):
         calls.append(list(argv))
         if argv[0] == "kreadconfig6":
-            assert argv == ["kreadconfig6", "--file", "kwinrc",
-                            "--group", "ModifierOnlyShortcuts",
-                            "--key", "Meta"]
-            return types.SimpleNamespace(returncode=0, stdout=state["meta"] + "\n",
-                                         stderr="")
+            assert argv == [
+                "kreadconfig6",
+                "--file",
+                "kwinrc",
+                "--group",
+                "ModifierOnlyShortcuts",
+                "--key",
+                "Meta",
+            ]
+            return types.SimpleNamespace(
+                returncode=0, stdout=state["meta"] + "\n", stderr=""
+            )
         if argv[0] == "kwriteconfig6":
-            assert argv[1:6] == ["--file", "kwinrc", "--group",
-                                "ModifierOnlyShortcuts", "--key"]
+            assert argv[1:6] == [
+                "--file",
+                "kwinrc",
+                "--group",
+                "ModifierOnlyShortcuts",
+                "--key",
+            ]
             if "--delete" in argv:
                 state["meta"] = ""
             else:
                 state["meta"] = argv[-1]
             return types.SimpleNamespace(returncode=0, stdout="", stderr="")
         if argv[0] == "dbus-send":
-            assert argv == ["dbus-send", "--session", "--type=method_call",
-                            "--dest=org.kde.KWin", "/KWin",
-                            "org.kde.KWin.reconfigure"]
+            assert argv == [
+                "dbus-send",
+                "--session",
+                "--type=method_call",
+                "--dest=org.kde.KWin",
+                "/KWin",
+                "org.kde.KWin.reconfigure",
+            ]
             return types.SimpleNamespace(returncode=0, stdout="", stderr="")
         raise AssertionError(f"unexpected argv {argv}")
 
@@ -271,8 +308,9 @@ def test_meta_enter_saves_absent_backup_and_sets_jarvis(tmp_path):
     backup = json.loads((tmp_path / "meta_shortcut_backup.json").read_text())
     assert backup == {"had_value": False, "value": ""}
     assert state["meta"] == school.META_JARVIS_VALUE
-    assert any(c[0] == "kwriteconfig6" and c[-1] == school.META_JARVIS_VALUE
-               for c in calls)
+    assert any(
+        c[0] == "kwriteconfig6" and c[-1] == school.META_JARVIS_VALUE for c in calls
+    )
     assert any(c[0] == "dbus-send" for c in calls)
 
 
@@ -280,7 +318,8 @@ def test_meta_double_enter_keeps_original_backup(tmp_path):
     import json
 
     (tmp_path / "meta_shortcut_backup.json").write_text(
-        json.dumps({"had_value": True, "value": "orig-value"}))
+        json.dumps({"had_value": True, "value": "orig-value"})
+    )
     run, calls, state = _meta_fake("whatever")
     assert school.meta_enter_school(run=run) is True
     backup = json.loads((tmp_path / "meta_shortcut_backup.json").read_text())
@@ -292,7 +331,8 @@ def test_meta_exit_restores_present_value(tmp_path):
     import json
 
     (tmp_path / "meta_shortcut_backup.json").write_text(
-        json.dumps({"had_value": True, "value": "orig-value"}))
+        json.dumps({"had_value": True, "value": "orig-value"})
+    )
     run, calls, state = _meta_fake(school.META_JARVIS_VALUE)
     assert school.meta_exit_school(run=run) is True
     assert state["meta"] == "orig-value"
@@ -304,7 +344,8 @@ def test_meta_exit_restores_absent_value(tmp_path):
     import json
 
     (tmp_path / "meta_shortcut_backup.json").write_text(
-        json.dumps({"had_value": False, "value": ""}))
+        json.dumps({"had_value": False, "value": ""})
+    )
     run, calls, state = _meta_fake(school.META_JARVIS_VALUE)
     assert school.meta_exit_school(run=run) is True
     assert state["meta"] == ""
@@ -479,7 +520,9 @@ async def test_follow_up_waits_longer_for_a_confirmation(monkeypatch):
     monkeypatch.setattr(school, "_asked_at", {"at": 0.0})
     monkeypatch.setattr(school, "_confirmed_at", {"at": 0.0})
     s = _Session()
-    task = asyncio.create_task(agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001))
+    task = asyncio.create_task(
+        agent._school_follow_up(s, clock=lambda: now["t"], tick=0.001)
+    )
     await asyncio.sleep(0.01)
     s.emit("agent_state_changed", "speaking")
     school.mark_asked(now=time.monotonic())  # "Are you sure, Sir?"

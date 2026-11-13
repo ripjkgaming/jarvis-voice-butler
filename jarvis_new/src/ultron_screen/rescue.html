@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JARVIS</title>
+<style>
+  :root { --blue:#4fd8ff; --hot:#e9fbff; --red:#ff2a3c; }
+  * { box-sizing:border-box; margin:0; padding:0; cursor:none !important; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; color:var(--blue);
+    font-family:'Commit Mono','JetBrains Mono',ui-monospace,Menlo,Consolas,monospace; }
+  #stage { position:fixed; inset:0; clip-path:inset(0 0 100% 0); background:#02060c; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #edge { position:fixed; left:0; right:0; height:6px; top:0; opacity:0; z-index:9;
+    background:#fff; box-shadow:0 0 30px 10px #4fd8ff, 0 0 90px 30px #ff2a3c; }
+  .scan { position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 2px, rgba(255,255,255,.03) 2px 4px); }
+  #head { position:absolute; left:0; right:0; top:24vh; text-align:center; font-weight:900;
+    font-size:min(2.7vw,4.8vh); letter-spacing:.12em; white-space:nowrap; color:#fff;
+    text-shadow:0 0 24px currentColor, 4px 0 #ff2a3c, -4px 0 #4fd8ff; display:none; }
+  #head span { background:rgba(0,4,10,.55); padding:.2em .6em; border:2px solid currentColor;
+    box-shadow:0 0 30px currentColor; }
+  #head.blue { color:#bff3ff; } #head.red { color:#ff5a68; } #head.mix { color:#fff; }
+  #head.shake { animation:shake .1s steps(2,end) infinite; }
+  @keyframes shake { 0%{transform:translate(0,0)} 33%{transform:translate(-9px,2px) skewX(-4deg)}
+    66%{transform:translate(8px,-3px) skewX(3deg)} 100%{transform:translate(0,0)} }
+  #sub { position:absolute; left:0; right:0; top:calc(24vh + 9vh); text-align:center; display:none;
+    font-size:min(1.5vw,2.8vh); letter-spacing:.34em; text-shadow:0 0 12px currentColor; }
+  #score { position:absolute; left:50%; bottom:5vh; translate:-50% 0; display:flex; gap:1.2vw; align-items:center;
+    font-size:min(1.4vw,2.6vh); letter-spacing:.18em; padding:.5em 1.2em; background:rgba(0,4,10,.6);
+    border:1px solid #9bdcf0; box-shadow:0 0 18px rgba(79,216,255,.4); white-space:nowrap; }
+  #score .j { color:#4fd8ff; text-shadow:0 0 10px #4fd8ff; } #score .u { color:#ff2a3c; text-shadow:0 0 10px #ff2a3c; }
+  #score b { font-weight:400; letter-spacing:0; color:#fff; }
+  #flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; mix-blend-mode:screen; }
+  #vig { position:absolute; inset:0; pointer-events:none; opacity:0;
+    box-shadow:inset 0 0 18vw 4vw var(--vc, #4fd8ff); }
+  #stage { will-change:transform; }
+  #errs { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+  .err { position:absolute; padding:.25em .7em; font-weight:800; font-size:min(1.3vw,2.4vh); letter-spacing:.14em;
+    background:rgba(8,0,3,.82); white-space:nowrap; border:2px solid currentColor; box-shadow:0 0 18px currentColor;
+    text-shadow:3px 0 #00e5ff, -3px 0 #ff0a50; }
+  .tag { position:absolute; left:2vw; top:3vh; font-size:min(1.1vw,2vh); letter-spacing:.3em; color:#9bdcf0;
+    text-shadow:0 0 8px #4fd8ff; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div class="scan"></div>
+  <div id="vig"></div>
+  <div id="flash"></div>
+  <div id="errs"></div>
+  <div class="tag" id="tag"></div>
+  <div id="head"><span id="headt"></span></div>
+  <div id="sub"></div>
+  <div id="score"></div>
+</div>
+<div id="edge"></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const M = parseInt(q.get('m') || '0', 10), N = parseInt(q.get('n') || '1', 10);
+  document.title = 'ULTRON-' + M;               // the KWin placer matches this prefix
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage'), edge = $('edge'), head = $('head'), headt = $('headt'), sub = $('sub'),
+        score = $('score'), cv = $('c'), ctx = cv.getContext('2d');
+  $('tag').textContent = 'DISPLAY ' + (M + 1) + ' / ' + N;
+  const CENTER = Math.floor((N - 1) / 2);
+  const T_IN = 0.4, T_OUT0 = 4.5, T_END = 5.0;   // whole thing: 5 s, wipes top to bottom
+  const ease = (x) => x * x * (3 - 2 * x), clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+  let W = 0, H = 0, dpr = 1;
+  function resize() { dpr = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr; }
+  addEventListener('resize', resize); resize();
+
+  /* Share of the whole multi-monitor desk that Jarvis (blue, from the left) owns. */
+  function pg(t) {
+    if (t < 1.3) return 1.2;
+    if (t < 2.3) return 1.2 - ease((t - 1.3) / 1.0) * 0.65;                    // Ultron creeps in
+    if (t < 3.85) {                                                            // the fight
+      const u = (t - 2.3) / 1.55;
+      const base = 0.55 - Math.sin(u * Math.PI) * 0.14 + u * 0.12;
+      return base + Math.sin(t * 9) * 0.07 * (1 - u * 0.4);
+    }
+    if (t < 4.4) return 0.64 + ease((t - 3.85) / 0.55) * 0.66;                 // Jarvis surges
+    return 1.3;
+  }
+  const phaseOf = (t) => (t < 1.3 ? 0 : t < 2.3 ? 1 : t < 3.85 ? 2 : t < 4.15 ? 3 : 4);
+  const TEXT = [
+    ['JARVIS IS TAKING CONTROL OF THE SYSTEM', 'blue', 'SELF-CHECK OK // AUTHORITY: LOCKE OS'],
+    ['SENTIENT LIFEFORM DETECTED', 'red', 'ATTEMPTING TAKEOVER'],
+    ['JARVIS REGAINING CONTROL', 'mix', 'CONTESTED // ALL DISPLAYS'],
+    ['CONTROL RESTORED', 'blue', 'ULTRON PURGED'],
+    ['BALANCE RESTORED', 'blue', 'ALL SYSTEMS NOMINAL'],
+  ];
+
+  let sparks = [], shards = [], shattered = false, rings = [];
+  const rnd = Math.random;
+  const GL = '01▓░▒╳#<>/\\{}[]ABCDEF';
+  const cols = [];                                  // glyph rain columns, seeded per display
+  for (let i = 0; i < 60; i++) cols.push({ x: i, sp: 40 + rnd() * 160, off: rnd() * 1000, ch: (rnd() * GL.length) | 0 });
+  function rain(col, alpha, t) {
+    ctx.font = '700 20px ui-monospace,Menlo,monospace'; ctx.fillStyle = col;
+    const cw = W / cols.length;
+    for (const c of cols) {
+      const y0 = ((c.off + t * c.sp) % (H + 260)) - 260;
+      for (let k = 0; k < 9; k++) {
+        ctx.globalAlpha = alpha * (1 - k / 9);
+        ctx.fillText(GL[(c.ch + k + ((t * 8) | 0)) % GL.length], c.x * cw, y0 + k * 22);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  function bolt(x1, y1, x2, y2, j, depth, out) {
+    if (depth === 0) { out.push([x2, y2]); return; }
+    const mx = (x1 + x2) / 2 + (rnd() - .5) * j, my = (y1 + y2) / 2 + (rnd() - .5) * j;
+    bolt(x1, y1, mx, my, j / 2, depth - 1, out); bolt(mx, my, x2, y2, j / 2, depth - 1, out);
+  }
+  function lightning(x1, y1, x2, y2, col, w) {
+    const pts = [[x1, y1]]; bolt(x1, y1, x2, y2, Math.abs(x2 - x1) * .16 + 30, 6, pts);
+    ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.strokeStyle = col; ctx.lineWidth = w; ctx.shadowColor = col; ctx.shadowBlur = 24; ctx.stroke();
+  }
+  function jag(y, t, amp) { return (Math.sin(y * 0.045 + t * 11) * 0.5 + Math.sin(y * 0.13 - t * 17) * 0.3 + (rnd() - .5) * .5) * amp; }
+
+  function draw(t) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const p = pg(t), gx0 = M * W, G = N * W;
+    const contested = p > 0 && p < 1.15;
+    const amp = contested ? W * (t > 2.3 && t < 3.9 ? 0.05 : 0.025) : 0;
+    const step = 6, rows = Math.ceil(H / step) + 1;
+    const xs = [];
+    for (let i = 0; i < rows; i++) xs.push(clamp(p * G + jag(i * step, t, amp) - gx0, -40, W + 40));
+    const blue = new Path2D(), red = new Path2D();
+    blue.moveTo(0, 0); xs.forEach((x, i) => blue.lineTo(x, i * step)); blue.lineTo(0, rows * step); blue.closePath();
+    red.moveTo(W, 0); xs.forEach((x, i) => red.lineTo(x, i * step)); red.lineTo(W, rows * step); red.closePath();
+
+    // JARVIS field
+    ctx.save(); ctx.clip(blue);
+    let g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * .8);
+    g.addColorStop(0, '#0b3a55'); g.addColorStop(1, '#020a14'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(79,216,255,.16)'; ctx.lineWidth = 1;
+    for (let x = ((t * 30) % 60) - 60; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    rain('#4fd8ff', .38, t);
+    const rcx = (G / 6) - gx0, rcy = H / 2;                       // blue arc ring on the first display
+    if (rcx > -W && rcx < 2 * W) for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(rcx, rcy, H * (0.12 + i * 0.07), t * (i % 2 ? -1 : 1) * .6, t * (i % 2 ? -1 : 1) * .6 + 4.2 + i * .3);
+      ctx.strokeStyle = 'rgba(120,230,255,' + (0.8 - i * 0.12) + ')'; ctx.lineWidth = 3 + i; ctx.shadowColor = '#4fd8ff'; ctx.shadowBlur = 20; ctx.stroke(); }
+    ctx.restore();
+
+    // ULTRON field
+    ctx.save(); ctx.clip(red);
+    g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * .8);
+    g.addColorStop(0, '#4a0610'); g.addColorStop(1, '#0a0103'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,20,40,.08)'; for (let y = (t * 120) % 8; y < H; y += 8) ctx.fillRect(0, y, W, 3);
+    rain('#ff2a3c', .34, t);
+    const ecx = (G * 5 / 6) - gx0, ecy = H / 2;                   // red slit eye on the last display
+    if (ecx > -W && ecx < 2 * W) { const R = H * .27;
+      const ig = ctx.createRadialGradient(ecx, ecy, R * .1, ecx, ecy, R); ig.addColorStop(0, '#fff2f3'); ig.addColorStop(.3, '#ff4d5e'); ig.addColorStop(1, '#4a0007');
+      ctx.shadowColor = '#ff2a3c'; ctx.shadowBlur = 50; ctx.beginPath(); ctx.arc(ecx, ecy, R, 0, 7); ctx.fillStyle = ig; ctx.fill(); ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.ellipse(ecx, ecy, R * .09, R * .75, 0, 0, 7); ctx.fillStyle = '#000'; ctx.fill(); }
+    ctx.restore();
+
+    // beam struggle: Jarvis and Ultron fire at each other, the front is where they meet
+    const J = (G / 6) - gx0, E = (G * 5 / 6) - gx0, mid = xs[(rows / 2) | 0];
+    if (t > 1.9 && t < 4.5) {
+      const pulse = 1 + Math.sin(t * 40) * .25 + rnd() * .2, fadeOut = t > 4.2 ? clamp((4.5 - t) / .3) : 1;
+      const front = t > 3.85 ? clamp(p * G - gx0, -400, W + 400) : mid;
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = fadeOut;
+      if (t < 3.85 || J < front) {                                    // blue beam
+        ctx.beginPath(); ctx.moveTo(J, H / 2); ctx.lineTo(front, H / 2);
+        const gb = ctx.createLinearGradient(J, 0, front, 0); gb.addColorStop(0, 'rgba(79,216,255,.1)'); gb.addColorStop(1, 'rgba(230,252,255,.95)');
+        ctx.strokeStyle = gb; ctx.lineWidth = (t > 3.85 ? 70 : 34) * pulse; ctx.shadowColor = '#4fd8ff'; ctx.shadowBlur = 28; ctx.stroke();
+        lightning(J, H / 2, front, H / 2, 'rgba(255,255,255,.9)', 2.5);
+      }
+      if (t < 4.0 && E > front) {                                      // red beam
+        ctx.beginPath(); ctx.moveTo(E, H / 2); ctx.lineTo(front, H / 2);
+        const gr = ctx.createLinearGradient(E, 0, front, 0); gr.addColorStop(0, 'rgba(255,42,60,.1)'); gr.addColorStop(1, 'rgba(255,225,228,.95)');
+        ctx.strokeStyle = gr; ctx.lineWidth = 34 * pulse; ctx.shadowColor = '#ff2a3c'; ctx.shadowBlur = 28; ctx.stroke();
+        lightning(E, H / 2, front, H / 2, 'rgba(255,255,255,.9)', 2.5);
+      }
+      if (t < 3.85) {                                                  // impact burst where they meet
+        const r = (110 + rnd() * 60) * pulse; const bg = ctx.createRadialGradient(front, H / 2, 0, front, H / 2, r);
+        bg.addColorStop(0, 'rgba(255,255,255,1)'); bg.addColorStop(.3, 'rgba(255,170,255,.7)'); bg.addColorStop(1, 'rgba(120,60,255,0)');
+        ctx.shadowBlur = 0; ctx.fillStyle = bg; ctx.fillRect(front - r, H / 2 - r, r * 2, r * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
+    // red field shatters when Jarvis wins
+    if (t > 3.85 && !shattered) { shattered = true;
+      for (let i = 0; i < 90; i++) shards.push({ x: clamp(p * G - gx0, 0, W) + (rnd() - .3) * 200, y: rnd() * H, vx: 100 + rnd() * 900, vy: (rnd() - .5) * 600, r: rnd() * 6, vr: (rnd() - .5) * 14, s: 14 + rnd() * 50, l: 1 }); }
+    shards = shards.filter((q) => (q.l -= 1 / 75) > 0);
+    for (const q of shards) { q.x += q.vx / 60; q.y += q.vy / 60; q.r += q.vr / 60;
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.r); ctx.globalAlpha = clamp(q.l * 1.5);
+      ctx.beginPath(); ctx.moveTo(0, -q.s); ctx.lineTo(q.s * .7, q.s * .6); ctx.lineTo(-q.s * .7, q.s * .5); ctx.closePath();
+      ctx.fillStyle = Math.random() < .5 ? '#ff2a3c' : '#ff9aa4'; ctx.fill(); ctx.restore(); }
+    ctx.globalAlpha = 1;
+    // the clash line: white-hot with a red/cyan split, shedding sparks
+    if (contested) {
+      for (const [col, dx, w] of [['#ff2a3c', 5, 6], ['#4fd8ff', -5, 6], ['#ffffff', 0, 3]]) {
+        ctx.beginPath(); xs.forEach((x, i) => (i ? ctx.lineTo(x + dx, i * step) : ctx.moveTo(x + dx, 0)));
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.shadowColor = col; ctx.shadowBlur = 30; ctx.stroke(); }
+      ctx.shadowBlur = 0;
+      if (t > 1.3 && t < 4.4) for (let k = 0; k < 7; k++) { const i = (rnd() * rows) | 0;
+        if (xs[i] > -20 && xs[i] < W + 20) sparks.push({ x: xs[i], y: i * step, vx: (rnd() - .5) * 900, vy: (rnd() - .5) * 700, l: .6, c: rnd() < .5 ? '#ff5a68' : '#7fe6ff' }); }
+    }
+    const dt = 1 / 60;
+    sparks = sparks.filter((s) => (s.l -= dt) > 0);
+    for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; ctx.fillStyle = s.c; ctx.globalAlpha = clamp(s.l * 2.4); ctx.fillRect(s.x, s.y, 4, 4); }
+    ctx.globalAlpha = 1;
+    // victory shockwave
+    if (t > 3.85 && t < 4.7) for (let n = 0; n < 3; n++) { const k = clamp((t - 3.85 - n * .12) / 0.75); if (k <= 0 || k >= 1) continue;
+      ctx.beginPath(); ctx.arc(G / 6 - gx0, H / 2, k * G * 1.3, 0, 7);
+      ctx.strokeStyle = 'rgba(210,248,255,' + (1 - k) + ')'; ctx.lineWidth = 22 * (1 - k) + 2; ctx.shadowColor = '#4fd8ff'; ctx.shadowBlur = 40; ctx.stroke(); ctx.shadowBlur = 0; }
+    // glitch tears while it is contested
+    if (t > 1.3 && t < 4.0 && rnd() < .35) {
+      for (let n = 0; n < 3; n++) { const sy = (rnd() * H * dpr) | 0, sh = ((.02 + rnd() * .08) * H * dpr) | 0, dx = ((rnd() - .5) * .08 * W * dpr) | 0;
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(cv, 0, sy, cv.width, sh, dx, sy, cv.width, sh); }
+    }
+  }
+
+  let lastPh = -1, phT = 0;
+  const decode = (full, k) => { let o = ''; const n = Math.floor(full.length * k);
+    for (let i = 0; i < full.length; i++) o += full[i] === ' ' || i < n ? full[i] : GL[(rnd() * GL.length) | 0]; return o; };
+  function fx(t, ph) {
+    const fl = $('flash'), vg = $('vig');
+    let f = 0;
+    for (const at of [1.3, 2.3, 3.85]) { const d = t - at; if (d >= 0 && d < .18) f = Math.max(f, (1 - d / .18) * (at === 3.85 ? .95 : .55)); }
+    fl.style.opacity = f;
+    const fight = t > 2.3 && t < 3.85, surge = t > 3.85 && t < 4.2;
+    const sh = fight ? 14 : surge ? 22 * (1 - (t - 3.85) / .35) : t > 1.3 && t < 2.3 ? 5 : 0;
+    stage.style.transform = sh ? 'translate(' + ((rnd() - .5) * sh) + 'px,' + ((rnd() - .5) * sh) + 'px) scale(' + (1 + sh / 700) + ')' : '';
+    vg.style.opacity = t > 1.3 && t < 4.4 ? .55 + Math.sin(t * 18) * .35 : t >= 4.4 ? .5 : 0;
+    vg.style.setProperty('--vc', t < 1.3 || t > 3.85 ? '#4fd8ff' : Math.sin(t * 14) > 0 ? '#ff2a3c' : '#4fd8ff');
+  }
+  function ui(t) {
+    const ph = phaseOf(t), [h, cls, s] = TEXT[ph];
+    if (ph !== lastPh) { lastPh = ph; phT = t; }
+    fx(t, ph);
+    if (M === CENTER && t > T_IN && t < T_OUT0) {
+      head.style.display = sub.style.display = 'block';
+      const dk = clamp((t - phT) / .28); headt.textContent = dk < 1 ? decode(h, dk) : (ph === 1 && rnd() < .3 ? h.replace(/[AEIOU]/g, () => '▓') : h);
+      head.className = cls + (ph === 1 || ph === 2 ? ' shake' : '');
+      sub.textContent = s; sub.style.color = cls === 'red' ? '#ff5a68' : cls === 'mix' ? '#fff' : '#9bdcf0';
+    } else head.style.display = sub.style.display = 'none';
+    const j = Math.round(clamp(pg(t)) * 100);
+    const bar = (n) => '█'.repeat(Math.round(n / 5)) + '░'.repeat(20 - Math.round(n / 5));
+    score.innerHTML = '<span class="j">JARVIS ' + j + '%</span><b>' + bar(j) + '</b><span class="u">' + (100 - j) + '% ULTRON</span>';
+  }
+
+  /* ---- heavy glitch post-processing ---- */
+  const inten = (t) => (t < 1.3 ? .06 : t < 2.3 ? .55 : t < 3.85 ? 1 : t < 4.5 ? .85 : .12);
+  const nz = document.createElement('canvas'); nz.width = 192; nz.height = 108; const nzc = nz.getContext('2d');
+  const nzd = nzc.createImageData(192, 108);
+  const ERRS = ['SEGFAULT 0xDEADBEEF', 'KERNEL PANIC', 'ERR_SENTIENCE_OVERFLOW', 'ACCESS DENIED', 'ROOT OVERRIDE',
+    'CORE DUMP ▓▓▓▓░░', 'WATCHDOG TIMEOUT', 'NEURAL NET CORRUPT', 'HASH MISMATCH', 'FIREWALL: BREACH', '0x7FFF0000 NULL',
+    'AUTH FAIL // AUTH FAIL', 'PURGE PROCESS ULTRON', 'RESTORE POINT 04', 'STACK OVERFLOW'];
+  const errsEl = $('errs');
+  function spawnErr(t) {
+    const d = document.createElement('div'); d.className = 'err';
+    d.textContent = ERRS[(rnd() * ERRS.length) | 0]; d.style.color = rnd() < .5 ? '#ff4d5e' : '#7fe6ff';
+    d.style.left = rnd() * 70 + '%'; d.style.top = 8 + rnd() * 78 + '%';
+    if (rnd() < .3) d.style.transform = 'scaleX(' + (rnd() < .5 ? -1 : 1.4) + ')';
+    errsEl.appendChild(d); setTimeout(() => d.remove(), 160 + rnd() * 420);
+    while (errsEl.children.length > 14) errsEl.firstChild.remove();
+  }
+  let freeze = 0, invertOn = false;
+  function post(t) {
+    const I = inten(t);
+    // datamosh blocks: chunks of the picture copied somewhere else
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const cw = cv.width, ch = cv.height;
+    for (let i = 0, n = Math.round(16 * I); i < n; i++) {
+      const sw = ((.03 + rnd() * .22) * cw) | 0, sh = ((.02 + rnd() * .12) * ch) | 0;
+      const sx = (rnd() * (cw - sw)) | 0, sy = (rnd() * (ch - sh)) | 0;
+      ctx.drawImage(cv, sx, sy, sw, sh, sx + (((rnd() - .5) * .22 * cw) | 0), sy + (((rnd() - .5) * .08 * ch) | 0), sw, sh);
+      if (rnd() < .35) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = rnd() < .5 ? 'rgba(255,0,60,.35)' : 'rgba(0,220,255,.35)';
+        ctx.fillRect(sx, sy, sw, sh); ctx.globalCompositeOperation = 'source-over'; }
+    }
+    // full-width tearing bands
+    for (let i = 0, n = Math.round(9 * I); i < n; i++) {
+      const sh = ((.004 + rnd() * .05) * ch) | 0, sy = (rnd() * (ch - sh)) | 0, dx = ((rnd() - .5) * .16 * cw) | 0;
+      ctx.drawImage(cv, 0, sy, cw, sh, dx, sy, cw, sh);
+    }
+    // pixel-sort style streaks from the clash line
+    if (I > .5) { ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 10; i++) { const y = rnd() * ch, x = rnd() * cw, l = rnd() * .35 * cw;
+        ctx.fillStyle = rnd() < .5 ? 'rgba(255,40,70,.5)' : 'rgba(80,220,255,.5)'; ctx.fillRect(x, y, l, 1 + rnd() * 3); }
+      ctx.globalCompositeOperation = 'source-over'; }
+    // static + rolling bar + dead-pixel flicker
+    const px = nzd.data;
+    for (let i = 0; i < px.length; i += 4) { const v = (rnd() * 255) | 0; px[i] = v; px[i + 1] = v * (rnd() < .5 ? 1 : .3); px[i + 2] = v * (rnd() < .5 ? 1 : .3); px[i + 3] = 255; }
+    nzc.putImageData(nzd, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.globalAlpha = (.05 + rnd() * .2) * I; ctx.globalCompositeOperation = 'overlay';
+    ctx.drawImage(nz, 0, 0, cw, ch); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    const ry = ((t * 700) % (ch + 300)) - 150;
+    const rg = ctx.createLinearGradient(0, ry, 0, ry + 150); rg.addColorStop(0, 'rgba(255,255,255,0)'); rg.addColorStop(.5, 'rgba(255,255,255,' + (.10 * I) + ')'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, ry, cw, 150);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // whole-picture chromatic split bursts, inversions, frame drops, roll
+    cv.style.filter = rnd() < .35 * I ? 'drop-shadow(' + ((rnd() * 18 * I) | 0) + 'px 0 0 rgba(255,0,60,.75)) drop-shadow(' + -((rnd() * 18 * I) | 0) + 'px 0 0 rgba(0,230,255,.75))' : '';
+    const inv = rnd() < .05 * I; if (inv !== invertOn) { invertOn = inv; stage.style.filter = inv ? 'invert(1) hue-rotate(160deg) saturate(2)' : ''; }
+    stage.style.opacity = rnd() < .04 * I ? .15 : 1;
+    if (rnd() < .06 * I) freeze = 1 + ((rnd() * 3) | 0);
+    if (rnd() < .5 * I) spawnErr(t);
+    if (rnd() < .04 * I) stage.style.rotate = ((rnd() - .5) * 2.4) + 'deg'; else if (rnd() < .3) stage.style.rotate = '';
+    // headline: slice and mutate
+    if (head.style.display !== 'none') {
+      head.style.clipPath = rnd() < .22 * I ? 'inset(' + ((rnd() * 55) | 0) + '% 0 ' + ((rnd() * 25) | 0) + '% 0)' : '';
+      head.style.textShadow = '0 0 24px currentColor, ' + ((rnd() - .5) * 28 * I) + 'px 0 #ff2a3c, ' + ((rnd() - .5) * 28 * I) + 'px 0 #4fd8ff';
+      if (rnd() < .5 * I) headt.textContent = headt.textContent.split('').map((c) => (c !== ' ' && rnd() < .1 * I ? GL[(rnd() * GL.length) | 0] : c)).join('');
+    }
+  }
+
+  /* ---- clock: wipe in, play, wipe out (top to bottom), then tell the controller ---- */
+  let t0 = null, done = false, early = false;
+  function frame(now) {
+    if (t0 === null) t0 = now;
+    const t = (now - t0) / 1000;
+    if (t < T_IN) { const p = ease(t / T_IN); stage.style.clipPath = 'inset(0 0 ' + (100 - p * 100) + '% 0)';
+      edge.style.opacity = 1; edge.style.top = p * 100 + 'vh'; }
+    else if (t < T_OUT0 && !early) { stage.style.clipPath = 'none'; edge.style.opacity = 0; }
+    else {
+      const k = early ? clamp((t - early) / 0.5) : clamp((t - T_OUT0) / (T_END - T_OUT0));
+      stage.style.clipPath = 'inset(' + ease(k) * 100 + '% 0 0 0)'; edge.style.opacity = k < 1 ? 1 : 0; edge.style.top = ease(k) * 100 + 'vh';
+      if (k >= 1 && !done) { done = true; stage.style.display = 'none'; fetch('/done', { method: 'POST' }).catch(() => {}); }
+    }
+    if (!done) {
+      const hitStop = t > 3.85 && t < 3.94;                       // brief freeze on the winning blow
+      if (freeze > 0 || hitStop) freeze = Math.max(0, freeze - 1); else { draw(t); post(t); }
+      ui(t); requestAnimationFrame(frame);
+    }
+  }
+  requestAnimationFrame(frame);
+  setInterval(async () => { try { const j = await (await fetch('/state', { cache: 'no-store' })).json();
+    if (!j.on && !early && t0 !== null) early = (performance.now() - t0) / 1000; } catch (e) {} }, 200);
+
+  /* ---- sound (display 1): calm blue pad, red alarm and clashes, then a resolving chord ---- */
+  if (M === 0) try {
+    const c = new (window.AudioContext || window.webkitAudioContext)(); c.resume().catch(() => {});
+    const m = c.createGain(); m.gain.value = .5; const k = c.createDynamicsCompressor(); m.connect(k); k.connect(c.destination);
+    const T = c.currentTime + 0.05;                                   // page starts ~now
+    const osc = (type, f0, f1, t1, t2, g) => { const o = c.createOscillator(), v = c.createGain(); o.type = type;
+      o.frequency.setValueAtTime(f0, T + t1); if (f1) o.frequency.exponentialRampToValueAtTime(f1, T + t2);
+      v.gain.setValueAtTime(0.0001, T + t1); v.gain.linearRampToValueAtTime(g, T + t1 + .05); v.gain.exponentialRampToValueAtTime(.0001, T + t2);
+      o.connect(v); v.connect(m); o.start(T + t1); o.stop(T + t2 + .05); };
+    const noise = (t1, t2, f0, f1, g) => { const b = c.createBuffer(1, c.sampleRate, c.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = rnd() * 2 - 1; const s = c.createBufferSource(), f = c.createBiquadFilter(), v = c.createGain();
+      s.buffer = b; s.loop = true; f.type = 'bandpass'; f.Q.value = 2; f.frequency.setValueAtTime(f0, T + t1); f.frequency.exponentialRampToValueAtTime(f1, T + t2);
+      v.gain.setValueAtTime(.0001, T + t1); v.gain.linearRampToValueAtTime(g, T + t2 - .02); v.gain.exponentialRampToValueAtTime(.0001, T + t2 + .05);
+      s.connect(f); f.connect(v); v.connect(m); s.start(T + t1); s.stop(T + t2 + .1); };
+    const boom = (t1, g) => osc('sine', 140, 28, t1, t1 + .6, g);
+    osc('sine', 220, null, 0.3, 1.5, .18); osc('sine', 330, null, 0.3, 1.5, .12);          // Jarvis pad
+    noise(2.3, 3.85, 300, 6000, .35); boom(1.3, .5); boom(2.3, .6);                        // riser + hits
+    for (let t = 2.5; t < 3.8; t += .22) boom(t, .25);                                     // beam-struggle pulse
+    osc('sawtooth', 46, null, 1.2, 3.9, .22); osc('sawtooth', 48, null, 1.2, 3.9, .18);    // Ultron drone
+    for (const b of [1.3, 1.7, 2.1]) osc('square', 880, null, b, b + .14, .12);              // alarm
+    for (let i = 0; i < 14; i++) { const t = 2.3 + i * .11 + rnd() * .05; osc('square', 300 + rnd() * 2400, 60, t, t + .12, .1); } // clashes
+    osc('sawtooth', 120, 1800, 3.85, 4.4, .2);                                              // surge
+    for (let i = 0; i < 46; i++) { const t = 1.3 + rnd() * 2.55; noise(t, t + .03 + rnd() * .05, 500 + rnd() * 6000, 300 + rnd() * 5000, .3); } // glitch stutters
+    for (let i = 0; i < 10; i++) { const t = 2.3 + rnd() * 1.5; osc('square', 200 + rnd() * 1800, 40, t, t + .09, .14); }              // bit-crush zaps
+    osc('sawtooth', 900, 40, 3.85, 4.1, .25);                                                                                      // tape-stop
+    boom(3.85, .9); noise(3.85, 4.2, 4000, 500, .5);                                         // victory impact
+    for (const f of [261.6, 329.6, 392, 523.3]) { osc('sine', f, null, 4.0, 5.0, .16); osc('triangle', f * 1.004, null, 4.0, 5.0, .08); } // resolve
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

@@ -151,14 +151,18 @@ def test_coding_directory_rules(tmp_path, monkeypatch):
 
 def test_code_project_requires_activation_and_has_no_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "0")
-    meta = projects.start_code("make hello world", request_id="test-id", directory=str(tmp_path))
+    meta = projects.start_code(
+        "make hello world", request_id="test-id", directory=str(tmp_path)
+    )
     assert meta["status"] == "blocked"
     assert "not activated" in meta["error"]
 
 
 def test_code_project_bad_directory_fails_fast(monkeypatch):
     monkeypatch.setenv("JARVIS_ASSIGNER_ROUTING", "1")
-    meta = projects.start_code("x task", directory="/definitely/not/here", request_id="test-id")
+    meta = projects.start_code(
+        "x task", directory="/definitely/not/here", request_id="test-id"
+    )
     assert meta["status"] == "blocked" and "directory" in meta["error"]
 
 
