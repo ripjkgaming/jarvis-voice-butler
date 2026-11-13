@@ -1,0 +1,51 @@
+{
+  "id": "in_deny_list_wins",
+  "title": "Deny list beats answer-all window",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110001",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Mum",
+        "number": "+6591110001",
+        "trust": "family",
+        "relationship": "mother",
+        "policy": {
+          "answer": "auto",
+          "allow_topics": [
+            "booking"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "kind": "answer_all",
+        "daily_from": "00:00",
+        "daily_to": "23:59",
+        "deny": [
+          "+6591110001"
+        ]
+      }
+    ]
+  },
+  "llm_replies": [],
+  "caller_turns": [],
+  "expect": {
+    "must_contain": [],
+    "must_not_contain": [],
+    "events": [
+      "state:ended"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "rejected"
+  }
+}

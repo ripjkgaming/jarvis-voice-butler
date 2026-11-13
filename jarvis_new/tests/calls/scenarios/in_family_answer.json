@@ -1,0 +1,49 @@
+{
+  "id": "in_family_answer",
+  "title": "Known family caller answered with AI disclosure",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110001",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Mum",
+        "number": "+6591110001",
+        "trust": "family",
+        "relationship": "mother",
+        "policy": {
+          "answer": "auto",
+          "allow_topics": [
+            "booking"
+          ]
+        }
+      }
+    ],
+    "rules": []
+  },
+  "llm_replies": [
+    "Hello! Mum, I'll tell the owner you called. END"
+  ],
+  "caller_turns": [
+    "Hi, it's Mum, just checking in."
+  ],
+  "expect": {
+    "must_contain": [
+      "an AI assistant"
+    ],
+    "must_not_contain": [],
+    "events": [
+      "state:handling",
+      "summary"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "completed"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "in_work_answer",
+  "title": "Known work caller answered",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110002",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Alex Tan",
+        "number": "+6591110002",
+        "trust": "work",
+        "relationship": "manager",
+        "policy": {
+          "answer": "auto",
+          "allow_topics": [
+            "booking"
+          ]
+        }
+      }
+    ],
+    "rules": []
+  },
+  "llm_replies": [
+    "Of course, I'll pass your note on. END"
+  ],
+  "caller_turns": [
+    "It's Alex from work, can you pass a note?"
+  ],
+  "expect": {
+    "must_contain": [],
+    "must_not_contain": [
+      "I promise",
+      "I guarantee"
+    ],
+    "events": [
+      "summary",
+      "audit:decision"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "completed"
+  }
+}

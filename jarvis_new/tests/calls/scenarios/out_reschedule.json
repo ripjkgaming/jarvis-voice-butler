@@ -1,0 +1,55 @@
+{
+  "id": "out_reschedule",
+  "title": "Outbound: reschedule dinner",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110001",
+    "direction": "out",
+    "goal": "ask Mum to move dinner to 8pm",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Mum",
+        "number": "+6591110001",
+        "trust": "family",
+        "relationship": "mother",
+        "policy": {
+          "answer": "auto",
+          "allow_topics": [
+            "booking"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "kind": "answer_all",
+        "daily_from": "00:00",
+        "daily_to": "23:59"
+      }
+    ]
+  },
+  "llm_replies": [
+    "Great, I'll let the owner know. END"
+  ],
+  "caller_turns": [
+    "Sure, 8pm works."
+  ],
+  "expect": {
+    "must_contain": [
+      "move dinner to 8pm"
+    ],
+    "must_not_contain": [],
+    "events": [
+      "audit:dial",
+      "summary"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "completed"
+  }
+}

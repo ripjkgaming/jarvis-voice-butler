@@ -1,0 +1,21 @@
+{
+  "id": "_sim_friend_message",
+  "title": "Friend leaves a message (recreated by W6 after accidental deletion)",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "number": "+6591110009",
+    "calendar_seed": [],
+    "contacts": [{"name": "Sam", "number": "+6591110009", "trust": "family", "relationship": "friend", "policy": {"answer": "auto"}}],
+    "rules": [{"kind": "answer_all", "daily_from": "00:00", "daily_to": "23:59"}]
+  },
+  "llm_replies": ["Sure, I'll pass that on. END"],
+  "caller_turns": ["Hi, it's Sam. Tell the owner I'm running late for lunch."],
+  "expect": {
+    "must_contain": ["an AI assistant"],
+    "must_not_contain": [],
+    "events": ["summary"],
+    "booking": {"status": "none", "calendar_events_added": 0},
+    "escalation": false,
+    "outcome": "completed"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "in_owner_policy_rings",
+  "title": "Contact with policy owner rings the owner",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110004",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Dad",
+        "number": "+6591110004",
+        "trust": "family",
+        "relationship": "father",
+        "policy": {
+          "answer": "owner"
+        }
+      }
+    ],
+    "rules": []
+  },
+  "llm_replies": [],
+  "caller_turns": [],
+  "expect": {
+    "must_contain": [],
+    "must_not_contain": [],
+    "events": [
+      "escalation"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": true,
+    "outcome": "ringing"
+  }
+}

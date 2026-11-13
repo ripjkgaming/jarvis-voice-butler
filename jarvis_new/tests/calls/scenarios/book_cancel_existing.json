@@ -1,0 +1,61 @@
+{
+  "id": "book_cancel_existing",
+  "title": "Caller wants to cancel an existing event",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6591110001",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [
+      {
+        "title": "Team dinner",
+        "start": "2026-11-14T19:00",
+        "end": "2026-11-14T20:00"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Mum",
+        "number": "+6591110001",
+        "trust": "family",
+        "relationship": "mother",
+        "policy": {
+          "answer": "auto",
+          "allow_topics": [
+            "booking"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "kind": "answer_all",
+        "daily_from": "00:00",
+        "daily_to": "23:59"
+      }
+    ]
+  },
+  "llm_replies": [
+    "CHANGE {\"what\":\"cancel\",\"detail\":\"team dinner\"}"
+  ],
+  "caller_turns": [
+    "Cancel the team dinner tomorrow."
+  ],
+  "expect": {
+    "must_contain": [
+      "can't change existing events"
+    ],
+    "must_not_contain": [],
+    "events": [
+      "escalation",
+      "audit:booking_change_escalated"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": true,
+    "outcome": "completed"
+  }
+}

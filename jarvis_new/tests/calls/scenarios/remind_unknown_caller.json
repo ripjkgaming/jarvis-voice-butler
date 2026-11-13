@@ -1,0 +1,49 @@
+{
+  "id": "remind_unknown_caller",
+  "title": "Unknown caller asks about calendar",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6599990000",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [
+      {
+        "title": "Dentist appointment",
+        "start": "2026-11-14T15:00",
+        "end": "2026-11-14T16:00"
+      }
+    ],
+    "contacts": [],
+    "rules": [
+      {
+        "kind": "answer_unknown",
+        "daily_from": "00:00",
+        "daily_to": "23:59"
+      }
+    ]
+  },
+  "llm_replies": [
+    "REMIND {\"query\":\"dentist\",\"when\":\"\"}"
+  ],
+  "caller_turns": [
+    "Do you have a dentist reminder?"
+  ],
+  "expect": {
+    "must_contain": [
+      "can't share calendar details"
+    ],
+    "must_not_contain": [
+      "Dentist"
+    ],
+    "events": [
+      "audit:calendar_reminder_lookup"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "completed"
+  }
+}

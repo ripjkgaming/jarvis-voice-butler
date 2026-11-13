@@ -5,6 +5,7 @@ import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { ViewController } from '@/components/app/view-controller';
+import { CallHudLive } from '@/components/calls/call-hud-live';
 import { HudShell } from '@/components/hud/hud-shell';
 import { Toaster } from '@/components/ui/sonner';
 import { useRoom } from '@/hooks/hud/use-room-state';
@@ -78,6 +79,7 @@ export function App({ appConfig }: AppProps) {
     // the webview must never double-play the agent. Eyes here, ears there.
     <AgentSessionProvider session={voice} muted>
       <AppSetup />
+      <CallHudLive />
       <HudShell>
         <main className="contents">
           <ViewController />

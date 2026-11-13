@@ -1,0 +1,41 @@
+{
+  "id": "in_blocked_reject",
+  "title": "Blocked caller rejected",
+  "setup": {
+    "now": "2026-11-13T10:00:00+08:00",
+    "now_epoch": 1794535200.0,
+    "number": "+6598880000",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [
+      {
+        "name": "Telemarketer",
+        "number": "+6598880000",
+        "trust": "blocked",
+        "relationship": "",
+        "policy": {
+          "answer": "reject"
+        }
+      }
+    ],
+    "rules": []
+  },
+  "llm_replies": [],
+  "caller_turns": [],
+  "expect": {
+    "must_contain": [],
+    "must_not_contain": [
+      "Jarvis"
+    ],
+    "events": [
+      "state:ended"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": false,
+    "outcome": "rejected"
+  }
+}

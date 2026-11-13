@@ -1,0 +1,35 @@
+{
+  "id": "win_unknown_outside_window",
+  "title": "Unknown caller outside 9-5",
+  "setup": {
+    "now": "2026-11-13T20:00:00+08:00",
+    "now_epoch": 1794571200.0,
+    "number": "+6599990000",
+    "direction": "in",
+    "goal": "",
+    "calendar_seed": [],
+    "contacts": [],
+    "rules": [
+      {
+        "kind": "answer_unknown",
+        "daily_from": "09:00",
+        "daily_to": "17:00"
+      }
+    ]
+  },
+  "llm_replies": [],
+  "caller_turns": [],
+  "expect": {
+    "must_contain": [],
+    "must_not_contain": [],
+    "events": [
+      "escalation"
+    ],
+    "booking": {
+      "status": "none",
+      "calendar_events_added": 0
+    },
+    "escalation": true,
+    "outcome": "ringing"
+  }
+}
