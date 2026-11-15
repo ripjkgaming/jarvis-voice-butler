@@ -3410,12 +3410,15 @@ def _fleet_get(route: str) -> tuple[int, dict]:
     import fleet
 
     if route == "/fleet/devices":
+        import fleet_server
+
         return 200, {
             "ok": True,
             "self": fleet.self_name(),
             "account": fleet.own_account(),
             "partners": len(fleet.partner_accounts()),
             "devices": fleet.devices(),
+            "pending": fleet_server.pending(),
         }
     if route == "/fleet/self":
         return 200, fleet.self_info()
@@ -3454,9 +3457,25 @@ def _fleet_post(route: str, body: dict | None) -> tuple[int, dict]:
         )
     elif route == "/fleet/remove":
         res = fleet.remove(str(body.get("name", "")))
+    elif route in ("/fleet/approve", "/fleet/deny"):
+        import fleet_server
+
+        target = str(body.get("account") or body.get("name") or "")
+        if route == "/fleet/approve":
+            res = fleet_server.approve(target)
+        else:
+            res = fleet_server.deny(target)
     else:
         return 404, {"ok": False, "error": "unknown fleet route"}
     return (200 if res.get("ok") else 502 if route in ("/fleet/ask", "/fleet/ping") else 400), res
+
+
+def _fleet_listener_chat(text: str, sender: str) -> str:
+    """Chat from a trusted tailnet device (port 4318 listener) -> this bridge's reply."""
+    code, res = handle_chat({"text": text, "client_id": "fleet:" + sender})
+    if code != 200:
+        raise RuntimeError(str(res.get("error") or code))
+    return str(res.get("reply") or res.get("say") or "")
 
 
 def handle_chat(body: dict) -> tuple[int, dict]:
@@ -5033,6 +5052,12 @@ def main() -> None:
         port = DEFAULT_PORT
     host, _ = resolve_bind()
     token = resolve_token()
+    with contextlib.suppress(Exception):
+        # Fleet listener on the tailnet IP (port 4318). Identity by Tailscale login.
+        import fleet_server
+        import fleet_tools
+
+        fleet_server.start_in_thread(_fleet_listener_chat, fleet_tools.run)
     with contextlib.suppress(Exception):
         import netscan
 

@@ -2,25 +2,29 @@
 
 import { type ReactNode, memo } from 'react';
 import { AsciiBox, GlyphLamp } from '@/components/ascii/glyphs';
-import type { FleetDevice, FleetShare } from '@/lib/bridge';
+import type { FleetDevice, FleetPending, FleetShare } from '@/lib/bridge';
 
 /** Window event that voice (or any shell code) uses to drive this page. */
 export const FLEET_EVENT = 'jarvis:devices';
 
 export type FleetEventDetail = {
-  action: 'select' | 'ping' | 'ask';
+  action: 'select' | 'ping' | 'ask' | 'approve' | 'deny';
   /** Device name as listed by /fleet/devices (spoken names are matched loosely). */
   device?: string;
   /** Command text, required for `ask`. */
   text?: string;
+  /** Account to approve or deny (`approve` / `deny` only). */
+  account?: string;
+  /** Pending node name or account to approve or deny (`approve` / `deny` only). */
+  name?: string;
 };
 
 /** Last measured `POST /fleet/ping` round trip through the bridge. */
 export type PingRecord = { ok: boolean; ms: number; error?: string; at: string };
 
-/** Last reply from a fleet command (ping or ask). */
+/** Last reply from a fleet command (ping, ask, approve or deny). */
 export type FleetReply = {
-  kind: 'ping' | 'ask';
+  kind: 'ping' | 'ask' | 'approve' | 'deny';
   device: string;
   command: string;
   ok: boolean;
@@ -56,6 +60,46 @@ export function hostOf(url: string): string {
   }
 }
 
+/** Link state of one device, from real fields only (see FleetDevice). */
+export type LinkState = 'linked' | 'awaiting' | 'nojarvis' | 'offline' | 'unknown';
+
+export function linkStateOf(d: FleetDevice): LinkState {
+  if (d.jarvis === true) {
+    if (d.trusted === true) return 'linked';
+    if (d.trusted === false) return 'awaiting';
+    return 'unknown';
+  }
+  if (d.online === true) return 'nojarvis';
+  if (d.online === false) return 'offline';
+  return 'unknown';
+}
+
+const LINK_VIEW: Record<LinkState, { label: string; lamp: 'on' | 'warn' | 'off' }> = {
+  linked: { label: 'LINKED', lamp: 'on' },
+  awaiting: { label: 'AWAITING APPROVAL', lamp: 'warn' },
+  nojarvis: { label: 'NO JARVIS', lamp: 'warn' },
+  offline: { label: 'OFFLINE', lamp: 'off' },
+  unknown: { label: 'UNKNOWN', lamp: 'warn' },
+};
+
+const LINK_HINT: Partial<Record<LinkState, string>> = {
+  awaiting: 'waiting for approval on that device',
+  nojarvis: 'install Jarvis fleet here',
+};
+
+/** Relative age of an ISO timestamp, e.g. "3 min ago". Raw text if unparseable. */
+export function ageLabel(iso: string, nowMs: number): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return iso || 'unknown';
+  const s = Math.max(0, Math.round((nowMs - then) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+
 const TAG =
   'inline-flex items-center border px-1.5 py-px text-[10px] leading-4 tracking-[0.12em] uppercase';
 
@@ -68,13 +112,15 @@ export const DeviceTile = memo(function DeviceTile({
   selected: boolean;
   ping?: PingRecord;
 }) {
-  const state = device.online === true ? 'on' : device.online === false ? 'off' : 'warn';
-  const word = device.online === true ? 'ONLINE' : device.online === false ? 'OFFLINE' : 'UNKNOWN';
+  const link = linkStateOf(device);
+  const view = LINK_VIEW[link];
+  const hint = LINK_HINT[link];
   return (
     <li
       aria-current={selected ? 'true' : undefined}
       data-partner={device.partner ? 'true' : undefined}
       data-selected={selected ? 'true' : undefined}
+      data-link={link}
       className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-1 border-b border-[rgba(95,227,255,0.12)] py-2.5 last:border-b-0 data-[selected=true]:bg-[rgba(95,227,255,0.07)]"
     >
       <span
@@ -89,8 +135,8 @@ export const DeviceTile = memo(function DeviceTile({
             {device.name}
           </span>
           <span className="flex items-center gap-1.5 text-[11px] text-[#7fa6b8]">
-            <GlyphLamp state={state} />
-            {word}
+            <GlyphLamp state={view.lamp} />
+            {view.label}
           </span>
         </div>
         <div className="mt-0.5 text-[11px] break-all text-[#7fa6b8]">
@@ -100,6 +146,7 @@ export const DeviceTile = memo(function DeviceTile({
         <div className="mt-0.5 text-[11px] break-all text-[#46677a]">
           account {device.account || 'unknown'}
         </div>
+        {hint ? <div className="mt-0.5 text-[11px] text-[#ffb347]">{hint}</div> : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {device.partner ? (
             <span className={`${TAG} border-[#ffb347] text-[#ffb347]`}>Partner account</span>
@@ -187,6 +234,7 @@ export function SelectedPanel({
               {device.online === true ? 'online' : device.online === false ? 'offline' : 'unknown'}
             </span>
           </Row>
+          <Row k="Link">{LINK_VIEW[linkStateOf(device)].label}</Row>
           <Row k="OS">{device.os || 'unknown'}</Row>
           <Row k="Tailnet address">{device.url || 'none'}</Row>
           <Row k="Account">{device.account || 'unknown'}</Row>
@@ -230,7 +278,7 @@ export function LastReplyPanel({
         {reply ? (
           <>
             <div className="mb-1.5 text-[11px] break-all text-[#7fa6b8]">
-              {reply.kind === 'ping' ? 'PING' : 'ASK'} {reply.device} · {reply.at}
+              {reply.kind.toUpperCase()} {reply.device} · {reply.at}
             </div>
             {reply.kind === 'ask' ? (
               <div className="mb-1.5 break-words text-[#5fe3ff]">› {reply.command}</div>
@@ -252,10 +300,51 @@ export function LastReplyPanel({
   );
 }
 
+export function PendingPanel({ pending, nowMs }: { pending: FleetPending[]; nowMs: number }) {
+  return (
+    <AsciiBox
+      label="Pending approvals"
+      index={4}
+      aside={pending.length > 0 ? `${pending.length} waiting` : undefined}
+    >
+      {pending.length === 0 ? (
+        <p className="m-0 text-[13px] text-[#7fa6b8]">No pending requests.</p>
+      ) : (
+        <ul className="m-0 list-none space-y-2 p-0">
+          {pending.map((p, i) => {
+            const who = p.node || p.account || 'unnamed';
+            return (
+              <li
+                key={`${i}-${p.ip}-${who}`}
+                className="border-b border-[rgba(95,227,255,0.12)] pb-2 text-[12px] last:border-b-0"
+              >
+                <div className="text-[14px] font-bold break-all text-[#d8f8ff]">{who}</div>
+                <div className="text-[11px] break-all text-[#7fa6b8]">
+                  account {p.account || 'unknown'} · last seen {ageLabel(p.last_seen, nowMs)}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                  <span>
+                    <span className="text-[#ffb347]">SAY:</span>{' '}
+                    <span className="text-[#d9f4ff]">“approve {who}”</span>
+                  </span>
+                  <span>
+                    <span className="text-[#ffb347]">SAY:</span>{' '}
+                    <span className="text-[#d9f4ff]">“deny {who}”</span>
+                  </span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </AsciiBox>
+  );
+}
+
 export function SharePanel({ share, offline }: { share: FleetShare | null; offline: boolean }) {
   const steps = share?.steps ?? [];
   return (
-    <AsciiBox label="Share this device" index={4} aside={share?.account ? 'tailnet' : undefined}>
+    <AsciiBox label="Share this device" index={5} aside={share?.account ? 'tailnet' : undefined}>
       {share ? (
         <div className="text-[12px] text-[#d9f4ff]">
           {share.account ? (
@@ -286,16 +375,26 @@ export function SharePanel({ share, offline }: { share: FleetShare | null; offli
   );
 }
 
-export function VoiceHints({ selectedName }: { selectedName: string | null }) {
+export function VoiceHints({
+  selectedName,
+  pendingNode,
+}: {
+  selectedName: string | null;
+  pendingNode: string | null;
+}) {
   const who = selectedName ?? '<device>';
+  const waiting = pendingNode ?? '<node>';
   const hints = [
     'list my devices',
+    'who wants to connect',
+    `approve ${waiting}`,
+    `deny ${waiting}`,
     `ping ${who}`,
     `ask ${who} to lock the screen`,
     `tell ${who} to open spotify`,
   ];
   return (
-    <AsciiBox label="Voice" index={5} wipe={false}>
+    <AsciiBox label="Voice" index={6} wipe={false}>
       <ul className="m-0 grid list-none gap-1 p-0 text-[12px] sm:grid-cols-2">
         {hints.map((h) => (
           <li key={h} className="break-words text-[#7fa6b8]">

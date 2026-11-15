@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-import fleet  # noqa: E402
+import fleet
 
 OWNER = "owner@example.com"
 PARTNER = "partner@example.com"
@@ -54,7 +54,11 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_FLEET_NAME", "main")
     monkeypatch.delenv("JARVIS_FLEET_PARTNERS", raising=False)
+    monkeypatch.delenv("JARVIS_FLEET_PORT", raising=False)
     monkeypatch.setattr(fleet, "_TAILSCALE_BINS", ())  # no tailscale binary: fail-soft
+    # Never probe tailnet addresses from unit tests (a real tailnet may answer).
+    monkeypatch.setattr(fleet, "_probe_hello", lambda peer: None)
+    monkeypatch.setattr(fleet, "_discover_cache", None)
 
 
 def _fake_tailscale(monkeypatch, status=STATUS, ip="100.64.0.1"):
@@ -64,7 +68,9 @@ def _fake_tailscale(monkeypatch, status=STATUS, ip="100.64.0.1"):
     def run(args, **_kwargs):
         if args[1:3] == ["ip", "-4"]:
             return subprocess.CompletedProcess(args, 0, stdout=ip + "\n", stderr="")
-        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(status), stderr="")
+        return subprocess.CompletedProcess(
+            args, 0, stdout=json.dumps(status), stderr=""
+        )
 
     monkeypatch.setattr(fleet.subprocess, "run", run)
 
@@ -72,13 +78,24 @@ def _fake_tailscale(monkeypatch, status=STATUS, ip="100.64.0.1"):
 def test_valid_url_tailnet_only(monkeypatch):
     assert fleet.valid_url("http://100.101.2.3:4317") == "http://100.101.2.3:4317"
     assert fleet.valid_url("http://100.101.2.3") == "http://100.101.2.3:4317"
-    assert fleet.valid_url("https://box.tail1234.ts.net") == "https://box.tail1234.ts.net:4317"
-    for bad in ("http://192.168.1.5:4317", "http://example.com", "ftp://100.1.1.1", "http://127.0.0.1:4317"):
+    assert (
+        fleet.valid_url("https://box.tail1234.ts.net")
+        == "https://box.tail1234.ts.net:4317"
+    )
+    for bad in (
+        "http://192.168.1.5:4317",
+        "http://example.com",
+        "ftp://100.1.1.1",
+        "http://127.0.0.1:4317",
+    ):
         assert fleet.valid_url(bad) is None
 
 
 def test_add_remove_and_no_token_leak():
-    assert fleet.add("Office PC", "http://100.64.0.9:4317", "tok123")["name"] == "office-pc"
+    assert (
+        fleet.add("Office PC", "http://100.64.0.9:4317", "tok123")["name"]
+        == "office-pc"
+    )
     assert not fleet.add("x", "http://8.8.8.8:4317", "t")["ok"]
     assert not fleet.add("x", "http://100.64.0.9", "has space")["ok"]
     devs = fleet.devices()
@@ -94,9 +111,21 @@ def test_handle_requires_paired_device():
 def test_partner_accounts_from_config_and_env(tmp_path, monkeypatch):
     (tmp_path / "fleet").mkdir()
     (tmp_path / "fleet" / "config.json").write_text(
-        json.dumps({"partner_accounts": [" Partner@Example.com ", PARTNER, "not-an-email", 5, ""]})
+        json.dumps(
+            {
+                "partner_accounts": [
+                    " Partner@Example.com ",
+                    PARTNER,
+                    "not-an-email",
+                    5,
+                    "",
+                ]
+            }
+        )
     )
-    monkeypatch.setenv("JARVIS_FLEET_PARTNERS", "Other@Example.com, ,broken, other@example.com")
+    monkeypatch.setenv(
+        "JARVIS_FLEET_PARTNERS", "Other@Example.com, ,broken, other@example.com"
+    )
     assert fleet.partner_accounts() == [PARTNER, "other@example.com"]
 
 
@@ -112,8 +141,14 @@ def test_tailnet_peers_account_and_shared(monkeypatch):
     _fake_tailscale(monkeypatch)
     peers = {p["name"]: p for p in fleet.tailnet_peers()}
     assert peers["office"]["account"] == OWNER and peers["office"]["shared"] is False
-    assert peers["partner-pc"]["account"] == PARTNER and peers["partner-pc"]["shared"] is True
-    assert peers["partner-pc"]["online"] is False and peers["partner-pc"]["ip"] == "100.64.0.6"
+    assert (
+        peers["partner-pc"]["account"] == PARTNER
+        and peers["partner-pc"]["shared"] is True
+    )
+    assert (
+        peers["partner-pc"]["online"] is False
+        and peers["partner-pc"]["ip"] == "100.64.0.6"
+    )
     assert peers["loose-box"]["account"] == "" and peers["loose-box"]["shared"] is True
 
 
@@ -190,7 +225,13 @@ class _Peer(BaseHTTPRequestHandler):
             if body.get("tool") != "lock_screen":
                 return self._reply(404, {"ok": False, "error": "unknown tool"})
             return self._reply(
-                200, {"ok": True, "tool": body["tool"], "args": body["args"], "result": "locked"}
+                200,
+                {
+                    "ok": True,
+                    "tool": body["tool"],
+                    "args": body["args"],
+                    "result": "locked",
+                },
             )
         self._reply(200, {"ok": True, "reply": "Spotify is open."})
 
@@ -225,9 +266,17 @@ def test_bad_token_and_unreachable(peer):
 def test_call_tool_and_list_tools_round_trip(peer):
     assert fleet.add("office", peer, "good")["ok"]
     res = fleet.call_tool("office", "lock_screen", {"delay": 5})
-    assert res == {"ok": True, "tool": "lock_screen", "args": {"delay": 5}, "result": "locked"}
+    assert res == {
+        "ok": True,
+        "tool": "lock_screen",
+        "args": {"delay": 5},
+        "result": "locked",
+    }
     assert _Peer.last_path == "/fleet/tool"
-    assert _Peer.seen[-1] == ("Bearer good", {"tool": "lock_screen", "args": {"delay": 5}})
+    assert _Peer.seen[-1] == (
+        "Bearer good",
+        {"tool": "lock_screen", "args": {"delay": 5}},
+    )
     assert fleet.call_tool("office", "lock_screen")["args"] == {}
     assert fleet.call_tool("office", "nuke")["ok"] is False
     assert fleet.call_tool("office", "")["ok"] is False
@@ -250,12 +299,21 @@ def test_cli_usage_and_bad_json_args(capsys):
 def test_bridge_routes_owner_only():
     import bridge
 
-    code, res = bridge._fleet_post("/fleet/add", {"name": "a", "url": "http://100.64.0.2", "token": "t", "guest": True})
+    code, res = bridge._fleet_post(
+        "/fleet/add",
+        {"name": "a", "url": "http://100.64.0.2", "token": "t", "guest": True},
+    )
     assert code == 403
-    code, res = bridge._fleet_post("/fleet/add", {"name": "a", "url": "http://100.64.0.2", "token": "t"})
+    code, res = bridge._fleet_post(
+        "/fleet/add", {"name": "a", "url": "http://100.64.0.2", "token": "t"}
+    )
     assert code == 200
     code, res = bridge._fleet_get("/fleet/devices")
-    assert code == 200 and res["devices"][0]["name"] == "a" and "token" not in json.dumps(res)
+    assert (
+        code == 200
+        and res["devices"][0]["name"] == "a"
+        and "token" not in json.dumps(res)
+    )
     assert res["partners"] == 0 and "account" in res
     assert bridge._fleet_post("/fleet/nope", {})[0] == 404
 
@@ -275,7 +333,9 @@ def test_voice_open_devices_window(monkeypatch):
     import projects
 
     seen = []
-    monkeypatch.setattr(projects, "shell_verb", lambda v, *a, **k: seen.append(v) or True)
+    monkeypatch.setattr(
+        projects, "shell_verb", lambda v, *a, **k: seen.append(v) or True
+    )
     assert fleet.handle("open connected devices") == "Connected devices on screen."
     assert fleet.handle("close devices") == "Devices closed."
     assert seen == ["devicesshow", "deviceshide"]
@@ -287,4 +347,154 @@ def test_bridge_tool_routes():
     code, res = bridge._fleet_get("/fleet/tools")
     assert code == 200 and "screenshot" in res["tools"]
     assert bridge._fleet_post("/fleet/tool", {"tool": "nope"})[0] == 400
-    assert bridge._fleet_post("/fleet/tool", {"tool": "sysinfo", "guest": True})[0] == 403
+    assert (
+        bridge._fleet_post("/fleet/tool", {"tool": "sysinfo", "guest": True})[0] == 403
+    )
+
+
+# ------------------------------------------------ zero-setup linking (listener)
+class _Hello(BaseHTTPRequestHandler):
+    """Fake Jarvis listener: answers /fleet/hello only."""
+
+    trusted = True
+
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        body = json.dumps(
+            {
+                "ok": True,
+                "name": "office",
+                "os": "linux",
+                "account": OWNER,
+                "version": 1,
+                "trusted": _Hello.trusted,
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def hello_peer(monkeypatch):
+    """Discovery target on loopback, reached through the fake 127.0.0.1 tailnet peer."""
+    monkeypatch.setenv("JARVIS_FLEET_ALLOW_LOCAL", "1")
+    server = HTTPServer(("127.0.0.1", 0), _Hello)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("JARVIS_FLEET_PORT", str(server.server_port))
+    status = {
+        "Self": {"UserID": 1, "HostName": "main"},
+        "User": {"1": {"LoginName": OWNER}},
+        "Peer": {
+            "n1": {
+                "HostName": "Office",
+                "OS": "linux",
+                "Online": True,
+                "TailscaleIPs": ["127.0.0.1"],
+                "UserID": 1,
+            },
+            "n2": {
+                "HostName": "Offline-Box",
+                "OS": "linux",
+                "Online": False,
+                "TailscaleIPs": ["100.64.0.44"],
+                "UserID": 1,
+            },
+        },
+    }
+    _fake_tailscale(monkeypatch, status=status)
+    monkeypatch.setattr(fleet, "_probe_hello", fleet_probe_real)
+    yield server
+    server.shutdown()
+
+
+fleet_probe_real = fleet._probe_hello  # captured before the autouse patch applies
+
+
+def test_discover_marks_jarvis_peers_and_trust(hello_peer):
+    found = fleet.discover()
+    assert list(found) == ["office"]  # offline peers are never probed
+    assert found["office"]["trusted"] is True and found["office"]["account"] == OWNER
+    devs = {d["name"]: d for d in fleet.devices()}
+    assert devs["office"]["jarvis"] is True and devs["office"]["trusted"] is True
+    assert devs["office"]["paired"] is False and devs["office"]["online"] is True
+    assert "offline-box" in devs and devs["offline-box"]["jarvis"] is False
+    _Hello.trusted = False
+    try:
+        fleet._discover_cache = None
+        assert {d["name"]: d for d in fleet.devices()}["office"]["trusted"] is False
+    finally:
+        _Hello.trusted = True
+
+
+def test_handle_ask_uses_discovered_peer_names(hello_peer, monkeypatch):
+    seen = {}
+
+    def fake_ask(name, text, timeout=90.0):
+        seen["ask"] = (name, text)
+        return {"ok": True, "name": name, "reply": "Done."}
+
+    monkeypatch.setattr(fleet, "ask", fake_ask)
+    assert fleet.handle("ask the office laptop to lock the screen") == "Done."
+    assert seen["ask"] == ("office", "lock the screen")
+
+
+def test_voice_pending_approve_deny(monkeypatch):
+    import fleet_server
+
+    assert (
+        fleet.handle("who wants to connect")
+        == "No devices are waiting for approval, Sir."
+    )
+    assert (
+        fleet.handle("approve laptop") is None
+    )  # nothing pending: other handlers see it
+    fleet_server._note_pending("stranger@example.com", "laptop", "100.64.0.9")
+    assert "laptop" in fleet.handle("pending devices")
+    assert fleet.handle("deny laptop") == "Denied laptop, Sir."
+    fleet_server._note_pending("stranger@example.com", "laptop", "100.64.0.9")
+    assert fleet.handle("approve the laptop") == "Approved laptop, Sir."
+    assert fleet_server.trusted("stranger@example.com")
+    assert (
+        fleet.handle("who wants to connect")
+        == "No devices are waiting for approval, Sir."
+    )
+
+
+def test_cli_pending_approve_deny_and_devices_alias(capsys):
+    import fleet_server
+
+    fleet_server._note_pending("stranger@example.com", "laptop", "100.64.0.9")
+    assert fleet._cli(["pending"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["node"] == "laptop"
+    assert fleet._cli(["deny", "laptop"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert fleet._cli(["approve", "laptop"]) == 1
+    capsys.readouterr()
+    assert fleet._cli(["devices"]) == 0
+
+
+def test_bridge_pending_and_approve_routes(monkeypatch):
+    import bridge
+    import fleet_server
+
+    fleet_server._note_pending("stranger@example.com", "laptop", "100.64.0.9")
+    code, res = bridge._fleet_get("/fleet/devices")
+    assert code == 200 and res["pending"][0]["account"] == "stranger@example.com"
+    assert set(res["pending"][0]) == {
+        "account",
+        "node",
+        "ip",
+        "first_seen",
+        "last_seen",
+    }
+    assert (
+        bridge._fleet_post("/fleet/approve", {"name": "laptop", "guest": True})[0]
+        == 403
+    )
+    code, res = bridge._fleet_post("/fleet/approve", {"name": "laptop"})
+    assert code == 200 and res["account"] == "stranger@example.com"
+    assert bridge._fleet_post("/fleet/deny", {"name": "laptop"})[0] == 400

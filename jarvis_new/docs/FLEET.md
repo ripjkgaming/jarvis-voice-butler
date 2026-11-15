@@ -12,7 +12,79 @@ keys. Fleet only forwards the plain text of your command (`POST /chat` on
 the peer's bridge); the peer answers with its own models and keys. No key is
 ever sent, shared or pooled, so one device cannot burn another's quota.
 
-## Setup (once per device)
+## Zero-setup linking
+
+Install the commit on each device and the devices find each other. No
+token is copied.
+
+1. Install Jarvis on every device and run it. Each device starts a **fleet
+   listener** on its tailnet IP, port **4318** (`JARVIS_FLEET_PORT`).
+2. Same Tailscale account: the devices trust each other automatically.
+   `python src/fleet.py devices` lists them with `jarvis` and `trusted` set.
+3. Second account (a device shared into your tailnet, see below): the
+   devices are not trusted at first. Each side sees the other as
+   **pending**. The owner approves once per account:
+   `python src/fleet.py approve NAME`, or say "approve NAME", or
+   `POST /fleet/approve {"name": "NAME"}`. `pending` lists them.
+   `python src/fleet.py deny NAME` drops a pending request.
+
+### Trust model
+
+- The listener identifies a caller by its **socket source IP** only. The IP
+  must be in `100.64.0.0/10` or `fd7a:115c:a1e0::/48`. Forwarded headers are
+  ignored. Tailscale (`tailscale whois`) names the login behind the IP; the
+  answer is cached for 60 s.
+- Trusted: the caller's login equals this device's own login; or it is in
+  `partner_accounts` (`~/.jarvis/fleet/config.json` or `JARVIS_FLEET_PARTNERS`,
+  config presence is pre-approved consent); or the owner approved the account
+  (`~/.jarvis/fleet/trust.json`, `accounts`).
+- Anything else is **pending**: recorded in `trust.json` (max 20 entries) and
+  answered with HTTP 403 `{"ok": false, "pending": true, "error": "awaiting approval"}`.
+  `GET /fleet/hello` still answers so the caller can see this device.
+- Approval is per **account**, not per device.
+- The listener binds only to the tailnet IP, never `0.0.0.0`. `JARVIS_FLEET_BIND`
+  overrides the IP (a specific address only). `JARVIS_FLEET=0` turns the listener
+  off. The main bridge on 4317 is unchanged and still bound to loopback or a
+  token-protected address.
+- No bearer tokens are used on port 4318. Partner emails stay in your local
+  config; they are not written to the repo.
+
+Listener routes (JSON, every reply has `ok`):
+
+| Route | Who | Purpose |
+| --- | --- | --- |
+| `GET /fleet/hello` | any tailnet caller | name, os, account, `trusted` (does this device trust you) |
+| `GET /fleet/tools` | trusted | tool list |
+| `POST /fleet/chat` | trusted | `{"text", "from"}` runs the bridge chat as `fleet:<from>` |
+| `POST /fleet/tool` | trusted | `{"tool", "args"}` runs a local fleet tool |
+
+### Requirements
+
+- Tailscale running on each device (the listener waits for `tailscale ip -4`
+  and retries every 15 s).
+- For a shared device: the admin ACLs on both tailnets must allow TCP **4318**
+  between the two devices. Port 4317 is only needed for legacy pairing.
+- Sharing steps are in [Two Tailscale accounts](#two-tailscale-accounts-cross-account).
+
+### One-sided approval (second Tailscale account)
+
+You only act on the device you control FROM. When the owner of a device shares
+it with your Tailscale account, Tailscale marks your devices as "sharee" nodes
+on their side; the listener treats that share as their consent and trusts your
+account with no prompt on their machine. Nothing to approve there.
+Opt out per device with `JARVIS_FLEET_TRUST_SHARED=0` (or
+`{"trust_shared": false}` in `fleet/config.json`): the account then lands in
+the pending list and that device's owner approves it once.
+Sharing a device therefore also lets the other account run fleet commands
+(including screenshots) on it, so share only with people you trust.
+
+## Legacy token pairing (bridge port 4317, older devices)
+
+Use this only for a device that does not run the fleet listener. It needs
+a copied bridge token and is kept for compatibility. Once both sides run
+the listener, the token pairing is not needed.
+
+### Setup (once per device)
 
 1. Install Tailscale on every device and sign in to the same account.
 2. On each device, make the bridge listen on its tailnet IP. It refuses to
@@ -69,9 +141,8 @@ of the repo; the config file lives under your Jarvis home.
 
 ### Requirements and limits
 
-- **ACLs on both tailnets must allow port 4317** from your device to the
-  shared device (and back, if you pair the other way). Otherwise the sharing
-  works but the bridge stays unreachable.
+- **ACLs on both tailnets must allow port 4318** (listener) from your device to
+  the shared device (and back). Legacy token pairing needs 4317 instead.
 - **Sharing is per device and one way.** Sharing a device from your account
   to the partner lets the partner control it. It does not give you access to
   the partner's devices. For two-way control, each side shares a device with
@@ -110,7 +181,9 @@ of the repo; the config file lives under your Jarvis home.
 ## Bridge API
 
 `GET /fleet/devices` (returns `self`, this device's `account`, the
-`partners` count, and `devices` with `account`, `shared`, `partner`),
+`partners` count, `devices` with `account`, `shared`, `partner`, `jarvis`,
+`trusted`, and `pending` approval requests),
+`POST /fleet/approve {account|name}`, `POST /fleet/deny {account|name}`,
 `GET /fleet/self`, `GET /fleet/share` (sharing steps, partner list),
 `POST /fleet/ask {device,text}`, `POST /fleet/ping {device}`,
 `POST /fleet/add {name,url,token}`, `POST /fleet/remove {name}`.

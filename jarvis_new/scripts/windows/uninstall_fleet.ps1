@@ -1,75 +1,49 @@
-# Jarvis Fleet uninstall for Windows: reverses install_fleet.ps1.
-# Keeps the bridge token unless -RemoveToken is given. Run in PowerShell.
+# Jarvis Fleet uninstall for Windows: removes the listener task and the firewall
+# rule (firewall removal needs Administrator; otherwise the bootstrap prints the
+# command). Keeps the local loopback token. Thin wrapper around fleet_bootstrap.py.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\windows\uninstall_fleet.ps1 [-DryRun] [-RemoveToken]
+#   powershell -ExecutionPolicy Bypass -File scripts\windows\uninstall_fleet.ps1 [-DryRun]
 param(
-    [switch]$DryRun,
-    [switch]$RemoveToken
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
-$RuleName = "Jarvis Fleet"
-$TaskName = "JarvisFleetBridge"
-$JarvisHome = if ($env:JARVIS_HOME) { $env:JARVIS_HOME } else { Join-Path $env:USERPROFILE ".jarvis" }
-$TokenFile = Join-Path $JarvisHome "bridge_token"
+$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$Bootstrap = Join-Path $Repo "scripts\fleet_bootstrap.py"
 
-function Write-Step([string]$Message) { Write-Host "==> $Message" }
-
-function Invoke-Change([string]$Description, [scriptblock]$Action) {
-    if ($DryRun) { Write-Host "    [dry run] $Description"; return }
-    Write-Host "    $Description"
-    & $Action
-}
-
-Write-Step "Scheduled task '$TaskName'"
-if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-    Invoke-Change "stop and unregister the task" {
-        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    }
-} else {
-    Write-Host "    not registered"
-}
-
-Write-Step "Bridge process"
-$bridges = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*bridge.py*" -and $_.Name -like "python*" }
-if ($bridges) {
-    foreach ($proc in $bridges) {
-        Invoke-Change "stop process $($proc.ProcessId) ($($proc.Name))" {
-            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+# Python 3.11+: `py -3` first, then `python`. Returns the full interpreter path or $null.
+function Find-Python {
+    $candidates = @(
+        @{ Exe = "py"; Pre = @("-3") },
+        @{ Exe = "python"; Pre = @() }
+    )
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        foreach ($c in $candidates) {
+            $found = Get-Command $c.Exe -ErrorAction SilentlyContinue
+            if (-not $found) { continue }
+            $probe = @($c.Pre) + @("-c", "import sys; print(sys.version_info >= (3, 11))")
+            $answer = (& $found.Source @probe 2>$null) -join ""
+            if ($LASTEXITCODE -ne 0 -or $answer.Trim() -ne "True") { continue }
+            $where = @($c.Pre) + @("-c", "import sys; print(sys.executable)")
+            $exePath = ((& $found.Source @where 2>$null) -join "").Trim()
+            if ($exePath) { return $exePath }
         }
+    } finally {
+        $ErrorActionPreference = $previous
     }
-} else {
-    Write-Host "    none running"
+    return $null
 }
 
-Write-Step "Firewall rule '$RuleName'"
-if (Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue) {
-    Invoke-Change "remove rule" {
-        Remove-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
-    }
-} else {
-    Write-Host "    not present (or needs an elevated PowerShell to remove)"
+$Python = Find-Python
+if (-not $Python) {
+    throw "Python 3.11 or newer not found. Install it from https://www.python.org/downloads/ and retry."
 }
 
-Write-Step "Bind address"
-Invoke-Change "clear user env JARVIS_BRIDGE_BIND" {
-    [Environment]::SetEnvironmentVariable("JARVIS_BRIDGE_BIND", $null, "User")
-    Remove-Item Env:JARVIS_BRIDGE_BIND -ErrorAction SilentlyContinue
+$BootstrapArgs = @($Bootstrap, "--uninstall")
+if ($DryRun) { $BootstrapArgs += "--dry-run" }
+& $Python $BootstrapArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "fleet_bootstrap.py --uninstall stopped (exit $LASTEXITCODE). See the FAIL line above."
 }
-
-Write-Step "Bridge token"
-if ($RemoveToken -and (Test-Path -LiteralPath $TokenFile)) {
-    Invoke-Change "delete $TokenFile" {
-        Remove-Item -LiteralPath $TokenFile -Force
-    }
-} elseif (Test-Path -LiteralPath $TokenFile) {
-    Write-Host "    kept $TokenFile (pass -RemoveToken to delete it)"
-} else {
-    Write-Host "    no token file"
-}
-
-Write-Host ""
-if ($DryRun) { Write-Host "Dry run: nothing was changed." } else { Write-Host "Jarvis Fleet removed from this PC." }
-Write-Host "Peers still holding this device's token should run: python src\fleet.py remove <name>"

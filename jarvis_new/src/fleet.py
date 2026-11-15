@@ -5,7 +5,14 @@ never shared or pooled. This module only sends plain text commands from one
 Jarvis to another over the Tailscale tailnet. The remote device answers with
 its own models and its own keys. No keys ever cross the wire.
 
-Pairing (once per target device):
+Zero-setup linking (default): every device runs the fleet listener
+(``fleet_server.py``, tailnet IP, port 4318). Jarvis peers are found by probing
+``/fleet/hello`` on online tailnet peers. Callers are trusted by Tailscale
+login (same account, partner accounts, or approved accounts), so no token is
+needed. ``python src/fleet.py approve NAME`` trusts a pending device.
+
+Legacy pairing (token, bridge port 4317) still works for devices that do not
+run the listener:
     1. On the target: bind the bridge to its tailnet IP and read its token
        (see ``python src/fleet.py pair-info``).
     2. On the controller: ``python src/fleet.py add <name> <url>`` and paste
@@ -26,6 +33,7 @@ reach arbitrary hosts. Peers cannot forward to further peers (loop guard).
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import os
@@ -35,14 +43,23 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 DEFAULT_PORT = 4317
+LISTENER_PORT = 4318
+PROBE_TIMEOUT = 1.5
+DISCOVER_TTL = 10.0
 FLEET_CLIENT_PREFIX = "fleet:"
 _LOCK = threading.Lock()
+_DISCOVER_LOCK = threading.Lock()
+_discover_cache: tuple[float, dict[str, dict]] | None = (
+    None  # (monotonic, name -> peer)
+)
+_PROBE_OS = ("linux", "windows", "macos", "darwin")
 _NAME_RE = re.compile(r"[^a-z0-9]+")
 _ACCOUNT_RE = re.compile(r"^[^\s@]+@[^\s@]+$")
 _TS_V4 = ipaddress.ip_network("100.64.0.0/10")
@@ -72,7 +89,10 @@ def slug(name: str) -> str:
 
 
 def self_name() -> str:
-    return slug(os.environ.get("JARVIS_FLEET_NAME", "") or socket.gethostname()) or "jarvis"
+    return (
+        slug(os.environ.get("JARVIS_FLEET_NAME", "") or socket.gethostname())
+        or "jarvis"
+    )
 
 
 # --------------------------------------------------------------------- store
@@ -161,7 +181,10 @@ def add(name: str, url: str, token: str) -> dict:
     if not key:
         return {"ok": False, "error": "device needs a name"}
     if base is None:
-        return {"ok": False, "error": "url must be a tailnet address (100.x.y.z or *.ts.net)"}
+        return {
+            "ok": False,
+            "error": "url must be a tailnet address (100.x.y.z or *.ts.net)",
+        }
     if not token or any(c.isspace() for c in token):
         return {"ok": False, "error": "token missing or contains whitespace"}
     with _LOCK:
@@ -247,32 +270,147 @@ def tailnet_peers() -> list[dict]:
     return peers
 
 
+def listener_port() -> int:
+    """Fleet listener port (``JARVIS_FLEET_PORT``, default 4318)."""
+    try:
+        port = int(os.environ.get("JARVIS_FLEET_PORT", "").strip() or LISTENER_PORT)
+    except ValueError:
+        return LISTENER_PORT
+    return port if 0 < port < 65536 else LISTENER_PORT
+
+
+def _probe_hello(peer: dict) -> dict | None:
+    """GET /fleet/hello on a tailnet peer's listener. None if it is not a Jarvis."""
+    ip = peer.get("ip") or ""
+    if not ip:
+        return None
+    host = f"[{ip}]" if ":" in ip else ip
+    base = valid_url(f"http://{host}:{listener_port()}")
+    if base is None:
+        return None
+    try:
+        with urllib.request.urlopen(
+            base + "/fleet/hello", timeout=PROBE_TIMEOUT
+        ) as resp:
+            data = json.loads(resp.read(65536) or b"{}")
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    if not isinstance(data, dict) or data.get("ok") is not True:
+        return None
+    name = slug(str(data.get("name") or "")) or peer["name"]
+    if not name:
+        return None
+    return {
+        "name": name,
+        "url": base,
+        "ip": ip,
+        "os": peer["os"],
+        "online": True,
+        "account": str(data.get("account") or "").strip().lower() or peer["account"],
+        "shared": peer["shared"],
+        "trusted": data.get("trusted") is True,  # does the peer trust THIS device
+    }
+
+
+def discover(peers: list[dict] | None = None) -> dict[str, dict]:
+    """Jarvis peers on the tailnet: name -> info. Probed in parallel, cached 10 s."""
+    global _discover_cache
+    now = time.monotonic()
+    with _DISCOVER_LOCK:
+        if _discover_cache is not None and now - _discover_cache[0] < DISCOVER_TTL:
+            return dict(_discover_cache[1])
+    if peers is None:
+        peers = tailnet_peers()
+    targets = [p for p in peers if p["online"] and p["os"] in _PROBE_OS and p["ip"]]
+    found: list[dict | None] = [None] * len(targets)
+
+    def probe(index: int, peer: dict) -> None:
+        found[index] = _probe_hello(peer)
+
+    threads = [
+        threading.Thread(target=probe, args=(i, p), daemon=True)
+        for i, p in enumerate(targets)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(PROBE_TIMEOUT + 1.0)
+    out: dict[str, dict] = {}
+    for hit in found:
+        if hit is not None and hit["name"] not in out:
+            out[hit["name"]] = hit
+    with _DISCOVER_LOCK:
+        _discover_cache = (time.monotonic(), out)
+    return dict(out)
+
+
+def pending() -> list[dict]:
+    """Devices waiting for approval on this device (see fleet_server)."""
+    import fleet_server
+
+    return fleet_server.pending()
+
+
 def devices() -> list[dict]:
-    """Paired devices merged with tailnet presence. Never includes tokens."""
+    """Jarvis peers, paired devices and tailnet presence. Never includes tokens.
+
+    ``jarvis`` is True when the peer's listener answers ``/fleet/hello``;
+    ``trusted`` then says whether that peer trusts this device (None otherwise).
+    """
     partners = set(partner_accounts())
-    peers = {p["name"]: p for p in tailnet_peers()}
+    peer_list = tailnet_peers()
+    peers = {p["name"]: p for p in peer_list}
+    jarvis = discover(peer_list)
+    jarvis_ips = {j["ip"] for j in jarvis.values()}
     out = []
     for key, rec in sorted(load().items()):
         peer = peers.get(key) or next(
             (p for p in peers.values() if p["ip"] and p["ip"] in rec.get("url", "")),
             {},
         )
-        account = peer.get("account", "")
+        hello = jarvis.get(key) or next(
+            (j for j in jarvis.values() if j["ip"] and j["ip"] in rec.get("url", "")),
+            None,
+        )
+        account = peer.get("account", "") or (hello or {}).get("account", "")
         out.append(
             {
                 "name": key,
                 "url": rec.get("url", ""),
-                "os": peer.get("os", ""),
-                "online": peer.get("online"),
+                "os": peer.get("os", "") or (hello or {}).get("os", ""),
+                "online": True if hello else peer.get("online"),
                 "paired": True,
                 "account": account,
                 "shared": bool(peer.get("shared", False)),
                 "partner": bool(account) and account in partners,
+                "jarvis": hello is not None,
+                "trusted": hello["trusted"] if hello else None,
             }
         )
     known = {d["name"] for d in out}
+    for key, hello in sorted(jarvis.items()):
+        if key in known:
+            continue
+        known.add(key)
+        account = hello["account"]
+        out.append(
+            {
+                "name": key,
+                "url": hello["url"],
+                "os": hello["os"],
+                "online": True,
+                "paired": False,
+                "account": account,
+                "shared": hello["shared"],
+                "partner": bool(account) and account in partners,
+                "jarvis": True,
+                "trusted": hello["trusted"],
+            }
+        )
     for key, p in sorted(peers.items()):
-        if key not in known and p["os"] in ("linux", "windows", "macos", "darwin"):
+        if key in known or p["ip"] in jarvis_ips:
+            continue
+        if p["os"] in _PROBE_OS:
             out.append(
                 {
                     "name": key,
@@ -283,6 +421,8 @@ def devices() -> list[dict]:
                     "account": p["account"],
                     "shared": p["shared"],
                     "partner": bool(p["account"]) and p["account"] in partners,
+                    "jarvis": False,
+                    "trusted": None,
                 }
             )
     return out
@@ -293,7 +433,11 @@ def self_info() -> dict:
     ip = ""
     try:
         out = subprocess.run(
-            ["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=4, check=False
+            ["tailscale", "ip", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
         )
         ip = out.stdout.split()[0] if out.returncode == 0 and out.stdout.split() else ""
     except (OSError, subprocess.SubprocessError):
@@ -328,7 +472,61 @@ def share_info() -> dict:
 
 
 # ------------------------------------------------------------------ remote
+# Legacy bridge route -> listener route (token-less, identity by tailnet login).
+_LISTENER_ROUTES = {
+    "/health": ("GET", "/fleet/hello"),
+    "/chat": ("POST", "/fleet/chat"),
+    "/fleet/tool": ("POST", "/fleet/tool"),
+    "/fleet/tools": ("GET", "/fleet/tools"),
+}
+
+
+def _listener_call(
+    key: str, peer: dict, path: str, body: dict | None, timeout: float
+) -> dict:
+    """Call a discovered Jarvis peer's :4318 listener. No token is sent."""
+    if path not in _LISTENER_ROUTES:
+        return {"ok": False, "error": f"{key} does not offer {path}"}
+    method, remote = _LISTENER_ROUTES[path]
+    payload = None
+    if path == "/chat":
+        payload = {"text": str((body or {}).get("text", "")), "from": self_name()}
+    elif body is not None:
+        payload = body
+    req = urllib.request.Request(
+        peer["url"] + remote,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        method=method,
+        headers={"Content-Type": "application/json", "X-Jarvis-Fleet-Hop": "1"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            reply = json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            try:
+                denied = json.loads(exc.read() or b"{}")
+            except (OSError, ValueError):
+                denied = {}
+            if isinstance(denied, dict) and denied.get("pending"):
+                return {
+                    "ok": False,
+                    "pending": True,
+                    "error": f"{key} has not approved this device yet; approve it on that machine",
+                }
+        return {"ok": False, "error": f"{key} answered HTTP {exc.code}"}
+    except (OSError, ValueError, http.client.HTTPException):
+        return {
+            "ok": False,
+            "error": f"{key} is unreachable (asleep, offline, or Jarvis not running)",
+        }
+    return reply if isinstance(reply, dict) else {"ok": False, "error": "bad reply"}
+
+
 def _call(name: str, method: str, path: str, body: dict | None, timeout: float) -> dict:
+    jarvis = discover().get(slug(name))
+    if jarvis is not None:
+        return _listener_call(slug(name), jarvis, path, body, timeout)
     rec = load().get(slug(name))
     if rec is None:
         return {"ok": False, "error": f"unknown device {name}; pair it first"}
@@ -346,14 +544,17 @@ def _call(name: str, method: str, path: str, body: dict | None, timeout: float) 
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
             return {"ok": False, "error": f"{name} rejected the token; re-pair it"}
         return {"ok": False, "error": f"{name} answered HTTP {exc.code}"}
     except (OSError, ValueError):
-        return {"ok": False, "error": f"{name} is unreachable (asleep, offline, or Jarvis not running)"}
+        return {
+            "ok": False,
+            "error": f"{name} is unreachable (asleep, offline, or Jarvis not running)",
+        }
     return payload if isinstance(payload, dict) else {"ok": False, "error": "bad reply"}
 
 
@@ -380,14 +581,18 @@ def ask(name: str, text: str, timeout: float = 90.0) -> dict:
     return {"ok": True, "name": slug(name), "reply": str(reply) or "Done."}
 
 
-def call_tool(name: str, tool: str, args: dict | None = None, timeout: float = 60.0) -> dict:
+def call_tool(
+    name: str, tool: str, args: dict | None = None, timeout: float = 60.0
+) -> dict:
     """Run a named tool on a peer via POST /fleet/tool. Returns the peer's JSON reply."""
     tool = str(tool or "").strip()
     if not tool:
         return {"ok": False, "error": "tool name required"}
     if args is not None and not isinstance(args, dict):
         return {"ok": False, "error": "tool args must be a JSON object"}
-    return _call(name, "POST", "/fleet/tool", {"tool": tool, "args": args or {}}, timeout)
+    return _call(
+        name, "POST", "/fleet/tool", {"tool": tool, "args": args or {}}, timeout
+    )
 
 
 def list_tools(name: str) -> dict:
@@ -404,10 +609,24 @@ _WINDOW_RE = re.compile(
     r"^(?:(?:hey )?jarvis,? )?(?P<v>open|show|pull up|bring up|close|hide)\s+(?:me\s+)?(?:my\s+|the\s+)?"
     r"(?:connected\s+devices|devices|fleet)(?:\s+(?:window|screen|page|panel))?$"
 )
-_PING_RE = re.compile(r"^(?:ping|is)\s+(?:my\s+|the\s+)?(?P<n>.+?)(?:\s+(?:online|up|awake|alive))?\s*\??$")
+_PING_RE = re.compile(
+    r"^(?:ping|is)\s+(?:my\s+|the\s+)?(?P<n>.+?)(?:\s+(?:online|up|awake|alive))?\s*\??$"
+)
 _ASK_RE = re.compile(
     r"^(?:ask|tell|have|get|send(?:\s+to)?|on)\s+(?:my\s+|the\s+)?(?P<n>.+?)"
     r"(?:\s+(?:laptop|pc|computer|machine))?\s*(?:,|:|\bto\b|\bthat\b)\s*(?P<c>.+)$"
+)
+_DEVICE_WORDS = r"(?:\s+(?:device|laptop|computer|pc|machine))?"
+_APPROVE_RE = re.compile(
+    r"^(?:approve|allow|accept)\s+(?:the\s+|my\s+)?(?P<n>.+?)" + _DEVICE_WORDS + "$"
+)
+_DENY_RE = re.compile(
+    r"^(?:deny|reject|decline|block)\s+(?:the\s+|my\s+)?(?P<n>.+?)"
+    + _DEVICE_WORDS
+    + "$"
+)
+_PENDING_RE = re.compile(
+    r"^(?:who\s+(?:wants|is\s+asking)\s+to\s+connect|pending\s+(?:devices|connections|requests|approvals))$"
 )
 
 
@@ -421,6 +640,25 @@ def _resolve(spoken: str, known: list[str]) -> str | None:
     return None
 
 
+def _known_names() -> list[str]:
+    """Discovered Jarvis peers plus legacy registered devices."""
+    return sorted(set(load()) | set(discover()))
+
+
+def _approval_reply(verb: str, text: str) -> str | None:
+    """approve/deny a pending device by name. None when no pending device matches."""
+    import fleet_server
+
+    m = (_APPROVE_RE if verb == "approve" else _DENY_RE).match(text)
+    if not m or not fleet_server.find_pending(m["n"]):
+        return None
+    if verb == "approve":
+        res = fleet_server.approve(m["n"])
+        return f"Approved {res['name']}, Sir." if res["ok"] else res["error"]
+    res = fleet_server.deny(m["n"])
+    return f"Denied {res['name']}, Sir." if res["ok"] else res["error"]
+
+
 def handle(text: str) -> str | None:
     """Fleet voice/chat command -> spoken reply, or None if not a fleet command."""
     lowered = re.sub(r"\s+", " ", text.lower()).strip(" .!?")
@@ -431,6 +669,7 @@ def handle(text: str) -> str | None:
         parts = [
             f"{d['name']} {'online' if d['online'] else 'offline'}"
             + ("" if d["paired"] else " (not paired)")
+            + (" (waiting for approval)" if d.get("trusted") is False else "")
             for d in devs
         ]
         return "Your devices: " + ", ".join(parts) + "."
@@ -443,34 +682,71 @@ def handle(text: str) -> str | None:
         if not ok:
             return "The Jarvis shell is not running, Sir."
         return "Connected devices on screen." if opening else "Devices closed."
-    known = list(load())
+    if _PENDING_RE.match(lowered):
+        import fleet_server
+
+        waiting = fleet_server.pending()
+        if not waiting:
+            return "No devices are waiting for approval, Sir."
+        names = ", ".join(w["node"] or "an unnamed device" for w in waiting)
+        return f"Waiting for approval: {names}. Say approve followed by the name."
+    for verb in ("approve", "deny"):
+        reply = _approval_reply(verb, lowered)
+        if reply is not None:
+            return reply
+    ask_m = _ASK_RE.match(lowered)
+    ping_m = _PING_RE.match(lowered)
+    if not ask_m and not ping_m:
+        return None
+    known = _known_names()
     if not known:
         return None
-    m = _ASK_RE.match(lowered)
-    if m:
-        target = _resolve(m["n"], known)
+    if ask_m:
+        target = _resolve(ask_m["n"], known)
         if target:
-            res = ask(target, m["c"])
+            res = ask(target, ask_m["c"])
             return res["reply"] if res["ok"] else res["error"]
-    m = _PING_RE.match(lowered)
-    if m:
-        target = _resolve(m["n"], known)
+    if ping_m:
+        target = _resolve(ping_m["n"], known)
         if target:
             res = ping(target)
-            return f"{target} is online." if res.get("ok") else res.get("error", "No reply.")
+            return (
+                f"{target} is online."
+                if res.get("ok")
+                else res.get("error", "No reply.")
+            )
     return None
 
 
 # --------------------------------------------------------------------- cli
 def _cli(argv: list[str]) -> int:
     cmd = argv[0] if argv else "list"
-    if cmd == "list":
+    if cmd in ("list", "devices"):
         for d in devices():
             state = "online" if d["online"] else "offline"
             paired = "paired" if d["paired"] else "unpaired"
+            if d.get("jarvis"):
+                paired += ",jarvis"
             account = d.get("account") or "-"
-            print(f"{d['name']:20} {state:8} {paired:9} {account:30} {d['url']}")
+            print(f"{d['name']:20} {state:8} {paired:17} {account:30} {d['url']}")
         return 0
+    if cmd == "pending" and len(argv) == 1:
+        print(json.dumps(pending(), indent=2))
+        return 0
+    if cmd in ("approve", "deny") and len(argv) == 2:
+        import fleet_server
+
+        res = (
+            fleet_server.approve(argv[1])
+            if cmd == "approve"
+            else fleet_server.deny(argv[1])
+        )
+        print(json.dumps(res))
+        return 0 if res["ok"] else 1
+    if cmd == "serve" and len(argv) == 1:
+        import fleet_server
+
+        return fleet_server.main()
     if cmd == "pair-info":
         info = self_info()
         print(json.dumps(info, indent=2))
@@ -516,7 +792,8 @@ def _cli(argv: list[str]) -> int:
         print(json.dumps(res, indent=2))
         return 0 if res.get("ok") is not False else 1
     print(
-        "usage: fleet.py list | pair-info | share-info | add NAME URL [TOKEN] | remove NAME"
+        "usage: fleet.py devices | pending | approve NAME | deny NAME | serve"
+        " | pair-info | share-info | add NAME URL [TOKEN] | remove NAME"
         " | ping NAME | ask NAME TEXT... | tools NAME | tool NAME TOOL [JSON_ARGS]"
     )
     return 2

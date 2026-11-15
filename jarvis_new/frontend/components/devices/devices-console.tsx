@@ -6,17 +6,24 @@
  *  page with a window event:
  *
  *    window.dispatchEvent(new CustomEvent('jarvis:devices', {
- *      detail: { action: 'select' | 'ping' | 'ask', device?: string, text?: string },
+ *      detail: {
+ *        action: 'select' | 'ping' | 'ask' | 'approve' | 'deny',
+ *        device?: string, text?: string, account?: string, name?: string,
+ *      },
  *    }));
  *
- *    select  selects `device` (no network).
- *    ping    POST /fleet/ping {device}; the round trip is timed here.
- *    ask     POST /fleet/ask {device, text}; the reply shows in LAST REPLY.
+ *    select   selects `device` (no network).
+ *    ping     POST /fleet/ping {device}; the round trip is timed here.
+ *    ask      POST /fleet/ask {device, text}; the reply shows in LAST REPLY.
+ *    approve  POST /fleet/approve {account?, name?}; a pending caller is trusted.
+ *    deny     POST /fleet/deny {account?, name?}; removes the pending caller.
  *
- *  Without `device`, ping and ask act on the selected device. `?device=<name>`
+ *  Without `device`, ping and ask act on the selected device. `approve` and
+ *  `deny` need `account` or `name` (a pending node name or an account). `?device=<name>`
  *  in the URL selects a device on load. Data: /fleet/devices every 5 s and
- *  /fleet/share every 60 s. When the bridge is unreachable or answers ok:false,
- *  the page shows BRIDGE OFFLINE and keeps the last known list marked stale. */
+ *  /fleet/share every 60 s. Approve and deny refresh /fleet/devices at once.
+ *  When the bridge is unreachable or answers ok:false, the page shows
+ *  BRIDGE OFFLINE and keeps the last known list marked stale. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AsciiBox, GlyphLamp } from '@/components/ascii/glyphs';
 import { Decode } from '@/components/ascii/use-decode';
@@ -25,7 +32,9 @@ import {
   type FleetDevice,
   type FleetDevicesReply,
   type FleetShare,
+  bridgeFleetApprove,
   bridgeFleetAsk,
+  bridgeFleetDeny,
   bridgeFleetDevices,
   bridgeFleetPing,
   bridgeFleetShare,
@@ -37,6 +46,7 @@ import {
   type FleetEventDetail,
   type FleetReply,
   LastReplyPanel,
+  PendingPanel,
   type PingRecord,
   SelectedPanel,
   SharePanel,
@@ -57,6 +67,7 @@ export function DevicesConsole() {
   const [link, setLink] = useState<'unknown' | 'live' | 'offline'>('unknown');
   const [offlineReason, setOfflineReason] = useState('');
   const [polledAt, setPolledAt] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(0);
   const [share, setShare] = useState<FleetShare | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [pings, setPings] = useState<Record<string, PingRecord>>({});
@@ -65,6 +76,7 @@ export function DevicesConsole() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const devices = useMemo<FleetDevice[]>(() => fleet?.devices ?? [], [fleet]);
+  const pending = useMemo(() => fleet?.pending ?? [], [fleet]);
   const selected = devices.find((d) => d.name === selectedName) ?? devices[0] ?? null;
   const own = useMemo(() => devices.filter((d) => !d.partner), [devices]);
   const partner = useMemo(() => devices.filter((d) => d.partner), [devices]);
@@ -80,6 +92,20 @@ export function DevicesConsole() {
 
   // Monotonic id so an older command never clears a newer busy label.
   const opSeq = useRef(0);
+
+  // Apply one /fleet/devices reply (null = bridge offline).
+  const applyDevices = useCallback((res: FleetDevicesReply | null) => {
+    if (res && res.ok === true) {
+      setFleet(res);
+      setLink('live');
+      setOfflineReason('');
+      setPolledAt(stamp());
+      setNowMs(Date.now());
+    } else {
+      setLink('offline');
+      setOfflineReason(res?.error ?? 'no reply from the bridge');
+    }
+  }, []);
 
   const runPing = useCallback(async (name: string) => {
     const id = ++opSeq.current;
@@ -112,23 +138,36 @@ export function DevicesConsole() {
     if (opSeq.current === id) setBusy(null);
   }, []);
 
+  const runDecide = useCallback(
+    async (kind: 'approve' | 'deny', detail: { account?: string; name?: string }) => {
+      const label = detail.name ?? detail.account ?? '';
+      const id = ++opSeq.current;
+      setBusy(`${kind === 'approve' ? 'APPROVING' : 'DENYING'} ${label}`);
+      const res =
+        kind === 'approve' ? await bridgeFleetApprove(detail) : await bridgeFleetDeny(detail);
+      const ok = res?.ok === true;
+      const body = ok
+        ? kind === 'approve'
+          ? `${label} approved.`
+          : `${label} denied.`
+        : (res?.error ?? OFFLINE);
+      setReply({ kind, device: label, command: `${kind} ${label}`, ok, body, at: stamp() });
+      if (opSeq.current === id) setBusy(null);
+      // Show the new trust state at once, not on the next poll.
+      applyDevices(await bridgeFleetDevices());
+    },
+    [applyDevices]
+  );
+
   // Device list: poll while visible.
   useEffect(
     () =>
       startVisiblePoll(async (signal) => {
         const res = await bridgeFleetDevices();
         if (signal.aborted) return;
-        if (res && res.ok === true) {
-          setFleet(res);
-          setLink('live');
-          setOfflineReason('');
-          setPolledAt(stamp());
-        } else {
-          setLink('offline');
-          setOfflineReason(res?.error ?? 'no reply from the bridge');
-        }
+        applyDevices(res);
       }, DEVICES_MS),
-    []
+    [applyDevices]
   );
 
   // Sharing steps: slow poll, they rarely change.
@@ -160,6 +199,20 @@ export function DevicesConsole() {
     const onEvent = (ev: Event) => {
       const d = (ev as CustomEvent<FleetEventDetail>).detail;
       if (!d || typeof d !== 'object') return;
+      if (d.action === 'approve' || d.action === 'deny') {
+        const account = typeof d.account === 'string' ? d.account.trim() : '';
+        const name = typeof d.name === 'string' ? d.name.trim() : '';
+        if (!account && !name) {
+          setNotice(`${d.action} needs a pending device name or account`);
+          return;
+        }
+        setNotice('');
+        void runDecide(d.action, {
+          ...(account ? { account } : {}),
+          ...(name ? { name } : {}),
+        });
+        return;
+      }
       if (d.action !== 'select' && d.action !== 'ping' && d.action !== 'ask') {
         setNotice(`unknown devices action: ${String(d.action)}`);
         return;
@@ -184,7 +237,7 @@ export function DevicesConsole() {
     };
     window.addEventListener(FLEET_EVENT, onEvent);
     return () => window.removeEventListener(FLEET_EVENT, onEvent);
-  }, [runPing, runAsk]);
+  }, [runPing, runAsk, runDecide]);
 
   const offline = link === 'offline';
 
@@ -212,6 +265,9 @@ export function DevicesConsole() {
             </span>
             <span className="text-[#7fa6b8]">own {own.length}</span>
             <span className="text-[#ffb347]">partner {partner.length}</span>
+            {pending.length > 0 ? (
+              <span className="text-[#ffb347]">pending {pending.length}</span>
+            ) : null}
             <span className="text-[#7fa6b8]">
               online {onlineCount}/{devices.length}
             </span>
@@ -271,13 +327,17 @@ export function DevicesConsole() {
               selfName={fleet?.self ?? ''}
             />
             <LastReplyPanel reply={reply} busy={busy} selectedName={selected?.name ?? null} />
+            <PendingPanel pending={pending} nowMs={nowMs} />
           </div>
 
           <div className="min-w-0">
             <SharePanel share={share} offline={offline} />
           </div>
           <div className="min-w-0">
-            <VoiceHints selectedName={selected?.name ?? null} />
+            <VoiceHints
+              selectedName={selected?.name ?? null}
+              pendingNode={pending[0]?.node || null}
+            />
           </div>
         </div>
       </div>

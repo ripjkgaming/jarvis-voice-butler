@@ -518,6 +518,19 @@ export type FleetDevice = {
   account: string;
   shared: boolean;
   partner: boolean;
+  /** Peer answers GET /fleet/hello, so it runs the Jarvis fleet listener. */
+  jarvis: boolean;
+  /** Peer trusts this device. `null` = not known. */
+  trusted: boolean | null;
+};
+
+/** A caller waiting for owner approval (max 20 entries). */
+export type FleetPending = {
+  account: string;
+  node: string;
+  ip: string;
+  first_seen: string;
+  last_seen: string;
 };
 
 /** GET /fleet/devices. `null` from the helper = bridge offline (no reply). */
@@ -528,7 +541,11 @@ export type FleetDevicesReply = {
   account?: string;
   partners?: number;
   devices?: FleetDevice[];
+  pending?: FleetPending[];
 };
+
+/** POST /fleet/approve and POST /fleet/deny results. */
+export type FleetApproveReply = { ok?: boolean; error?: string; account?: string };
 
 /** GET /fleet/share: how to share a device with a partner account. */
 export type FleetShare = {
@@ -559,4 +576,20 @@ export async function bridgeFleetAsk(
   text: string
 ): Promise<FleetCommandReply | null> {
   return bridgePost<FleetCommandReply>('/fleet/ask', { device, text });
+}
+
+/** Approve a pending caller. Body: `account` or `name` (pending node or account). */
+export async function bridgeFleetApprove(detail: {
+  account?: string;
+  name?: string;
+}): Promise<FleetApproveReply | null> {
+  return bridgePost<FleetApproveReply>('/fleet/approve', detail);
+}
+
+/** Deny a pending caller; removes it from the pending list. */
+export async function bridgeFleetDeny(detail: {
+  account?: string;
+  name?: string;
+}): Promise<FleetApproveReply | null> {
+  return bridgePost<FleetApproveReply>('/fleet/deny', detail);
 }
