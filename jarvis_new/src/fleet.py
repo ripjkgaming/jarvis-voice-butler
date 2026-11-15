@@ -11,6 +11,11 @@ Pairing (once per target device):
     2. On the controller: ``python src/fleet.py add <name> <url>`` and paste
        the target's bridge token when asked.
 
+Cross-account: a device on a partner's Tailscale account can be shared into
+your tailnet (node sharing). It then appears as a normal peer. Partner
+account logins come from ``~/.jarvis/fleet/config.json`` key
+``partner_accounts`` or env ``JARVIS_FLEET_PARTNERS`` (comma separated).
+
 Voice / chat: "list my devices", "ping office", "ask office to open
 spotify", "tell laptop to lock the screen".
 
@@ -39,6 +44,7 @@ DEFAULT_PORT = 4317
 FLEET_CLIENT_PREFIX = "fleet:"
 _LOCK = threading.Lock()
 _NAME_RE = re.compile(r"[^a-z0-9]+")
+_ACCOUNT_RE = re.compile(r"^[^\s@]+@[^\s@]+$")
 _TS_V4 = ipaddress.ip_network("100.64.0.0/10")
 _TS_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 _TAILSCALE_BINS = (
@@ -54,6 +60,10 @@ def _home() -> Path:
 
 def registry_path() -> Path:
     return _home() / "fleet" / "devices.json"
+
+
+def config_path() -> Path:
+    return _home() / "fleet" / "config.json"
 
 
 def slug(name: str) -> str:
@@ -72,6 +82,32 @@ def load() -> dict[str, dict]:
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def config() -> dict:
+    """``fleet/config.json`` as a dict (fail-soft: {} if missing or corrupt)."""
+    try:
+        data = json.loads(config_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def partner_accounts() -> list[str]:
+    """Partner Tailscale logins from config and env: lowercased, deduped, junk dropped."""
+    raw: list = []
+    listed = config().get("partner_accounts")
+    if isinstance(listed, list):
+        raw.extend(listed)
+    raw.extend(os.environ.get("JARVIS_FLEET_PARTNERS", "").split(","))
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        account = item.strip().lower()
+        if _ACCOUNT_RE.match(account) and account not in out:
+            out.append(account)
+    return out
 
 
 def _save(data: dict[str, dict]) -> None:
@@ -147,8 +183,8 @@ def remove(name: str) -> dict:
 
 
 # ----------------------------------------------------------------- tailnet
-def tailnet_peers() -> list[dict]:
-    """Peers from `tailscale status --json` (fail-soft: [] if unavailable)."""
+def _tailnet_status() -> dict | None:
+    """Parsed `tailscale status --json`, or None if no binary answers."""
     for binary in _TAILSCALE_BINS:
         try:
             out = subprocess.run(
@@ -163,24 +199,57 @@ def tailnet_peers() -> list[dict]:
             status = json.loads(out.stdout)
         except (OSError, subprocess.SubprocessError, ValueError):
             continue
-        peers = []
-        for p in (status.get("Peer") or {}).values():
-            ips = p.get("TailscaleIPs") or []
-            peers.append(
-                {
-                    "name": slug(p.get("HostName", "")),
-                    "host": p.get("HostName", ""),
-                    "os": str(p.get("OS", "")).lower(),
-                    "online": p.get("Online") is True,
-                    "ip": next((i for i in ips if ":" not in i), ips[0] if ips else ""),
-                }
-            )
-        return peers
-    return []
+        return status if isinstance(status, dict) else None
+    return None
+
+
+def _self_uid(status: dict) -> str | None:
+    uid = (status.get("Self") or {}).get("UserID")
+    return None if uid is None else str(uid)
+
+
+def _account_of(status: dict, uid: str | None) -> str:
+    """LoginName (lowercased) for a tailnet UserID, '' if unknown."""
+    if uid is None:
+        return ""
+    users = status.get("User") or {}
+    login = (users.get(uid) or {}).get("LoginName") if isinstance(users, dict) else None
+    return str(login).strip().lower() if login else ""
+
+
+def own_account() -> str:
+    """Login name this device signs in with, '' if unknown."""
+    status = _tailnet_status()
+    return _account_of(status, _self_uid(status)) if status else ""
+
+
+def tailnet_peers() -> list[dict]:
+    """Peers from `tailscale status --json` (fail-soft: [] if unavailable)."""
+    status = _tailnet_status()
+    if status is None:
+        return []
+    self_uid = _self_uid(status)
+    peers = []
+    for p in (status.get("Peer") or {}).values():
+        ips = p.get("TailscaleIPs") or []
+        uid = None if p.get("UserID") is None else str(p.get("UserID"))
+        peers.append(
+            {
+                "name": slug(p.get("HostName", "")),
+                "host": p.get("HostName", ""),
+                "os": str(p.get("OS", "")).lower(),
+                "online": p.get("Online") is True,
+                "ip": next((i for i in ips if ":" not in i), ips[0] if ips else ""),
+                "account": _account_of(status, uid),
+                "shared": self_uid is not None and uid is not None and uid != self_uid,
+            }
+        )
+    return peers
 
 
 def devices() -> list[dict]:
     """Paired devices merged with tailnet presence. Never includes tokens."""
+    partners = set(partner_accounts())
     peers = {p["name"]: p for p in tailnet_peers()}
     out = []
     for key, rec in sorted(load().items()):
@@ -188,6 +257,7 @@ def devices() -> list[dict]:
             (p for p in peers.values() if p["ip"] and p["ip"] in rec.get("url", "")),
             {},
         )
+        account = peer.get("account", "")
         out.append(
             {
                 "name": key,
@@ -195,6 +265,9 @@ def devices() -> list[dict]:
                 "os": peer.get("os", ""),
                 "online": peer.get("online"),
                 "paired": True,
+                "account": account,
+                "shared": bool(peer.get("shared", False)),
+                "partner": bool(account) and account in partners,
             }
         )
     known = {d["name"] for d in out}
@@ -207,6 +280,9 @@ def devices() -> list[dict]:
                     "os": p["os"],
                     "online": p["online"],
                     "paired": False,
+                    "account": p["account"],
+                    "shared": p["shared"],
+                    "partner": bool(p["account"]) and p["account"] in partners,
                 }
             )
     return out
@@ -227,7 +303,28 @@ def self_info() -> dict:
         "name": self_name(),
         "url": f"http://{ip}:{DEFAULT_PORT}" if ip else "",
         "platform": sys.platform,
+        "account": own_account(),
     }
+
+
+_SHARE_ADMIN_URL = "https://login.tailscale.com/admin/machines"
+
+
+def share_info() -> dict:
+    """Ordered steps to share THIS device with a partner's Tailscale account."""
+    partners = partner_accounts()
+    partner = partners[0] if partners else "<partner account>"
+    steps = [
+        f"Open {_SHARE_ADMIN_URL} in a browser signed in to your own account.",
+        f"Find this device ({self_name()}), open its menu, and choose Share...",
+        f"Enter the partner account email ({partner}) and send the invite.",
+        "Partner accepts the invite link from their own Tailscale account. "
+        "The device then appears in their tailnet as a normal peer.",
+        "Partner runs `python src/fleet.py list` to confirm the shared device is online.",
+        "Partner pairs it: `python src/fleet.py add <name> <url>`, using the URL from "
+        "`python src/fleet.py pair-info` on this device and its bridge token.",
+    ]
+    return {"ok": True, "account": own_account(), "partners": partners, "steps": steps}
 
 
 # ------------------------------------------------------------------ remote
@@ -283,10 +380,29 @@ def ask(name: str, text: str, timeout: float = 90.0) -> dict:
     return {"ok": True, "name": slug(name), "reply": str(reply) or "Done."}
 
 
+def call_tool(name: str, tool: str, args: dict | None = None, timeout: float = 60.0) -> dict:
+    """Run a named tool on a peer via POST /fleet/tool. Returns the peer's JSON reply."""
+    tool = str(tool or "").strip()
+    if not tool:
+        return {"ok": False, "error": "tool name required"}
+    if args is not None and not isinstance(args, dict):
+        return {"ok": False, "error": "tool args must be a JSON object"}
+    return _call(name, "POST", "/fleet/tool", {"tool": tool, "args": args or {}}, timeout)
+
+
+def list_tools(name: str) -> dict:
+    """Tool names a peer offers via GET /fleet/tools."""
+    return _call(name, "GET", "/fleet/tools", None, 10.0)
+
+
 # ------------------------------------------------------------------- voice
 _LIST_RE = re.compile(
     r"^(?:list|show|what(?:'s| is| are)|which)\s+(?:are\s+)?(?:my\s+|the\s+)?"
     r"(?:connected\s+|linked\s+|other\s+)?(?:devices|laptops|computers|machines|fleet)\b"
+)
+_WINDOW_RE = re.compile(
+    r"^(?:(?:hey )?jarvis,? )?(?P<v>open|show|pull up|bring up|close|hide)\s+(?:me\s+)?(?:my\s+|the\s+)?"
+    r"(?:connected\s+devices|devices|fleet)(?:\s+(?:window|screen|page|panel))?$"
 )
 _PING_RE = re.compile(r"^(?:ping|is)\s+(?:my\s+|the\s+)?(?P<n>.+?)(?:\s+(?:online|up|awake|alive))?\s*\??$")
 _ASK_RE = re.compile(
@@ -318,6 +434,15 @@ def handle(text: str) -> str | None:
             for d in devs
         ]
         return "Your devices: " + ", ".join(parts) + "."
+    m = _WINDOW_RE.match(lowered)
+    if m:
+        import projects
+
+        opening = m["v"] in ("open", "show", "pull up", "bring up")
+        ok = projects.shell_verb("devicesshow" if opening else "deviceshide")
+        if not ok:
+            return "The Jarvis shell is not running, Sir."
+        return "Connected devices on screen." if opening else "Devices closed."
     known = list(load())
     if not known:
         return None
@@ -342,7 +467,9 @@ def _cli(argv: list[str]) -> int:
     if cmd == "list":
         for d in devices():
             state = "online" if d["online"] else "offline"
-            print(f"{d['name']:20} {state:8} {'paired' if d['paired'] else 'unpaired':9} {d['url']}")
+            paired = "paired" if d["paired"] else "unpaired"
+            account = d.get("account") or "-"
+            print(f"{d['name']:20} {state:8} {paired:9} {account:30} {d['url']}")
         return 0
     if cmd == "pair-info":
         info = self_info()
@@ -352,6 +479,9 @@ def _cli(argv: list[str]) -> int:
             f"{_home() / 'bridge_token'}\nThe bridge must listen on the tailnet: set "
             "JARVIS_BRIDGE_BIND to the url's IP before starting it."
         )
+        return 0
+    if cmd == "share-info":
+        print(json.dumps(share_info(), indent=2))
         return 0
     if cmd == "add" and len(argv) >= 3:
         import getpass
@@ -372,7 +502,23 @@ def _cli(argv: list[str]) -> int:
         res = ask(argv[1], " ".join(argv[2:]))
         print(res.get("reply") or res.get("error"))
         return 0 if res["ok"] else 1
-    print("usage: fleet.py list | pair-info | add NAME URL [TOKEN] | remove NAME | ping NAME | ask NAME TEXT...")
+    if cmd == "tools" and len(argv) == 2:
+        res = list_tools(argv[1])
+        print(json.dumps(res, indent=2))
+        return 0 if res.get("ok") is not False else 1
+    if cmd == "tool" and len(argv) in (3, 4):
+        try:
+            args = json.loads(argv[3]) if len(argv) == 4 else {}
+        except ValueError:
+            print(json.dumps({"ok": False, "error": "JSON_ARGS must be a JSON object"}))
+            return 2
+        res = call_tool(argv[1], argv[2], args)
+        print(json.dumps(res, indent=2))
+        return 0 if res.get("ok") is not False else 1
+    print(
+        "usage: fleet.py list | pair-info | share-info | add NAME URL [TOKEN] | remove NAME"
+        " | ping NAME | ask NAME TEXT... | tools NAME | tool NAME TOOL [JSON_ARGS]"
+    )
     return 2
 
 

@@ -3406,13 +3406,25 @@ async def _render_tts(tts, text: str) -> tuple[bytes, int]:
 
 
 def _fleet_get(route: str) -> tuple[int, dict]:
-    """GET /fleet/devices (paired + tailnet peers, no tokens), /fleet/self."""
+    """GET /fleet/devices (paired + tailnet peers, no tokens), /fleet/self, /fleet/share."""
     import fleet
 
     if route == "/fleet/devices":
-        return 200, {"ok": True, "self": fleet.self_name(), "devices": fleet.devices()}
+        return 200, {
+            "ok": True,
+            "self": fleet.self_name(),
+            "account": fleet.own_account(),
+            "partners": len(fleet.partner_accounts()),
+            "devices": fleet.devices(),
+        }
     if route == "/fleet/self":
         return 200, fleet.self_info()
+    if route == "/fleet/tools":
+        import fleet_tools
+
+        return 200, {"ok": True, "tools": fleet_tools.TOOLS}
+    if route == "/fleet/share":
+        return 200, fleet.share_info()
     return 404, {"ok": False, "error": "unknown fleet route"}
 
 
@@ -3427,6 +3439,11 @@ def _fleet_post(route: str, body: dict | None) -> tuple[int, dict]:
         return 400, {"ok": False, "error": "invalid JSON body"}
     if _effective_guest(body):
         return 403, {"ok": False, "error": "guest mode refuses owner actions"}
+    if route == "/fleet/tool":
+        import fleet_tools
+
+        res = fleet_tools.run(str(body.get("tool", "")), body.get("args"))
+        return (200 if res.get("ok") else 400), res
     if route == "/fleet/ask":
         res = fleet.ask(str(body.get("device", "")), str(body.get("text", "")))
     elif route == "/fleet/ping":

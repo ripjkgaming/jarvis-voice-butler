@@ -298,6 +298,21 @@ pub fn hide_projects(app: &AppHandle) {
     }
 }
 
+/// Show + focus the Connected Devices window (voice "open connected devices").
+pub fn show_devices(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("devices") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Hide the Connected Devices window ("close devices").
+pub fn hide_devices(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("devices") {
+        let _ = win.hide();
+    }
+}
+
 /// Show + focus the drafts window (voice "open my drafts", only when a
 /// reply draft is waiting; the bridge checks before it asks).
 pub fn show_drafts(app: &AppHandle) {

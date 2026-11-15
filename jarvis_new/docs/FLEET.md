@@ -29,6 +29,71 @@ ever sent, shared or pooled, so one device cannot burn another's quota.
 Pairing is one-way: pair A→B to control B from A. Pair B→A too for the
 reverse.
 
+## Two Tailscale accounts (cross-account)
+
+Use this when a device belongs to someone else's Tailscale account (a
+partner's computer) and you need Fleet to reach it. Your tailnet and the
+partner's tailnet stay separate; the device is shared into yours.
+
+### Node sharing steps
+
+Run `python src/fleet.py share-info` (or `GET /fleet/share`) on the device
+you want to share. It prints these steps with the partner account filled in:
+
+1. Open https://login.tailscale.com/admin/machines in your own account.
+2. Pick the device, open its menu, and choose **Share...**.
+3. Invite the partner's account email (example: `partner@example.com`).
+4. The partner accepts the invite link from their own Tailscale account.
+   The device then shows up in their tailnet as a normal peer with a
+   `100.x` address.
+5. The partner pairs it as in Setup: `python src/fleet.py list` to confirm
+   it is online, then `python src/fleet.py add <name> <url>` with the URL from
+   the device's `pair-info` and its bridge token.
+
+A shared device needs no special code. It is a normal peer with a `100.x`
+address, so the bearer-token protocol works unchanged.
+
+### Partner accounts in config
+
+Fleet marks devices from partner accounts (`partner: true` in
+`GET /fleet/devices`, `partner` in `devices()`). List the partner logins in
+`~/.jarvis/fleet/config.json` (or `$JARVIS_HOME/fleet/config.json`):
+
+```json
+{"partner_accounts": ["partner@example.com"]}
+```
+
+Or set `JARVIS_FLEET_PARTNERS=partner@example.com` (comma separated). Both
+are read; entries are lowercased and deduplicated. Keep real addresses out
+of the repo; the config file lives under your Jarvis home.
+
+### Requirements and limits
+
+- **ACLs on both tailnets must allow port 4317** from your device to the
+  shared device (and back, if you pair the other way). Otherwise the sharing
+  works but the bridge stays unreachable.
+- **Sharing is per device and one way.** Sharing a device from your account
+  to the partner lets the partner control it. It does not give you access to
+  the partner's devices. For two-way control, each side shares a device with
+  the other side's account and pairs it.
+- Shared devices show `shared: true` in `devices()` and `account` with the
+  owning login (lowercased). `account` is empty when the login is unknown.
+
+### Security notes
+
+- A shared device runs commands with the same authority as a command typed
+  on it. Share only devices you are willing to let that account drive.
+- Revoke access by removing the share in the Tailscale admin console and
+  removing the pairing (`python src/fleet.py remove <name>`).
+- The bridge token travels only over a private channel. Never paste it into
+  email, chat logs, or the repo.
+
+### Peer tools
+
+`python src/fleet.py tools NAME` lists the tools a peer offers (`GET
+/fleet/tools`), and `python src/fleet.py tool NAME TOOL [JSON_ARGS]` runs one
+(`POST /fleet/tool`). The peer must run a Jarvis build that serves these routes.
+
 ## Safety
 
 - Stored URLs must be tailnet addresses (100.64.0.0/10, `fd7a:115c:a1e0::/48`
@@ -44,6 +109,10 @@ reverse.
 
 ## Bridge API
 
-`GET /fleet/devices`, `GET /fleet/self`, `POST /fleet/ask {device,text}`,
-`POST /fleet/ping {device}`, `POST /fleet/add {name,url,token}`,
-`POST /fleet/remove {name}`.
+`GET /fleet/devices` (returns `self`, this device's `account`, the
+`partners` count, and `devices` with `account`, `shared`, `partner`),
+`GET /fleet/self`, `GET /fleet/share` (sharing steps, partner list),
+`POST /fleet/ask {device,text}`, `POST /fleet/ping {device}`,
+`POST /fleet/add {name,url,token}`, `POST /fleet/remove {name}`.
+`GET /fleet/tools` and `POST /fleet/tool {tool,args}` are the peer side of
+the CLI `tools` / `tool` commands.

@@ -504,3 +504,59 @@ export async function bridgeSetHudState(patch: Partial<HudFlags>): Promise<HudFl
     return null;
   }
 }
+
+/* ---------------- Connected Devices (Jarvis Fleet, src/fleet.py) ----------------
+ * Tokens never reach the UI. `account` is the Tailscale account that owns a
+ * device; `partner` marks devices shared in from another account. */
+
+export type FleetDevice = {
+  name: string;
+  url: string;
+  os: string;
+  online: boolean | null;
+  paired: boolean;
+  account: string;
+  shared: boolean;
+  partner: boolean;
+};
+
+/** GET /fleet/devices. `null` from the helper = bridge offline (no reply). */
+export type FleetDevicesReply = {
+  ok?: boolean;
+  error?: string;
+  self?: string;
+  account?: string;
+  partners?: number;
+  devices?: FleetDevice[];
+};
+
+/** GET /fleet/share: how to share a device with a partner account. */
+export type FleetShare = {
+  ok?: boolean;
+  error?: string;
+  account?: string;
+  partners?: string[];
+  steps?: string[];
+};
+
+/** POST /fleet/ping and POST /fleet/ask results. */
+export type FleetCommandReply = { ok?: boolean; error?: string; reply?: string; name?: string };
+
+export async function bridgeFleetDevices(): Promise<FleetDevicesReply | null> {
+  return getJson<FleetDevicesReply>('/fleet/devices');
+}
+
+export async function bridgeFleetShare(): Promise<FleetShare | null> {
+  return getJson<FleetShare>('/fleet/share');
+}
+
+export async function bridgeFleetPing(device: string): Promise<FleetCommandReply | null> {
+  return bridgePost<FleetCommandReply>('/fleet/ping', { device });
+}
+
+export async function bridgeFleetAsk(
+  device: string,
+  text: string
+): Promise<FleetCommandReply | null> {
+  return bridgePost<FleetCommandReply>('/fleet/ask', { device, text });
+}

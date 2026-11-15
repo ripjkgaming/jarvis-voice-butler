@@ -50,9 +50,12 @@ fn main() {
                 "projectsshow" => tray::show_projects(app),
                 "projectshide" => tray::hide_projects(app),
                 "projectsstate" => print_window_state(app, "projects"),
+                "devicesshow" => tray::show_devices(app),
+                "deviceshide" => tray::hide_devices(app),
                 "draftsshow" => tray::show_drafts(app),
                 "draftshide" => tray::hide_drafts(app),
                 "draftsstate" => print_window_state(app, "drafts"),
+                "devicesstate" => print_window_state(app, "devices"),
                 // `jarvis chess [--classic|--voice]`: bring the board forward.
                 "chess" | "chessshow" => tray::show_chess(app),
                 "chesshide" => tray::hide_chess(app),
