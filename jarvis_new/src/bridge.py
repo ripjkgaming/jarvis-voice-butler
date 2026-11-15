@@ -40,6 +40,10 @@ Endpoints (all JSON):
     GET  /quick     wifi/bluetooth/volume/brightness/dnd snapshot
     POST /quick     toggle wifi/bluetooth/dnd, set volume/mute/brightness
     POST /power     {"action": lock|sleep|logout|restart|shutdown}
+    GET  /fleet/devices  paired + tailnet devices (no tokens); GET /fleet/self
+    POST /fleet/ask      {device, text} run a command on another of your Jarvis
+                         computers (it uses ITS OWN api keys); also /fleet/ping,
+                         /fleet/add {name,url,token}, /fleet/remove {name}
 Deliberately NOT here: hangup, sendText, hotword events. Those live
 inside the voice session (WebSocket hub, call token via the shell's
 mint_token command) and have no out-of-process API yet. Every endpoint is fail-soft: a missing
@@ -3401,6 +3405,43 @@ async def _render_tts(tts, text: str) -> tuple[bytes, int]:
     return pcm, rate
 
 
+def _fleet_get(route: str) -> tuple[int, dict]:
+    """GET /fleet/devices (paired + tailnet peers, no tokens), /fleet/self."""
+    import fleet
+
+    if route == "/fleet/devices":
+        return 200, {"ok": True, "self": fleet.self_name(), "devices": fleet.devices()}
+    if route == "/fleet/self":
+        return 200, fleet.self_info()
+    return 404, {"ok": False, "error": "unknown fleet route"}
+
+
+def _fleet_post(route: str, body: dict | None) -> tuple[int, dict]:
+    """POST /fleet/ask {device,text} | /fleet/ping {device} | /fleet/add | /fleet/remove.
+
+    Owner only: a guest or watch-mode session may never drive other computers.
+    """
+    import fleet
+
+    if not isinstance(body, dict):
+        return 400, {"ok": False, "error": "invalid JSON body"}
+    if _effective_guest(body):
+        return 403, {"ok": False, "error": "guest mode refuses owner actions"}
+    if route == "/fleet/ask":
+        res = fleet.ask(str(body.get("device", "")), str(body.get("text", "")))
+    elif route == "/fleet/ping":
+        res = fleet.ping(str(body.get("device", "")))
+    elif route == "/fleet/add":
+        res = fleet.add(
+            str(body.get("name", "")), str(body.get("url", "")), str(body.get("token", ""))
+        )
+    elif route == "/fleet/remove":
+        res = fleet.remove(str(body.get("name", "")))
+    else:
+        return 404, {"ok": False, "error": "unknown fleet route"}
+    return (200 if res.get("ok") else 502 if route in ("/fleet/ask", "/fleet/ping") else 400), res
+
+
 def handle_chat(body: dict) -> tuple[int, dict]:
     return _with_turn(body, "chat", _handle_chat)
 
@@ -3457,6 +3498,15 @@ def _handle_chat(body: dict) -> tuple[int, dict]:
             import computer_watch
 
             computer_watch.note_context(text.strip())
+    # Fleet: "ask office to ..." runs on another of the owner's computers.
+    # Commands that ARRIVED from a peer (client_id fleet:*) are never
+    # forwarded again, so two devices can't bounce a command forever.
+    if not guest and not str(body.get("client_id") or "").startswith("fleet:"):
+        import fleet
+
+        fleet_reply = fleet.handle(text.strip())
+        if fleet_reply is not None:
+            return 200, {"ok": True, "reply": fleet_reply, "fleet": True}
     cmd = _match_voice_tool(text.strip(), str(body.get("client_id") or "default")[:128])
     if cmd is not None:
         tool, args, ok_reply = cmd
@@ -3812,6 +3862,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         route = parsed.path
+        if route.startswith("/fleet/"):
+            self._send(*_fleet_post(route, _read_json_body(self, 8192)))
+            return
         if route == "/auto-calendar/review":
             import auto_calendar_bridge
 
@@ -4443,6 +4496,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/fleet/"):
+            self._send(*_fleet_get(parsed.path))
+            return
         if parsed.path == "/auto-calendar/status":
             import auto_calendar_bridge
 

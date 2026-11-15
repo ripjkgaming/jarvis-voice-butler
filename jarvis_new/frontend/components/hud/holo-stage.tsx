@@ -171,7 +171,7 @@ void main(){
 `;
 
 const REVEAL = /* glsl */ `
-uniform float uTime, uReveal, uInvert, uSolid, uY0, uY1, uFlick, uScan, uLead;
+uniform float uTime, uReveal, uInvert, uSolid, uY0, uY1, uFlick, uScan, uLead, uDens;
 uniform vec3 uTint;
 varying vec3 vW;
 ${NOISE}
@@ -217,7 +217,7 @@ void main(){
   col = mix(col, vec3(1.0, 0.72, 0.3), clamp(sc, 0.0, 1.0));
   a += sc * 1.1;
 
-  a *= uFlick;
+  a *= uFlick * uDens;
   gl_FragColor = vec4(min(col, vec3(1.0)), clamp(a, 0.0, 1.0));
 }
 `;
@@ -238,7 +238,7 @@ void main(){
   float sy = uY0 + (uY1 - uY0) * fract(uTime * 0.33);
   float sc = exp(-abs(vW.y - sy) * 26.0) * uScan;
   col = mix(col, vec3(1.0, 0.75, 0.32), clamp(sc, 0.0, 1.0));
-  float a = (0.78 * dim + sc) * uFlick;
+  float a = (0.78 * dim + sc) * uFlick * uDens;
   gl_FragColor = vec4(min(col, vec3(1.0)), clamp(a, 0.0, 1.0));
 }
 `;
@@ -797,6 +797,11 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
+    // Opt-in engineering models retain their GLB materials and need scene lighting.
+    scene.add(new THREE.HemisphereLight(0xf0f7ff, 0x33404c, 2.5));
+    const materialKey = new THREE.DirectionalLight(0xffffff, 3);
+    materialKey.position.set(3, 5, 6);
+    scene.add(materialKey);
     const camera = new THREE.PerspectiveCamera(32, W() / H(), 0.1, 100);
     const root = new THREE.Group();
     const pivot = new THREE.Group();
@@ -1022,8 +1027,17 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
       wrap.scale.setScalar(k);
       wrap.position.y = bottom;
 
+      // dense meshes stack additive layers to white: scale alpha down with triangle count
+      let triCount = 0;
+      holder.traverse((o) => {
+        const m = o as THREE.Mesh;
+        const g = m.geometry as THREE.BufferGeometry | undefined;
+        if (m.isMesh && g) triCount += (g.index ? g.index.count : g.attributes.position.count) / 3;
+      });
+      const dens = Math.min(1, Math.max(0.06, Math.sqrt(700 / Math.max(triCount, 1))));
       const U: Holo['U'] = {
         ...shared,
+        uDens: { value: dens },
         uReveal: { value: 0 },
         uInvert: { value: invert ? 1 : 0 },
         uY0: { value: bottom },
@@ -1066,8 +1080,8 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
         shardify(m, ctr, maxDim);
         const g = m.geometry as THREE.BufferGeometry;
         tris += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
-        m.material = faceMat;
-        m.renderOrder = 3;
+        if (!m.userData.jarvis_solid_material) m.material = faceMat;
+        m.renderOrder = m.userData.jarvis_solid_material ? 0 : 3;
         if (!g.boundingBox) g.computeBoundingBox();
         tmp.copy(g.boundingBox!).applyMatrix4(m.matrix);
         const meta = metaById.get(m.name);
@@ -1111,7 +1125,7 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
           const gc = g.boundingBox!.getCenter(new THREE.Vector3());
           halo.position.copy(gc);
           const sz = g.boundingBox!.getSize(new THREE.Vector3());
-          halo.scale.setScalar(Math.max(sz.x, sz.y, sz.z, 0.08 * maxDim) * 3.2);
+          halo.scale.setScalar(Math.max(sz.x, sz.y, sz.z, 0.08 * maxDim) * 1.8);
           halo.renderOrder = 8;
           m.add(halo);
           rig.halo = halo;
@@ -1272,7 +1286,7 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
         );
         return out;
       };
-      const statParts = parts.filter((q) => !q.mov);
+      const statParts = parts.filter((q) => !q.mov && !q.mesh.userData.jarvis_solid_material);
       const merged: THREE.Object3D[] = [];
       if (statParts.length) {
         const fg = statParts.map((q) => flat(q.mesh, false)!);
@@ -1296,7 +1310,7 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
         for (const q of statParts) q.mesh.visible = false;
       }
       for (const q of parts) {
-        if (!q.mov) continue;
+        if (!q.mov || q.mesh.userData.jarvis_solid_material) continue;
         const eg = mkEdges(q.mesh);
         if (!eg) continue;
         const e = new THREE.LineSegments(eg, edgeMat);
@@ -1996,10 +2010,10 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
         gcol.set(fx?.color ?? '#ffd9a0');
         const gm = r.glow.material as THREE.MeshBasicMaterial;
         gm.color.copy(gcol);
-        gm.opacity = v.level * (explicit ? 0.55 : 0.28);
+        gm.opacity = v.level * (explicit ? 0.22 : 0.06);
         const hm = r.halo.material as THREE.SpriteMaterial;
         hm.color.copy(gcol);
-        hm.opacity = v.level * (explicit ? 0.9 : 0.4);
+        hm.opacity = v.level * (explicit ? 0.3 : 0.08);
         const off = v.level < 0.12;
         const wantF = off ? r.offFace : r.faceMat;
         const wantE = off ? r.offEdge : r.edgeMat;
@@ -2194,6 +2208,11 @@ export default function HoloStage({ state, fetchGlb, fetchShape, fetchSim }: Pro
       };
       if (cur) {
         advance(cur);
+        for (const q of cur.parts) {
+          if (q.mesh.userData.jarvis_solid_material) {
+            q.mesh.visible = (cur.U.uReveal.value as number) > 0.02;
+          }
+        }
         if (cur.tw.dur > 0 && t - cur.tw.t0 < cur.tw.dur + 0.05) busy = true;
         const e = explodeV;
         const fxAll = s.fx ?? {};

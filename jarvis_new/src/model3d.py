@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import signal
 import re
 import shutil
 import socket
@@ -331,6 +332,31 @@ def minimize_blender() -> None:
         pass
 
 
+def close_blender() -> None:
+    """Quit Blender once generation is done; the hologram is the only UI. Best effort.
+    Edits relaunch it and reload the current version (see ensure_scene)."""
+    try:
+        pids = subprocess.run(
+            ["pgrep", "-x", "blender"], capture_output=True, text=True, timeout=5
+        ).stdout.split()
+        for pid in pids:
+            os.kill(int(pid), signal.SIGTERM)
+    except Exception:
+        pass
+
+
+def ensure_scene(slug: str) -> None:
+    """After Blender was closed and relaunched the scene is empty: reload the head version."""
+    try:
+        n = run_py("import bpy\nprint(len(bpy.data.objects))").strip().split()[-1]
+        if n == "0":
+            data = load_versions(slug)
+            if data.get("versions"):
+                goto(slug, max(0, min(int(data.get("head") or 1), len(data["versions"])) - 1))
+    except Exception:
+        pass
+
+
 def open_in_blender(glb_or_blend: str | None = None) -> str:
     """Auto-open after make3d: baseline snapshot, frame, raise window."""
     if not ensure_blender():
@@ -444,7 +470,8 @@ def set_state(**kw) -> dict:
     s = get_state()
     was_open = bool(s.get("open"))
     s.update(kw)
-    if "open" in kw and bool(kw["open"]) != was_open:
+    # PROJECT always (re)shows the window: `open` can be stale-True while the window is hidden
+    if "open" in kw and (bool(kw["open"]) != was_open or kw.get("cmd") == "PROJECT"):
         if kw["open"]:
             _holo_window("holoshow")
         else:
@@ -1140,6 +1167,7 @@ def edit(instruction: str, slug: str | None = None, allow_fast: bool = True) -> 
         }
     if not ensure_blender():
         return {"ok": False, "say": "Blender is not running, Sir."}
+    ensure_scene(slug)
     if allow_fast:
         try:
             said = fast_edit(instruction, slug)
@@ -1183,7 +1211,14 @@ def after_make3d(paths: list[str]) -> None:
             wire=True,
             explode=False,
             scan=False,
+            spin_axis="y",  # fresh object: upright turntable, no leftover tilt/axis
+            pitch=0.0,
+            yaw=0.0,
+            roll=0.0,
+            speed=1.0,
+            dir=1,
         )
         open_in_blender(glb)
+        close_blender()
     except Exception:
         pass
